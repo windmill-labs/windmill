@@ -1,5 +1,5 @@
 import type { OpenFlow } from '$lib/gen'
-import type { History } from '$lib/history'
+import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
@@ -7,6 +7,12 @@ import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
+import type { TestSteps } from './testSteps.svelte'
+import type { Asset, AssetWithAccessType } from '../assets/lib'
+import type S3FilePicker from '../S3FilePicker.svelte'
+import type DbManagerDrawer from '../DBManagerDrawer.svelte'
+import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+import type { ModulesTestStates } from '../modulesTest.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -69,7 +75,7 @@ export type FlowEditorContext = {
 	flowStore: StateStore<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
-	testStepStore: Writable<Record<string, any>>
+	testSteps: TestSteps
 	saveDraft: () => void
 	initialPathStore: Writable<string>
 	fakeInitialPath: string
@@ -77,4 +83,16 @@ export type FlowEditorContext = {
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
+	modulesTestStates: ModulesTestStates
+	outputPickerOpenFns: Record<string, () => void>
 }
+
+export type FlowGraphAssetContext = StateStore<{
+	selectedAsset: Asset | undefined
+	assetsMap: Record<string, AssetWithAccessType[]> // Maps module ids to their assets
+	s3FilePicker: S3FilePicker | undefined
+	dbManagerDrawer: DbManagerDrawer | undefined
+	resourceEditorDrawer: ResourceEditorDrawer | undefined
+	// Maps resource paths to their metadata. undefined is for error
+	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
+}>

@@ -13,6 +13,7 @@ use std::{
 };
 
 use crate::{
+    assets::AssetWithAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
@@ -351,6 +352,7 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub fallback_access_types: Option<Vec<AssetWithAccessType>>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
@@ -88,35 +90,36 @@
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import { untrack } from 'svelte'
+	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
 
-	let job: Job | undefined
-	let jobUpdateLastFetch: Date | undefined
+	let job: Job | undefined = $state()
+	let jobUpdateLastFetch: Date | undefined = $state()
 
-	let scriptProgress: number | undefined = undefined
-	let currentJobIsLongRunning: boolean = false
+	let scriptProgress: number | undefined = $state(undefined)
+	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
-	let selectedJobStep: string | undefined = undefined
-	let branchOrIterationN: number = 0
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' = $state('result')
+	let selectedJobStep: string | undefined = $state(undefined)
+	let branchOrIterationN: number = $state(0)
 
-	let selectedJobStepIsTopLevel: boolean | undefined = undefined
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
 	let restartBranchNames: [number, string][] = []
 
-	let testIsLoading = false
-	let testJobLoader: TestJobLoader
+	let testIsLoading = $state(false)
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 
-	let persistentScriptDrawer: PersistentScriptDrawer
-	let getLogs: (() => Promise<void>) | undefined = undefined
+	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
-	let showExplicitProgressTip: boolean =
+	let showExplicitProgressTip: boolean = $state(
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
-	$: job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
+	)
 
-	let lastJobId: string | undefined = undefined
-	let concurrencyKey: string | undefined = undefined
-	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
-	async function getConcurrencyKey(job: Job) {
+	let lastJobId: string | undefined = $state(undefined)
+	let concurrencyKey: string | undefined = $state(undefined)
+	async function getConcurrencyKey(job: Job | undefined) {
+		if (!job) return
 		lastJobId = job.id
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
 	}
@@ -193,7 +196,7 @@
 		}
 	}
 
-	let persistentScriptDefinition: Script | undefined = undefined
+	let persistentScriptDefinition: Script | undefined = $state(undefined)
 
 	async function onJobLoaded() {
 		// We want to set up scriptProgress once job is loaded
@@ -239,17 +242,12 @@
 		job = undefined
 		persistentScriptDefinition = undefined
 	}
-	$: $workspaceStore && $page.params.run && onRunsPageChange()
-	$: $workspaceStore && $page.params.run && testJobLoader && onRunsPageChangeWithLoader()
 
-	$: selectedJobStep !== undefined && onSelectedJobStepChange()
-	$: job && onJobLoaded()
+	let notfound = $state(false)
+	let forceCancel = $state(false)
 
-	let notfound = false
-	let forceCancel = false
-
-	let debugViewer: Drawer
-	let debugContent: any = undefined
+	let debugViewer: Drawer | undefined = $state(undefined)
+	let debugContent: any = $state(undefined)
 	async function debugInfo() {
 		if (job?.id) {
 			debugContent = await JobService.getFlowDebugInfo({ workspace: $workspaceStore!, id: job?.id })
@@ -284,7 +282,7 @@
 		)
 	}
 
-	let redactSensitive = false
+	let redactSensitive = $state(false)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
@@ -311,9 +309,9 @@
 		}
 	}
 
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
-	let runImmediatelyLoading = false
+	let runImmediatelyLoading = $state(false)
 	async function runImmediately() {
 		runImmediatelyLoading = true
 		try {
@@ -352,6 +350,31 @@
 			runImmediatelyLoading = false
 		}
 	}
+	$effect(() => {
+		job?.logs == undefined &&
+			job &&
+			viewTab == 'logs' &&
+			isNotFlow(job?.job_kind) &&
+			testJobLoader?.getLogs()
+	})
+	$effect(() => {
+		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
+	})
+	$effect(() => {
+		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
+	})
+	$effect(() => {
+		$workspaceStore &&
+			$page.params.run &&
+			testJobLoader &&
+			untrack(() => onRunsPageChangeWithLoader())
+	})
+	$effect(() => {
+		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
+	})
+	$effect(() => {
+		job && untrack(() => onJobLoaded())
+	})
 </script>
 
 <HighlightTheme />
@@ -395,7 +418,6 @@
 		bind:scriptProgress
 		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 		bind:this={testJobLoader}
-		bind:getLogs
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch
@@ -439,7 +461,7 @@
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
 	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
-		<svelte:fragment slot="left">
+		{#snippet left()}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			<div class="flex gap-2 items-center">
@@ -455,9 +477,9 @@
 							}
 						]}
 					>
-						<svelte:fragment slot="buttonReplacement">
+						{#snippet buttonReplacement()}
 							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
-						</svelte:fragment>
+						{/snippet}
 					</Dropdown>
 					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 						<Button
@@ -472,8 +494,8 @@
 					{/if}
 				{/if}
 			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="right">
+		{/snippet}
+		{#snippet right()}
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
@@ -490,13 +512,13 @@
 						]}
 						class="h-auto"
 					>
-						<svelte:fragment slot="buttonReplacement">
+						{#snippet buttonReplacement()}
 							<Button nonCaptureEvent size="xs" color="light">
 								<div class="flex flex-row items-center">
 									<MoreVertical size={14} />
 								</div>
 							</Button>
-						</svelte:fragment>
+						{/snippet}
 					</Dropdown>
 				</div>
 			{/if}
@@ -517,7 +539,7 @@
 					size="md"
 					startIcon={{ icon: Activity }}
 					on:click={() => {
-						persistentScriptDrawer.open?.(persistentScriptDefinition)
+						persistentScriptDrawer?.open?.(persistentScriptDefinition)
 					}}
 				>
 					Current runs
@@ -585,13 +607,16 @@
 						<Badge baseClass="ml-1" color="indigo">
 							{selectedJobStep}
 						</Badge>
+						{#if !$enterpriseLicense}
+							(EE)
+						{/if}
 					</Button>
 				{:else}
 					<Popover
 						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 						contentClasses="p-4"
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button
 								title={`Re-start this flow from step ${selectedJobStep} (included). ${
 									!$enterpriseLicense
@@ -609,8 +634,8 @@
 									{selectedJobStep}
 								</Badge>
 							</Button>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
+						{/snippet}
+						{#snippet content()}
 							<label class="block text-primary">
 								<div class="pb-1 text-sm text-secondary"
 									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
@@ -622,13 +647,13 @@
 											min="0"
 											bind:value={branchOrIterationN}
 											class="!w-32 grow"
-											on:click|stopPropagation={() => {}}
+											onclick={stopPropagation(() => {})}
 										/>
 									{:else}
 										<select
 											bind:value={branchOrIterationN}
 											class="!w-32 grow"
-											on:click|stopPropagation={() => {}}
+											onclick={stopPropagation(() => {})}
 										>
 											{#each restartBranchNames as [branchIdx, branchName]}
 												<option value={branchIdx}>{branchName}</option>
@@ -650,7 +675,7 @@
 									</Button>
 								</div>
 							</label>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				{/if}
 			{/if}
@@ -664,13 +689,13 @@
 						size="sm"
 						startIcon={{ icon: RefreshCw }}>Run again</Button
 					>
-					<svelte:fragment slot="overlay">
+					{#snippet overlay()}
 						<div class="flex flex-row gap-2">
 							<Button size="xs" loading={runImmediatelyLoading} on:click={() => runImmediately()}>
 								Run immediately with same args
 							</Button>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 				</CustomPopover>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
@@ -699,7 +724,7 @@
 					View {job?.job_kind}
 				</Button>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</ActionRow>
 	<div class="w-full">
 		<h1
@@ -746,7 +771,7 @@
 							<PreprocessedArgsDisplay preprocessed={job.preprocessed} />
 						{/if}
 						{#if persistentScriptDefinition}
-							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}
+							<button onclick={() => persistentScriptDrawer?.open?.(persistentScriptDefinition)}
 								><Badge color="red">persistent</Badge></button
 							>
 						{/if}
@@ -766,10 +791,10 @@
 								<Badge color="red">
 									only visible to you
 									<Tooltip>
-										<svelte:fragment slot="text">
+										{#snippet text()}
 											The option to hide this run from the owner of this script or flow was
 											activated
-										</svelte:fragment>
+										{/snippet}
 									</Tooltip>
 								</Badge>
 							</div>
@@ -784,14 +809,14 @@
 						{#if concurrencyKey}
 							<div>
 								<Tooltip notClickable>
-									<svelte:fragment slot="text">
+									{#snippet text()}
 										This job has concurrency limits enabled with the key
 										<a
 											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 										>
 											{concurrencyKey}
 										</a>
-									</svelte:fragment>
+									{/snippet}
 									<a
 										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 									>
@@ -803,12 +828,13 @@
 						{#if job?.worker}
 							<div>
 								<Tooltip notClickable>
-									<svelte:fragment slot="text">
-										Executed on worker
+									{#snippet text()}
+										worker:
 										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-											{job.worker}
-										</a>
-									</svelte:fragment>
+											{job?.worker}
+										</a><br />
+										<WorkerHostname worker={job?.worker!} minTs={job?.['created_at']} />
+									{/snippet}
 									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
 										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
 									>
@@ -854,7 +880,7 @@
 						>
 							<button
 								type="button"
-								on:click={() => {
+								onclick={() => {
 									localStorage.setItem('hideExplicitProgressTip', 'true')
 									showExplicitProgressTip = false
 								}}

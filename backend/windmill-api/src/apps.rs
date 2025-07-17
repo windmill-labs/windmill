@@ -9,10 +9,11 @@ use std::{collections::HashMap, sync::Arc};
  */
 
 use crate::{
+    auth::OptTokened,
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::{RunnableKind, WithStarredInfoQuery},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -52,6 +53,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
+    auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
@@ -59,7 +61,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -917,6 +919,23 @@ async fn create_app_internal<'a>(
     raw_app: bool,
     mut app: CreateApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    if *CLOUD_HOSTED {
+        let nb_apps =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_apps.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of apps (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if app.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+    }
     let mut tx = user_db.clone().begin(&authed).await?;
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email.clone());
@@ -1023,6 +1042,7 @@ async fn create_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -1394,6 +1414,7 @@ async fn update_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -1500,6 +1521,7 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
 
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
+    tokened: OptTokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1702,6 +1724,10 @@ async fn execute_component(
         &username,
         email,
         permissioned_as,
+        opt_authed
+            .and_then(|a| a.token_prefix)
+            .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
+            .as_deref(),
         None,
         None,
         None,
@@ -2011,7 +2037,7 @@ async fn upload_s3_file_from_app(
 
             if !has_unnamed_policy {
                 return Err(Error::BadRequest(
-                    "no policy found for unnamed s3 file uplooad".to_string(),
+                    "no policy found for unnamed s3 file upload".to_string(),
                 ));
             }
 

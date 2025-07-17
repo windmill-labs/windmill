@@ -11,7 +11,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
-	import type { FlowModule, RawScript } from '$lib/gen'
+	import type { FlowModule, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -51,8 +51,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshStateStore, usePromise } from '$lib/svelte5Utils.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { inferAssets } from '$lib/infer'
 
 	const {
 		selectedId,
@@ -77,6 +79,8 @@
 		noEditor: boolean
 		enableAi: boolean
 		savedModule?: FlowModule | undefined
+		forceTestTab?: boolean
+		highlightArg?: string
 	}
 
 	let {
@@ -89,10 +93,13 @@
 		scriptTemplate = 'script',
 		noEditor,
 		enableAi,
-		savedModule = undefined
+		savedModule = undefined,
+		forceTestTab = false,
+		highlightArg = undefined
 	}: Props = $props()
 
-	let tag: string | undefined = $state(undefined)
+	let workspaceScriptTag: string | undefined = $state(undefined)
+	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let editor: Editor | undefined = $state()
@@ -182,6 +189,7 @@
 	let forceReload = $state(0)
 	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -239,11 +247,13 @@
 				)
 	)
 
-	$effect(() => {
+	$effect.pre(() => {
 		$selectedId && untrack(() => onSelectedIdChange())
 	})
 	$effect(() => {
-		if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
 			untrack(() => getLastJob())
 		}
 	})
@@ -274,6 +284,37 @@
 	onDestroy(() => {
 		$currentEditor = undefined
 	})
+
+	// Handle force test tab prop with animation
+	$effect(() => {
+		if (forceTestTab) {
+			selected = 'test'
+			// Add a smooth transition to the test tab
+			setTimeout(() => {
+				const testTab = document.querySelector('[value="test"]')
+				if (testTab) {
+					testTab.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+				}
+			}, 100)
+		}
+	})
+
+	let assets = usePromise(
+		async () =>
+			flowModule.value.type === 'rawscript'
+				? await inferAssets(flowModule.value.language, flowModule.value.content)
+				: undefined,
+		{ clearValueOnRefresh: false, loadInit: false }
+	)
+	$effect(() => {
+		if (flowModule.value.type !== 'rawscript') return
+		;[flowModule.value.content, flowModule.value.language]
+		untrack(() => assets.refresh())
+	})
+
+	let rawScriptLang = $derived(
+		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -296,7 +337,7 @@
 		>
 			{#snippet header()}
 				<FlowModuleHeader
-					{tag}
+					tag={workspaceScriptTag ?? rawScriptLang ?? workspaceScriptLang}
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
@@ -369,6 +410,7 @@
 							on:hideDiffMode={hideDiffMode}
 							{lastDeployedCode}
 							{diffMode}
+							openAiChat
 						/>
 					</div>
 				{/if}
@@ -379,14 +421,15 @@
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
+										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+											{#if assets.value?.length}
+												<AssetsDropdownButton
+													assets={assets.value}
+													bind:fallbackAccessTypes={flowModule.value.asset_fallback_access_types}
+												/>
+											{/if}
+										</div>
 										<Editor
-											on:addSelectedLinesToAiChat={(e) => {
-												const { lines, startLine, endLine } = e.detail
-												aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-											}}
-											on:toggleAiPanel={() => {
-												aiChatManager.toggleOpen()
-											}}
 											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}
@@ -428,6 +471,7 @@
 												},
 												{}
 											)}
+											key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 										/>
 										<DiffEditor
 											open={false}
@@ -444,7 +488,8 @@
 									<div class="border-t">
 										{#key forceReload}
 											<FlowModuleScript
-												bind:tag
+												bind:tag={workspaceScriptTag}
+												bind:language={workspaceScriptLang}
 												showAllCode={false}
 												path={flowModule.value.path}
 												hash={flowModule.value.hash}
@@ -524,6 +569,7 @@
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
+												focusArg={highlightArg}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>
@@ -799,7 +845,23 @@
 									</div>
 								</Pane>
 								{#if selected === 'test'}
-									<Pane minSize={20}>
+									<Pane minSize={20} class="relative">
+										{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<!-- svelte-ignore a11y_click_events_have_key_events -->
+											<div
+												onclick={() => {
+													stepHistoryLoader?.resetInitial(flowModule.id)
+												}}
+												class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+											>
+												<div class="text-center text-primary text-sm py-2 pt-20"
+													><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+														>Run loaded from history</span
+													></div
+												>
+											</div>
+										{/if}
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}
@@ -819,6 +881,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
+											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 										/>
 									</Pane>
 								{/if}

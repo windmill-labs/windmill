@@ -5,7 +5,7 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher, untrack } from 'svelte'
 
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	import { getScriptByPath } from '$lib/scripts'
 	import { Button, Drawer, DrawerContent } from './common'
@@ -29,6 +29,7 @@
 		allowRefresh?: boolean
 		allowEdit?: boolean
 		allowView?: boolean
+		clearable?: boolean
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		disabled = false,
 		allowRefresh = false,
 		allowEdit = true,
-		allowView = true
+		allowView = true,
+		clearable = false
 	}: Props = $props()
 
 	let items: { value: string; label: string }[] = $state([])
@@ -120,7 +122,7 @@
 	{:else}
 		<Select
 			bind:value={
-				() => scriptPath ?? initialPath,
+				() => (scriptPath ?? initialPath) || undefined,
 				(path) => {
 					scriptPath = path
 					dispatch('select', { path, itemKind })
@@ -128,6 +130,7 @@
 			}
 			class="grow shrink max-w-full"
 			{items}
+			{clearable}
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
 		/>
 	{/if}

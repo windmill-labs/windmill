@@ -42,7 +42,11 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
-use windmill_common::error::to_anyhow;
+use windmill_common::{
+    assets::{clear_asset_usage, insert_asset_usage, parse_assets, AssetUsageKind},
+    error::to_anyhow,
+    worker::CLOUD_HOSTED,
+};
 
 use windmill_common::{
     db::UserDB,
@@ -520,6 +524,29 @@ async fn create_script_internal<'c>(
                 .to_string(),
         ));
     }
+    if *CLOUD_HOSTED {
+        let nb_scripts =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM script WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_scripts.unwrap_or(0) >= 5000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of scripts (5000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+
+        if ns.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if ns.description.len() > 3000 {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
@@ -636,6 +663,15 @@ async fn create_script_internal<'c>(
             )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query!(
+                "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+                &w_id,
+                p_hash.0
+            )
+            .execute(&mut *tx)
+            .await?;
+
             r
         }
     }?;
@@ -886,6 +922,19 @@ async fn create_script_internal<'c>(
         );
     }
 
+    clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
+    for asset in parse_assets(&ns.content, ns.language)?.iter().flatten() {
+        insert_asset_usage(
+            &mut *tx,
+            &w_id,
+            asset,
+            ns.fallback_access_types.as_ref().map(Vec::as_slice),
+            &ns.path,
+            AssetUsageKind::Script,
+        )
+        .await?;
+    }
+
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
@@ -919,6 +968,7 @@ async fn create_script_internal<'c>(
             &authed.username,
             &authed.email,
             permissioned_as,
+            authed.token_prefix.as_deref(),
             None,
             None,
             None,
@@ -1355,9 +1405,16 @@ async fn raw_script_by_path_internal(
                 )
                 .fetch_all(&db)
                 .await?;
-                tracing::info!(
-                    "Script {path} does not exist in workspace {w_id} but these paths do: {:?}",
-                    other_script_o.join(", ")
+                let other_script_archived = sqlx::query_scalar!(
+                    "SELECT distinct(path) FROM script WHERE workspace_id = $1 AND archived = true",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                tracing::warn!(
+                    "Script {path} does not exist in workspace {w_id} but these paths do, non-archived: {:?} | archived: {:?}",
+                    other_script_o.join(", "),
+                    other_script_archived.join(", ")
                 )
             }
         }
@@ -1522,6 +1579,15 @@ async fn archive_script_by_path(
     .fetch_one(&db)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
+
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = $2",
+        &w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1573,6 +1639,14 @@ async fn archive_script_by_hash(
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        &w_id,
+        &hash.0
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1612,6 +1686,14 @@ async fn delete_script_by_hash(
     .fetch_one(&db)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
+
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        &w_id,
+        hash.0
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,

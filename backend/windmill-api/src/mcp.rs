@@ -387,7 +387,8 @@ impl Runner {
         item_type: &str,
     ) -> Result<Vec<T>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
+        sqlb.fields(&fields);
         if scope_type == "favorites" {
             sqlb.join("favorite")
                 .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
@@ -395,16 +396,21 @@ impl Runner {
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
-            .and_where("o.draft_only IS NOT TRUE")
-            .order_by(
-                if item_type == "flow" {
-                    "o.edited_at"
-                } else {
-                    "o.created_at"
-                },
-                false,
-            )
-            .limit(100);
+            .and_where("o.draft_only IS NOT TRUE");
+
+        if item_type == "script" {
+            sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+        }
+
+        sqlb.order_by(
+            if item_type == "flow" {
+                "o.edited_at"
+            } else {
+                "o.created_at"
+            },
+            false,
+        )
+        .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -1177,7 +1183,11 @@ pub async fn extract_and_store_workspace_id(
 pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
     let session_manager = Arc::new(LocalSessionManager::default());
     let service_config = Default::default();
-    let service = StreamableHttpService::new(Runner::new, session_manager.clone(), service_config);
+    let service = StreamableHttpService::new(
+        || Ok(Runner::new()),
+        session_manager.clone(),
+        service_config,
+    );
 
     let router = axum::Router::new().nest_service("/", service);
     Ok((router, session_manager))

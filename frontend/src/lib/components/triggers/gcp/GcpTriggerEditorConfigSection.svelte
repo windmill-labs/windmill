@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -23,7 +21,8 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
@@ -102,18 +101,22 @@
 		create_update_subscription_id = $bindable('')
 	}: Props = $props()
 
-	run(() => {
+	if (gcp_resource_path) {
+		loadAllPubSubTopicsFromProject()
+	}
+
+	$effect(() => {
 		isValid =
 			!emptyStringTrimmed(gcp_resource_path) &&
 			!emptyStringTrimmed(topic_id) &&
 			!emptyStringTrimmed(subscription_id)
 	})
-	run(() => {
+	$effect(() => {
 		if (!delivery_type) {
 			delivery_type = 'pull'
 		}
 	})
-	run(() => {
+	$effect(() => {
 		if (!delivery_config) {
 			delivery_config = DEFAULT_PUSH_CONFIG
 		}
@@ -123,11 +126,11 @@
 		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}
 
-	run(() => {
+	$effect(() => {
 		!base_endpoint && (base_endpoint = getBaseUrl())
 	})
 
-	run(() => {
+	$effect(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
 			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
 		}
@@ -145,11 +148,14 @@
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
 					<ResourcePicker
-						on:change={() => {
-							loadAllPubSubTopicsFromProject()
-						}}
 						resourceType="gcloud"
-						bind:value={gcp_resource_path}
+						bind:value={
+							() => gcp_resource_path,
+							(v) => {
+								gcp_resource_path = v
+								loadAllPubSubTopicsFromProject()
+							}
+						}
 					/>
 					{#if !emptyStringTrimmed(gcp_resource_path)}
 						<TestTriggerConnection kind="gcp" args={{ gcp_resource_path }} />
@@ -176,7 +182,7 @@
 										loadAllSubscriptionFromGooglePubSubTopic()
 									}
 								}
-								items={topic_items.map((value) => ({ value }))}
+								items={safeSelectItems(topic_items)}
 								placeholder="Choose a topic"
 							/>
 							<Button
@@ -312,7 +318,7 @@
 											(t) => ((subscription_id = t), (cloud_subscription_id = t))
 										}
 										onClear={() => (subscription_id = '')}
-										items={subscription_items.map((value) => ({ value }))}
+										items={safeSelectItems(subscription_items)}
 										placeholder="Choose a subscription"
 									/>
 									<Button

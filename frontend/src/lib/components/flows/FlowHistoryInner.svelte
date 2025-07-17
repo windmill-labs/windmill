@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { run, stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
@@ -6,18 +9,22 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 
-	export let path: string
-	export let allowFork: boolean = false
-	let loading: boolean = false
+	interface Props {
+		path: string
+		allowFork?: boolean
+		onHistoryRestore?: () => void
+	}
 
-	let versions: FlowVersion[] = []
+	let { path, allowFork = false, onHistoryRestore }: Props = $props()
+	let loading: boolean = $state(false)
 
-	let selectedVersion: FlowVersion | undefined = undefined
-	let selected: Flow | undefined = undefined
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let versions: FlowVersion[] = $state([])
+
+	let selectedVersion: FlowVersion | undefined = $state(undefined)
+	let selected: Flow | undefined = $state(undefined)
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state(undefined)
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
@@ -57,8 +64,6 @@
 		loadVersions()
 	}
 
-	const dispatch = createEventDispatcher()
-
 	async function restoreVersion(flow: Flow | undefined) {
 		if (!flow) return
 		await FlowService.updateFlow({
@@ -69,13 +74,15 @@
 			},
 			path
 		})
-		dispatch('historyRestore')
+		onHistoryRestore?.()
 		sendUserToast('Flow restored from previous deployment')
 	}
 
 	loadVersions()
 
-	$: selectedVersion !== undefined && loadFlow(selectedVersion.id)
+	run(() => {
+		selectedVersion !== undefined && loadFlow(selectedVersion.id)
+	})
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -85,7 +92,7 @@
 				{#if versions.length > 0}
 					<div class="flex gap-2 flex-col">
 						{#each versions ?? [] as version}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<div
 								class={classNames(
 									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-hover hover:text-primary',
@@ -93,7 +100,7 @@
 								)}
 								role="button"
 								tabindex="0"
-								on:click={() => {
+								onclick={() => {
 									selectedVersion = version
 								}}
 							>
@@ -124,10 +131,11 @@
 											type="text"
 											bind:value={deploymentMsgUpdate}
 											class="!w-auto grow"
-											on:click|stopPropagation={() => {}}
-											on:keydown|stopPropagation
-											on:keypress|stopPropagation={({ key }) => {
-												if (key === 'Enter') updateDeploymentMsg(selectedVersion?.id)
+											onclick={stopPropagation(() => {})}
+											onkeydown={stopPropagation(bubble('keydown'))}
+											onkeypress={(e) => {
+												e.stopPropagation()
+												if (e.key === 'Enter') updateDeploymentMsg(selectedVersion?.id)
 											}}
 										/>
 										<Button
@@ -163,7 +171,7 @@
 										Deployed {displayDate(selected.edited_at)} by {selected.edited_by}
 									{/if}
 									<button
-										on:click={() => {
+										onclick={() => {
 											deploymentMsgUpdate = selectedVersion?.deployment_msg
 											deploymentMsgUpdateMode = true
 										}}

@@ -33,7 +33,8 @@
 		Plus,
 		Unplug,
 		AlertCircle,
-		Database
+		Database,
+		Pyramid
 	} from 'lucide-svelte'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
@@ -178,6 +179,14 @@
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-resources',
 			aiDescription: 'Button to navigate to resources'
+		},
+		{
+			label: 'Assets',
+			href: `${base}/assets`,
+			icon: Pyramid,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-assets',
+			aiDescription: 'Button to navigate to assets'
 		}
 	])
 	let defaultExtraTriggerLinks = $derived([
@@ -446,6 +455,8 @@
 						<Menu {createMenu} usePointerDownOutside>
 							{#snippet triggr({ trigger })}
 								<MeltButton
+									aiId="sidebar-menu-link-add-trigger"
+									aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
 									class={twMerge(
 										'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
 										'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
@@ -508,7 +519,7 @@
 										class={itemClass}
 										href={subItem.href}
 										{item}
-										on:click={() => {
+										onClick={() => {
 											subItem?.['action']?.()
 										}}
 										aiId={subItem.aiId}

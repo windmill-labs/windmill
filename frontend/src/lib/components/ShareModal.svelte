@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import TableCustom from './TableCustom.svelte'
 
 	import { GroupService, UserService, GranularAclService } from '$lib/gen'
@@ -13,7 +11,8 @@
 	import { isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -41,17 +40,15 @@
 	let ownerKind: 'user' | 'group' = $state('user')
 	let owner: string = $state('')
 
-	let newOwner: string = $state('')
+	let newOwner: string = $derived.by(
+		() => owner && [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
+	)
 	let write: boolean = false
 	let acls: [string, boolean][] = $state([])
 	let groups: String[] = $state([])
 	let usernames: string[] = $state([])
 
 	let drawer: Drawer | undefined = $state()
-
-	run(() => {
-		newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
-	})
 
 	let own = $state(false)
 	export async function openDrawer(newPath: string, kind_l: Kind) {
@@ -138,13 +135,15 @@
 						</div>
 						{#key ownerKind}
 							<Select
-								items={(ownerKind === 'user' ? usernames : groups)
-									.map((x) => x.toString())
-									.map((x) => ({ value: x, label: x }))}
+								items={safeSelectItems(
+									(ownerKind === 'user' ? usernames : groups).map((x) => x.toString())
+								)}
 								bind:value={owner}
 							/>
 						{/key}
-						<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
+						<Button size="sm" disabled={!newOwner} on:click={() => addAcl(newOwner, write)}
+							>Add permission</Button
+						>
 					</div>
 				{/if}
 				<TableCustom>

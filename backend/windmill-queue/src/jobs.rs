@@ -428,6 +428,7 @@ pub async fn push_init_job<'c>(
         worker_name,
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
+        Some("worker_init_job"),
         None,
         None,
         None,
@@ -1212,6 +1213,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     &queued_job.created_by,
                     &queued_job.permissioned_as_email,
                     queued_job.permissioned_as.clone(),
+                    Some(&format!("add.completed.job{}", queued_job.id)),
                     scheduled_for,
                     queued_job.schedule_path(),
                     None,
@@ -1431,7 +1433,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
         .when(|err| !matches!(err, Error::QuotaExceeded(_)))
         .notify(|err, dur| {
             tracing::error!(
-                "Could not push next scheduled job, retrying in {dur:#?}, err: {err:#?}"
+                "Could not push next scheduled job for schedule {}, retrying in {dur:#?}, err: {err:#?}", schedule.path
             );
         })
         .sleep(tokio::time::sleep);
@@ -1735,6 +1737,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         },
         email,
         permissioned_as,
+        Some(&format!("error.handler.{job_id}")),
         None,
         None,
         Some(job_id),
@@ -1842,6 +1845,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         email,
         permissioned_as,
+        Some(&format!("recovered.schedule.{job_id}")),
         None,
         None,
         Some(job_id),
@@ -1930,6 +1934,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         email,
         permissioned_as,
+        Some(&format!("successful.schedule.recovery{job_id}")),
         None,
         None,
         Some(job_id),
@@ -2220,6 +2225,7 @@ pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>)
             &job.permissioned_as_email,
             &job.id,
             perms,
+            Some(format!("job-span-{}", job.flow_innermost_root_job.unwrap_or(job.id))),
         )
         .warn_after_seconds(5)
         .await
@@ -2304,7 +2310,17 @@ pub async fn pull(
     query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
+    let mut pull_loop_count = 0;
     loop {
+        pull_loop_count += 1;
+        if pull_loop_count % 10 == 0 {
+            tracing::warn!("Pull job loop count: {}", pull_loop_count);
+            tokio::task::yield_now().await;
+        }
+        if pull_loop_count > 1000 {
+            tracing::error!("Pull job loop count exceeded 1000, breaking");
+            return Ok(PulledJobResult { job: None, suspended: false });
+        }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2506,6 +2522,14 @@ pub async fn pull(
             } else {
                 i += 1;
                 estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
+            }
+            if i % 50 == 0 {
+                tracing::warn!("Window finding for job {} loop count: {}", job_uuid, pull_loop_count);
+                tokio::task::yield_now().await;
+            }
+            if i > 1000000000 {
+                tracing::error!("Window finding job loop count exceeded 1000000000, breaking");
+                break;
             }
         }
 
@@ -2721,10 +2745,9 @@ pub async fn get_result_by_id(
                 "SELECT
                     id As \"id!\",
                     flow_status->'restarted_from'->'flow_job_id' AS \"restarted_from: Json<Uuid>\"
-                FROM v2_as_queue
-                WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $1), $1) = id AND workspace_id = $2",
-                flow_id,
-                &w_id
+                FROM v2_job_status
+                WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $1), $1) = id",
+                flow_id
             )
             .fetch_optional(&db)
             .await?;
@@ -2863,9 +2886,10 @@ pub async fn get_result_by_id_from_running_flow_inner(
     node_id: &str,
 ) -> error::Result<JobResult> {
     let flow_job_result = sqlx::query!(
-        "SELECT leaf_jobs->$1::text AS \"leaf_jobs: Json<Box<RawValue>>\", parent_job
-        FROM v2_as_queue
-        WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $2), $2) = id AND workspace_id = $3",
+        "SELECT flow_leaf_jobs->$1::text AS \"leaf_jobs: Json<Box<RawValue>>\", v2_job.parent_job
+        FROM v2_job_status
+        LEFT JOIN v2_job ON v2_job.id = v2_job_status.id AND v2_job.workspace_id = $3
+        WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $2), $2) = v2_job_status.id",
         node_id,
         flow_id,
         w_id,
@@ -2873,11 +2897,13 @@ pub async fn get_result_by_id_from_running_flow_inner(
     .fetch_optional(db)
     .await?;
 
+    // tracing::error!("flow_job_result: {:?} {:?}", flow_job_result, flow_id);
     let flow_job_result = windmill_common::utils::not_found_if_none(
         flow_job_result,
         "Root job of parent runnnig flow",
         format!("parent: {}, id: {}", flow_id, node_id),
     )?;
+    // tracing::error!("flow_job_result: {:?}, {:?}", flow_job_result.leaf_jobs, flow_job_result.parent_job);
 
     let job_result = flow_job_result
         .leaf_jobs
@@ -3225,6 +3251,17 @@ impl<'c> Serialize for PushArgs<'c> {
     }
 }
 
+impl<'c> From<&PushArgs<'c>> for HashMap<String, Box<RawValue>> {
+    fn from(args: &PushArgs<'c>) -> Self {
+        let mut map = HashMap::new();
+        map.extend(args.args.clone().into_iter());
+        if let Some(ref extra) = args.extra {
+            map.extend(extra.clone().into_iter());
+        }
+        map
+    }
+}
+
 impl PushArgsOwned {
     pub fn empty() -> Self {
         PushArgsOwned { extra: None, args: HashMap::new() }
@@ -3255,6 +3292,7 @@ pub async fn push<'c, 'd>(
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
+    token_prefix: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -3780,6 +3818,8 @@ pub async fn push<'c, 'd>(
             path,
             hash,
             retry,
+            error_handler_path,
+            error_handler_args,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3787,11 +3827,46 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             priority,
             tag_override,
+            trigger_path,
+            apply_preprocessor,
         } => {
             let mut input_transforms = HashMap::<String, InputTransform>::new();
             for (arg_name, arg_value) in args {
                 input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
             }
+            let failure_module = if let Some(error_handler_path) = error_handler_path {
+                let mut input_transforms = HashMap::<String, InputTransform>::new();
+                input_transforms.insert("error".to_string(), InputTransform::Javascript { expr: "error".to_string() });
+                input_transforms.insert("path".to_string(), InputTransform::Static { value: to_raw_value(&path) });
+                input_transforms.insert("is_flow".to_string(), InputTransform::Static { value: to_raw_value(&false) });
+                input_transforms.insert("trigger_path".to_string(), InputTransform::Static { value: to_raw_value(&trigger_path) });
+                input_transforms.insert("workspace_id".to_string(), InputTransform::Static { value: to_raw_value(&workspace_id) });
+                input_transforms.insert("email".to_string(), InputTransform::Static { value: to_raw_value(&email) });
+                // for the below transforms to work, make sure that flow_job_id and started_at are added to the eval context when pusing the error handler job
+                input_transforms.insert("job_id".to_string(), InputTransform::Javascript { expr: "flow_job_id".to_string() });
+                input_transforms.insert("started_at".to_string(), InputTransform::Javascript { expr: "started_at".to_string() });
+
+                if let Some(error_handler_args) = error_handler_args {
+                    for (arg_name, arg_value) in error_handler_args {
+                        input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                    }
+                }
+
+                Some(Box::new(FlowModule {
+                    id: "failure".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms,
+                        path: error_handler_path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                    }),
+                    ..Default::default()
+                }))
+            } else {
+                None
+            };
+            
             let flow_value = FlowValue {
                 modules: vec![FlowModule {
                     id: "a".to_string(),
@@ -3802,29 +3877,19 @@ pub async fn push<'c, 'd>(
                         tag_override,
                         is_trigger: None,
                     }),
-                    stop_after_if: None,
-                    stop_after_all_iters_if: None,
-                    summary: None,
-                    suspend: None,
-                    mock: None,
-                    retry: Some(retry),
-                    sleep: None,
-                    cache_ttl: None,
-                    timeout: None,
-                    priority: None,
-                    delete_after_use: None,
-                    continue_on_error: None,
-                    skip_if: None,
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
                 }],
-                same_worker: false,
-                failure_module: None,
+                failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
-                skip_expr: None,
-                cache_ttl: cache_ttl.map(|val| val as u32),
-                early_return: None,
-                concurrency_key: custom_concurrency_key.clone(),
                 priority,
+                cache_ttl: cache_ttl.map(|val| val as u32),
+                concurrency_key: custom_concurrency_key.clone(),
+                same_worker: false,
+                early_return: None,
+                skip_expr: None,
                 preprocessor_module: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
@@ -4028,6 +4093,7 @@ pub async fn push<'c, 'd>(
         ),
     };
 
+
     let final_priority: Option<i16>;
     #[cfg(not(feature = "enterprise"))]
     {
@@ -4229,10 +4295,10 @@ pub async fn push<'c, 'd>(
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
                 created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
             script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
+            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
             cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26,
+            $19, $20, $38, $21, $22, $23, $24, $25, $26,
             CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
@@ -4288,6 +4354,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
+        root_job.or(parent_job)
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -4368,12 +4435,14 @@ pub async fn push<'c, 'd>(
                 email: email.to_string(),
                 username: permissioned_as.trim_start_matches("u/").to_string(),
                 username_override: Some(user.to_string()),
+                token_prefix: token_prefix.map(|s| s.to_string()),
             }
         } else {
             AuditAuthor {
                 email: email.to_string(),
                 username: user.to_string(),
                 username_override: None,
+                token_prefix: token_prefix.map(|s| s.to_string()),
             }
         };
 

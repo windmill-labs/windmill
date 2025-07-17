@@ -41,7 +41,6 @@
 	import PlotlyHtmlV2 from '../../components/display/PlotlyHtmlV2.svelte'
 	import AppScatterChart from '../../components/display/AppScatterChart.svelte'
 	import AppPieChart from '../../components/display/AppPieChart.svelte'
-	import AppTable from '../../components/display/table/AppTable.svelte'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppText from '../../components/display/AppText.svelte'
 	import AppCodeInputComponent from '../../components/inputs/AppCodeInputComponent.svelte'
@@ -69,21 +68,37 @@
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
 	import AppNavbar from '../../components/display/AppNavbar.svelte'
 	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
-	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
+	import AppDisplayComponentByJobId from '../../components/display/AppDisplayComponentByJobId.svelte'
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
 	import type { AppComponent } from './components'
 	import { Button } from '$lib/components/common'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let component: AppComponent
-	export let render: boolean
-	export let componentContainerHeight: number
-	export let errorHandledByComponent: boolean
-	export let inlineEditorOpened: boolean
-	export let initializing: boolean | undefined = undefined
+	interface Props {
+		component: AppComponent
+		render: boolean
+		componentContainerHeight: number
+		errorHandledByComponent: boolean
+		inlineEditorOpened: boolean
+		initializing?: boolean | undefined
+	}
+
+	let {
+		component,
+		render,
+		componentContainerHeight,
+		errorHandledByComponent = $bindable(),
+		inlineEditorOpened = $bindable(),
+		initializing = $bindable(undefined)
+	}: Props = $props()
 </script>
 
-<svelte:boundary>
+<svelte:boundary
+	onerror={(e) => {
+		console.error(e)
+	}}
+>
 	{#if component.type === 'displaycomponent'}
 		<AppDisplayComponent
 			id={component.id}
@@ -206,8 +221,6 @@
 			customCss={component.customCss}
 			bind:initializing
 			componentInput={component.componentInput}
-			datasets={component.datasets}
-			xData={component.xData}
 			{render}
 		/>
 	{:else if component.type === 'agchartscomponentee'}
@@ -217,22 +230,24 @@
 			customCss={component.customCss}
 			bind:initializing
 			componentInput={component.componentInput}
-			datasets={component.datasets}
-			xData={component.xData}
 			license={component.license}
 			ee={true}
 			{render}
 		/>
 	{:else if component.type === 'tablecomponent'}
-		<AppTable
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			actionButtons={component.actionButtons}
-			{render}
-		/>
+		{#await import('$lib/components/apps/components/display/table/AppTable.svelte')}
+			<Loader2 />
+		{:then Module}
+			<Module.default
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				actionButtons={component.actionButtons}
+				{render}
+			/>
+		{/await}
 	{:else if component.type === 'dbexplorercomponent'}
 		<AppDbExplorer
 			configuration={component.configuration}
@@ -340,13 +355,7 @@
 			{render}
 		/>
 	{:else if component.type === 'multiselectcomponent'}
-		<AppMultiSelect
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			verticalAlignment={component.verticalAlignment}
-			{render}
-		/>
+		<AppMultiSelect id={component.id} verticalAlignment={component.verticalAlignment} {render} />
 	{:else if component.type === 'multiselectcomponentv2'}
 		<AppMultiSelectV2
 			id={component.id}
@@ -790,14 +799,16 @@
 		/>
 	{/if}
 	{#snippet failed(error, reset)}
-		<div class="flex flex-col items-center justify-center h-full bg-red-100 p-10 h-full w-full">
+		<div class="flex flex-col items-center justify-center bg-red-100 p-10 h-full w-full">
 			<h3 class="text-red-500 text-2xl font-bold">Rendering of component failed</h3>
 			<pre
 				class="text-2xs mt-4 w-full font-mono border border-red-500 rounded-md p-2 bg-surface-secondary text-primary overflow-auto"
 				>{error}</pre
 			>
 			<div class="flex mt-4">
-			<Button wrapperClasses="border rounded !border-gray-400" color="dark" on:click={reset}>reset</Button>
+				<Button wrapperClasses="border rounded !border-gray-400" color="dark" on:click={reset}
+					>reset</Button
+				>
 			</div>
 		</div>
 	{/snippet}

@@ -41,7 +41,7 @@ pub fn parse_outputs(code: &str) -> String {
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_ts_imports(code: &str) -> String {
-    let parsed = parse_expr_for_imports(code);
+    let parsed = parse_expr_for_imports(code, false);
     let r = if let Ok(parsed) = parsed {
         json!({ "imports": parsed })
     } else {
@@ -172,6 +172,35 @@ pub fn parse_java(code: &str) -> String {
 #[wasm_bindgen]
 pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
+}
+#[cfg(feature = "sql-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_sql(code: &str) -> String {
+    if let Ok(r) = windmill_parser_sql::parse_assets(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
+#[cfg(feature = "ts-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_ts(code: &str) -> String {
+    if let Ok(r) = windmill_parser_ts::parse_assets(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
+#[cfg(feature = "py-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_py(code: &str) -> String {
+    if let Ok(r) = windmill_parser_py::parse_assets(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
 }
 
 // for related places search: ADD_NEW_LANG

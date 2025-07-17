@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
@@ -81,7 +82,7 @@ use serde_json::value::RawValue;
 use tokio::fs::symlink;
 
 #[cfg(target_os = "windows")]
-use tokio::fs::symlink_file as symlink;
+use tokio::fs::symlink_dir;
 
 use tokio::{
     sync::{
@@ -374,6 +375,10 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
+    pub static ref OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = std::env::var("OUTSTANDING_WAIT_TIME_THRESHOLD_MS")
+        .ok()
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(1000);
 }
 
 type Envs = Vec<(String, String)>;
@@ -495,7 +500,7 @@ impl JobCompletedSender {
                 } else {
                     unbounded_sender
                 }
-                .send_async(SendResult::JobCompleted(jc))
+                .send_async(SendResult { result: SendResultPayload::JobCompleted(jc), time: Instant::now() })
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -516,15 +521,15 @@ impl JobCompletedSender {
 
     pub async fn send(
         &self,
-        send_result: SendResult,
+        send_result: SendResultPayload,
         wait_for_capacity: bool,
     ) -> Result<(), flume::SendError<SendResult>> {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
-                    sender.send_async(send_result).await
+                    sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
                 } else {
-                    unbounded_sender.send_async(send_result).await
+                    unbounded_sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
                 }
             }
             Self::Http(_) => {
@@ -594,8 +599,6 @@ pub async fn drop_cache() {
         }
     }
 }
-
-const OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = 1000;
 
 async fn insert_wait_time(
     job_id: Uuid,
@@ -854,24 +857,31 @@ pub fn start_interactive_worker_shell(
                     }
                     Ok(None) => {
                         let now = Instant::now();
-                        match last_executed_job {
+                        let nap_time = match last_executed_job {
                             Some(last)
                                 if now.duration_since(last).as_secs()
                                     > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
                             {
-                                tokio::time::sleep(Duration::from_secs(
+                                Duration::from_secs(
                                     WORKER_SHELL_NAP_TIME_DURATION,
-                                ))
-                                .await;
+                                )
                             }
                             _ => {
-                                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                                Duration::from_millis(*SLEEP_QUEUE * 10)
                             }
-                        }
+                        };
+                        tokio::select! {
+                            _ = tokio::time::sleep(nap_time) => {
+                            }
+                            _ = killpill_rx.recv() => {
+                                break;
+                            }
+                        }   
                     }
 
                     Err(err) => {
                         tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                        tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
                     }
                 };
             }
@@ -1191,15 +1201,20 @@ pub async fn run_worker(
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
+    let last_processing_duration = Arc::new(AtomicU16::new(0));
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
+    // This is used to wake up the background processor when main loop is done and just waiting for new same workers jobs, and that bg processor is also not processing any jobs, bg processing can exit if no more same worker jobs
+    let wake_up_notify = Arc::new(tokio::sync::Notify::new());
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
+            wake_up_notify.clone(),
+            last_processing_duration.clone(),
             base_internal_url.to_string(),
             db.clone(),
             worker_dir.clone(),
@@ -1321,19 +1336,18 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
+    
     loop {
+        let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
+        if last_processing_duration_secs > 5 {
+            let sleep_duration = if last_processing_duration_secs > 10 { 10 } else { 5 };
+            tracing::warn!(worker = %worker_name, hostname = %hostname, "last bg processor processing duration > {sleep_duration}s: {last_processing_duration_secs}s, throttling next job pull by {sleep_duration}s");
+            last_processing_duration.store(0, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_secs(sleep_duration)).await;
+            continue;
+        }
         #[cfg(feature = "enterprise")]
         {
-            if let Ok(_) = killpill_rx.try_recv() {
-                tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
-                if send_result.is_some() {
-                    job_completed_tx
-                        .kill()
-                        .await
-                        .expect("send kill to job completed tx");
-                }
-                break;
-            }
             let valid_key = *LICENSE_KEY_VALID.read().await;
 
             if !valid_key {
@@ -1341,8 +1355,19 @@ pub async fn run_worker(
                     worker = %worker_name, hostname = %hostname,
                     "Invalid license key, workers require a valid license key, sleeping for 10s waiting for valid key to be set"
                 );
-                tokio::time::sleep(Duration::from_secs(10)).await;
-                continue;
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        continue;
+                    }
+                    _ = killpill_rx.recv() => {
+                        job_completed_tx
+                            .kill()
+                            .await
+                            .expect("send kill to job completed tx");
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received while waiting for valid key, exiting");
+                        break;
+                    }
+                }
             }
         }
 
@@ -1456,9 +1481,13 @@ pub async fn run_worker(
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
                         .map(|x: Option<JobAndPerms>| x.map(|y| NextJob::Http(y))),
                 }
-            } else if let Ok(_) = killpill_rx.try_recv() {
+            } else if match killpill_rx.try_recv() {
+                Ok(_) | Err(broadcast::error::TryRecvError::Closed) => true,
+                _ => false,
+            } {
                 if !killed_but_draining_same_worker_jobs {
                     killed_but_draining_same_worker_jobs = true;
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
                     job_completed_tx
                         .kill()
                         .await
@@ -1470,6 +1499,7 @@ pub async fn run_worker(
                     tracing::info!(worker = %worker_name, hostname = %hostname, "all running jobs have completed and all completed jobs have been fully processed, exiting");
                     break;
                 } else {
+                    wake_up_notify.notify_one();
                     tracing::info!(worker = %worker_name, hostname = %hostname, "there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
@@ -1487,7 +1517,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
-                        let job = pull(
+                        let job = match timeout(Duration::from_secs(10), pull(
                             &db,
                             suspend_first,
                             &worker_name,
@@ -1495,7 +1525,15 @@ pub async fn run_worker(
                             #[cfg(feature = "benchmark")]
                             &mut bench,
                         )
-                        .await;
+                        .warn_after_seconds(2))
+                        .await {
+                            Ok(job) => job,
+                            Err(e) => {
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tokio::time::sleep(Duration::from_secs(30)).await;
+                                continue;
+                            }
+                        };
 
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1626,7 +1664,7 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -1703,9 +1741,30 @@ pub async fn run_worker(
                             let parent_flow = job.parent_job.unwrap();
                             let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
                             create_directory_async(&parent_shared_dir).await;
-                            symlink(&parent_shared_dir, target)
-                                .await
-                                .expect("could not symlink target");
+
+                            #[cfg(windows)]
+                            {
+                                // On Windows, try symlink_dir
+                                let windows_target = target.replace("/", "\\");
+                                let windows_parent = parent_shared_dir.replace("/", "\\");
+
+                                match symlink_dir(&windows_parent, &windows_target).await {
+                                    Ok(_) => {
+                                        tracing::info!("Successfully created directory symlink on Windows");
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to create symlink_dir on Windows (likely needs admin privileges or Developer Mode): {}", e);
+                                        create_directory_async(&target).await;
+                                    }
+                                }
+                            }
+
+                            #[cfg(not(windows))]
+                            {
+                                symlink(&parent_shared_dir, &target)
+                                    .await
+                                    .expect("could not symlink target");
+                            }
                         }
                     } else {
                         create_directory_async(target).await;
@@ -1868,11 +1927,22 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
             }
         };
     }
 
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
+
+    #[cfg(feature = "enterprise")]
+    {
+        let valid_key = *LICENSE_KEY_VALID.read().await;
+
+        if !valid_key {
+            tracing::info!(worker = %worker_name, hostname = %hostname, "Invalid license key, exiting immediately");
+            return;
+        }
+    }
 
     #[cfg(feature = "benchmark")]
     {
@@ -1901,6 +1971,7 @@ pub async fn run_worker(
             tracing::error!("error in awaiting send_result process: {e:?}")
         }
     }
+    tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
     if let Some(interactive_shell) = interactive_shell {
         if let Err(e) = interactive_shell.await {
             tracing::error!("error in awaiting interactive_shell process: {e:?}")
@@ -1936,7 +2007,11 @@ async fn queue_init_bash_maybe<'c>(
     }
 }
 
-pub enum SendResult {
+pub struct SendResult {
+    pub result: SendResultPayload,
+    pub time: Instant,
+}
+pub enum SendResultPayload {
     JobCompleted(JobCompleted),
     UpdateFlow(UpdateFlow),
 }

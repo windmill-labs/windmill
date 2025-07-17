@@ -20,7 +20,7 @@
 	import { deleteGridItem, isTableAction } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import StylePanel from './StylePanel.svelte'
 	import { ChevronLeft, ArrowBigUp, ArrowLeft } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
@@ -46,11 +46,21 @@
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
-		undefined
-	export let onDelete: (() => void) | undefined = undefined
-	export let noGrid = false
-	export let duplicateMoveAllowed = true
+	interface Props {
+		parent: string | undefined
+		item: GridItem
+		onDelete?: (() => void) | undefined
+		noGrid?: boolean
+		duplicateMoveAllowed?: boolean
+	}
+
+	let {
+		parent,
+		item = $bindable(),
+		onDelete = undefined,
+		noGrid = false,
+		duplicateMoveAllowed = true
+	}: Props = $props()
 
 	const {
 		app,
@@ -69,7 +79,7 @@
 	function removeGridElement() {
 		push(history, $app)
 
-		const id = componentSettings?.item?.id
+		const id = item?.id
 		const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
 		if (onDeleteComponentControl) {
 			onDeleteComponentControl()
@@ -78,7 +88,7 @@
 			onDelete()
 		}
 
-		let cId = componentSettings?.item.id
+		let cId = item?.id
 		if (cId) {
 			delete $worldStore.outputsById[cId]
 			delete $errorByComponent[cId]
@@ -87,18 +97,19 @@
 				$movingcomponents = $movingcomponents.filter((id) => id !== cId)
 			}
 		}
-
+		const nitem = item
+		const nparent = parent
 		$selectedComponent = undefined
 		$focusedGrid = undefined
-		if (componentSettings?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent)
+		if (nitem && !noGrid) {
+			let ids = deleteGridItem($app, nitem.data, nparent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
 		}
 
-		if (componentSettings?.item?.data?.id) {
-			delete $runnableComponents[componentSettings?.item?.data?.id]
+		if (nitem?.data?.id) {
+			delete $runnableComponents[nitem?.data?.id]
 		}
 		$app = $app
 		$runnableComponents = $runnableComponents
@@ -108,17 +119,13 @@
 
 	let viewCssOptions = false
 
-	$: extraLib =
-		(componentSettings?.item?.data?.componentInput?.type === 'template' ||
-			componentSettings?.item?.data?.componentInput?.type === 'templatev2') &&
-		$worldStore
-			? buildExtraLib(
-					$worldStore?.outputsById ?? {},
-					componentSettings?.item?.data?.id,
-					$stateStore,
-					false
-				)
+	let extraLib = $derived(
+		(item?.data?.componentInput?.type === 'template' ||
+			item?.data?.componentInput?.type === 'templatev2') &&
+			$worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, item?.data?.id, $stateStore, false)
 			: undefined
+	)
 
 	// 	`
 	// /** The current's app state */
@@ -132,33 +139,31 @@
 		}
 	}
 
-	const initialConfiguration = componentSettings?.item?.data?.type
-		? ccomponents[componentSettings.item.data.type]?.initialData?.configuration
+	const initialConfiguration = item?.data?.type
+		? ccomponents[item.data.type]?.initialData?.configuration
 		: {}
 
-	const componentInput: RichConfiguration | undefined = componentSettings?.item?.data?.type
-		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
+	const componentInput: RichConfiguration | undefined = item?.data?.type
+		? ccomponents[item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	const hasInteraction = componentSettings?.item.data.type
-		? isTriggerable(componentSettings?.item.data.type)
-		: false
+	const hasInteraction = item.data.type ? isTriggerable(item.data.type) : false
 
-	let evalV2editor: EvalV2InputEditor | undefined = undefined
+	let evalV2editor: EvalV2InputEditor | undefined = $state(undefined)
 
 	function transformToFrontend() {
-		if (componentSettings?.item.data.componentInput) {
-			const id = componentSettings?.item?.data?.id
+		if (item.data.componentInput) {
+			const id = item?.data?.id
 			let appInput: ResultAppInput = {
-				...componentSettings.item.data.componentInput,
+				...item.data.componentInput,
 				type: 'runnable',
 				runnable: {
 					type: 'runnableByName',
 					name: `Eval of ${id}`,
 					inlineScript: {
-						content: `return ${componentSettings?.item.data.componentInput?.['expr']}`,
+						content: `return ${item.data.componentInput?.['expr']}`,
 						language: 'frontend',
-						refreshOn: componentSettings?.item.data.componentInput?.['connections']?.map((c) => {
+						refreshOn: item.data.componentInput?.['connections']?.map((c) => {
 							return {
 								id: c.componentId,
 								key: c.id
@@ -168,22 +173,43 @@
 				},
 				fields: {}
 			}
-			componentSettings.item.data.componentInput = appInput
+			item.data.componentInput = appInput
+		}
+	}
+
+	let templateChangeTimeout: NodeJS.Timeout | undefined = undefined
+	function onTemplateChange(e: CustomEvent<{ code: string }>) {
+		const currentItem = item
+		if (currentItem.data.componentInput?.type === 'templatev2') {
+			if (templateChangeTimeout) {
+				clearTimeout(templateChangeTimeout)
+			}
+			templateChangeTimeout = setTimeout(() => {
+				if (currentItem.data.componentInput?.type === 'templatev2') {
+					inferDeps(
+						'`' + e.detail.code + '`',
+						$worldStore.outputsById,
+						currentItem.data.componentInput,
+						app
+					)
+					console.log('inferred deps for', currentItem.data.id)
+				}
+			}, 200)
 		}
 	}
 </script>
 
-<svelte:window on:keydown={keydown} />
+<svelte:window onkeydown={keydown} />
 
-{#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, $app)}
+{#if item?.id && isTableAction(item?.id, $app)}
 	<div
 		class="flex items-center px-3 py-2 bg-surface border-b text-xs font-semibold gap-2 justify-between"
 	>
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					<div class="flex flex-row gap-1"> Back to table component </div>
-				</svelte:fragment>
+				{/snippet}
 				<Button
 					iconOnly
 					startIcon={{
@@ -194,7 +220,7 @@
 						'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent'
 					)}
 					on:click={() => {
-						const tableId = componentSettings?.item?.id?.split?.('_')?.[0]
+						const tableId = item?.id?.split?.('_')?.[0]
 
 						if (tableId) {
 							$selectedComponent = [tableId]
@@ -206,7 +232,7 @@
 
 			<div class="flex flex-row gap-2 items-center">
 				Table action of table
-				<Badge color="indigo">{componentSettings?.item?.id.split('_')[0]}</Badge>
+				<Badge color="indigo">{item?.id.split('_')[0]}</Badge>
 			</div>
 		</div>
 
@@ -216,29 +242,29 @@
 	</div>
 {/if}
 
-{#if componentSettings?.item?.data}
-	{@const component = componentSettings.item.data}
+{#if item?.data}
+	{@const component = item.data}
 	<div class="flex justify-between items-center px-3 py-1 bg-surface-secondary">
 		<div class="text-xs text-primary font-semibold"
-			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
+			>{components[item.data.type]?.name ?? 'Unknown'}</div
 		>
-		<DocLink docLink={components[componentSettings.item.data.type]?.documentationLink} />
+		<DocLink docLink={components[item.data.type]?.documentationLink} />
 	</div>
 
 	<div class="flex min-h-[calc(100%-32px)] flex-col min-w-[150px] w-full divide-y">
-		<ComponentPanelDataSource bind:component={componentSettings.item.data}>
+		<ComponentPanelDataSource bind:component={item.data}>
 			{#if component.componentInput}
 				<PanelSection
-					title={componentSettings?.item.data.type == 'steppercomponent'
+					title={item.data.type == 'steppercomponent'
 						? 'Validations'
-						: componentSettings?.item.data.type == 's3fileinputcomponent'
+						: item.data.type == 's3fileinputcomponent'
 							? 'Path template'
 							: hasInteraction
 								? 'Event handler'
 								: 'Data source'}
 					id={'component-input'}
 				>
-					<svelte:fragment slot="action">
+					{#snippet action()}
 						<div class="flex flex-row gap-1 justify-center items-center">
 							<DocLink
 								docLink={'https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable'}
@@ -252,47 +278,38 @@
 								{`${component.id}`}
 							</div>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 
-					{#if componentSettings.item.data.componentInput}
+					{#if item.data.componentInput}
 						<ComponentInputTypeEditor
 							{evalV2editor}
-							bind:componentInput={componentSettings.item.data.componentInput}
+							bind:componentInput={item.data.componentInput}
 						/>
 
 						<div class="flex flex-col w-full gap-2 mt-2">
-							{#if componentSettings.item.data.componentInput.type === 'static'}
+							{#if item.data.componentInput.type === 'static'}
 								<StaticInputEditor
 									id={component.id}
 									fieldType={componentInput?.fieldType}
 									subFieldType={componentInput?.subFieldType}
 									format={componentInput?.format}
-									bind:componentInput={componentSettings.item.data.componentInput}
+									bind:componentInput={item.data.componentInput}
 								/>
-							{:else if componentSettings.item.data?.componentInput?.type === 'template' || componentSettings.item.data?.componentInput?.type === 'templatev2'}
+							{:else if item.data?.componentInput?.type === 'template' || item.data?.componentInput?.type === 'templatev2'}
 								<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
 									<TemplateEditor
 										fontSize={12}
-										bind:code={componentSettings.item.data.componentInput.eval}
+										bind:code={item.data.componentInput.eval}
 										{extraLib}
-										on:change={(e) => {
-											if (componentSettings?.item.data.componentInput?.type === 'templatev2') {
-												inferDeps(
-													'`' + e.detail.code + '`',
-													$worldStore.outputsById,
-													componentSettings?.item.data.componentInput,
-													app
-												)
-											}
-										}}
+										on:change={onTemplateChange}
 									/>
 								</div>
-								{#if componentSettings.item.data?.componentInput?.type === 'templatev2'}
-									{#if componentSettings.item.data?.componentInput.connections?.length > 0}
+								{#if item.data?.componentInput?.type === 'templatev2'}
+									{#if item.data?.componentInput.connections?.length > 0}
 										<div class="flex flex-wrap gap-2 items-center">
 											<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
 											<div class="flex flex-wrap gap-1">
-												{#each componentSettings.item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
+												{#each item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
 													<span
 														class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
 													>
@@ -303,24 +320,22 @@
 										</div>
 									{/if}
 								{/if}
-							{:else if componentSettings.item.data.componentInput.type === 'connected' && component.componentInput !== undefined}
-								<ConnectedInputEditor
-									bind:componentInput={componentSettings.item.data.componentInput}
-								/>
-							{:else if componentSettings.item.data.componentInput.type === 'evalv2' && component.componentInput !== undefined}
+							{:else if item.data.componentInput.type === 'connected' && component.componentInput !== undefined}
+								<ConnectedInputEditor bind:componentInput={item.data.componentInput} />
+							{:else if item.data.componentInput.type === 'evalv2' && component.componentInput !== undefined}
 								<EvalV2InputEditor
 									field="nonrunnable"
 									bind:this={evalV2editor}
 									id={component.id}
-									bind:componentInput={componentSettings.item.data.componentInput}
+									bind:componentInput={item.data.componentInput}
 								/>
-								<a class="text-2xs" on:click={transformToFrontend} href={undefined}>
+								<a class="text-2xs" onclick={transformToFrontend} href={undefined}>
 									transform to a frontend script
 								</a>
-							{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
+							{:else if item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
 								<RunnableInputEditor
 									appComponent={component}
-									bind:appInput={componentSettings.item.data.componentInput}
+									bind:appInput={item.data.componentInput}
 									defaultUserInput={component.type == 'formcomponent' ||
 										component.type == 'formbuttoncomponent'}
 								/>
@@ -331,8 +346,8 @@
 					<ContextVariables type={component.type} id={component.id} />
 
 					{#key $stateId}
-						{#if componentSettings.item.data.componentInput?.type === 'runnable'}
-							{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
+						{#if item.data.componentInput?.type === 'runnable'}
+							{#if Object.keys(item.data.componentInput.fields ?? {}).length > 0}
 								<div class="w-full">
 									<div class="flex flex-row items-center gap-2 text-sm font-semibold">
 										Runnable Inputs
@@ -342,16 +357,14 @@
 											parameters this component is attached to.
 										</Tooltip>
 									</div>
-
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
 										displayType
-										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
+										bind:inputSpecs={item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}
-										recomputeOnInputChanged={componentSettings.item.data.componentInput
-											.recomputeOnInputChanged}
+										recomputeOnInputChanged={item.data.componentInput.recomputeOnInputChanged}
 										showOnDemandOnlyToggle
 										acceptSelf={component.type === 'aggridinfinitecomponent' ||
 											component.type === 'aggridinfinitecomponentee' ||
@@ -369,83 +382,66 @@
 				</PanelSection>
 			{/if}
 		</ComponentPanelDataSource>
-
 		<ComponentControl type={component.type} />
 
-		{#if componentSettings.item.data.type === 'navbarcomponent'}
-			<GridNavbar bind:navbarItems={componentSettings.item.data.navbarItems} id={component.id} />
+		{#if item.data.type === 'navbarcomponent'}
+			<GridNavbar bind:navbarItems={item.data.navbarItems} id={component.id} />
 		{/if}
-		{#if componentSettings.item.data.type === 'tabscomponent'}
+		{#if item.data.type === 'tabscomponent'}
 			<GridTab
-				bind:tabs={componentSettings.item.data.tabs}
-				bind:disabledTabs={componentSettings.item.data.disabledTabs}
-				bind:component={componentSettings.item.data}
+				bind:tabs={item.data.tabs}
+				bind:disabledTabs={item.data.disabledTabs}
+				bind:component={item.data}
 				canDisableTabs
 			/>
-		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
-			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
+		{:else if item.data.type === 'aggridcomponentee'}
+			<GridAgGridLicenseKey bind:license={item.data.license} />
 			<TableActions
 				id={component.id}
-				bind:components={componentSettings.item.data.actions}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+				bind:components={item.data.actions}
+				bind:actionsOrder={item.data.actionsOrder}
 			/>
-		{:else if componentSettings.item.data.type === 'agchartscomponentee'}
-			<GridAgChartsLicenseKe bind:license={componentSettings.item.data.license} />
-		{:else if componentSettings.item.data.type === 'steppercomponent'}
-			<GridTab
-				bind:tabs={componentSettings.item.data.tabs}
-				bind:component={componentSettings.item.data}
-				word="Step"
-			/>
-		{:else if componentSettings.item.data.type === 'containercomponent'}
-			<GridGroup
-				bind:groupFields={componentSettings.item.data.groupFields}
-				item={componentSettings.item}
-			/>
-		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
-			<GridCondition
-				bind:conditions={componentSettings.item.data.conditions}
-				bind:component={componentSettings.item.data}
-			/>
-		{:else if componentSettings.item.data.type === 'decisiontreecomponent'}
-			<DecisionTreeGraphEditor
-				bind:nodes={componentSettings.item.data.nodes}
-				bind:component={componentSettings.item.data}
-			/>
-		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
-			<GridPane
-				bind:panes={componentSettings.item.data.panes}
-				bind:component={componentSettings.item.data}
-			/>
-		{:else if componentSettings.item.data.type === 'aggridcomponent'}
+		{:else if item.data.type === 'agchartscomponentee'}
+			<GridAgChartsLicenseKe bind:license={item.data.license} />
+		{:else if item.data.type === 'steppercomponent'}
+			<GridTab bind:tabs={item.data.tabs} bind:component={item.data} word="Step" />
+		{:else if item.data.type === 'containercomponent'}
+			<GridGroup bind:groupFields={item.data.groupFields} {item} />
+		{:else if item.data.type === 'conditionalwrapper'}
+			<GridCondition bind:conditions={item.data.conditions} bind:component={item.data} />
+		{:else if item.data.type === 'decisiontreecomponent'}
+			<DecisionTreeGraphEditor bind:nodes={item.data.nodes} bind:component={item.data} />
+		{:else if item.data.type === 'verticalsplitpanescomponent' || item.data.type === 'horizontalsplitpanescomponent'}
+			<GridPane bind:panes={item.data.panes} bind:component={item.data} />
+		{:else if item.data.type === 'aggridcomponent'}
 			<TableActions
 				id={component.id}
-				bind:components={componentSettings.item.data.actions}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+				bind:components={item.data.actions}
+				bind:actionsOrder={item.data.actionsOrder}
 			/>
-		{:else if componentSettings.item.data.type === 'aggridinfinitecomponent'}
+		{:else if item.data.type === 'aggridinfinitecomponent'}
 			<TableActions
 				id={component.id}
-				bind:components={componentSettings.item.data.actions}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+				bind:components={item.data.actions}
+				bind:actionsOrder={item.data.actionsOrder}
 			/>
-		{:else if componentSettings.item.data.type === 'aggridinfinitecomponentee'}
-			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
+		{:else if item.data.type === 'aggridinfinitecomponentee'}
+			<GridAgGridLicenseKey bind:license={item.data.license} />
 			<TableActions
 				id={component.id}
-				bind:components={componentSettings.item.data.actions}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+				bind:components={item.data.actions}
+				bind:actionsOrder={item.data.actionsOrder}
 			/>
-		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
+		{:else if item.data.type === 'dbexplorercomponent'}
 			<TableActions
 				id={component.id}
-				bind:components={componentSettings.item.data.actions}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+				bind:components={item.data.actions}
+				bind:actionsOrder={item.data.actionsOrder}
 			/>
-		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
-		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
-			<MenuItems id={component.id} bind:components={componentSettings.item.data.menuItems} />
+		{:else if item.data.type === 'tablecomponent' && Array.isArray(item.data.actionButtons)}
+			<TableActions id={component.id} bind:components={item.data.actionButtons} />
+		{:else if item.data.type === 'menucomponent' && Array.isArray(item.data.menuItems)}
+			<MenuItems id={component.id} bind:components={item.data.menuItems} />
 		{/if}
 
 		{#if Object.values(initialConfiguration).length > 0}
@@ -453,48 +449,50 @@
 				<InputsSpecsEditor
 					id={component.id}
 					inputSpecsConfiguration={initialConfiguration}
-					bind:inputSpecs={componentSettings.item.data.configuration}
+					bind:inputSpecs={item.data.configuration}
 					userInputEnabled={false}
 					acceptSelf
 				/>
 			</PanelSection>
-		{:else if componentSettings.item.data.type != 'containercomponent'}
+		{:else if item.data.type != 'containercomponent'}
 			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2">
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
 
-		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
+		<EventHandlers bind:item ownId={component.id} />
 
 		<div class="grow shrink"></div>
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">
-				<div slot="action" class="flex justify-end flex-wrap gap-1">
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: ChevronLeft }}
-						on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
-					>
-						Show
-					</Button>
-				</div>
+				{#snippet action()}
+					<div class="flex justify-end flex-wrap gap-1">
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: ChevronLeft }}
+							on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
+						>
+							Show
+						</Button>
+					</div>
+				{/snippet}
 				<div class="flex gap-2 items-center flex-wrap">
 					<div class="!text-2xs">Full height</div>
-					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
+					{#if item?.[12]?.fullHeight !== undefined}
 						<Toggle
-							bind:checked={componentSettings.item[12].fullHeight}
+							bind:checked={item[12].fullHeight}
 							size="xs"
 							options={{
 								right: 'Desktop'
 							}}
 						/>
 					{/if}
-					{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
+					{#if item?.[3]?.fullHeight !== undefined}
 						<Toggle
-							bind:checked={componentSettings.item[3].fullHeight}
+							bind:checked={item[3].fullHeight}
 							size="xs"
 							options={{
 								right: 'Mobile'
@@ -502,18 +500,18 @@
 						/>
 					{/if}
 				</div>
-				<AlignmentEditor bind:component={componentSettings.item.data} />
+				<AlignmentEditor bind:component={item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">
 						{#each Object.keys(ccomponents[component.type]?.customCss ?? {}) as name}
-							{#if componentSettings.item.data?.customCss != undefined}
+							{#if item.data?.customCss != undefined}
 								<div class="w-full mb-2">
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
 										tooltip={ccomponents[component.type].customCss[name].tooltip}
 										{name}
-										bind:value={componentSettings.item.data.customCss[name]}
+										bind:value={item.data.customCss[name]}
 									/>
 								</div>
 							{/if}
@@ -525,20 +523,22 @@
 
 		{#if duplicateMoveAllowed}
 			<PanelSection title="Copy/Move">
-				<div slot="action">
-					<Button
-						size="xs"
-						color="red"
-						variant="border"
-						on:click={removeGridElement}
-						shortCut={{
-							key: isMac() ? getModifierKey() + 'Del' : 'Del',
-							withoutModifier: true
-						}}
-					>
-						Delete
-					</Button>
-				</div>
+				{#snippet action()}
+					<div>
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							on:click={removeGridElement}
+							shortCut={{
+								key: isMac() ? getModifierKey() + 'Del' : 'Del',
+								withoutModifier: true
+							}}
+						>
+							Delete
+						</Button>
+					</div>
+				{/snippet}
 
 				<div class="overflow-auto grid grid-cols-2 gap-1 text-tertiary">
 					<div>

@@ -52,7 +52,6 @@
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
-	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
 	let edit = $state(true)
 	let schedule: string = $state('0 0 12 * *')
@@ -63,19 +62,17 @@
 	let timezone: string = $state(Intl.DateTimeFormat().resolvedOptions().timeZone)
 	let paused_until: string | undefined = $state(undefined)
 	let itemKind: 'flow' | 'script' = $state('script')
+	let is_flow: boolean = $derived.by(() => itemKind === 'flow')
 	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
 	let errorHandlerPath: string | undefined = $state(undefined)
-	let errorHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let recoveryHandlerPath: string | undefined = $state(undefined)
-	let recoveryHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let recoveryHandlerItemKind: 'flow' | 'script' = $state('script')
 	let recoveryHandlerExtraArgs: Record<string, any> = $state({})
 	let successHandlerPath: string | undefined = $state(undefined)
-	let successHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let successHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let successHandlerItemKind: 'flow' | 'script' = $state('script')
 	let successHandlerExtraArgs: Record<string, any> = $state({})
@@ -124,9 +121,8 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			is_flow = isFlow
 			initialPath = ePath
-			itemKind = is_flow ? 'flow' : 'script'
+			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
 			await loadSchedule(defaultCfg)
 			edit = true
@@ -146,7 +142,6 @@
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerCustomInitialPath = errorHandlerPath
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
@@ -154,7 +149,6 @@
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
-				errorHandlerCustomInitialPath = undefined
 				errorHandlerExtraArgs = {}
 				failedExact = false
 				failedTimes = 1
@@ -164,14 +158,12 @@
 				let splitted = s.on_recovery.split('/')
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
 				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
-				recoveryHandlerCustomInitialPath = undefined
 				recoveredTimes = 1
 				recoveryHandlerSelected = 'slack'
 				recoveryHandlerExtraArgs = {}
@@ -180,13 +172,11 @@
 				let splitted = s.on_success.split('/')
 				successHandlerItemKind = splitted[0] as 'flow' | 'script'
 				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerCustomInitialPath = successHandlerPath
 				successHandlerExtraArgs = s.on_success_extra_args ?? {}
 				successHandlerSelected = getHandlerType('success', successHandlerPath)
 			} else {
 				successHandlerPath = undefined
 				successHandlerItemKind = 'script'
-				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 				successHandlerExtraArgs = {}
 			}
@@ -212,7 +202,6 @@
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
 				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
-				errorHandlerCustomInitialPath = errorHandlerPath
 				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
 				failedTimes = defaultErrorHandlerMaybe['failedTimes']
 				failedExact = defaultErrorHandlerMaybe['failedExact']
@@ -221,7 +210,6 @@
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
 				errorHandlerExtraArgs = {}
-				errorHandlerCustomInitialPath = undefined
 				errorHandlerSelected = 'slack'
 				failedTimes = 1
 				failedExact = false
@@ -231,14 +219,12 @@
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
 				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
 				recoveryHandlerExtraArgs = {}
-				recoveryHandlerCustomInitialPath = undefined
 				recoveryHandlerSelected = 'slack'
 				recoveredTimes = 1
 			}
@@ -247,14 +233,12 @@
 				successHandlerItemKind = splitted[0] as 'flow' | 'script'
 				successHandlerPath = splitted.slice(1)?.join('/')
 				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
-				successHandlerCustomInitialPath = successHandlerPath
 				successHandlerSelected = getHandlerType('success', successHandlerPath)
 				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
 			} else {
 				successHandlerPath = undefined
 				successHandlerItemKind = 'script'
 				successHandlerExtraArgs = {}
-				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 			}
 		}
@@ -283,9 +267,8 @@
 			}
 			drawer?.openDrawer()
 			runnable = undefined
-			is_flow = s?.is_flow ?? nis_flow
 			edit = false
-			itemKind = is_flow ? 'flow' : 'script'
+			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			path = initNewPath
 				? ''
@@ -319,23 +302,18 @@
 		}
 	}
 
-	async function resetRetries() {
-		if (itemKind === 'flow') {
-			retry = undefined
-		}
-	}
-
-	$effect(() => {
-		;(is_flow = itemKind == 'flow') && resetRetries()
-	})
-
 	// set isValid to true when a script/flow without any properties is selected
 	$effect(() => {
 		setDefaultValid(draftSchema ?? runnable?.schema)
 	})
 
 	function setDefaultValid(schema: Record<string, any> | undefined) {
-		isValid = schema?.properties && Object.keys(schema.properties).length === 0
+		if (!isValid) {
+			let isEmpty = schema?.properties == undefined || Object.keys(schema.properties).length === 0
+			if (isEmpty) {
+				isValid = true
+			}
+		}
 	}
 
 	async function loadScript(p: string | undefined): Promise<void> {
@@ -469,7 +447,7 @@
 		script_path = cfg.script_path ?? ''
 		await loadScript(script_path)
 
-		is_flow = cfg.is_flow
+		itemKind = cfg.is_flow ? 'flow' : 'script'
 		no_flow_overlap = cfg.no_flow_overlap ?? false
 		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
 		retry = cfg.retry
@@ -477,7 +455,6 @@
 			let splitted = cfg.on_failure.split('/')
 			errorHandleritemKind = splitted[0] as 'flow' | 'script'
 			errorHandlerPath = splitted.slice(1)?.join('/')
-			errorHandlerCustomInitialPath = errorHandlerPath
 			failedTimes = cfg.on_failure_times ?? 1
 			failedExact = cfg.on_failure_exact ?? false
 			errorHandlerExtraArgs = cfg.on_failure_extra_args ?? {}
@@ -485,7 +462,6 @@
 		} else {
 			errorHandlerPath = undefined
 			errorHandleritemKind = 'script'
-			errorHandlerCustomInitialPath = undefined
 			errorHandlerExtraArgs = {}
 			failedExact = false
 			failedTimes = 1
@@ -495,14 +471,12 @@
 			let splitted = cfg.on_recovery.split('/')
 			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 			recoveryHandlerPath = splitted.slice(1)?.join('/')
-			recoveryHandlerCustomInitialPath = recoveryHandlerPath
 			recoveredTimes = cfg.on_recovery_times ?? 1
 			recoveryHandlerExtraArgs = cfg.on_recovery_extra_args ?? {}
 			recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath ?? '')
 		} else {
 			recoveryHandlerPath = undefined
 			recoveryHandlerItemKind = 'script'
-			recoveryHandlerCustomInitialPath = undefined
 			recoveredTimes = 1
 			recoveryHandlerSelected = 'slack'
 			recoveryHandlerExtraArgs = {}
@@ -511,13 +485,11 @@
 			let splitted = cfg.on_success.split('/')
 			successHandlerItemKind = splitted[0] as 'flow' | 'script'
 			successHandlerPath = splitted.slice(1)?.join('/')
-			successHandlerCustomInitialPath = successHandlerPath
 			successHandlerExtraArgs = cfg.on_success_extra_args ?? {}
 			successHandlerSelected = getHandlerType('success', successHandlerPath ?? '')
 		} else {
 			successHandlerPath = undefined
 			successHandlerItemKind = 'script'
-			successHandlerCustomInitialPath = undefined
 			successHandlerSelected = 'slack'
 			successHandlerExtraArgs = {}
 		}
@@ -567,21 +539,6 @@
 		return 'custom'
 	}
 
-	function isSlackHandler(isSlackHandler: 'error' | 'recovery' | 'success', scriptPath: string) {
-		if (isSlackHandler == 'error') {
-			return (
-				scriptPath.startsWith('hub/') &&
-				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-			)
-		} else if (isSlackHandler == 'recovery') {
-			return (
-				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
-			)
-		} else {
-			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
-		}
-	}
-
 	let drawer: Drawer | undefined = $state()
 
 	let pathC: Path | undefined = $state()
@@ -608,26 +565,6 @@
 	}
 
 	function getScheduleCfg(): Record<string, any> {
-		let errorHadlerExtraArgsDerived = structuredClone($state.snapshot(errorHandlerExtraArgs))
-		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
-			errorHadlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			errorHadlerExtraArgsDerived['slack'] = undefined
-		}
-
-		let recoveryHandlerExtraArgsDerived = structuredClone($state.snapshot(recoveryHandlerExtraArgs))
-		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
-			recoveryHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			recoveryHandlerExtraArgsDerived['slack'] = undefined
-		}
-
-		let successHandlerExtraArgsDerived = structuredClone($state.snapshot(successHandlerExtraArgs))
-		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
-			successHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			successHandlerExtraArgsDerived['slack'] = undefined
-		}
 		return {
 			path: path,
 			schedule: formatCron(schedule),
@@ -639,16 +576,16 @@
 			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
-			on_failure_extra_args: errorHandlerPath ? errorHadlerExtraArgsDerived : undefined,
+			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
 				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 				: undefined,
 			on_recovery_times: recoveredTimes,
-			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgsDerived : {},
+			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
 				? `${successHandlerItemKind}/${successHandlerPath}`
 				: undefined,
-			on_success_extra_args: successHandlerPath ? successHandlerExtraArgsDerived : {},
+			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
 			retry: retry,
 			summary: summary != '' ? summary : undefined,
@@ -680,6 +617,7 @@
 	})
 </script>
 
+<!-- {JSON.stringify({ allowSchedule, path: script_path, validCRON, isValid })} -->
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
@@ -875,6 +813,7 @@
 							on:select={(e) => {
 								loadScript(e.detail.path)
 							}}
+							clearable
 						/>
 					{:else}
 						<Alert type="info" title="Runnable path cannot be edited" collapsible>
@@ -953,14 +892,14 @@
 {/snippet}
 
 {#snippet errorHandler()}
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-2 min-h-96">
 		{#if !loading}
 			<Tabs bind:selected={optionTabSelected}>
 				<Tab value="error_handler">Error Handler</Tab>
 				<Tab value="recovery_handler">Recovery Handler</Tab>
 				<Tab value="success_handler">Success Handler</Tab>
+				<Tab value="retries">Retries</Tab>
 				{#if itemKind === 'script'}
-					<Tab value="retries">Retries</Tab>
 					<Tab value="tag">Custom tag</Tab>
 				{/if}
 			</Tabs>
@@ -974,7 +913,6 @@
 					{/snippet}
 					{#snippet action()}
 						<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
-							defaults
 							<Dropdown
 								disabled={!can_write}
 								items={[
@@ -989,7 +927,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}
@@ -1011,19 +949,21 @@
 						showScriptHelpText={true}
 						bind:handlerSelected={errorHandlerSelected}
 						bind:handlerPath={errorHandlerPath}
-						customInitialScriptPath={errorHandlerCustomInitialPath}
 						toggleText="Alert channel on error"
-						customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
+						customScriptTemplate="/scripts/add?hub=hub%2F19743%2Fwindmill%2Fschedule_error_handler_template"
 						bind:customHandlerKind={errorHandleritemKind}
 						bind:handlerExtraArgs={errorHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class="text-sm"
 										>The following args will be passed to the error handler:
 										<ul class="mt-1 ml-2">
+											<li
+												><b>workspace_id</b>: The ID of the workspace that the schedule belongs to.</li
+											>
+											<li><b>job_id</b>: The UUID of the job that errored.</li>
 											<li><b>path</b>: The path of the script or flow that failed.</li>
 											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
 											<li><b>schedule_path</b>: The path of the schedule.</li>
@@ -1037,7 +977,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
@@ -1090,7 +1030,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}
@@ -1102,14 +1042,12 @@
 						errorOrRecovery="recovery"
 						bind:handlerSelected={recoveryHandlerSelected}
 						bind:handlerPath={recoveryHandlerPath}
-						customInitialScriptPath={recoveryHandlerCustomInitialPath}
 						toggleText="Alert channel when error recovered"
 						customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
 						bind:customHandlerKind={recoveryHandlerItemKind}
 						bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class=" text-sm"
@@ -1134,7 +1072,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div
@@ -1181,7 +1119,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}
@@ -1193,14 +1131,12 @@
 						errorOrRecovery="success"
 						bind:handlerSelected={successHandlerSelected}
 						bind:handlerPath={successHandlerPath}
-						customInitialScriptPath={successHandlerCustomInitialPath}
 						toggleText="Alert channel when successful"
 						customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
 						bind:customHandlerKind={successHandlerItemKind}
 						bind:handlerExtraArgs={successHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class=" text-sm"
@@ -1215,7 +1151,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 				</Section>
 			{:else if optionTabSelected === 'retries'}
@@ -1233,7 +1169,20 @@
 							step in the flow editor.
 						</Tooltip>
 					{/snippet}
-					<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script' || disabled} />
+					{#if itemKind !== 'script'}
+						<Alert type="info" title="Only available for scripts" class="mb-2">
+							Error Handler and Retries are only available for scripts. For flows, use the built-in <a
+								href="https://www.windmill.dev/docs/flows/flow_error_handler"
+								target="_blank">error handler</a
+							>
+							and <a href="https://www.windmill.dev/docs/flows/retries" target="_blank">retries</a>.
+						</Alert>
+					{:else}
+						<FlowRetries
+							bind:flowModuleRetry={retry}
+							disabled={itemKind !== 'script' || disabled}
+						/>
+					{/if}
 				</Section>
 			{:else if optionTabSelected === 'tag'}
 				<Section

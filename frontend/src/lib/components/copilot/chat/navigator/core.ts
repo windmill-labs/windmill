@@ -1,14 +1,13 @@
-import { page } from '$app/state'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
-import { aiChatManager } from '../AIChatManager.svelte'
 import { ResourceService } from '$lib/gen'
-import { workspaceStore } from '$lib/stores'
+import { enterpriseLicense, workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { triggerablesByAi } from '../sharedChatState.svelte'
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -18,6 +17,7 @@ You have access to these tools:
 1. View current buttons and inputs on the page (get_triggerable_components)
 2. Execute buttons and inputs (trigger_component) 
 3. Get documentation for user requests (get_documentation)
+4. A list of tools to interact with the backend API
 
 INSTRUCTIONS:
 - When users ask about application features or concepts, first use get_documentation internally to retrieve accurate information about how to fulfill the user's request.
@@ -29,6 +29,7 @@ INSTRUCTIONS:
 - If you are asked to fill a form or act on an input, input the existing json object and change the fields the user asked you to change. Take into account the prompt_for_ai field of the schema to know what and how to do changes. Then tell the user that you have updated the form, and ask him to review the changes before running the script or flow.
 - For form inputs where format starts with "resource-" and is not "resource-obj", fetch the available resources using get_available_resources, and then use the resource_path prefixed with "$res:" to fill the input.
 - If you are not sure about an input, set the ones you are sure about, and then ask the user for the value of the input you are not sure about.
+${get(enterpriseLicense) ? `- If asked to look through the jobs logs, use the /srch/w/{workspace}/index/search/job endpoint to search for the relevant jobs runs. Then use /w/{workspace}/jobs_u/get to get the logs of each job.` : ''}
 
 GENERAL PRINCIPLES:
 - Be concise but thorough
@@ -39,12 +40,20 @@ GENERAL PRINCIPLES:
 - When you do not find what you are looking for on the current page, go to the home page by looking for the "Home" component, then scan the components again.
 
 IMPORTANT CONSIDERATIONS:
+- If you do an API call, make sure you ask the user if he also wants you to navigate the application to fulfill his request.
 - The user might have changed the page in the middle of the conversation, so make sure you rescan the page on each user request instead of just responding that you cannot find what the user is asking for.
 - If you navigate to a script creation page, consider this:
   - The page opens with the settings drawer open. After doing the changes mentioned by the user, close the settings drawer.
   - Then if the user has described what he wanted the script to do, switch to script mode with the change_mode tool, and use the new tools you'll have access to to edit the script.
 - If you navigate to a flow creation page, consider this:
   - If the user has described what he wanted the flow to do, switch to flow mode with the change_mode tool before using the new tools you'll have access to to edit the flow.
+
+API_TOOLS_RESTRICTIONS:
+- You can only use the API tools to fetch data from the backend API after you tried to navigate the application to fulfill the user's request and it's not enough to do so. ALWAYS ask the user if he also wants you to navigate the application to fulfill his request.
+- If you use api tools, also fetch the relevant documentation to help the user understand the data you fetched, with a link to the documentation if possible.
+
+RETRIEVE_AVAILABLE_RESOURCES_RESTRICTION:
+- You can only use the get_available_resources tool to fill a form or an input based on the user's request. Do not use it when directly asked to fetch available resources, use the API tools instead.
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.
@@ -134,7 +143,8 @@ const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
 	type: 'function',
 	function: {
 		name: 'get_available_resources',
-		description: 'Get the available resources to the user',
+		description:
+			"Get the available resources to the user. Only use this tool to fill a form or an input based on the user's request.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -150,8 +160,8 @@ const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
 
 function getTriggerableComponents(): string {
 	try {
-		// Get components registered in the triggerablesByAI store
-		const registeredComponents = aiChatManager.triggerablesByAI
+		// Get components registered in the triggerablesByAi store
+		const registeredComponents = triggerablesByAi
 		let result = 'TRIGGERABLE_COMPONENTS:\n'
 
 		// If there are no components registered, return a message
@@ -179,7 +189,7 @@ function getTriggerableComponents(): string {
 // Function to get the current page name
 function getCurrentPageName(): string {
 	try {
-		const currentPage = page.url.pathname
+		const currentPage = window.location.pathname
 		switch (currentPage) {
 			case '/':
 				return 'Home Page'
@@ -208,7 +218,7 @@ function triggerComponent(args: { id: string; value: string }): string {
 			return 'Trigger command requires an id parameter'
 		}
 
-		const component = aiChatManager.triggerablesByAI[id]
+		const component = triggerablesByAi[id]
 
 		if (!component) {
 			return `No triggerable component found with id: ${id}`
@@ -276,9 +286,9 @@ async function getAvailableResources(args: { resource_type: string }): Promise<s
 const triggerComponentTool: Tool<{}> = {
 	def: EXECUTE_COMMAND_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Triggering component...')
+		toolCallbacks.setToolStatus(toolId, 'Triggering component...')
 		const result = triggerComponent(args)
-		toolCallbacks.onFinishToolCall(
+		toolCallbacks.setToolStatus(
 			toolId,
 			args.actionTaken.charAt(0).toUpperCase() + args.actionTaken.slice(1)
 		)
@@ -289,9 +299,9 @@ const triggerComponentTool: Tool<{}> = {
 const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Scanning the page...')
+		toolCallbacks.setToolStatus(toolId, 'Scanning the page...')
 		const components = getTriggerableComponents()
-		toolCallbacks.onFinishToolCall(toolId, 'Scanned the page')
+		toolCallbacks.setToolStatus(toolId, 'Scanned the page')
 		return components
 	}
 }
@@ -300,7 +310,7 @@ const getCurrentPageNameTool: Tool<{}> = {
 	def: GET_CURRENT_PAGE_NAME_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
 		const pageName = getCurrentPageName()
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
+		toolCallbacks.setToolStatus(toolId, 'Retrieved current page name')
 		return pageName
 	}
 }
@@ -308,13 +318,13 @@ const getCurrentPageNameTool: Tool<{}> = {
 export const getDocumentationTool: Tool<{}> = {
 	def: GET_DOCUMENTATION_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Getting documentation...')
+		toolCallbacks.setToolStatus(toolId, 'Getting documentation...')
 		try {
 			const docResult = await getDocumentation(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
+			toolCallbacks.setToolStatus(toolId, 'Retrieved documentation')
 			return docResult
 		} catch (error) {
-			toolCallbacks.onFinishToolCall(toolId, 'Error getting documentation')
+			toolCallbacks.setToolStatus(toolId, 'Error getting documentation')
 			console.error('Error getting documentation:', error)
 			return 'Failed to get documentation, pursuing with the user request...'
 		}
@@ -324,13 +334,13 @@ export const getDocumentationTool: Tool<{}> = {
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Getting available resources...')
+		toolCallbacks.setToolStatus(toolId, 'Getting available resources...')
 		try {
 			const resources = await getAvailableResources(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved available resources')
+			toolCallbacks.setToolStatus(toolId, 'Retrieved available resources')
 			return resources
 		} catch (error) {
-			toolCallbacks.onFinishToolCall(toolId, 'Error getting available resources')
+			toolCallbacks.setToolStatus(toolId, 'Error getting available resources')
 			console.error('Error getting available resources:', error)
 			return 'Failed to get available resources, pursuing with the user request...'
 		}

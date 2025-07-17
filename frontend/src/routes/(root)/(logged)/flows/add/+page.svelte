@@ -6,7 +6,7 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -153,6 +153,7 @@
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
+		flowBuilder?.loadFlowState()
 		loading = false
 	}
 
@@ -162,14 +163,14 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
-	on:saveInitial={(e) => {
-		goto(`/flows/edit/${e.detail}?selected=${flowBuilder?.getSelectedId?.()}`)
+	onSaveInitial={(e) => {
+		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
+	onDeploy={(e) => {
+		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
+	onDetails={(e) => {
+		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	{initialPath}
 	{pathStoreInit}
@@ -182,6 +183,7 @@
 	{loading}
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
+	noInitial
 >
 	<UnsavedConfirmationModal
 		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}

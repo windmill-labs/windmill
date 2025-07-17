@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::fmt::Display;
-
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -29,23 +27,6 @@ use axum::Json;
 #[derive(Deserialize)]
 pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RunnableKind {
-    Script,
-    Flow,
-}
-
-impl Display for RunnableKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let runnable_kind = match self {
-            RunnableKind::Script => "script",
-            RunnableKind::Flow => "flow"
-        };
-        write!(f, "{}", runnable_kind)
-    }
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -433,4 +414,10 @@ pub async fn acknowledge_all_critical_alerts(
 pub struct ExpiringCacheEntry<T> {
     pub value: T,
     pub expiry: std::time::Instant,
+}
+
+#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
+    let mut w = lock.write().await;
+    *w = value;
 }

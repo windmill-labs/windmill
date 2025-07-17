@@ -6,8 +6,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
-	export let containerClass: string | undefined = undefined
-	export let containerStyle: string | undefined = undefined
+	interface Props {
+		containerClass?: string | undefined
+		containerStyle?: string | undefined
+	}
+
+	let { containerClass = undefined, containerStyle = undefined }: Props = $props()
 
 	const { connectingInput, bgRuns, recomputeAllContext } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -23,15 +27,17 @@
 				<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
 					><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 				</span>
-				<span slot="text"
-					><div class="flex flex-col">
-						{#each $bgRuns as bgRun}
-							<div class="flex gap-2 items-center">
-								<div class="text-2xs">{bgRun}</div>
-							</div>
-						{/each}
-					</div></span
-				>
+				{#snippet text()}
+					<span
+						><div class="flex flex-col">
+							{#each $bgRuns as bgRun}
+								<div class="flex gap-2 items-center">
+									<div class="text-2xs">{bgRun}</div>
+								</div>
+							{/each}
+						</div></span
+					>
+				{/snippet}
 			</Popover>
 		{/if}
 	</div>

@@ -3,26 +3,34 @@
 	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
+		value: string
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		isFirstMessage: boolean
+		placeholder: string
 		disabled: boolean
-		onUpdateInstructions: (value: string) => void
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
+		className?: string
+		onKeyDown?: (e: KeyboardEvent) => void
 	}
 
-	const {
+	let {
+		value = $bindable(''),
 		availableContext,
 		selectedContext,
 		isFirstMessage,
+		placeholder,
 		disabled,
-		onUpdateInstructions,
 		onSendRequest,
-		onAddContext
+		onAddContext,
+		className = '',
+		onKeyDown = undefined
 	}: Props = $props()
 
 	let showContextTooltip = $state(false)
@@ -161,11 +169,10 @@
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = aiChatManager.instructions.lastIndexOf('@')
+		const index = value.lastIndexOf('@')
 		if (index !== -1) {
-			const newInstructions =
-				aiChatManager.instructions.substring(0, index) + `@${contextElement.title}`
-			onUpdateInstructions(newInstructions)
+			const newInstructions = value.substring(0, index) + `@${contextElement.title}`
+			value = newInstructions
 		}
 	}
 
@@ -250,7 +257,7 @@
 
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
-		const words = aiChatManager.instructions.split(/\s+/)
+		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
 		if (
@@ -265,7 +272,6 @@
 			contextTooltipWord = ''
 			selectedSuggestionIndex = 0
 		}
-		onUpdateInstructions(aiChatManager.instructions)
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
@@ -281,10 +287,7 @@
 						(c) => c.title === contextElement.title && c.type === contextElement.type
 					)
 					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
-					if (
-						isInSelectedContext &&
-						aiChatManager.instructions.split(' ').pop() === '@' + contextElement.title
-					) {
+					if (isInSelectedContext && value.split(' ').pop() === '@' + contextElement.title) {
 						onSendRequest()
 						return
 					}
@@ -299,6 +302,10 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (onKeyDown) {
+			onKeyDown(e)
+		}
+
 		if (!showContextTooltip) return
 
 		const filteredContext = availableContext.filter(
@@ -332,20 +339,22 @@
 	}
 </script>
 
-<div class="relative w-full px-2 scroll-pb-2">
+<div class="relative w-full scroll-pb-2 bg-surface">
 	<div
-		class="absolute top-0 left-0 w-full h-full min-h-12 px-4 text-sm pt-1 pointer-events-none"
-		style="line-height: 1.72"
+		class={twMerge(
+			'textarea-input absolute top-0 left-0 pointer-events-none py-1 !px-2',
+			className
+		)}
 	>
-		<span class="break-words" style="white-space: pre-wrap;">
-			{@html getHighlightedText(aiChatManager.instructions)}
+		<span class="break-words">
+			{@html getHighlightedText(value)}
 		</span>
 	</div>
 	<textarea
 		bind:this={textarea}
 		onkeypress={handleKeyPress}
 		onkeydown={handleKeyDown}
-		bind:value={aiChatManager.instructions}
+		bind:value
 		use:autosize
 		rows={3}
 		oninput={handleInput}
@@ -354,30 +363,47 @@
 				showContextTooltip = false
 			}, 200)
 		}}
-		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
-		class="resize-none bg-transparent caret-black dark:caret-white"
-		style={aiChatManager.instructions.length > 0
-			? 'color: transparent; -webkit-text-fill-color: transparent;'
-			: ''}
+		{placeholder}
+		class={twMerge(
+			'textarea-input resize-none bg-transparent caret-black dark:caret-white',
+			className
+		)}
+		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
 		{disabled}
 	></textarea>
 </div>
 
 {#if showContextTooltip}
-	<div
-		bind:this={tooltipElement}
-		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
-		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
-	>
-		<AvailableContextList
-			{availableContext}
-			{selectedContext}
-			onSelect={(element) => {
-				handleContextSelection(element)
-			}}
-			showAllAvailable={true}
-			stringSearch={contextTooltipWord.slice(1)}
-			selectedIndex={selectedSuggestionIndex}
-		/>
-	</div>
+	<Portal target="body">
+		<div
+			bind:this={tooltipElement}
+			class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+			style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px; z-index: {zIndexes.tooltip};"
+		>
+			<AvailableContextList
+				{availableContext}
+				{selectedContext}
+				onSelect={(element) => {
+					handleContextSelection(element)
+				}}
+				showAllAvailable={true}
+				stringSearch={contextTooltipWord.slice(1)}
+				selectedIndex={selectedSuggestionIndex}
+			/>
+		</div>
+	</Portal>
 {/if}
+
+<style>
+	.textarea-input {
+		padding: 0.25rem;
+		border: 1px solid transparent;
+		font-family: inherit;
+		font-size: 0.875rem;
+		line-height: 1.72;
+		white-space: pre-wrap;
+		word-break: break-words;
+		width: 100%;
+		min-height: 3rem;
+	}
+</style>

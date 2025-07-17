@@ -6,18 +6,31 @@ import type {
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { workspaceStore } from '$lib/stores'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
-export type DisplayMessage =
-	| {
-			role: 'user' | 'assistant'
-			content: string
-			contextElements?: ContextElement[]
-	  }
-	| {
-			role: 'tool'
-			tool_call_id: string
-			content: string
-	  }
+type BaseDisplayMessage = {
+	content: string
+	contextElements?: ContextElement[]
+	snapshot?: ExtendedOpenFlow
+}
+
+export type UserDisplayMessage = BaseDisplayMessage & {
+	role: 'user'
+	index: number // Used to match index with actual chat messages
+	error?: boolean
+}
+
+export type ToolDisplayMessage = {
+	role: 'tool'
+	tool_call_id: string
+	content: string
+}
+
+export type AssistantDisplayMessage = BaseDisplayMessage & {
+	role: 'assistant'
+}
+
+export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
 
 async function callTool<T>({
 	tools,
@@ -93,9 +106,9 @@ export interface Tool<T> {
 		toolCallbacks: ToolCallbacks
 		toolId: string
 	}) => Promise<string>
+	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 }
 
 export interface ToolCallbacks {
-	onToolCall: (id: string, content: string) => void
-	onFinishToolCall: (id: string, content: string) => void
+	setToolStatus: (id: string, content: string) => void
 }

@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
 	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
@@ -17,6 +17,7 @@
 	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		moduleId: string
@@ -39,10 +40,17 @@
 		editMode?: boolean
 		onSelectedIteration: onSelectedIteration
 		onSelect: (id: string | FlowModule) => void
+		onTestUpTo?: ((id: string) => void) | undefined
 		onUpdateMock?: (detail: {
 			id: string
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
+		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
+		isOwner?: boolean
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -59,7 +67,14 @@
 		flowJobs,
 		editMode = false,
 		onSelect,
-		onUpdateMock
+		onTestUpTo,
+		onUpdateMock,
+		onEditInput,
+		flowJob,
+		isOwner = false,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -103,12 +118,22 @@
 		{/if}
 
 		{#if duration_ms}
-			<div class="absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs">
+			<div
+				class={twMerge(
+					'absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs',
+					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2' : ''
+				)}
+			>
 				{msToSec(duration_ms)}s
 			</div>
 		{/if}
 		{#if annotation && annotation != ''}
-			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
+			<div
+				class={twMerge(
+					'absolute z-10 left-0 -top-5 center-center text-tertiary',
+					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
+				)}
+			>
 				{annotation}
 			</div>
 		{/if}
@@ -155,6 +180,9 @@
 						: ''}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
+					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
@@ -175,6 +203,9 @@
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
@@ -195,6 +226,9 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
@@ -236,6 +270,15 @@
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
+					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
+					{onTestUpTo}
+					{onEditInput}
+					{flowJob}
+					{isOwner}
+					enableTestRun
+					{type}
+					{darkMode}
+					{skipped}
 				>
 					{#snippet icon()}
 						<div>

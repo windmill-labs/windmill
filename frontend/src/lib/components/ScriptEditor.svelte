@@ -2,11 +2,18 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import {
+		AssetService,
+		type CompletedJob,
+		type Job,
+		JobService,
+		type Preview,
+		type ScriptLang
+	} from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, inferAssets } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -45,7 +52,10 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from './TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { assetEq, type AssetWithAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -75,7 +85,9 @@
 		stablePathForCaptures?: string
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
+		disableAi?: boolean
 		editor_bar_right?: import('svelte').Snippet
+		fallbackAccessTypes?: AssetWithAccessType[]
 	}
 
 	let {
@@ -104,7 +116,9 @@
 		stablePathForCaptures = '',
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
-		editor_bar_right
+		disableAi = false,
+		editor_bar_right,
+		fallbackAccessTypes = $bindable()
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -132,6 +146,29 @@
 			(code != undefined || schema != undefined) &&
 			dispatch('change', { code, schema })
 	})
+
+	let parsedAssets = usePromise(() => inferAssets(lang, code), { clearValueOnRefresh: false })
+	$effect(() => {
+		untrack(() => parsedAssets.refresh()), [lang, code]
+	})
+
+	// Load initial fallbackAccessTypes
+	if (edit && path) {
+		AssetService.listAssetsByUsage({
+			workspace: $workspaceStore!,
+			requestBody: { usages: [{ path, kind: 'script' }] }
+		}).then((arr) => {
+			const v = arr[0]
+			setTimeout(() => {
+				for (const a of parsedAssets.value ?? []) {
+					const fallback = v.find((a2) => assetEq(a2, a))?.access_type
+					if (!a.access_type && fallback) {
+						fallbackAccessTypes = [...(fallbackAccessTypes ?? []), { ...a, access_type: fallback }]
+					}
+				}
+			}, 200)
+		})
+	}
 
 	let width = $state(1200)
 
@@ -417,7 +454,14 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<TriggerableByAI id="script-editor" description="Component to edit a script" />
+<!-- Standalone triggerable registration for the script editor -->
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: 'script-editor',
+		description: 'Component to edit a script'
+	}}
+></div>
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>
@@ -497,6 +541,9 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+					{#if parsedAssets.value?.length}
+						<AssetsDropdownButton assets={parsedAssets.value} bind:fallbackAccessTypes />
+					{/if}
 					{#if testPanelSize === 0}
 						<HideButton
 							hidden={true}
@@ -514,7 +561,7 @@
 							color="marine"
 						/>
 					{/if}
-					{#if !aiChatManager.open}
+					{#if !aiChatManager.open && !disableAi}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
@@ -528,6 +575,9 @@
 								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
+									if (!aiChatManager.open) {
+										aiChatManager.changeMode(AIMode.SCRIPT)
+									}
 									aiChatManager.toggleOpen()
 								}}
 							>
@@ -546,6 +596,7 @@
 						{/if}
 					{/if}
 				</div>
+
 				{#key lang}
 					<Editor
 						lineNumbersMinChars={4}
@@ -560,11 +611,6 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
-						on:addSelectedLinesToAiChat={(e) => {
-							const { lines, startLine, endLine } = e.detail
-							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-						}}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {
 							await inferSchema(code)

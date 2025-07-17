@@ -177,6 +177,9 @@
 			if (arg.type) {
 				propertyType = arg.type
 			}
+			if (arg.expr != undefined) {
+				arg.expr = undefined
+			}
 		}
 	}
 
@@ -332,6 +335,8 @@
 			untrack(() => updatePropertyType())
 	})
 	$effect(() => {
+		arg?.value
+		arg?.expr
 		inputCat && propertyType && arg && untrack(() => onArgChange())
 	})
 	$effect(() => {

@@ -171,7 +171,7 @@ pub async fn gen_bun_lockfile(
             )
             .await?;
         } else {
-            child_process.wait().await?;
+            Box::into_pin(child_process.wait()).await?;
         }
 
         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
@@ -366,7 +366,7 @@ pub async fn install_bun_lockfile(
         )
         .await?
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     if has_file {
@@ -589,7 +589,7 @@ pub async fn generate_bun_bundle(
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
     Ok(())
 }
@@ -894,7 +894,8 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor =
+        job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;
@@ -1560,7 +1561,6 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
-        None,
         None,
         None,
         None,

@@ -6,8 +6,12 @@
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let item: GridItem
-	export let ownId: string
+	interface Props {
+		item: GridItem
+		ownId: string
+	}
+
+	let { item = $bindable(), ownId }: Props = $props()
 
 	const componentsWithEventHandler = [
 		'modalcomponent',
@@ -58,12 +62,21 @@
 			/>
 		{/if}
 		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formbuttoncomponent'}
-			<EventHandlerItem
-				title="on success"
-				tooltip="Select components to recompute after this runnable has successfully run"
-				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
-				bind:value={item.data.recomputeIds}
-			/>
+			{#if item.data.type == 'checkboxcomponent'}
+				<EventHandlerItem
+					title="on change"
+					tooltip="When the value change, regardless of the source"
+					items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+					bind:value={item.data.recomputeIds}
+				/>
+			{:else}
+				<EventHandlerItem
+					title="on success"
+					tooltip="Select components to recompute after this runnable has successfully run"
+					items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+					bind:value={item.data.recomputeIds}
+				/>
+			{/if}
 		{/if}
 		{#if item.data.type === 'checkboxcomponent'}
 			<EventHandlerItem

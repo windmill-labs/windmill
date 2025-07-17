@@ -1,8 +1,7 @@
 use crate::{
     db::{ApiAuthed, DB},
-    jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
-    trigger_helpers::TriggerJobArgs,
+    trigger_helpers::{trigger_runnable, TriggerJobArgs},
     users::fetch_api_authed,
 };
 use chrono::Utc;
@@ -32,7 +31,6 @@ use handler::{
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
-    utils::StripPath,
 };
 mod bool;
 mod converter;
@@ -160,7 +158,7 @@ pub async fn get_pg_connection(
     logical_mode: bool,
 ) -> Result<Client> {
     let database =
-        try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
+        try_get_resource_from_db_as::<Postgres>(&authed, user_db, db, postgres_resource_path, w_id)
             .await?;
 
     Ok(get_raw_postgres_connection(&database, logical_mode).await?)
@@ -395,33 +393,20 @@ async fn run_job(
     )
     .await?;
 
-    let user_db = UserDB::new(db.clone());
-
-    let run_query = RunJobQuery::default();
-
-    if trigger.is_flow {
-        run_flow_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            trigger.workspace_id.clone(),
-            StripPath(trigger.script_path.to_owned()),
-            run_query,
-            args,
-        )
-        .await?;
-    } else {
-        run_script_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            trigger.workspace_id.clone(),
-            StripPath(trigger.script_path.to_owned()),
-            run_query,
-            args,
-        )
-        .await?;
-    }
+    trigger_runnable(
+        db,
+        None,
+        authed,
+        &trigger.workspace_id,
+        &trigger.script_path,
+        trigger.is_flow,
+        args,
+        trigger.retry.as_ref(),
+        trigger.error_handler_path.as_deref(),
+        trigger.error_handler_args.as_ref(),
+        format!("postgres_trigger/{}", trigger.path),
+    )
+    .await?;
 
     Ok(())
 }

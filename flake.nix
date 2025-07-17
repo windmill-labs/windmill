@@ -3,9 +3,11 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    # Use separate channel for claude code. It always needs to be latest
+    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -13,6 +15,10 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
+        claude-code = (import nixpkgs-claude {
+          inherit system;
+          config.allowUnfree = true;
+        }).claude-code;
         lib = pkgs.lib;
         stdenv = pkgs.stdenv;
         rust = pkgs.rust-bin.stable.latest.default.override {
@@ -22,6 +28,15 @@
             "rustfmt"
           ];
         };
+        patchedClang = pkgs.llvmPackages_18.clang.overrideAttrs (oldAttrs: {
+          postFixup = ''
+            # Copy the original postFixup logic but skip add-hardening.sh
+            ${oldAttrs.postFixup or ""}
+
+            # Remove the line that substitutes add-hardening.sh
+            sed -i 's/.*source.*add-hardening\.sh.*//' $out/bin/clang
+          '';
+        });
         buildInputs = with pkgs; [
           openssl
           openssl.dev
@@ -64,6 +79,10 @@
       in {
         # Enter by `nix develop .#wasm`
         devShells."wasm" = pkgs.mkShell {
+          # Explicitly set paths for headers and linker
+          shellHook = ''
+            export CC=${patchedClang}/bin/clang
+          '';
           buildInputs = buildInputs ++ (with pkgs; [
             (rust-bin.nightly.latest.default.override {
               extensions = [
@@ -76,11 +95,16 @@
             wasm-pack
             deno
             emscripten
+            # Needed for extra dependencies
+            glibc_multi
           ]);
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = buildInputs ++ (with pkgs; [
+          buildInputs = buildInputs ++ [
+            # To update run: `nix flake update nixpkgs-claude`
+            claude-code
+          ] ++ (with pkgs; [
             # Essentials
             rust
             cargo-watch
@@ -152,6 +176,8 @@
             '')
             (pkgs.writeScriptBin "wm" ''
               cd ./frontend
+              npm install
+              npm run generate-backend-client
               npm run dev $*
             '')
             (pkgs.writeScriptBin "wm-minio" ''
@@ -172,7 +198,6 @@
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')
-
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
@@ -185,6 +210,7 @@
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
+          PHP_PATH = "${pkgs.php}/bin/php";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
@@ -202,7 +228,7 @@
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
-          RUST_LOG = "debug";
+          # RUST_LOG = "debug";
           SQLX_OFFLINE = "true";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494

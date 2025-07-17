@@ -72,10 +72,29 @@
 			}}
 			inputJson={topFlowInput}
 			prefix="flow_input"
-			alwaysPluggable
+			nodeKind="input"
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
+			onEditInput={data.eventHandlers.editInput}
+			onTestFlow={() => {
+				data.eventHandlers.testFlow()
+			}}
+			isRunning={data.isRunning}
+			onCancelTestFlow={() => {
+				data.eventHandlers.cancelTestFlow()
+			}}
+			onOpenPreview={() => {
+				data.eventHandlers.openPreview()
+			}}
+			onHideJobStatus={() => {
+				data.eventHandlers.hideJobStatus()
+			}}
+			individualStepTests={data.individualStepTests}
+			job={data.flowJob}
+			showJobStatus={data.showJobStatus}
+			flowHasChanged={data.flowHasChanged}
+			{darkMode}
 		/>
 	{/snippet}
 </NodeWrapper>

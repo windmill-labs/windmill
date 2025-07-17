@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 
-	$: url = `${$page.url.protocol}//${$page.url.hostname}/`
+	let url = $derived(`${window.location.protocol}//${window.location.hostname}/`)
 </script>
 
 <div>

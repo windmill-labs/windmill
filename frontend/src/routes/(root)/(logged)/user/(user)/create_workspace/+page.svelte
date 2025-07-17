@@ -154,6 +154,7 @@
 		}
 		if (!$usersWorkspaceStore) {
 			const url = $page.url
+			console.log('logout 2')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}

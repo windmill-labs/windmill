@@ -7,32 +7,94 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import type { DurationStatus, GraphModuleState } from '../graph'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let loading: boolean
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let disabledFlowInputs = false
-	export let smallErrorHandler = false
-	export let newFlow: boolean = false
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+	interface Props {
+		loading: boolean
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		disabledFlowInputs?: boolean
+		smallErrorHandler?: boolean
+		newFlow?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		job?: Job
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		showJobStatus?: boolean
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
+	}
 
-	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+	let {
+		loading,
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		disabledFlowInputs = false,
+		smallErrorHandler = false,
+		newFlow = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined,
+		forceTestTab,
+		highlightArg,
+		localModuleStates = writable({}),
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		job,
+		localDurationStatuses,
+		suspendStatus,
+		showJobStatus,
+		onDelete,
+		flowHasChanged
+	}: Props = $props()
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	export function isNodeVisible(nodeId: string): boolean {
+		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
+	}
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -51,8 +113,11 @@
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
-	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
@@ -78,6 +143,24 @@
 							}
 							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
+						{onTestUpTo}
+						{onEditInput}
+						{localModuleStates}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
+						{isOwner}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
+						{onOpenPreview}
+						{onHideJobStatus}
+						{individualStepTests}
+						flowJob={job}
+						{showJobStatus}
+						{suspendStatus}
+						{onDelete}
+						{flowHasChanged}
 					/>
 				{/if}
 			</div>
@@ -98,6 +181,14 @@
 					on:applyArgs
 					on:testWithArgs
 					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
+					{onTestFlow}
+					{job}
+					{isOwner}
+					{localDurationStatuses}
+					{suspendStatus}
+					onOpenDetails={onOpenPreview}
 				/>
 			{/if}
 		</Pane>

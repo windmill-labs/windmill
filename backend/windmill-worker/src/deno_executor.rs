@@ -11,8 +11,7 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
-    PATH_ENV, TZ_ENV,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -165,7 +164,7 @@ pub async fn generate_deno_lock(
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     let path_lock = format!("{job_dir}/lock.json");
@@ -200,7 +199,8 @@ pub async fn handle_deno_job(
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor =
+        job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 
@@ -528,7 +528,6 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
-        None,
         None,
         None,
         None,

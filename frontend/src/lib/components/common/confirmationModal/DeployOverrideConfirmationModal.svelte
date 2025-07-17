@@ -1,15 +1,26 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import Button from '../button/Button.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import {  type Value } from '$lib/utils'
+	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
-	export let deployedValue: Value | undefined = undefined
-	export let currentValue: Value | undefined = undefined
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let confirmCallback: () => void
-	export let deployedBy : string | undefined = undefined
-	export let open = false
+	interface Props {
+		deployedValue?: Value | undefined;
+		currentValue?: Value | undefined;
+		diffDrawer?: DiffDrawerI | undefined;
+		confirmCallback: () => void;
+		deployedBy?: string | undefined;
+		open?: boolean;
+	}
+
+	let {
+		deployedValue = $bindable(),
+		currentValue = undefined,
+		diffDrawer = undefined,
+		confirmCallback,
+		deployedBy = undefined,
+		open = $bindable(false)
+	}: Props = $props();
 </script>
 
 <ConfirmationModal
@@ -22,7 +33,7 @@
 	on:confirmed={() => confirmCallback()}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>There was deployed new version while you were editing this one.</span>
+		<span>A new version was deployed while you were editing this one.</span>
 		{#if diffDrawer}
 			<Button
 				wrapperClasses="self-start"

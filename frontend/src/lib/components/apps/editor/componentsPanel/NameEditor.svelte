@@ -4,13 +4,17 @@
 	import { Pen } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let kind: string
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		kind: string
+		row: {
+			name: string
+			path: string
+		}
 	}
 
-	let editedName = row.name
+	let { kind, row }: Props = $props()
+
+	let editedName = $state(row.name)
 
 	const dispatch = createEventDispatcher()
 	function onkeydown(e) {
@@ -21,18 +25,18 @@
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color="light" size="xs2" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center">
 				<Pen size={16} />
 			</div>
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{/snippet}
+	{#snippet content({ close })}
 		<div class="flex flex-col w-80 gap-2 p-4">
 			<div class="leading-6 font-semibold text-xs">Edit {kind} name</div>
 			<div class="flex flex-row gap-2">
-				<input on:keydown={onkeydown} bind:value={editedName} />
+				<input {onkeydown} bind:value={editedName} />
 				<Button
 					color="dark"
 					size="xs"
@@ -45,5 +49,5 @@
 				</Button>
 			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

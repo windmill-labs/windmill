@@ -15,13 +15,21 @@
 		type MqttClientVersion,
 		type MqttV3Config,
 		type MqttV5Config,
-		type MqttSubscribeTopic
+		type MqttSubscribeTopic,
+		type Retry
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveMqttTriggerFromCfg } from './utils'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 
 	interface Props {
 		useDrawer?: boolean
@@ -76,19 +84,30 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let subscribe_topics: MqttSubscribeTopic[] = $state([])
-	let v3_config: MqttV3Config | undefined = $state()
-	let v5_config: MqttV5Config | undefined = $state()
+	let v3_config: MqttV3Config = $state(DEFAULT_V3_CONFIG)
+	let v5_config: MqttV5Config = $state(DEFAULT_V5_CONFIG)
 	let client_version: MqttClientVersion | undefined = $state()
-	let client_id: string | undefined = $state(undefined)
-	let isValid: boolean | undefined = $state(undefined)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let client_id: string | undefined = $state('')
+	let isValid: boolean = $state(false)
+	let initialConfig: Record<string, any> | undefined = {}
 	let deploymentLoading = $state(false)
+	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
+
+	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
+		$state('connection_options')
 
 	const mqttConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !can_write || !isValid
 	)
+	const activateV5Options = $state({
+		topic_alias_maximum: Boolean(DEFAULT_V5_CONFIG.topic_alias_maximum),
+		session_expiry_interval: Boolean(DEFAULT_V5_CONFIG.session_expiry_interval)
+	})
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -147,6 +166,16 @@
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
 			enabled = defaultValues?.enabled ?? false
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			v3_config = defaultValues?.v3_config ?? DEFAULT_V3_CONFIG
+			v5_config = defaultValues?.v5_config ?? DEFAULT_V5_CONFIG
+			activateV5Options.topic_alias_maximum = Boolean(defaultValues?.v5_config?.topic_alias_maximum)
+			activateV5Options.session_expiry_interval = Boolean(
+				defaultValues?.v5_config?.session_expiry_interval
+			)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -164,10 +193,16 @@
 			path = cfg?.path
 			enabled = cfg?.enabled
 			client_version = cfg?.client_version
-			v3_config = cfg?.v3_config
-			v5_config = cfg?.v5_config
+			v3_config = cfg?.v3_config ?? DEFAULT_V3_CONFIG
+			v5_config = cfg?.v5_config ?? DEFAULT_V5_CONFIG
 			client_id = cfg?.client_id ?? ''
 			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+			error_handler_path = cfg?.error_handler_path
+			error_handler_args = cfg?.error_handler_args ?? {}
+			retry = cfg?.retry
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
+			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
 		}
@@ -201,7 +236,10 @@
 			path,
 			script_path,
 			enabled,
-			is_flow
+			is_flow,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 	}
 
@@ -247,7 +285,7 @@
 	}
 
 	$effect(() => {
-		let args = [captureConfig, isValid ?? false] as const
+		let args = [captureConfig, isValid] as const
 		onCaptureConfigChange?.(...args)
 	})
 
@@ -360,6 +398,7 @@
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
+							clearable
 						/>
 						{#if emptyString(script_path)}
 							<Button
@@ -382,13 +421,149 @@
 				bind:subscribe_topics
 				{can_write}
 				bind:client_version
-				bind:v3_config
-				bind:v5_config
 				bind:isValid
 				bind:client_id
-				headless={true}
 				showTestingBadge={isEditor}
 			/>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="connection_options">Connection Options</Tab>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							{#if optionTabSelected === 'connection_options'}
+								<div class="flex p-2 flex-col gap-2 mt-3">
+									<ToggleButtonGroup bind:selected={client_version}>
+										{#snippet children({ item })}
+											<ToggleButton value="v5" label="Version 5" {item} />
+											<ToggleButton value="v3" label="Version 3" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+
+									<input
+										type="text"
+										bind:value={client_id}
+										disabled={!can_write}
+										placeholder="Client id"
+										autocomplete="off"
+									/>
+
+									{#if client_version === 'v5'}
+										<Toggle
+											textClass="font-normal text-sm"
+											color="nord"
+											size="xs"
+											bind:checked={v5_config.clean_start}
+											options={{
+												right: 'Clean start',
+												rightTooltip:
+													'Start a new session without any stored messages or subscriptions if enabled. Otherwise, resume the previous session with stored subscriptions and undelivered messages. The default setting is 0.',
+												rightDocumentationLink:
+													'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901039'
+											}}
+											class="py-1"
+										/>
+
+										<div class="flex flex-col gap-2">
+											<Toggle
+												textClass="font-normal text-sm"
+												color="nord"
+												size="xs"
+												bind:checked={activateV5Options.session_expiry_interval}
+												on:change={(ev) => {
+													if (!ev.detail) {
+														v5_config.session_expiry_interval = undefined
+													}
+												}}
+												options={{
+													right: 'Session expiry interval',
+													rightTooltip:
+														'Defines the time in seconds that the broker will retain the session after disconnection. If set to 0, the session ends immediately. If set to 4,294,967,295, the session will be retained indefinitely. Otherwise, subscriptions and undelivered messages are stored until the interval expires.',
+													rightDocumentationLink: ''
+												}}
+												class="py-1"
+											/>
+
+											{#if activateV5Options.session_expiry_interval}
+												<input
+													type="number"
+													bind:value={v5_config.session_expiry_interval}
+													disabled={!can_write}
+													placeholder="Session expiry interval"
+													autocomplete="off"
+												/>
+											{/if}
+										</div>
+
+										<div class="flex flex-col gap-2">
+											<Toggle
+												textClass="font-normal text-sm"
+												color="nord"
+												size="xs"
+												bind:checked={activateV5Options.topic_alias_maximum}
+												on:change={(ev) => {
+													if (!ev.detail) {
+														v5_config.topic_alias_maximum = undefined
+													}
+												}}
+												options={{
+													right: 'Topic alias maximum',
+													rightTooltip:
+														'Defines the maximum topic alias value the client will accept from the broker. A value of 0 indicates that topic aliases are not supported. The default value is 65536, which is the maximum allowed topic alias.',
+													rightDocumentationLink:
+														'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901051'
+												}}
+												class="py-1"
+											/>
+
+											{#if activateV5Options.topic_alias_maximum}
+												<input
+													type="number"
+													bind:value={v5_config.topic_alias_maximum}
+													disabled={!can_write}
+													placeholder="Topic alias"
+													autocomplete="off"
+												/>
+											{/if}
+										</div>
+									{:else if client_version === 'v3'}
+										<Toggle
+											textClass="font-normal text-sm"
+											color="nord"
+											size="xs"
+											checked={v3_config.clean_session}
+											on:change={() => {
+												v3_config.clean_session = !v3_config.clean_session
+											}}
+											options={{
+												right: 'Clean session',
+												rightTooltip:
+													'Starts a new session without any stored messages or subscriptions if enabled. Otherwise, it resumes the previous session with stored subscriptions and undelivered messages. The default value is 0',
+												rightDocumentationLink: ''
+											}}
+											class="py-1"
+										/>
+									{/if}
+								</div>
+							{:else}
+								<TriggerRetriesAndErrorHandler
+									{optionTabSelected}
+									{itemKind}
+									{can_write}
+									bind:errorHandlerSelected
+									bind:error_handler_path
+									bind:error_handler_args
+									bind:retry
+								/>
+							{/if}
+						</div>
+					</div>
+				</div>
+			</Section>
 		</div>
 	{/if}
 {/snippet}

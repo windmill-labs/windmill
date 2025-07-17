@@ -2,7 +2,7 @@
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	const dispatch = createEventDispatcher<{ onpointerdown: any }>()
 
@@ -64,45 +64,44 @@
 	}
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
+<button
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => {
+			if (hashNavigation) {
+				window.location.hash = value
+			} else {
+				update(value)
+			}
+		}
+	}}
+	class={twMerge(
+		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
+		isSelected
+			? 'wm-tab-active font-main'
+			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
+		fontSizeClasses[size],
+		c,
+		isSelected ? selectedClass : '',
+		disabled ? 'cursor-not-allowed text-tertiary' : ''
+	)}
+	style={`${style} ${isSelected ? selectedStyle : ''}`}
+	onclick={() => {
 		if (hashNavigation) {
 			window.location.hash = value
 		} else {
 			update(value)
 		}
 	}}
+	onpointerdown={(event) => {
+		event.stopPropagation()
+		dispatch('onpointerdown', event)
+	}}
+	{disabled}
+	{id}
 >
-	<button
-		class={twMerge(
-			'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
-			isSelected
-				? 'wm-tab-active font-main'
-				: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
-			fontSizeClasses[size],
-			c,
-			isSelected ? selectedClass : '',
-			disabled ? 'cursor-not-allowed text-tertiary' : ''
-		)}
-		style={`${style} ${isSelected ? selectedStyle : ''}`}
-		onclick={() => {
-			if (hashNavigation) {
-				window.location.hash = value
-			} else {
-				update(value)
-			}
-		}}
-		onpointerdown={(event) => {
-			event.stopPropagation()
-			dispatch('onpointerdown', event)
-		}}
-		{disabled}
-		{id}
-	>
-		<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
-			{@render children?.()}
-		</div>
-	</button>
-</TriggerableByAI>
+	<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
+		{@render children?.()}
+	</div>
+</button>

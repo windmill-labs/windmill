@@ -5,10 +5,17 @@
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
-	let { tag = $bindable(), nullTag = $bindable() } = $props<{
+	let {
+		tag = $bindable(),
+		nullTag,
+		placeholder,
+		noLabel
+	}: {
 		tag: string | undefined
 		nullTag?: string | undefined
-	}>()
+		placeholder?: string
+		noLabel?: boolean
+	} = $props()
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -26,7 +33,13 @@
 	{#if $workerTags?.length > 0}
 		<div class="w-40">
 			{#if flowStore.val.tag == undefined}
-				<WorkerTagSelect {nullTag} bind:tag on:change={(e) => dispatch('change', e.detail)} />
+				<WorkerTagSelect
+					{noLabel}
+					{placeholder}
+					{nullTag}
+					bind:tag
+					on:change={(e) => dispatch('change', e.detail)}
+				/>
 			{:else}
 				<button
 					title="Worker Group is defined at the flow level"

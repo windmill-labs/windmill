@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.496.3"
+version = "1.508.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.496.3"
+version = "1.508.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -132,6 +132,7 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
@@ -204,6 +205,7 @@ tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
@@ -233,7 +235,7 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
-url = "^2"
+url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "^0"
@@ -330,7 +332,7 @@ jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
-hf-hub = "0.3.2"
+hf-hub = "0.4.3"
 tokenizers = "0.14.1"
 candle-core = "0.9.1"
 candle-transformers = "0.9.1"
@@ -348,8 +350,10 @@ async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 
+process-wrap = { version = "8.2.1", features = ["tokio1"] }
+
 datafusion = "47.0.0"
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure"] } 
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
@@ -405,3 +409,4 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
+

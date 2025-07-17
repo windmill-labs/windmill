@@ -36,8 +36,10 @@ use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::response::Response;
+use axum::http::HeaderValue;
+use axum::body::Body;
 use db::DB;
-use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
@@ -70,6 +72,7 @@ mod agent_workers_oss;
 mod ai;
 mod apps;
 pub mod args;
+mod assets;
 mod audit;
 pub mod auth;
 mod capture;
@@ -102,6 +105,8 @@ mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
+
+pub mod openapi;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -234,6 +239,7 @@ lazy_static::lazy_static! {
 
 }
 
+
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
     req: axum::extract::Request,
@@ -255,6 +261,7 @@ pub async fn add_webhook_allowed_origin(
     }
     next.run(req).await
 }
+
 
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
@@ -558,6 +565,7 @@ pub async fn run_server(
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
+                        .nest("/assets", assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest(
@@ -595,6 +603,7 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
+                        .nest("/openapi", openapi::openapi_service())
                         .nest("/http_triggers", http_triggers_service)
                         .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
@@ -887,12 +896,18 @@ async fn ee_license() -> String {
     }
 }
 
-async fn openapi() -> &'static str {
-    include_str!("../openapi-deref.yaml")
+async fn openapi() -> Response {
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(include_str!("../openapi-deref.yaml")))
+        .unwrap()
 }
 
-async fn openapi_json() -> &'static str {
-    include_str!("../openapi-deref.json")
+async fn openapi_json() -> Response {
+    Response::builder()
+        .header("content-type", "application/json")
+        .body(Body::from(include_str!("../openapi-deref.json")))
+        .unwrap()
 }
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {

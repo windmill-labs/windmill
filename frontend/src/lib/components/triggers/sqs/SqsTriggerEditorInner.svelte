@@ -7,7 +7,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
+	import { SqsTriggerService, type AwsAuthResourceType, type Retry } from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -15,7 +15,10 @@
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveSqsTriggerFromCfg } from './utils'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -75,6 +78,11 @@
 	let isValid = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const sqsConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(getCaptureConfig)
@@ -135,6 +143,10 @@
 			edit = false
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
@@ -155,6 +167,10 @@
 			enabled = cfg?.enabled
 			aws_auth_resource_type = cfg?.aws_auth_resource_type
 			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+			error_handler_path = cfg?.error_handler_path
+			error_handler_args = cfg?.error_handler_args ?? {}
+			retry = cfg?.retry
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
@@ -186,7 +202,10 @@
 			queue_url,
 			message_attributes,
 			aws_auth_resource_type,
-			enabled
+			enabled,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 	}
 
@@ -343,6 +362,7 @@
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
+							clearable
 						/>
 						{#if emptyString(script_path)}
 							<Button
@@ -370,6 +390,28 @@
 				headless={true}
 				showTestingBadge={isEditor}
 			/>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
+					</div>
+				</div>
+			</Section>
 		</div>
 	{/if}
 {/snippet}

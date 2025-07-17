@@ -11,12 +11,18 @@ import time
 import warnings
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, Union, Literal
+from typing import Dict, Any, Union, Literal, Optional
+import re
 
 import httpx
 
 from .s3_reader import S3BufferedReader, bytes_generator
-from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
+from .s3_types import (
+    Boto3ConnectionSettings,
+    DuckDbConnectionSettings,
+    PolarsConnectionSettings,
+    S3Object,
+)
 
 _client: "Windmill | None" = None
 
@@ -27,7 +33,11 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 class Windmill:
     def __init__(self, base_url=None, token=None, workspace=None, verify=True):
-        base = base_url or os.environ.get("BASE_INTERNAL_URL") or os.environ.get("WM_BASE_URL")
+        base = (
+            base_url
+            or os.environ.get("BASE_INTERNAL_URL")
+            or os.environ.get("WM_BASE_URL")
+        )
 
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
@@ -42,7 +52,9 @@ class Windmill:
 
         self.mocked_api = self.get_mocked_api()
 
-        assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
+        assert self.workspace, (
+            f"workspace required as an argument or as WM_WORKSPACE environment variable"
+        )
 
     def get_mocked_api(self) -> Optional[dict]:
         mocked_path = os.environ.get("WM_MOCKED_API_FILE")
@@ -55,7 +67,10 @@ class Windmill:
                 incoming_mocked_api = json.load(f)
             mocked_api = {**mocked_api, **incoming_mocked_api}
         except Exception as e:
-            logger.warning("Error parsing mocked API file at path %s Using empty mocked API.", mocked_path)
+            logger.warning(
+                "Error parsing mocked API file at path %s Using empty mocked API.",
+                mocked_path,
+            )
             logger.debug(e)
         return mocked_api
 
@@ -165,7 +180,9 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         job_id = self.run_script_async(path=path, hash_=hash_, args=args)
-        return self.wait_job(job_id, timeout, verbose, cleanup, assert_result_is_not_none)
+        return self.wait_job(
+            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
 
     def wait_job(
         self,
@@ -191,7 +208,9 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         while True:
-            result_res = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True).json()
+            result_res = self.get(
+                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True
+            ).json()
 
             started = result_res["started"]
             completed = result_res["completed"]
@@ -294,25 +313,31 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
+        path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             variables = self.mocked_api["variables"]
             try:
                 result = variables[path]
                 return result
             except KeyError:
-                logger.info(f"MockedAPI present, but variable not found at {path}, falling back to real API")
+                logger.info(
+                    f"MockedAPI present, but variable not found at {path}, falling back to real API"
+                )
 
         """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
+        path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["variables"][path] = value
             return
 
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create variable
             self.post(
@@ -336,6 +361,7 @@ class Windmill:
         path: str,
         none_if_undefined: bool = False,
     ) -> dict | None:
+        path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             resources = self.mocked_api["resources"]
             try:
@@ -344,13 +370,19 @@ class Windmill:
             except KeyError:
                 # NOTE: should mocked_api respect `none_if_undefined`?
                 if none_if_undefined:
-                    logger.info(f"resource not found at ${path}, but none_if_undefined is True, so returning None")
+                    logger.info(
+                        f"resource not found at ${path}, but none_if_undefined is True, so returning None"
+                    )
                     return None
-                logger.info(f"MockedAPI present, but resource not found at ${path}, falling back to real API")
+                logger.info(
+                    f"MockedAPI present, but resource not found at ${path}, falling back to real API"
+                )
 
         """Get resource from Windmill"""
         try:
-            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
+            return self.get(
+                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+            ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -363,12 +395,15 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["resources"][path] = value
             return
 
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create resource
             self.post(
@@ -422,14 +457,21 @@ class Windmill:
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value, raise_for_status=False)
+        r = self.post(
+            f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}",
+            json=value,
+            raise_for_status=False,
+        )
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
 
     def get_flow_user_state(self, key: str) -> Any:
         """Get the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.get(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}",
+            raise_for_status=False,
+        )
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
             return None
@@ -448,14 +490,19 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from DuckDB
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            raise Exception("Could not generate DuckDB S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate DuckDB S3 connection settings from the provided resource"
+            ) from e
 
     def get_polars_connection_settings(
         self,
@@ -465,14 +512,19 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from Polars
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate Polars S3 connection settings from the provided resource"
+            ) from e
 
     def get_boto3_connection_settings(
         self,
@@ -482,16 +534,21 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection using boto3
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return self.__boto3_connection_settings(s3_resource)
         except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate Boto3 S3 connection settings from the provided resource"
+            ) from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
+    def load_s3_file(self, s3object: S3Object | str, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns its content as bytes.
 
@@ -503,10 +560,13 @@ class Windmill:
         file_content = my_obj_content.decode("utf-8")
         '''
         """
+        s3object = parse_s3_object(s3object)
         with self.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             return file_reader.read()
 
-    def load_s3_file_reader(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
+    def load_s3_file_reader(
+        self, s3object: S3Object | str, s3_resource_path: str | None
+    ) -> BufferedReader:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -518,6 +578,7 @@ class Windmill:
             print(file_reader.read())
         '''
         """
+        s3object = parse_s3_object(s3object)
         reader = S3BufferedReader(
             f"{self.workspace}",
             self.client,
@@ -529,7 +590,7 @@ class Windmill:
 
     def write_s3_file(
         self,
-        s3object: S3Object | None,
+        s3object: S3Object | str | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
         content_type: str | None = None,
@@ -552,6 +613,7 @@ class Windmill:
             client.write_s3_file(s3_obj, my_file)
         '''
         """
+        s3object = parse_s3_object(s3object)
         # httpx accepts either bytes or "a bytes generator" as content. If it's a BufferedReader, we need to convert it to a generator
         if isinstance(file_content, BufferedReader):
             content_payload = bytes_generator(file_content)
@@ -565,7 +627,11 @@ class Windmill:
             query_params["file_key"] = s3object["s3"]
         if s3_resource_path is not None and s3_resource_path != "":
             query_params["s3_resource_path"] = s3_resource_path
-        if s3object is not None and "storage" in s3object and s3object["storage"] is not None:
+        if (
+            s3object is not None
+            and "storage" in s3object
+            and s3object["storage"] is not None
+        ):
             query_params["storage"] = s3object["storage"]
         if content_type is not None:
             query_params["content_type"] = content_type
@@ -576,7 +642,10 @@ class Windmill:
             # need a vanilla client b/c content-type is not application/json here
             response = httpx.post(
                 f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
-                headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/octet-stream",
+                },
                 params=query_params,
                 content=content_payload,
                 verify=self.verify,
@@ -586,17 +655,24 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"])
 
-    def sign_s3_objects(self, s3_objects: list[S3Object]) -> list[S3Object]:
-        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": s3_objects}).json()
+    def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
+        return self.post(
+            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
+        ).json()
 
-    def sign_s3_object(self, s3_object: S3Object) -> S3Object:
-        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": [s3_object]}).json()[0]
+    def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
+        return self.post(
+            f"/w/{self.workspace}/apps/sign_s3_objects",
+            json={"s3_objects": [s3_object]},
+        ).json()[0]
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
         return Boto3ConnectionSettings(
             {
-                "endpoint_url": "{}{}".format(endpoint_url_prefix, s3_resource["endPoint"]),
+                "endpoint_url": "{}{}".format(
+                    endpoint_url_prefix, s3_resource["endPoint"]
+                ),
                 "region_name": s3_resource["region"],
                 "use_ssl": s3_resource["useSSL"],
                 "aws_access_key_id": s3_resource["accessKey"],
@@ -614,7 +690,9 @@ class Windmill:
 
     @property
     def state_path(self) -> str:
-        state_path = os.environ.get("WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH"))
+        state_path = os.environ.get(
+            "WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH")
+        )
         if state_path is None:
             raise Exception("State path not found")
         return state_path
@@ -686,7 +764,7 @@ class Windmill:
     ) -> None:
         """
         Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
-        
+
         **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
         Learn more at: https://www.windmill.dev/docs/flows/flow_approval#form
 
@@ -702,10 +780,10 @@ class Windmill:
         :type default_args_json: dict, optional
         :param dynamic_enums_json: Optional dictionary overriding the enum default values of enum form fields.
         :type dynamic_enums_json: dict, optional
-        
+
         :raises Exception: If the function is not called within a flow or flow preview.
         :raises Exception: If the required flow job or flow step environment variables are not set.
-        
+
         :return: None
 
         **Usage Example:**
@@ -759,13 +837,26 @@ class Windmill:
         Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
-    
 
-    def send_teams_message(self, conversation_id: str, text: str, success: bool = True, card_block: dict = None):
+    def send_teams_message(
+        self,
+        conversation_id: str,
+        text: str,
+        success: bool = True,
+        card_block: dict = None,
+    ):
         """
         Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
         """
-        return self.post(f"/teams/activities", json={"conversation_id": conversation_id, "text": text, "success": success, "card_block": card_block})
+        return self.post(
+            f"/teams/activities",
+            json={
+                "conversation_id": conversation_id,
+                "text": text,
+                "success": success,
+                "card_block": card_block,
+            },
+        )
 
 
 def init_global_client(f):
@@ -914,7 +1005,9 @@ def get_job_status(job_id: str) -> JobStatus:
 
 @init_global_client
 def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
-    return _client.get_result(job_id=job_id, assert_result_is_not_none=assert_result_is_not_none)
+    return _client.get_result(
+        job_id=job_id, assert_result_is_not_none=assert_result_is_not_none
+    )
 
 
 @init_global_client
@@ -945,24 +1038,30 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 
 
 @init_global_client
-def load_s3_file(s3object: S3Object, s3_resource_path: str | None = None) -> bytes:
+def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes:
     """
     Load the entire content of a file stored in S3 as bytes
     """
-    return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
+    return _client.load_s3_file(
+        s3object, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client
-def load_s3_file_reader(s3object: S3Object, s3_resource_path: str | None = None) -> BufferedReader:
+def load_s3_file_reader(
+    s3object: S3Object | str, s3_resource_path: str | None = None
+) -> BufferedReader:
     """
     Load the content of a file stored in S3
     """
-    return _client.load_s3_file_reader(s3object, s3_resource_path if s3_resource_path != "" else None)
+    return _client.load_s3_file_reader(
+        s3object, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client
 def write_s3_file(
-    s3object: S3Object | None,
+    s3object: S3Object | str | None,
     file_content: BufferedReader | bytes,
     s3_resource_path: str | None = None,
     content_type: str | None = None,
@@ -977,11 +1076,17 @@ def write_s3_file(
     and content_type: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type
 
     """
-    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None, content_type, content_disposition)
+    return _client.write_s3_file(
+        s3object,
+        file_content,
+        s3_resource_path if s3_resource_path != "" else None,
+        content_type,
+        content_disposition,
+    )
 
 
 @init_global_client
-def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
+def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
     """
     Sign S3 objects to be used by anonymous users in public apps
     Returns a list of signed s3 tokens
@@ -990,7 +1095,7 @@ def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
 
 
 @init_global_client
-def sign_s3_object(s3_object: S3Object) -> S3Object:
+def sign_s3_object(s3_object: S3Object| str) -> S3Object:
     """
     Sign S3 object to be used by anonymous users in public apps
     Returns a signed s3 object
@@ -1126,6 +1231,7 @@ def get_state_path() -> str:
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
 
+
 @init_global_client
 def request_interactive_slack_approval(
     slack_resource_path: str,
@@ -1144,9 +1250,13 @@ def request_interactive_slack_approval(
         dynamic_enums_json=dynamic_enums_json,
     )
 
+
 @init_global_client
-def send_teams_message(conversation_id: str, text: str, success: bool, card_block: dict = None):
+def send_teams_message(
+    conversation_id: str, text: str, success: bool, card_block: dict = None
+):
     return _client.send_teams_message(conversation_id, text, success, card_block)
+
 
 @init_global_client
 def cancel_running() -> dict:
@@ -1190,7 +1300,10 @@ def task(*args, **kwargs):
     from inspect import signature
 
     def f(func, tag: str | None = None):
-        if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
+        if (
+            os.environ.get("WM_JOB_ID") is None
+            or os.environ.get("MAIN_OVERRIDE") == func.__name__
+        ):
 
             def inner(*args, **kwargs):
                 return func(*args, **kwargs)
@@ -1234,3 +1347,31 @@ def task(*args, **kwargs):
         return f(args[0], None)
     else:
         return lambda x: f(x, kwargs.get("tag"))
+
+def parse_resource_syntax(s: str) -> Optional[str]:
+    """Parse resource syntax from string."""
+    if s is None:
+        return None
+    if s.startswith("$res:"):
+        return s[5:]
+    if s.startswith("res://"):
+        return s[6:]
+    return None
+
+def parse_s3_object(s3_object: S3Object | str) -> S3Object:
+    """Parse S3 object from string or S3Object format."""
+    if isinstance(s3_object, str):
+        match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
+        if match:
+            return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
+        return S3Object(s3="")
+    else:
+        return s3_object
+
+    
+
+def parse_variable_syntax(s: str) -> Optional[str]:
+    """Parse variable syntax from string."""
+    if s.startswith("var://"):
+        return s[6:]
+    return None

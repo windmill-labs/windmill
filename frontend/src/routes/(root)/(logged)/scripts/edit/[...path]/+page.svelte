@@ -87,14 +87,14 @@
 					workspace: $workspaceStore!,
 					hash
 				})
-				savedScript = structuredClone(scriptByHash) as NewScriptWithDraft
+				savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
-				savedScript = structuredClone(scriptWithDraft)
+				savedScript = structuredClone($state.snapshot(scriptWithDraft))
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					scriptBuilder?.setDraftTriggers(script.draft_triggers)
@@ -213,17 +213,14 @@
 		{diffDrawer}
 		{savedPrimarySchedule}
 		searchParams={$page.url.searchParams}
-		on:deploy={(e) => {
-			let newHash = e.detail
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		onDeploy={(e) => {
+			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
-		on:saveInitial={(e) => {
-			let path = e.detail
-			goto(`/scripts/edit/${path}`)
+		onSaveInitial={(e) => {
+			goto(`/scripts/edit/${e.path}`)
 		}}
-		on:seeDetails={(e) => {
-			let path = e.detail
-			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
+		onSeeDetails={(e) => {
+			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		replaceStateFn={(path) => {
 			replaceState(path, $page.state)

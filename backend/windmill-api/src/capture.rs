@@ -64,7 +64,6 @@ use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
-    utils::RunnableKind,
 };
 
 use axum::{
@@ -82,7 +81,7 @@ use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 

@@ -34,8 +34,9 @@
 	import { onDestroy, tick, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import Select from '../Select.svelte'
+	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
@@ -96,6 +97,7 @@
 		actionKind: ActionKind | undefined | 'all',
 		scope: undefined | 'all_workspaces' | 'instance'
 	): Promise<void> {
+	console.log("loading logs")
 		loading = true
 
 		if (username == 'all') {
@@ -129,6 +131,7 @@
 		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
+	console.log("loadede logs")
 	}
 
 	async function loadUsers() {
@@ -352,11 +355,15 @@
 		<span class="text-xs absolute -top-4">After</span>
 		<input type="text" value={after ?? 'After'} disabled />
 		<CalendarPicker
+			clearable
 			date={after}
 			placement="bottom-end"
 			label="After"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				after = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				after = undefined
 			}}
 		/>
 	</div>
@@ -364,11 +371,15 @@
 		<span class="text-xs absolute -top-4">Before</span>
 		<input type="text" value={before ?? 'Before'} disabled />
 		<CalendarPicker
+			clearable
 			bind:date={before}
 			label="Before"
 			placement="bottom-end"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				before = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				before = undefined
 			}}
 		/>
 	</div>
@@ -397,7 +408,7 @@
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
-			items={['all', ...(resources.value ?? [])].map((r) => ({ value: r, label: r }))}
+			items={safeSelectItems(['all', ...(resources.value ?? [])])}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>

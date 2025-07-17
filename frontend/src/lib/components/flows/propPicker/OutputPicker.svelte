@@ -1,10 +1,15 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import InputPickerInner from './InputPickerInner.svelte'
+	import { ChevronDown, Plug } from 'lucide-svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
+	import { getStateColor } from '$lib/components/graph/util'
+	import type { FlowStatusModule } from '$lib/gen'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		selected?: boolean
@@ -13,6 +18,16 @@
 		variant?: 'default' | 'virtual'
 		historyOpen?: boolean
 		children?: import('svelte').Snippet<[any]>
+		inputTransform?: Record<string, any> | undefined
+		id: string
+		bottomBarOpen?: boolean
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		onEditInput?: (moduleId: string, key: string) => void
+		initial?: boolean
+		onResetInitial?: () => void
+		type: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -21,13 +36,26 @@
 		isConnectingCandidate = false,
 		variant = 'default',
 		historyOpen = false,
-		children
+		children,
+		inputTransform,
+		id,
+		bottomBarOpen = $bindable(false),
+		loopStatus,
+		onEditInput,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
 	const MIN_WIDTH = 375
 	const MIN_HEIGHT = 375
+
+	let outputOpen = $state(false)
+	let inputOpen = $state(false)
+
+	const zoom = $derived.by(useSvelteFlow().getZoom)
 
 	let showConnecting = $derived(
 		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
@@ -40,98 +68,193 @@
 		}
 	}
 
+	let inputPopover: Popover | undefined = $state(undefined)
 	let popover: Popover | undefined = $state(undefined)
 
 	const virtualItemClasses = {
-		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
-		handle:
-			'dark:group-hover:bg-[#525d6f] dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300 group-hover:bg-slate-300'
+		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
 	}
 
 	const defaultClasses = {
-		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]',
-		handle:
-			'group-hover:bg-surface-hover hover:bg-surface-hover bg-surface-disabled dark:bg-[#454e5f] dark:hover:bg-[#576278] dark:group-hover:bg-[#576278]'
+		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]'
 	}
 
-	export function toggleOpen() {
-		if (popover?.isOpened()) {
+	export function toggleOpen(forceOpen: boolean = false) {
+		if (popover?.isOpened() && !forceOpen) {
 			popover?.close()
 		} else {
 			popover?.open()
 		}
 	}
+
+	$effect(() => {
+		bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
+	})
+
+	const showInput = $derived(
+		variant === 'default' && !showConnecting && loopStatus?.type !== 'self'
+	)
+
+	function updatePositioning(historyOpen: boolean, zoom: number) {
+		inputPopover?.updatePositioning({
+			placement: 'bottom',
+			gutter: 0,
+			offset: { mainAxis: 3, crossAxis: 69 * zoom },
+			overflowPadding: historyOpen ? 250 : 8
+		})
+		popover?.updatePositioning({
+			placement: 'bottom',
+			gutter: 0,
+			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
+			overflowPadding: historyOpen ? 250 : 8
+		})
+	}
+
+	$effect(() => {
+		updatePositioning(historyOpen, zoom)
+	})
+
+	onMount(() => {
+		let { outputPickerOpenFns } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+		if (outputPickerOpenFns) {
+			outputPickerOpenFns[id] = () => {
+				outputOpen = true
+			}
+			return () => {
+				delete outputPickerOpenFns[id]
+			}
+		}
+	})
 </script>
 
-<Popover
-	floatingConfig={{
-		placement: 'bottom',
-		overflowPadding: historyOpen ? 250 : 8
-	}}
-	usePointerDownOutside
-	closeOnOutsideClick={false}
-	on:click={(e) => {
+<div
+	class="relative h-1 w-[275px]"
+	onpointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
 	}}
-	bind:this={popover}
-	allowFullScreen
-	contentClasses="overflow-hidden resize rounded-md"
-	contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px);`}
-	extraProps={{ 'data-prop-picker': true }}
-	closeOnOtherPopoverOpen
-	class="outline-none"
 >
-	{#snippet trigger({ isOpen })}
-		<div
-			class={twMerge(
-				'bg-slate-200',
-				`w-[275px] h-[4px] flex flex-row items-center justify-center cursor-pointer`,
-				variant === 'virtual' ? virtualItemClasses.bar : defaultClasses.bar,
-				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
-				'group'
-			)}
-			onpointerdown={(e) => {
-				e.preventDefault()
-				e.stopPropagation()
-			}}
-			data-prop-picker
-			title={`${isOpen ? 'Close' : 'Open'} step output`}
-		>
-			<div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-[14px]">
-				<AnimatedButton
-					animate={showConnecting}
-					wrapperClasses="relative w-full h-full center-center"
-					baseRadius="6px"
-					marginWidth="1px"
+	<!-- Invisible hover area to maintain consistent height -->
+	<div class="absolute w-full h-[20px]"></div>
+	<div
+		class={twMerge(
+			'bg-slate-200 absolute w-full',
+			variant === 'virtual'
+				? `${virtualItemClasses.bar} ${bottomBarOpen ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
+				: `${defaultClasses.bar} ${bottomBarOpen ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
+			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
+			'group transition-all duration-100',
+			'flex flex-row items-center justify-center',
+			'h-1 hover:h-[20px]',
+			bottomBarOpen && 'h-[20px]'
+		)}
+		style:background-color={type && type !== 'WaitingForEvents'
+			? getStateColor(type, !!darkMode, true, skipped)
+			: undefined}
+		data-prop-picker
+	>
+		<div class="flex flex-row items-center justify-center w-full h-full">
+			{#if showInput}
+				<Popover
+					floatingConfig={{
+						placement: 'bottom',
+						gutter: 0,
+						offset: { mainAxis: 3, crossAxis: 69 },
+						overflowPadding: historyOpen ? 250 : 8
+					}}
+					usePointerDownOutside
+					closeOnOutsideClick={false}
+					on:click={(e) => {
+						e.preventDefault()
+						e.stopPropagation()
+					}}
+					allowFullScreen
+					contentClasses="overflow-hidden resize"
+					contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+					extraProps={{ 'data-prop-picker': true }}
+					closeOnOtherPopoverOpen
+					disableFocusTrap
+					class="flex-1 h-full"
+					bind:isOpen={inputOpen}
+					bind:this={inputPopover}
 				>
-					<div
-						class={twMerge(
-							'w-full h-full rounded-t-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
-							`hidden group-hover:center-center`,
-							variant === 'virtual' ? virtualItemClasses.handle : defaultClasses.handle,
-							isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
-							showConnecting ? 'text-blue-500 bg-surface rounded-b-md' : 'text-secondary'
+					{#snippet trigger({ isOpen })}
+						<button
+							class={twMerge(
+								'h-full center-center transition-opacity duration-150 w-full',
+								bottomBarOpen ? 'opacity-100' : 'opacity-0',
+								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
+								inputOpen ? 'border-primary' : 'hover:border-primary/20'
+							)}
+						>
+							In
+						</button>
+					{/snippet}
+					{#snippet content()}
+						<InputPickerInner {inputTransform} {id} {onEditInput} />
+					{/snippet}
+				</Popover>
+			{/if}
+			<Popover
+				floatingConfig={{
+					placement: 'bottom',
+					gutter: 0,
+					offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
+					overflowPadding: historyOpen ? 250 : 8
+				}}
+				usePointerDownOutside
+				closeOnOutsideClick={false}
+				on:click={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+				bind:this={popover}
+				allowFullScreen
+				contentClasses="overflow-hidden resize relative"
+				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+				extraProps={{ 'data-prop-picker': true }}
+				closeOnOtherPopoverOpen
+				class="flex-1 h-full"
+				bind:isOpen={outputOpen}
+			>
+				{#snippet trigger({ isOpen })}
+					<AnimatedButton
+						animate={showConnecting}
+						wrapperClasses={twMerge(
+							'h-full center-center transition-opacity duration-150 w-full',
+							bottomBarOpen ? 'opacity-100' : 'opacity-0'
 						)}
+						baseRadius="2px"
+						marginWidth="1px"
 					>
-						<ChevronDown
-							size={12}
-							class="h-fit transition-transform duration-100"
-							style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
-						/>
-					</div>
-				</AnimatedButton>
-			</div>
+						<button
+							class={twMerge(
+								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
+								outputOpen ? 'border-primary' : 'hover:border-primary/20',
+								showConnecting ? 'bg-surface-hover rounded-sm border-0' : ''
+							)}
+						>
+							{#if showInput}
+								Out
+							{:else if showConnecting}
+								<Plug size={12} class="w-full text-blue-500" />
+							{:else}
+								<ChevronDown size={12} class="w-full" />
+							{/if}
+						</button>
+					</AnimatedButton>
+				{/snippet}
+				{#snippet content()}
+					{@render children?.({
+						allowCopy: !$flowPropPickerConfig,
+						isConnecting: showConnecting,
+						selectConnection
+					})}
+				{/snippet}
+			</Popover>
 		</div>
-	{/snippet}
-	{#snippet content()}
-		{@render children?.({
-			allowCopy: !$flowPropPickerConfig,
-			isConnecting: showConnecting,
-			selectConnection
-		})}
-	{/snippet}
-</Popover>
+	</div>
+</div>
 
 <style>
 	@keyframes moveGradient {

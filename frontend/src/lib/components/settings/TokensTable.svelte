@@ -12,8 +12,8 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -238,33 +238,30 @@
 
 			{#if showMcpMode}
 				<div class="mb-4 flex flex-row flex-shrink-0">
-					<TriggerableByAI
-						id="account-settings-create-mcp-token"
-						description="Create a new MCP token to authenticate to the Windmill API"
-					>
-						<Toggle
-							on:change={(e) => {
-								mcpCreationMode = e.detail
-								if (e.detail) {
-									newTokenLabel = 'MCP token'
-									newTokenExpiration = undefined
-									newTokenWorkspace = $workspaceStore
-								} else {
-									newTokenLabel = undefined
-									newTokenExpiration = undefined
-									newTokenWorkspace = defaultNewTokenWorkspace
-								}
-							}}
-							checked={mcpCreationMode}
-							options={{
-								right: 'Generate MCP URL',
-								rightTooltip:
-									'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-							}}
-							size="xs"
-						/>
-					</TriggerableByAI>
+					<Toggle
+						on:change={(e) => {
+							mcpCreationMode = e.detail
+							if (e.detail) {
+								newTokenLabel = 'MCP token'
+								newTokenExpiration = undefined
+								newTokenWorkspace = $workspaceStore
+							} else {
+								newTokenLabel = undefined
+								newTokenExpiration = undefined
+								newTokenWorkspace = defaultNewTokenWorkspace
+							}
+						}}
+						checked={mcpCreationMode}
+						options={{
+							right: 'Generate MCP URL',
+							rightTooltip:
+								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+						}}
+						size="xs"
+						aiId="account-settings-create-mcp-token"
+						aiDescription="Create a new MCP token to authenticate to the Windmill API"
+					/>
 				</div>
 			{/if}
 
@@ -306,10 +303,11 @@
 						{:else if errorFetchApps}
 							<div>Error fetching apps</div>
 						{:else}
-							<MultiSelectWrapper
-								items={allApps}
+							<MultiSelect
+								items={safeSelectItems(allApps)}
 								placeholder="Select apps"
 								bind:value={newMcpApps}
+								class="!bg-surface"
 							/>
 						{/if}
 					</div>
@@ -319,7 +317,7 @@
 						<select
 							bind:value={newTokenWorkspace}
 							disabled={workspaces.length === 1}
-							class="w-full"
+							class="w-full !bg-surface"
 						>
 							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
@@ -331,7 +329,7 @@
 				<div>
 					<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span
 					>
-					<input type="text" bind:value={newTokenLabel} class="w-full" />
+					<input type="text" bind:value={newTokenLabel} class="w-full !bg-surface" />
 				</div>
 
 				{#if !mcpCreationMode}
@@ -339,7 +337,7 @@
 						<span class="block mb-1"
 							>Expires In <span class="text-xs text-tertiary">(optional)</span></span
 						>
-						<select bind:value={newTokenExpiration} class="w-full">
+						<select bind:value={newTokenExpiration} class="w-full !bg-surface">
 							<option value={undefined}>No expiration</option>
 							<option value={15 * 60}>15m</option>
 							<option value={30 * 60}>30m</option>

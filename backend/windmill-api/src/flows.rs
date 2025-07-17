@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::{RunnableKind, WithStarredInfoQuery};
+use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -34,7 +34,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -43,7 +43,7 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
-    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
+    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
@@ -358,6 +358,32 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_flows =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_flows.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if nf.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if nf
+            .description
+            .as_ref()
+            .is_some_and(|desc| desc.len() > 3000)
+        {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
@@ -468,6 +494,7 @@ async fn create_flow(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -477,7 +504,7 @@ async fn create_flow(
         false,
         None,
         true,
-        nf.tag,
+        None,
         None,
         None,
         None,
@@ -909,6 +936,7 @@ async fn update_flow(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -1140,6 +1168,14 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
+        &w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1328,6 +1364,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1342,6 +1379,7 @@ mod tests {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1359,6 +1397,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1388,6 +1427,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1416,6 +1456,7 @@ mod tests {
                 delete_after_use: None,
                 continue_on_error: None,
                 skip_if: None,
+                apply_preprocessor: None,
             })),
             preprocessor_module: None,
             same_worker: false,

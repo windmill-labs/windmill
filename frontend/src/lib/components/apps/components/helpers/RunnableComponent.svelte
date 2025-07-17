@@ -419,7 +419,7 @@
 					allowUserResources.push(k)
 				}
 			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-				const ctxMatch = field.expr.match(ctxRegex)
+				const ctxMatch = field?.expr?.match(ctxRegex)
 				if (ctxMatch) {
 					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
 				} else {
@@ -559,7 +559,7 @@
 	}
 
 	function updateResult(res) {
-		outputs.result?.set(res)
+		outputs.result?.set($state.snapshot(res))
 		result = res
 	}
 
@@ -727,6 +727,21 @@
 		currentStaticValues && untrack(() => refreshOnStaticChange())
 	})
 	$effect(() => {
+		if (runnableInputValues && typeof runnableInputValues === 'object') {
+			for (const key in runnableInputValues) {
+				runnableInputValues[key]
+			}
+		}
+		if (extraQueryParams && typeof extraQueryParams === 'object') {
+			for (const key in extraQueryParams) {
+				extraQueryParams[key]
+			}
+		}
+		if (args && typeof args === 'object') {
+			for (const key in args) {
+				args[key]
+			}
+		}
 		;(runnableInputValues || extraQueryParams || args) &&
 			resultJobLoader &&
 			untrack(() => refreshIfAutoRefresh('arg changed'))
@@ -785,7 +800,7 @@
 		lastJobId = e.detail.id
 		setResult(e.detail.result, e.detail.id)
 		loading = false
-		dispatch('done', { id: e.detail.id, result: e.detail.result })
+		dispatch('done', { id: e.detail?.id, result: e.detail?.result })
 	}}
 	on:cancel={(e) => {
 		let jobId = e.detail

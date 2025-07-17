@@ -12,7 +12,8 @@
 		type Flow,
 		type Script,
 		type ScriptArgs,
-		type WebsocketTriggerInitialMessage
+		type WebsocketTriggerInitialMessage,
+		type Retry
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
@@ -28,7 +29,10 @@
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -94,6 +98,11 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const websocketCfg = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -173,6 +182,10 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -192,6 +205,10 @@
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
 	function getSaveCfg() {
@@ -205,7 +222,10 @@
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
-			enabled
+			enabled,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 	}
 
@@ -412,6 +432,7 @@
 								bind:scriptPath={script_path}
 								allowRefresh={can_write}
 								allowEdit={!$userStore?.operator}
+								clearable
 							/>
 							{#if emptyString(script_path)}
 								<Button
@@ -673,6 +694,28 @@
 						>
 							Add item
 						</Button>
+					</div>
+				</div>
+			</Section>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
 					</div>
 				</div>
 			</Section>

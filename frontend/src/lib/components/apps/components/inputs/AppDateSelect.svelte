@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -11,22 +11,32 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { enUS, fr, de, pt, ja } from 'date-fns/locale'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'dateselectcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'dateselectcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['dateselectcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['dateselectcomponent'].initialData.configuration, configuration)
 	)
 
-	let value: string | undefined = undefined
+	let value: string | undefined = $state(undefined)
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -39,8 +49,6 @@
 		month: undefined as number | undefined,
 		year: undefined as number | undefined
 	})
-
-	$: !value && handleDefault(resolvedConfig.defaultValue)
 
 	function getLocale(locale: string = 'en-US') {
 		const localeMapping: { [key: string]: Locale } = {
@@ -82,13 +90,11 @@
 		}
 	}
 
-	let css = initCss($app.css?.dateinputcomponent, customCss)
+	let css = $state(initCss($app.css?.dateinputcomponent, customCss))
 
-	let selectedDay: string | undefined = undefined
-	let selectedMonth: string | undefined = undefined
-	let selectedYear: string | undefined = undefined
-
-	$: monthItems = computeMonthItems(resolvedConfig?.locale)
+	let selectedDay: string | undefined = $state(undefined)
+	let selectedMonth: string | undefined = $state(undefined)
+	let selectedYear: string | undefined = $state(undefined)
 
 	function updateOutputs(enableDay?: boolean, enableMonth?: boolean, enableYear?: boolean) {
 		if (enableDay) {
@@ -111,8 +117,6 @@
 			outputs.year.set(undefined)
 		}
 	}
-
-	$: updateOutputs(resolvedConfig.enableDay, resolvedConfig.enableMonth, resolvedConfig.enableYear)
 
 	function computeMonthItems(locale: string = 'en-US') {
 		return [
@@ -192,6 +196,17 @@
 
 		return daysInMonth
 	}
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		untrack(() => !value && handleDefault(resolvedConfig.defaultValue))
+	})
+	let monthItems = $derived(computeMonthItems(resolvedConfig?.locale))
+	$effect.pre(() => {
+		;[resolvedConfig.enableDay, resolvedConfig.enableMonth, resolvedConfig.enableYear]
+		untrack(() =>
+			updateOutputs(resolvedConfig.enableDay, resolvedConfig.enableMonth, resolvedConfig.enableYear)
+		)
+	})
 </script>
 
 {#each Object.keys(components['dateselectcomponent'].initialData.configuration) as key (key)}
@@ -238,9 +253,10 @@
 							outputs.day.set(v ? Number(v) : undefined)
 						}
 					}
-					items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
-						return { label: String(i + 1), value: String(i + 1) }
-					})}
+					items={Array.from(
+						{ length: computeDayPerMonth(selectedMonth, selectedYear) },
+						(_, i) => ({ value: String(i + 1) })
+					)}
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyle={css?.input?.style}
 					placeholder="Pick a day"
@@ -280,9 +296,7 @@
 							outputs.year.set(selectedYear ? Number(selectedYear) : undefined)
 						}
 					}
-					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`).map((value) => ({
-						value
-					}))}
+					items={safeSelectItems(Array.from({ length: 201 }, (_, i) => `${1900 + i}`))}
 					placeholder="Pick a year"
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyle={css?.input?.style}

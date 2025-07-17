@@ -6,13 +6,18 @@
 	import RunnableComponent from './RunnableComponent.svelte'
 	import InitializeComponent from './InitializeComponent.svelte'
 
-	export let id: string
-	export let runnable: HiddenRunnable
+	interface Props {
+		id: string
+		runnable: HiddenRunnable
+		children?: import('svelte').Snippet
+	}
+
+	let { id, runnable, children }: Props = $props()
 
 	const { worldStore, staticExporter, noBackend, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let result: any = noBackend ? runnable.noBackendValue : undefined
+	let result: any = $state(noBackend ? runnable.noBackendValue : undefined)
 
 	export function onSuccess() {
 		if (runnable.recomputeIds) {
@@ -49,7 +54,7 @@
 		on:success={onSuccess}
 		{outputs}
 	>
-		<slot />
+		{@render children?.()}
 	</RunnableComponent>
 {:else}
 	<InitializeComponent {id} />

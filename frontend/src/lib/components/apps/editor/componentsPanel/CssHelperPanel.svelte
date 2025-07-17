@@ -4,7 +4,7 @@
 	import { Badge, Button, ClearableInput, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
-	import { ccomponents, components } from '../component'
+	import { ccomponents, components, DEPRECATED_COMPONENTS } from '../component'
 	import { customisationByComponent } from './cssUtils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -60,7 +60,7 @@
 			ids: ['q'].map((id) => ({ id, forceStyle: true, forceClass: true }))
 		},
 		...Object.entries(ccomponents)
-			.filter(([key]) => key !== 'quillcomponent')
+			.filter(([key]) => !['quillcomponent', ...Object.keys(DEPRECATED_COMPONENTS)].includes(key))
 			.map(([type, { name, icon, customCss }]) => ({
 				type: type as keyof typeof components,
 				name,
@@ -98,7 +98,7 @@
 					}
 				}}
 			>
-				<div slot="title" class="flex items-center">
+				<div slot="titleSlot" class="flex items-center">
 					<svelte:component this={icon} size={18} />
 					<span class="ml-1">
 						{name}

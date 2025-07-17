@@ -9,7 +9,8 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Label from './Label.svelte'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
@@ -209,32 +210,14 @@
 						{#if config}
 							{#if config.custom_tags}
 								<MultiSelect
-									outerDivClass="text-secondary !bg-surface-disabled !border-0"
-									selected={config.custom_tags}
-									onchange={(e) => {
-										console.log(e.type, config?.custom_tags)
-										if (e && config?.custom_tags) {
-											if (e.type === 'add') {
-												config.custom_tags = [
-													...config.custom_tags,
-													...(e.option ? [e.option.toString()] : [])
-												]
-											} else if (e.type === 'remove') {
-												config.custom_tags = config.custom_tags.filter((t) => t !== e.option)
-												if (config?.custom_tags && config.custom_tags.length == 0) {
-													config.custom_tags = undefined
-												}
-											} else if (e.type === 'removeAll') {
-												config.custom_tags = undefined
-											} else {
-												console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
-											}
+									bind:value={
+										() => config?.custom_tags ?? [],
+										(v) => {
+											config && (config.custom_tags = v.length ? v : undefined)
 											dispatch('dirty')
 										}
-									}}
-									options={worker_tags ?? []}
-									selectedOptionsDraggable={false}
-									ulOptionsClass={'!bg-surface-secondary'}
+									}
+									items={safeSelectItems(worker_tags)}
 									placeholder="Tags"
 								/>
 							{:else}

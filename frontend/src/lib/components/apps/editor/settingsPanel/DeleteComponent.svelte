@@ -2,10 +2,14 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { deleteGridItem, findComponentSettings } from '../appUtils'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 
-	export let onDelete: (() => void) | undefined = undefined
-	export let noGrid = false
+	interface Props {
+		onDelete?: (() => void) | undefined
+		noGrid?: boolean
+	}
+
+	let { onDelete = undefined, noGrid = false }: Props = $props()
 
 	const {
 		app,

@@ -75,14 +75,16 @@ windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
+url.workspace = true
 
 semver.workspace = true
-croner = "2.0.6"
+croner = "2.2.0"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true

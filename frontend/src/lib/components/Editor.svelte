@@ -105,15 +105,10 @@
 		vimMode
 	} from '$lib/stores'
 
-	import {
-		createHash as randomHash,
-		editorConfig,
-		langToExt,
-		updateOptions,
-		extToLang
-	} from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, UserService } from '$lib/gen'
+	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
@@ -149,12 +144,17 @@
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
-	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
+	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
+	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { Selection } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -187,6 +187,7 @@
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
 	export let loadAsync = false
+	export let key: string | undefined = undefined
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -239,7 +240,7 @@
 		) {
 			return randomHash()
 		} else {
-			console.log('path', path)
+			// console.log('path', path)
 			return path as string
 		}
 	}
@@ -634,6 +635,11 @@
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
 
+	// Inline ai chat widget
+	let showInlineAIChat = false
+	let inlineAIChatSelection: Selection | null = null
+	let selectedCode = ''
+
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
 	}
@@ -647,79 +653,29 @@
 		}
 	}
 
-	$: $reviewingChanges && autocompletor?.reject()
-
-	let completorDisposable: IDisposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
-	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
-		try {
-			if (completorDisposable) {
-				completorDisposable.dispose()
-			}
-			if (!scriptLang) {
-				throw new Error('No script lang')
-			}
-			autocompletor = new Autocompletor(editor, lang, scriptLang)
 
-			// last user events (currently disabled):
-			// let lastTs = Date.now()
-			// editor.onDidChangeModelContent((e) => {
-			// 	const thisTs = Date.now()
-			// 	lastTs = thisTs
-			// 	setTimeout(() => {
-			// 		if (thisTs === lastTs) {
-			// 			autocompletor?.savePatch()
-			// 		}
-			// 	}, 150)
-			// })
-
-			completorDisposable = editor.onDidChangeCursorPosition((e) => {
-				autocompletor?.reject()
-				if ($reviewingChanges) {
-					return
-				}
-				const position = editor.getPosition()
-				if (!position) {
-					return
-				}
-				const upToText = editor.getModel()?.getValueInRange({
-					startLineNumber: position.lineNumber,
-					startColumn: 0,
-					endLineNumber: position.lineNumber,
-					endColumn: position.column
-				})
-				const lastChar = upToText ? upToText[upToText.length - 1] : ''
-				if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
-					autocompletor?.predict()
-				}
-			})
-
-			editor.onKeyDown((e) => {
-				if (e.keyCode === KeyCode.Escape) {
-					autocompletor?.reject()
-				} else if (e.keyCode === KeyCode.Tab && autocompletor?.hasChanges()) {
-					e.preventDefault()
-					e.stopPropagation()
-					autocompletor?.accept()
-					autocompletor?.predict()
-				}
-			})
-		} catch (err) {
-			console.error('Could not add supercompletor', err)
+	function addAutoCompletor(
+		editor: meditor.IStandaloneCodeEditor,
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+	) {
+		if (autocompletor) {
+			autocompletor.dispose()
 		}
+		autocompletor = new Autocompletor(editor, scriptLang)
 	}
 
 	$: $copilotInfo.enabled &&
-		$copilotInfo.codeCompletionModel &&
 		$codeCompletionSessionEnabled &&
+		Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
 		initialized &&
 		editor &&
 		scriptLang &&
-		addSuperCompletor(editor)
+		addAutoCompletor(editor, scriptLang)
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
 
-	$: !$codeCompletionSessionEnabled && (completorDisposable?.dispose(), autocompletor?.reject())
+	$: !$codeCompletionSessionEnabled && autocompletor?.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -1276,6 +1232,10 @@
 				tabSize: lang == 'python' ? 4 : 2,
 				folding
 			})
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
+			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
 			return
@@ -1305,8 +1265,31 @@
 			dispatch('blur')
 		})
 
+		editor?.onDidChangeCursorPosition((event) => {
+			if (key) editorPositionMap[key] = event.position
+		})
+
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
+
+			// for escape we use onkeydown instead of addCommand because addCommand on escape specifically prevents default behavior (like autocomplete cancellation)
+			editor?.onKeyDown((e) => {
+				if (e.keyCode === KeyCode.Escape) {
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					}
+					aiChatEditorHandler?.rejectAll()
+				}
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.DownArrow, function () {
+				if (aiChatManager.pendingNewCode) {
+					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					}
+				}
+			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
@@ -1331,13 +1314,25 @@
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
 				if (hasSelection && selectedLines) {
-					dispatch('addSelectedLinesToAiChat', {
-						lines: selectedLines,
-						startLine: selection.startLineNumber,
-						endLine: selection.endLineNumber
-					})
+					aiChatManager.addSelectedLinesToContext(
+						selectedLines,
+						selection.startLineNumber,
+						selection.endLineNumber
+					)
 				} else {
-					dispatch('toggleAiPanel')
+					aiChatManager.toggleOpen()
+					aiChatManager.focusInput()
+				}
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
+				if ($copilotInfo.enabled) {
+					aiChatEditorHandler?.rejectAll()
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					} else {
+						showAIInlineWidget()
+					}
 				}
 			})
 
@@ -1367,6 +1362,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				closeAIInlineWidget()
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1495,10 +1491,35 @@
 		})
 	}
 
+	function showAIInlineWidget() {
+		if (!editor) return
+
+		inlineAIChatSelection = editor.getSelection()
+		if (!inlineAIChatSelection) {
+			return
+		}
+		const model = editor.getModel()
+		selectedCode = ''
+		if (model) {
+			selectedCode = model.getValueInRange(inlineAIChatSelection)
+		}
+		showInlineAIChat = true
+		aiChatInlineWidget?.focusInput()
+	}
+
+	function closeAIInlineWidget() {
+		showInlineAIChat = false
+		inlineAIChatSelection = null
+		selectedCode = ''
+	}
+
+	let aiChatInlineWidget: AIChatInlineWidget | null = null
+
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
 			if (loadAsync) {
-				setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
+				loadTimeout = setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
 			} else {
 				let m = await loadMonaco()
 				disposeMethod = m
@@ -1513,9 +1534,11 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-		completorDisposable && completorDisposable.dispose()
+		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		loadTimeout && clearTimeout(loadTimeout)
+		aiChatEditorHandler?.clear()
 	})
 
 	async function genRoot(hostname: string) {
@@ -1532,8 +1555,23 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+			aiChatEditorHandler?.rejectAll()
+		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
+			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+		}
+	}
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
@@ -1547,12 +1585,23 @@
 
 {#if $reviewingChanges}
 	<GlobalReviewButtons
-		on:acceptAll={() => {
+		onAcceptAll={() => {
 			aiChatEditorHandler?.acceptAll()
 		}}
-		on:rejectAll={() => {
+		onRejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
+	/>
+{/if}
+
+{#if editor && $copilotInfo.enabled && aiChatEditorHandler}
+	<AIChatInlineWidget
+		bind:this={aiChatInlineWidget}
+		bind:show={showInlineAIChat}
+		{editor}
+		editorHandler={aiChatEditorHandler}
+		selection={inlineAIChatSelection}
+		{selectedCode}
 	/>
 {/if}
 

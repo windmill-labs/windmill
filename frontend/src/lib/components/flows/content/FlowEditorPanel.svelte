@@ -6,13 +6,16 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import type { FlowModule, Flow } from '$lib/gen'
+	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
+	import FlowResult from './FlowResult.svelte'
+	import type { Writable } from 'svelte/store'
+	import type { DurationStatus } from '$lib/components/graph'
 
 	interface Props {
 		noEditor?: boolean
@@ -25,6 +28,14 @@
 			  })
 			| undefined
 		onDeployTrigger?: (trigger: Trigger) => void
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		onTestFlow?: () => void
+		job?: Job
+		isOwner?: boolean
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		onOpenDetails?: () => void
 	}
 
 	let {
@@ -33,7 +44,15 @@
 		newFlow = false,
 		disabledFlowInputs = false,
 		savedFlow = undefined,
-		onDeployTrigger = () => {}
+		onDeployTrigger = () => {},
+		forceTestTab,
+		highlightArg,
+		onTestFlow,
+		job,
+		isOwner,
+		localDurationStatuses,
+		suspendStatus,
+		onOpenDetails
 	}: Props = $props()
 
 	const {
@@ -67,7 +86,7 @@
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
+	<FlowSettings {enableAi} {noEditor} />
 {:else if $selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
@@ -78,9 +97,10 @@
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
+		{onTestFlow}
 	/>
 {:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
+	<FlowResult {noEditor} {job} {isOwner} {localDurationStatuses} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
@@ -138,6 +158,8 @@
 					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
 					savedModule={savedFlow?.value.modules[index]}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/key}

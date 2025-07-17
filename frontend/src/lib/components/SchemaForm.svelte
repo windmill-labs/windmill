@@ -163,19 +163,22 @@
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
 			if (schema?.order && Array.isArray(schema.order)) {
 				const n = {}
-
 				;(schema.order as string[]).forEach((x) => {
 					if (schema.properties && schema.properties[x] != undefined) {
 						n[x] = schema.properties[x]
 					}
 				})
-
 				Object.keys(schema.properties ?? {})
 					.filter((x) => !schema.order?.includes(x))
 					.forEach((x) => {
 						n[x] = schema.properties[x]
 					})
-				schema.properties = n
+				if (
+					!deepEqual(schema.properties, n) ||
+					!deepEqual(Object.keys(schema.properties), Object.keys(n))
+				) {
+					schema.properties = n
+				}
 			}
 			let nkeys = Object.keys(schema.properties ?? {})
 
@@ -221,24 +224,29 @@
 			args = {}
 		}
 	})
-	$effect.pre(() => {
-		const newKeys = [
-			...new Set(
-				(Array.isArray(schema?.order)
-					? schema?.order
-					: Object.keys(schema?.properties ?? {})) as string[]
-			)
-		]
 
-		if (!deepEqual(keys, newKeys)) {
-			keys = newKeys
-		}
-	})
 	$effect.pre(() => {
+		schema?.order
+		Object.keys(schema?.properties ?? {})
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	$effect.pre(() => {
 		;[schema, args]
+
+		if (args && typeof args == 'object') {
+			let oneShowExpr = false
+			for (const key of fields) {
+				if (schema?.properties?.[key.value]?.showExpr) {
+					oneShowExpr = true
+				}
+			}
+			if (!oneShowExpr) {
+				return
+			}
+			for (const key in args) {
+				args[key]
+			}
+		}
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect.pre(() => {
@@ -254,7 +262,8 @@
 		</Button>
 	</div>
 {/if}
-
+<!-- {JSON.stringify(schema.order)} -->
+<!-- {JSON.stringify(schema)} -->
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}

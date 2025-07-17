@@ -16,8 +16,13 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
+import {
+	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareScriptSystemMessage,
+	prepareScriptTools
+} from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
+import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
@@ -29,14 +34,10 @@ import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/type
 import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
-
-type TriggerablesMap = Record<
-	string,
-	{
-		description: string
-		onTrigger: ((value?: string) => void) | undefined
-	}
->
+import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import type { ContextElement } from './context'
+import type { Selection } from 'monaco-editor'
+import type AIChatInput from './AIChatInput.svelte'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -46,17 +47,16 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application or help them find something. Do not use it otherwise.
+	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
 	`
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
+	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
@@ -64,7 +64,7 @@ class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	automaticScroll = $state<boolean>(true)
+	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
 		content: ''
@@ -72,12 +72,13 @@ class AIChatManager {
 	tools = $state<Tool<any>[]>([])
 	helpers = $state<any | undefined>(undefined)
 
-	triggerablesByAI = $state<TriggerablesMap>({})
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
+	apiTools = $state<Tool<any>[]>([])
+	aiChatInput = $state<AIChatInput | null>(null)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -86,7 +87,29 @@ class AIChatManager {
 		ask: true
 	})
 
-	open = $derived(this.size > 0)
+	open = $derived(chatState.size > 0)
+
+	loadApiTools = async () => {
+		try {
+			this.apiTools = await loadApiTools()
+			if (this.mode === AIMode.NAVIGATOR) {
+				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			}
+		} catch (err) {
+			console.error('Error loading api tools', err)
+			this.apiTools = []
+		}
+	}
+
+	setAiChatInput(aiChatInput: AIChatInput | null) {
+		this.aiChatInput = aiChatInput
+	}
+
+	focusInput() {
+		if (this.aiChatInput) {
+			this.aiChatInput.focusInput()
+		}
+	}
 
 	updateMode(currentMode: AIMode) {
 		if (
@@ -117,7 +140,7 @@ class AIChatManager {
 				getLang: () => lang
 			}
 			if (options?.closeScriptSettings) {
-				const closeComponent = this.triggerablesByAI['close-script-builder-settings']
+				const closeComponent = triggerablesByAi['close-script-builder-settings']
 				if (closeComponent) {
 					closeComponent.onTrigger?.()
 				}
@@ -129,7 +152,7 @@ class AIChatManager {
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			this.systemMessage = prepareAskSystemMessage()
@@ -166,32 +189,32 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
 	}
 
 	openChat = () => {
-		this.size = this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE
+		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
-		this.savedSize = this.size
-		this.size = 0
+		this.savedSize = chatState.size
+		chatState.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		if (this.size > 0) {
-			this.savedSize = this.size
+		if (chatState.size > 0) {
+			this.savedSize = chatState.size
 		}
-		this.size = this.size === 0 ? (this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
+		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
+		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -214,10 +237,37 @@ class AIChatManager {
 		}
 	}
 
+	retryRequest = (messageIndex: number) => {
+		const message = this.displayMessages[messageIndex]
+		if (message && message.role === 'user') {
+			this.restartGeneration(messageIndex)
+			message.error = false
+		} else {
+			throw new Error('No user message found at the specified index')
+		}
+	}
+
+	private getLastUserMessage = () => {
+		for (let i = this.displayMessages.length - 1; i >= 0; i--) {
+			const message = this.displayMessages[i]
+			if (message.role === 'user') {
+				return message
+			}
+		}
+	}
+
+	private flagLastMessageAsError = () => {
+		const lastUserMessage = this.getLastUserMessage()
+		if (lastUserMessage) {
+			lastUserMessage.error = true
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
-		callbacks
+		callbacks,
+		systemMessage: systemMessageOverride
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -225,12 +275,13 @@ class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
 			let completion: any = null
 
 			while (true) {
-				const systemMessage = this.systemMessage
+				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const tools = this.tools
 				const helpers = this.helpers
 
@@ -274,9 +325,14 @@ class AIChatManager {
 							callbacks.onNewToken(delta)
 						}
 						const toolCalls = c.choices[0].delta.tool_calls || []
+						if (toolCalls.length > 0 && answer) {
+							// if tool calls are present but we have some textual content already, we need to display it to the user first
+							callbacks.onMessageEnd()
+							answer = ''
+						}
 						for (const toolCall of toolCalls) {
 							const { index } = toolCall
-							const finalToolCall = finalToolCalls[index]
+							let finalToolCall = finalToolCalls[index]
 							if (!finalToolCall) {
 								finalToolCalls[index] = toolCall
 							} else {
@@ -286,6 +342,19 @@ class AIChatManager {
 									} else {
 										finalToolCall.function.arguments =
 											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+									}
+								}
+							}
+							finalToolCall = finalToolCalls[index]
+							if (finalToolCall?.function) {
+								const {
+									function: { name: funcName },
+									id: toolCallId
+								} = finalToolCall
+								if (funcName && toolCallId) {
+									const tool = tools.find((t) => t.def.function.name === funcName)
+									if (tool && tool.preAction) {
+										tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 									}
 								}
 							}
@@ -327,13 +396,95 @@ class AIChatManager {
 					}
 				}
 			}
-			return messages
 		} catch (err) {
+			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err
-			} else {
-				return messages
 			}
+		}
+	}
+
+	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
+		// Validate inputs
+		if (!instructions.trim()) {
+			throw new Error('Instructions are required')
+		}
+		this.abortController = new AbortController()
+		const lang = this.scriptEditorOptions?.lang ?? 'bun'
+		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
+		const startLine = selection.startLineNumber
+		const endLine = selection.endLineNumber
+		selectedContext.push({
+			type: 'code_piece',
+			lang,
+			title: `L${startLine}-L${endLine}`,
+			startLine,
+			endLine,
+			content: selectedCode
+		})
+
+		const systemMessage: ChatCompletionSystemMessageParam = {
+			role: 'system',
+			content: INLINE_CHAT_SYSTEM_PROMPT
+		}
+
+		let reply = ''
+
+		try {
+			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+				isPreprocessor: false
+			})
+			const messages = [userMessage]
+
+			const params = {
+				messages,
+				abortController: this.abortController,
+				callbacks: {
+					onNewToken: (token: string) => {
+						reply += token
+					},
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
+				},
+				systemMessage
+			}
+
+			await this.chatRequest({ ...params })
+
+			// Validate we received a response
+			if (!reply.trim()) {
+				throw new Error('AI response was empty')
+			}
+
+			// Try to extract new code from response
+			const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
+			if (newCodeMatch && newCodeMatch[1]) {
+				const code = newCodeMatch[1].trim()
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// Fallback: try to take everything after the last <new_code> tag
+			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
+			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
+				const code = lastNewCodeMatch[1].trim().replace(/```/g, '')
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// If no code tags found, throw error with helpful message
+			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
+		} catch (error) {
+			// if abort controller is aborted, don't throw an error
+			if (this.abortController?.signal.aborted) {
+				return
+			}
+			console.error('Unexpected error in sendInlineRequest:', error)
+			throw new Error('An unexpected error occurred. Please try again.')
 		}
 	}
 
@@ -364,15 +515,28 @@ class AIChatManager {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
-			this.automaticScroll = true
+			this.#automaticScroll = true
 			this.abortController = new AbortController()
+
+			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
+				throw new Error('No flow helpers found')
+			}
+
+			let snapshot: ExtendedOpenFlow | undefined = undefined
+			if (this.mode === AIMode.FLOW) {
+				this.flowAiChatHelpers!.rejectAllModuleActions()
+				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
+				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
+			}
 
 			this.displayMessages = [
 				...this.displayMessages,
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined
+					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
+					snapshot,
+					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
 			const oldInstructions = this.instructions
@@ -428,14 +592,7 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					onToolCall: (id, content) => {
-						this.displayMessages = [
-							...this.displayMessages,
-							{ role: 'tool', tool_call_id: id, content }
-						]
-					},
-					onFinishToolCall: (id, content) => {
-						console.log('onFinishToolCall', id, content)
+					setToolStatus: (id, content) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)
@@ -448,31 +605,17 @@ class AIChatManager {
 				}
 			}
 
-			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
-				throw new Error('No flow helpers found')
+			if (this.mode === AIMode.NAVIGATOR && this.apiTools.length === 0) {
+				await this.loadApiTools()
 			}
+
 			await this.chatRequest({
 				...params
 			})
-			if (this.currentReply) {
-				// just in case the onMessageEnd is not called (due to an error for instance)
-				this.displayMessages = [
-					...this.displayMessages,
-					{
-						role: 'assistant',
-						content: this.currentReply,
-						contextElements:
-							this.mode === AIMode.SCRIPT
-								? oldSelectedContext.filter((c) => c.type === 'code')
-								: undefined
-					}
-				]
-				this.currentReply = ''
-			}
-
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
+			this.flagLastMessageAsError()
 			if (err instanceof Error) {
 				sendUserToast('Failed to send request: ' + err.message, true)
 			} else {
@@ -484,8 +627,31 @@ class AIChatManager {
 	}
 
 	cancel = () => {
-		this.currentReply = ''
 		this.abortController?.abort()
+	}
+
+	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
+		const userMessage = this.displayMessages[displayMessageIndex]
+
+		if (!userMessage || userMessage.role !== 'user') {
+			throw new Error('No user message found at the specified index')
+		}
+
+		// Remove all messages including and after the specified user message
+		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
+
+		// Find corresponding message in actual messages and remove it and everything after it
+		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
+
+		if (actualMessageIndex === -1) {
+			throw new Error('No actual user message found to restart from')
+		}
+
+		this.messages = this.messages.slice(0, actualMessageIndex)
+
+		// Resend the request with the same instructions
+		this.instructions = newContent ?? userMessage.content
+		this.sendRequest()
 	}
 
 	fix = () => {
@@ -504,6 +670,7 @@ class AIChatManager {
 		}
 		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		this.focusInput()
 	}
 
 	saveAndClear = async () => {
@@ -517,8 +684,16 @@ class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
-			this.automaticScroll = true
+			this.#automaticScroll = true
 		}
+	}
+
+	get automaticScroll() {
+		return this.#automaticScroll
+	}
+
+	disableAutomaticScroll = () => {
+		this.#automaticScroll = false
 	}
 
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {

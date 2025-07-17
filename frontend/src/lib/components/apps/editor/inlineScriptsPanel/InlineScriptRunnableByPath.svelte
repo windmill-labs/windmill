@@ -1,10 +1,13 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
@@ -27,28 +30,39 @@
 	import RunButton from '$lib/components/RunButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	export let runnable: RunnableByPath
-	export let fields:
-		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-		| undefined
-	export let id: string
-	export let rawApps = false
-	export let isLoading = false
-	export let onRun = async () => {}
-	export let onCancel = async () => {}
+	interface Props {
+		runnable: RunnableByPath
+		fields:
+			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+			| undefined
+		id: string
+		rawApps?: boolean
+		isLoading?: boolean
+		onRun?: any
+		onCancel?: any
+	}
+
+	let {
+		runnable = $bindable(),
+		fields = $bindable(),
+		id,
+		rawApps = false,
+		isLoading = false,
+		onRun = async () => {},
+		onCancel = async () => {}
+	}: Props = $props()
 
 	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
 
-	let drawerFlowViewer: Drawer
-	let flowPath: string = ''
-	let notFound = false
+	let drawerFlowViewer: Drawer | undefined = $state(undefined)
+	let flowPath: string = $state('')
+	let notFound = $state(false)
 
 	const dispatch = createEventDispatcher()
 
 	async function refreshScript(runnable: RunnableByPath) {
 		try {
 			let { schema } = await getScriptByPath(runnable.path)
-			console.log('schema1', schema)
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
 				if (!runnable.schema.order) {
@@ -111,7 +125,12 @@
 		}
 		lastRunnable = runnable
 	}
-	$: refresh(runnable)
+	$effect(() => {
+		runnable.path
+		untrack(() => {
+			refresh(runnable)
+		})
+	})
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
@@ -161,7 +180,7 @@
 				startIcon={{ icon: Eye }}
 				on:click={() => {
 					flowPath = runnable.path
-					drawerFlowViewer.openDrawer()
+					drawerFlowViewer?.openDrawer()
 				}}
 			>
 				Expand
@@ -216,7 +235,7 @@
 			closeButton
 			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Button
 					nonCaptureEvent={true}
 					btnClasses={'bg-surface text-primay hover:bg-hover'}
@@ -224,16 +243,16 @@
 					variant="border"
 					size="xs">Cache</Button
 				>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
 				settings directly by editing it. The cache will be shared by any app or flow that uses this
 				{runnable.runType}.
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 
 		<input
-			on:keydown|stopPropagation
+			onkeydown={stopPropagation(bubble('keydown'))}
 			bind:value={runnable.name}
 			placeholder="Background runnable name"
 			class="!text-xs !rounded-xs"

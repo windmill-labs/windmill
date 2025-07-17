@@ -11,7 +11,7 @@
 		orderedJsonStringify,
 		type StateStore
 	} from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { writable } from 'svelte/store'
@@ -22,6 +22,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { untrack } from 'svelte'
+	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 
 	let version: undefined | number = $state(undefined)
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -73,9 +74,12 @@
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
+	let loadedFromHistoryFromUrl:
+		| { flowJobInitial: boolean | undefined; stepsState: Record<string, stepState> }
+		| undefined = $state(undefined)
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
-
+	let notFound = $state(false)
 	async function loadFlow(): Promise<void> {
 		console.log('loadFlow')
 		loading = true
@@ -89,7 +93,13 @@
 					workspace: $workspaceStore!,
 					path: statePath
 				})
-			).id
+			)?.id
+
+			if (version == undefined) {
+				notFound = true
+				sendUserToast(`Flow not found at path ${statePath}`, true)
+				return
+			}
 
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
@@ -106,8 +116,10 @@
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			loadedFromHistoryFromUrl = stateLoadedFromUrl.loadedFromHistory
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -152,10 +164,10 @@
 				path: $page.params.path
 			})
 			savedFlow = {
-				...structuredClone(flowWithDraft),
+				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
 					? {
-							...structuredClone(flowWithDraft.draft),
+							...structuredClone($state.snapshot(flowWithDraft.draft)),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 						}
 					: undefined
@@ -212,6 +224,7 @@
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
+		flowBuilder?.loadFlowState()
 	}
 
 	$effect(() => {
@@ -255,37 +268,44 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<FlowBuilder
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:saveDraftOnlyAtNewPath={(e) => {
-		const { path, selectedId } = e.detail
-		goto(`/flows/edit/${path}?selected=${selectedId}`)
-	}}
-	on:historyRestore={() => {
-		loadFlow()
-	}}
-	{flowStore}
-	{flowStateStore}
-	initialPath={$page.params.path}
-	newFlow={false}
-	{selectedId}
-	{initialArgs}
-	{loading}
-	bind:this={flowBuilder}
-	bind:savedFlow
-	{diffDrawer}
-	{savedPrimarySchedule}
-	{draftTriggersFromUrl}
-	{selectedTriggerIndexFromUrl}
-	{version}
->
-	<UnsavedConfirmationModal
+{#if notFound}
+	<div class="flex flex-col items-center justify-center h-full">
+		<h1 class="text-2xl font-bold">Flow not found at path {$page.params.path}</h1>
+		<p class="text-gray-500">The flow you are looking for does not exist.</p>
+	</div>
+{:else}
+	<FlowBuilder
+		onDeploy={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onDetails={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onSaveDraftOnlyAtNewPath={(e) => {
+			goto(`/flows/edit/${e.path}?selected=${e.selectedId}`)
+		}}
+		onHistoryRestore={() => {
+			loadFlow()
+		}}
+		{flowStore}
+		{flowStateStore}
+		initialPath={$page.params.path}
+		newFlow={false}
+		{selectedId}
+		{initialArgs}
+		{loading}
+		bind:this={flowBuilder}
+		bind:savedFlow
 		{diffDrawer}
-		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
-	/>
-</FlowBuilder>
+		{savedPrimarySchedule}
+		{draftTriggersFromUrl}
+		{selectedTriggerIndexFromUrl}
+		{version}
+		{loadedFromHistoryFromUrl}
+	>
+		<UnsavedConfirmationModal
+			{diffDrawer}
+			getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
+		/>
+	</FlowBuilder>
+{/if}

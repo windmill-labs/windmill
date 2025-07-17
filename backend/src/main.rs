@@ -63,6 +63,9 @@ use windmill_common::{
     KillpillSender, METRICS_ENABLED,
 };
 
+#[cfg(feature = "enterprise")]
+use windmill_common::worker::CLOUD_HOSTED;
+
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
 
@@ -266,6 +269,21 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
         tracing::error!("Failed to install rustls crypto provider");
+    }
+
+    #[cfg(feature = "enterprise")]
+    if *CLOUD_HOSTED {
+        // Block access to AWS/GCP metadata endpoints for security in cloud-hosted mode.
+        // This is a best-effort attempt; if it fails, just warn and continue.
+        if let Err(e) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP")
+            .status()
+        {
+            tracing::warn!("Failed to run iptables to block metadata endpoint: {e}");
+        } else {
+            tracing::info!("Successfully blocked metadata endpoint using iptables");
+        }
     }
 
     let hostname = HOSTNAME.to_owned();
@@ -1102,6 +1120,9 @@ Windmill Community Edition {GIT_VERSION}
                         _ = tokio::time::sleep(Duration::from_secs(12 * 60 * 60)) => {
                             tracing::info!("Reloading config after 12 hours");
                             initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
+                            if let Err(e) = reload_license_key(&conn).await {
+                                tracing::error!("Failed to reload license key on agent: {e:#}");
+                            }
                             #[cfg(feature = "enterprise")]
                             ee_oss::verify_license_key().await;
                         }

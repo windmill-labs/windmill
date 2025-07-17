@@ -69,11 +69,10 @@
 		const newArgs: Record<string, unknown> = {}
 
 		for (const key in args) {
-			if (result?.properties[key]) {
+			if (result?.properties?.[key]) {
 				newArgs[key] = args[key]
 			}
 		}
-
 		outputs.values.set(newArgs, true)
 		if (iterContext && listInputs) {
 			listInputs.set(id, newArgs)
@@ -113,7 +112,7 @@
 	let previousDefault = $state(resolvedConfig.defaultValues)
 
 	function onDefaultChange() {
-		previousDefault = structuredClone(resolvedConfig.defaultValues)
+		previousDefault = structuredClone($state.snapshot(resolvedConfig.defaultValues))
 		args = previousDefault ?? {}
 	}
 
@@ -125,15 +124,23 @@
 		return policy
 	}
 	$effect(() => {
-		args && untrack(() => handleArgsChange())
+		if (!args) return
+		for (const key in args) {
+			args[key]
+		}
+		result
+		untrack(() => handleArgsChange())
 	})
 	$effect(() => {
 		outputs.valid.set(valid)
 	})
 	$effect(() => {
 		resolvedConfig.defaultValues &&
-			!deepEqual(previousDefault, resolvedConfig.defaultValues) &&
-			onDefaultChange()
+			!deepEqual(
+				untrack(() => previousDefault),
+				resolvedConfig.defaultValues
+			) &&
+			untrack(() => onDefaultChange())
 	})
 </script>
 

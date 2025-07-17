@@ -9,8 +9,12 @@
 	import type { Runnable } from '../apps/inputType'
 	import { getNextId } from '$lib/components/flows/idUtils'
 
-	export let selectedRunnable: string | undefined
-	export let runnables: Writable<Record<string, Runnable>>
+	interface Props {
+		selectedRunnable: string | undefined
+		runnables: Writable<Record<string, Runnable>>
+	}
+
+	let { selectedRunnable = $bindable(), runnables }: Props = $props()
 
 	function createBackgroundScript() {
 		const nid = getNextId(Object.keys($runnables ?? {}))
@@ -23,7 +27,6 @@
 			}
 			return r
 		})
-		console.log('BAR 2')
 		selectedRunnable = nid
 	}
 
@@ -31,7 +34,7 @@
 </script>
 
 <PanelSection title="Backend Runnables" id="app-editor-runnable-panel">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<HideButton
 				direction="bottom"
@@ -55,7 +58,7 @@
 				<Plus size={14} class="!text-primary" />
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-1 w-full">
@@ -68,7 +71,7 @@
 								{selectedRunnable === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => (selectedRunnable = id)}
+								onclick={() => (selectedRunnable = id)}
 							>
 								<span class="text-2xs truncate">{runnable?.name}</span>
 								<Badge color="indigo">{id}</Badge>

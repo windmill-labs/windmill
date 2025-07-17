@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
@@ -11,12 +14,23 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let customCss: ComponentCustomCSS<'accordionlistcomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean | undefined
-	export let componentContainerHeight: number
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		customCss?: ComponentCustomCSS<'accordionlistcomponent'> | undefined
+		render: boolean
+		initializing: boolean | undefined
+		componentContainerHeight: number
+	}
+
+	let {
+		id,
+		componentInput,
+		customCss = undefined,
+		render,
+		initializing = $bindable(),
+		componentContainerHeight
+	}: Props = $props()
 
 	type AccordionListValue = { header: string; [key: string]: any }
 
@@ -24,16 +38,18 @@
 		value: AccordionListValue[]
 	}
 
-	$: accordionInput = componentInput as InternalAccordionListInput
+	let accordionInput = $derived(componentInput as InternalAccordionListInput)
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = render
+	let everRender = $state(render)
 
-	$: render && !everRender && (everRender = true)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
-	let activeIndex: number = 0
+	let activeIndex: number = $state(0)
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -49,17 +65,19 @@
 		}
 	}
 
-	let css = initCss($app.css?.accordionlistcomponent, customCss)
-	let result: any[] | undefined = undefined
+	let css = $state(initCss($app.css?.accordionlistcomponent, customCss))
+	let result: any[] | undefined = $state(undefined)
 
-	let inputs = {}
+	let inputs = $state({})
 
-	$: $selectedComponent?.includes(id) &&
-		$focusedGrid === undefined &&
-		($focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: 0
-		})
+	$effect.pre(() => {
+		$selectedComponent?.includes(id) &&
+			$focusedGrid === undefined &&
+			($focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: 0
+			})
+	})
 
 	function toggleAccordion(index: number) {
 		activeIndex = activeIndex === index ? -1 : index
@@ -95,8 +113,8 @@
 					{#each result ?? [] as value, index}
 						<div class="border-b">
 							<button
-								on:pointerdown|stopPropagation
-								on:click={() => toggleAccordion(index)}
+								onpointerdown={stopPropagation(bubble('pointerdown'))}
+								onclick={() => toggleAccordion(index)}
 								class={twMerge(
 									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
 									'wm-tabs-alltabs',

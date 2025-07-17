@@ -44,7 +44,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::auth::fetch_authed_from_permissioned_as;
+use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::COOKIE_NAME;
@@ -243,13 +243,14 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email: email,
+                email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                token_prefix: authed.token_prefix,
             };
 
             API_AUTHED_CACHE.insert(
@@ -690,7 +691,12 @@ async fn logout(
         };
         audit_log(
             &mut *tx,
-            &AuditAuthor { email: email.clone(), username: email, username_override: None },
+            &AuditAuthor {
+                email: email.clone(),
+                username: email,
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            },
             audit_message,
             ActionKind::Delete,
             "global",
@@ -1639,8 +1645,12 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
-    let audit_author =
-        AuditAuthor { email: email.clone(), username: email.clone(), username_override: None };
+    let audit_author = AuditAuthor {
+        email: email.clone(),
+        username: email.clone(),
+        username_override: None,
+        token_prefix: None,
+    };
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -1688,6 +1698,13 @@ async fn login(
             }
 
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
+            let audit_author = AuditAuthor {
+                email: email.clone(),
+                username: email.clone(),
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            };
 
             audit_log(
                 &mut *tx,
@@ -1758,6 +1775,7 @@ async fn refresh_token(
             email: authed.email.to_string(),
             username: authed.email.to_string(),
             username_override: None,
+            token_prefix: authed.token_prefix,
         },
         "users.token.refresh",
         ActionKind::Create,
@@ -1798,6 +1816,7 @@ pub async fn create_session_token<'c>(
                 email: email.to_string(),
                 username: email.to_string(),
                 username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
             },
             "users.token.invalidate_old_sessions",
             ActionKind::Delete,
@@ -1853,6 +1872,18 @@ async fn create_token(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    if *CLOUD_HOSTED {
+        let nb_tokens =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
+                .fetch_one(&db)
+                .await?;
+        if nb_tokens.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of tokens (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes, workspace_id)
@@ -2607,6 +2638,15 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query!(

@@ -19,6 +19,7 @@
 	import {
 		enterpriseLicense,
 		superadmin,
+		devopsRole,
 		userStore,
 		workspaceStore,
 		userWorkspaces
@@ -40,7 +41,7 @@
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -106,7 +107,7 @@
 	}
 
 	let defaultTagPerWorkspace: boolean | undefined = undefined
-	let defaultTagWorkspaces: string[] | undefined = undefined
+	let defaultTagWorkspaces: string[] = []
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
@@ -131,7 +132,7 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	$: $superadmin && loadDefaultTagsPerWorkspace()
+	$: ($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -271,7 +272,7 @@
 	}
 </script>
 
-{#if $superadmin}
+{#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
@@ -331,7 +332,7 @@
 			tooltip="The workers are the dutiful servants that execute the jobs."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 		>
-			{#if $superadmin}
+			{#if $superadmin || $devopsRole}
 				<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
 					<div>
 						<AssignableTags
@@ -392,7 +393,7 @@
 				>
 				<div></div>
 
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex flex-row gap-4 items-center">
 						<Button
 							size="sm"
@@ -484,27 +485,7 @@
 			{#if (groupedWorkers ?? []).length > 5}
 				<div class="flex gap-2 items-center">
 					<div class="text-secondary text-sm">Worker group:</div>
-					<Select
-						items={groupedWorkers.map((x) => ({ value: x[0], label: x[0] }))}
-						bind:value={selectedTab}
-					/>
-
-					<!-- <select
-					class="max-w-64"
-					bind:value={selectedTab}
-					on:change={() => {
-						search = ''
-					}}
-				>
-					{#each groupedWorkers.map((x) => x[0]) as name (name)}
-						<option value={name}
-							>{name} ({pluralize(
-								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
-								'worker'
-							)})
-						</option>
-					{/each}
-				</select> -->
+					<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
 				</div>
 			{:else}
 				<Tabs bind:selected={selectedTab}>
@@ -577,7 +558,7 @@
 									<Cell head>Last ping</Cell>
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
-									{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 										<Cell head>Last job</Cell>
 										<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 									{/if}
@@ -585,7 +566,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									{#if $superadmin}
+									{#if $superadmin || $devopsRole}
 										<Cell head>
 											Live Shell
 											<Tooltip>
@@ -604,7 +585,7 @@
 									<tr class="border-t">
 										<Cell
 											first
-											colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
+											colspan={(!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)
 												? 12
 												: 9}
 											scope="colgroup"
@@ -655,7 +636,7 @@
 												>
 												<Cell>{displayDate(started_at)}</Cell>
 												<Cell>{jobs_executed}</Cell>
-												{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+												{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 													<Cell>
 														{#if last_job_id}
 															<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
@@ -715,7 +696,7 @@
 															: 'Unknown'}
 													</Badge>
 												</Cell>
-												{#if $superadmin}
+												{#if $superadmin || $devopsRole}
 													<Cell>
 														<Button
 															size="xs"

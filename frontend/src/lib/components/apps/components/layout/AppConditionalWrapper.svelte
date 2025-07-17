@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
@@ -9,12 +9,23 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'conditionalwrapper'> | undefined = undefined
-	export let render: boolean
-	export let conditions: RichConfiguration[]
-	export let onTabChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?: ComponentCustomCSS<'conditionalwrapper'> | undefined
+		render: boolean
+		conditions: RichConfiguration[]
+		onTabChange?: string[] | undefined
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		customCss = undefined,
+		render,
+		conditions,
+		onTabChange = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -31,8 +42,10 @@
 		selectedTabIndex: 0
 	})
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -41,17 +54,16 @@
 		}
 	}
 
-	let css = initCss($app.css?.conditionalwrapper, customCss)
+	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
 
-	let resolvedConditions: boolean[] = conditions.map((_x) => false)
-	let selectedConditionIndex = 0
+	let resolvedConditions: boolean[] = $state(conditions.map((_x) => false))
+	let selectedConditionIndex = $state(0)
 
 	function handleResolvedConditions() {
 		const slicedArray = resolvedConditions.slice(0, conditions.length)
 		const firstTrueIndex = slicedArray.findIndex((c) => c)
 
 		outputs.conditions.set(slicedArray, true)
-
 		setSelectedIndex(firstTrueIndex)
 	}
 
@@ -66,7 +78,10 @@
 		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
-	$: resolvedConditions && handleResolvedConditions()
+	$effect.pre(() => {
+		resolvedConditions && resolvedConditions.forEach((c) => c)
+		resolvedConditions && untrack(() => handleResolvedConditions())
+	})
 
 	$componentControl[id] = {
 		setTab: (conditionIndex: number) => {

@@ -10,6 +10,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
+		settings?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -34,6 +35,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
+	tagSelectPlaceholder?: string
+	tagSelectNoLabel?: boolean
 }
 
 export type DisplayResultUi = {
@@ -65,6 +68,7 @@ export type EditorBarUi = {
 	library?: boolean
 	useVsCode?: boolean
 	diffMode?: boolean
+	s3object?: boolean
 }
 
 export type EditableSchemaFormUi = {
@@ -77,6 +81,7 @@ export type SettingsPanelMetadataUi = {
 	disableScriptKind?: boolean
 	editableSchemaForm?: EditableSchemaFormUi
 	disableMute?: boolean
+	disableAiFilling?: boolean
 }
 
 export type SettingsPanelUi = {
@@ -104,7 +109,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 	}
 	settingsPanel?: SettingsPanelUi
 	disableTooltips?: boolean
-
 	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi
+	tagSelectPlaceholder?: string
 }

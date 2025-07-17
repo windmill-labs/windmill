@@ -5,17 +5,16 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
+	import { PostgresTriggerService, type Language, type Relations, type Retry } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, X } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import MultiSelect from 'svelte-multiselect'
 	import PublicationPicker from './PublicationPicker.svelte'
 	import SlotPicker from './SlotPicker.svelte'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -28,8 +27,11 @@
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import { fade } from 'svelte/transition'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -95,7 +97,7 @@
 	let selectedPublicationAction: actions | undefined = $state(undefined)
 	let selectedSlotAction: actions | undefined = $state(undefined)
 	let publicationItems: string[] = $state([])
-	let transactionType: string[] = ['Insert', 'Update', 'Delete']
+	let transactionType: string[] = $state(['Insert', 'Update', 'Delete'])
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let basic_mode = $derived(tab === 'basic')
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -103,6 +105,11 @@
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -257,6 +264,10 @@
 					table_to_track: []
 				}
 			]
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -279,7 +290,10 @@
 							transaction_to_track: transaction_to_track,
 							table_to_track: relations
 						}
-					: undefined
+					: undefined,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 		return cfg
 	}
@@ -296,6 +310,10 @@
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 		transaction_to_track = [...cfg?.publication?.transaction_to_track]
 		relations = cfg?.publication?.table_to_track ?? []
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -441,14 +459,14 @@
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Postgres trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render actionsSnippet()}
-		</svelte:fragment>
+		{/snippet}
 		{@render content()}
 	</Section>
 {/if}
@@ -525,6 +543,7 @@
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
+							clearable
 						/>
 
 						{#if emptyString(script_path) && is_flow === false}
@@ -551,11 +570,11 @@
 				</Section>
 			{/if}
 			<Section label="Database">
-				<svelte:fragment slot="badge">
+				{#snippet badge()}
 					{#if isEditor}
 						<TestingBadge />
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 				<p class="text-xs text-tertiary mb-2">
 					Pick a database to connect to <Required required={true} />
 				</p>
@@ -586,26 +605,12 @@
 								</Tooltip>
 							{/snippet}
 							<MultiSelect
-								noMatchingOptionsMsg=""
-								createOptionMsg={null}
-								duplicates={false}
-								options={transactionType}
-								allowUserOptions="append"
-								bind:selected={transaction_to_track}
-								ulOptionsClass={'!bg-surface !text-sm'}
-								ulSelectedClass="!text-sm"
-								outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+								bind:value={transaction_to_track}
+								items={safeSelectItems(transactionType)}
+								onCreateItem={(x) => (transactionType.push(x), transaction_to_track.push(x))}
 								placeholder="Select transactions"
-								--sms-options-margin="4px"
-								--sms-open-z-index="100"
 								disabled={!can_write}
-							>
-								<svelte:fragment slot="remove-icon">
-									<div class="hover:text-primary p-0.5">
-										<X size={12} />
-									</div>
-								</svelte:fragment>
-							</MultiSelect>
+							/>
 						</Label>
 						<Label label="Table Tracking" headerClass="grow min-w-0">
 							{#snippet header()}
@@ -790,6 +795,28 @@
 							</Tabs>
 						</Label>
 					{/if}
+				</div>
+			</Section>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
+					</div>
 				</div>
 			</Section>
 		</div>

@@ -2,6 +2,7 @@ import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
 	copilotInfo,
 	copilotSessionModel,
+	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
@@ -18,6 +19,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
+import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -30,11 +32,67 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+	googleai: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
 	customai: []
+}
+
+export interface ModelResponse {
+	id: string
+	object: string
+	created: number
+	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
+}
+
+export async function fetchAvailableModels(
+	resourcePath: string,
+	workspace: string,
+	provider: AIProvider
+): Promise<string[]> {
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		headers: {
+			'X-Resource-Path': resourcePath,
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+		}
+	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
+	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
+					)
+					.map((m) => m.id)
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1])
+			default:
+				return data.data.map((m) => m.id)
+		}
+	}
+
+	return data?.data.map((m) => m.id) ?? []
 }
 
 function getModelMaxTokens(model: string) {
@@ -76,7 +134,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: getModelMaxTokens(modelProvider.model)
+			max_tokens: getModelMaxTokens(modelProvider.model)
 		}
 	}
 }
@@ -463,9 +521,82 @@ export async function getNonStreamingCompletion(
 				dangerouslyAllowBrowser: true
 			})
 		: workspaceAIClients.getOpenaiClient()
+
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+const mistralFimResponseSchema = z.object({
+	choices: z.array(
+		z.object({
+			message: z.object({
+				content: z.string().optional()
+			}),
+			finish_reason: z.string()
+		})
+	)
+})
+
+export const FIM_MAX_TOKENS = 256
+const FIM_MAX_LINES = 8
+export async function getFimCompletion(
+	prompt: string,
+	suffix: string,
+	providerModel: AIProviderModel,
+	abortController: AbortController
+): Promise<string | undefined> {
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': providerModel.provider
+		}
+	}
+
+	const workspace = get(workspaceStore)
+
+	const response = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				model: providerModel.model,
+				temperature: 0,
+				prompt,
+				suffix,
+				stop: ['\n\n'],
+				max_tokens: FIM_MAX_TOKENS
+			}),
+			...fetchOptions
+		}
+	)
+
+	const body = await response.json()
+	const parsedBody = mistralFimResponseSchema.parse(body)
+
+	const choice = parsedBody.choices[0]
+
+	if (choice && choice.message.content !== undefined) {
+		let lines = choice.message.content.split('\n')
+
+		// If finish_reason is 'length', remove the last line
+		if (choice.finish_reason === 'length') {
+			if (lines.length > 1) {
+				lines = lines.slice(0, -1)
+			} else {
+				lines = []
+			}
+		}
+
+		lines = lines.slice(0, FIM_MAX_LINES)
+
+		return lines.join('\n')
+	} else {
+		return undefined
+	}
 }
 
 export async function getCompletion(

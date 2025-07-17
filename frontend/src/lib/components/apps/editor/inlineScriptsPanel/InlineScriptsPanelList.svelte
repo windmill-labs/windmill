@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plus } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
@@ -25,11 +25,6 @@
 			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
-
-	$: runnables = getAppScripts($app.grid, $app.subgrids)
-
-	// When selected component changes, update selectedScriptComponentId
-	$: selectedComponent && handleSelectedComponent($selectedComponent)
 
 	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
@@ -79,12 +74,17 @@
 		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
 
-	let appTutorials: AppTutorials | undefined = undefined
+	let appTutorials: AppTutorials | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
+	let runnables = $derived(getAppScripts($app.grid, $app.subgrids))
+	// When selected component changes, update selectedScriptComponentId
+	$effect(() => {
+		$selectedComponent && untrack(() => handleSelectedComponent($selectedComponent))
+	})
 </script>
 
 <PanelSection title="Runnables" id="app-editor-runnable-panel">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<HideButton
 				direction="bottom"
@@ -96,7 +96,7 @@
 				docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable"
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-2 w-full">
@@ -109,7 +109,7 @@
 				{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<div>
@@ -124,7 +124,7 @@
 			{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-										on:click={() => selectScript(id + '_transformer')}
+										onclick={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>
 									</button>
@@ -140,7 +140,7 @@
 						{$selectedComponentInEditor === id
 							? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 							: 'hover:bg-blue-50'}"
-						on:click={() => selectScript(id)}
+						onclick={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
 						<Badge color="indigo">{id}</Badge>
@@ -153,7 +153,7 @@
 {$selectedComponentInEditor === id + '_transformer'
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id + '_transformer')}
+								onclick={() => selectScript(id + '_transformer')}
 							>
 								<span class="text-2xs truncate">Transformer</span>
 							</button>
@@ -171,7 +171,7 @@
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
 								<Badge color="red">Detached</Badge>
@@ -220,7 +220,7 @@
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<Badge color="indigo">{id}</Badge>
@@ -233,7 +233,7 @@
 		{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-										on:click={() => selectScript(id + '_transformer')}
+										onclick={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>
 									</button>

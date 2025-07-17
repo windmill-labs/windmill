@@ -9,12 +9,14 @@ import {
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
-import { get } from 'svelte/store'
+import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
+import type { GraphModuleState } from '../graph'
+import type { ModulesTestStates } from '../modulesTest.svelte'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -29,6 +31,8 @@ return ${eval_string}
 }`
 }
 
+export type ModuleArgs = { value: Record<string, any> }
+
 function make_context_evaluator(eval_string, context): (context) => any {
 	let template = create_context_function_template(eval_string, context)
 	let functor = Function(template)
@@ -38,33 +42,28 @@ function make_context_evaluator(eval_string, context): (context) => any {
 export function evalValue(
 	k: string,
 	mod: FlowModule,
-	testStepStore: Record<string, any>,
 	pickableProperties: PickableProperties | undefined,
 	showError: boolean
-) {
+): any {
 	let inputTransforms = (mod.value['input_transforms'] ?? {}) as Record<string, InputTransform>
-	let v = testStepStore[mod.id]?.[k]
+	let v: any
 	let t = inputTransforms?.[k]
-	if (!v) {
-		if (t.type == 'static') {
-			v = t.value
-		} else {
-			try {
-				let context = {
-					flow_input: pickableProperties?.flow_input,
-					results: pickableProperties?.priorIds
-				}
-				v = make_context_evaluator(t.expr, context)(context)
-			} catch (e) {
-				if (showError) {
-					sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
-				}
-				v = undefined
+
+	if (t.type == 'static') {
+		v = t.value
+	} else {
+		try {
+			let context = {
+				flow_input: pickableProperties?.flow_input,
+				results: pickableProperties?.priorIds
 			}
+			v = make_context_evaluator(t.expr, context)(context)
+		} catch (e) {
+			if (showError) {
+				sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
+			}
+			v = undefined
 		}
-	}
-	if (v == NEVER_TESTED_THIS_FAR) {
-		return undefined
 	}
 	return v
 }
@@ -197,4 +196,51 @@ export function checkIfParentLoop(
 		}
 	}
 	return undefined
+}
+
+/**
+ * Updates moduleStates based on test job data from modulesTestStates
+ * Extracts job information and converts it to GraphModuleState format
+ * for graph rendering
+ */
+export function updateDerivedModuleStatesFromTestJobs(
+	moduleId: string | undefined,
+	moduleTestStates: ModulesTestStates | undefined,
+	moduleStates: Writable<Record<string, GraphModuleState>> | undefined
+) {
+	if (!moduleId || !moduleTestStates || !moduleStates) {
+		return
+	}
+	const newStates: Record<string, GraphModuleState> = {}
+
+	const testState = moduleTestStates?.states[moduleId]
+	if (testState) {
+		if (testState.testJob) {
+			const job = testState.testJob
+
+			// Create GraphModuleState from job data
+			const moduleState: GraphModuleState = {
+				args: job.args,
+				type: job.type === 'QueuedJob' ? 'InProgress' : job['success'] ? 'Success' : 'Failure',
+				job_id: job.id,
+				tag: job.tag,
+				duration_ms: job['duration_ms'],
+				started_at: job.started_at ? new Date(job.started_at).getTime() : undefined
+			}
+
+			newStates[moduleId] = moduleState
+		} else if (testState.loading) {
+			// If test is loading, show as InProgress
+			newStates[moduleId] = {
+				type: 'InProgress',
+				args: {}
+			}
+		}
+	}
+
+	// Update the store with test job states
+	moduleStates.update((currentStates) => ({
+		...currentStates,
+		...newStates
+	}))
 }

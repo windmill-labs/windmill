@@ -1,5 +1,4 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -274,7 +273,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['app-editor-select']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
 
 interface ClickOutsideOptions {
 	capture?: boolean
@@ -309,7 +308,7 @@ export function clickOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -372,7 +371,7 @@ export function pointerDownOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -380,6 +379,7 @@ export function pointerDownOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 				return false
 			}
 		}
@@ -661,6 +661,18 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+	setTimeout(() => URL.revokeObjectURL(url), 100)
+}
+
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
 	if (!value) {
 		return false
@@ -727,11 +739,14 @@ export function isObject(obj: any): obj is Record<string, any> {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
-		// @ts-ignore
-		const context = this
-		clearTimeout(timeout)
-		timeout = setTimeout(() => func.apply(context, args), wait)
+	return {
+		debounced: function (...args: any[]) {
+			// @ts-ignore
+			const context = this
+			clearTimeout(timeout)
+			timeout = setTimeout(() => func.apply(context, args), wait)
+		},
+		clearDebounce: () => clearTimeout(timeout)
 	}
 }
 
@@ -1235,6 +1250,7 @@ export type Item = {
 	icon?: any
 	iconColor?: string
 	href?: string
+	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
@@ -1356,7 +1372,8 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
-import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
+import type { IPosition } from 'monaco-editor'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
@@ -1366,7 +1383,11 @@ export type StateStore<T> = {
 	val: T
 }
 
-export function readFieldsRecursively(obj: any): void {
+export type ReadFieldsRecursivelyOptions = {
+	excludeField?: string[]
+}
+
+export function readFieldsRecursively(obj: any, options: ReadFieldsRecursivelyOptions = {}): void {
 	if (Array.isArray(obj)) {
 		// <= in case a new object is added. should read as undefined
 		for (let i = 0; i <= obj.length; i++) {
@@ -1375,6 +1396,72 @@ export function readFieldsRecursively(obj: any): void {
 			}
 		}
 	} else if (obj !== null && typeof obj === 'object') {
-		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
+		Object.keys(obj).forEach((key) => {
+			if (!options.excludeField?.includes(key)) readFieldsRecursively(obj[key], options)
+		})
 	}
+}
+
+export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] {
+	const updatedItems = [...items]
+	const [removedItem] = updatedItems.splice(oldIndex, 1)
+	updatedItems.splice(newIndex, 0, removedItem)
+	return updatedItems
+}
+
+export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeeded: boolean = true) {
+	const observer = new IntersectionObserver(
+		function ([entry]) {
+			const ratio = entry.intersectionRatio
+			if (ratio < 1) {
+				const place = ratio <= 0 && centerIfNeeded ? `center` : `nearest`
+				elem.scrollIntoView({
+					block: place,
+					inline: place
+				})
+			}
+			observer.disconnect()
+		},
+		{
+			root: null, // or specify a scrolling parent if needed
+			rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+			threshold: 0.1 // Adjust threshold to control when observer should trigger
+		}
+	)
+	observer.observe(elem)
+
+	return observer // return for testing
+}
+
+// Structured clone raises an error on $state values
+// $state.snapshot clones everything but prints warnings for some values (e.g. functions)
+import _clone from 'clone'
+export function clone<T>(t: T): T {
+	return _clone(t)
+}
+
+export const editorPositionMap: Record<string, IPosition> = {}
+
+export type S3Uri = `s3://${string}/${string}`
+export type S3Object =
+	| S3Uri
+	| {
+			s3: string
+			storage?: string
+	  }
+
+export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
+	if (typeof s3Object === 'object') return s3Object
+	const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
+}
+
+export function formatS3Object(s3Object: S3Object): S3Uri {
+	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
+	return s3Object
+}
+
+export function isS3Uri(uri: string): uri is S3Uri {
+	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return !!match && match.length === 3
 }

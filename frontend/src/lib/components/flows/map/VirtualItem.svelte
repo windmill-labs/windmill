@@ -7,6 +7,12 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
+	import ModuleAcceptReject, {
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		label?: string | undefined
@@ -21,12 +27,24 @@
 		preLabel?: string | undefined
 		inputJson?: Object | undefined
 		prefix?: string
-		alwaysPluggable?: boolean
 		cache?: boolean
 		earlyStop?: boolean
 		editMode?: boolean
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		nodeKind?: 'input' | 'result'
+		job?: Job
+		type?: string
+		showJobStatus?: boolean
+		darkMode?: boolean
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -42,17 +60,60 @@
 		preLabel = undefined,
 		inputJson = undefined,
 		prefix = '',
-		alwaysPluggable = false,
+		nodeKind,
 		cache = false,
 		earlyStop = false,
 		editMode = false,
 		icon,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		job,
+		showJobStatus = false,
+		darkMode = false,
+		flowHasChanged = false
 	}: Props = $props()
+
+	const outputPickerVisible = $derived(
+		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
+	)
+
+	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
+	let hoverButton = $state(false)
+
+	const outputType = $derived(
+		showJobStatus
+			? job?.type === 'QueuedJob'
+				? 'InProgress'
+				: job?.type === 'CompletedJob'
+					? job.success
+						? 'Success'
+						: 'Failure'
+					: undefined
+			: undefined
+	)
 </script>
 
-<VirtualItemWrapper {label} {bgColor} {bgHoverColor} {selected} {selectable} {id} on:select>
+<VirtualItemWrapper
+	{label}
+	{bgColor}
+	{bgHoverColor}
+	{selected}
+	{selectable}
+	{id}
+	outputPickerVisible={outputPickerVisible ?? false}
+	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	on:select
+>
 	{#snippet children({ hover })}
+		{#if editMode}
+			<ModuleAcceptReject id="Input" {action} />
+		{/if}
 		<div class="flex flex-col w-full">
 			<div
 				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
@@ -80,8 +141,16 @@
 					</div>
 				{/if}
 			</div>
-			{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
-				<OutputPicker {selected} {hover} isConnectingCandidate={true} variant="virtual">
+			{#if outputPickerVisible}
+				<OutputPicker
+					{selected}
+					{hover}
+					id={id ?? ''}
+					isConnectingCandidate={true}
+					variant="virtual"
+					type={outputType}
+					{darkMode}
+				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
 							{allowCopy}
@@ -90,16 +159,25 @@
 							onSelect={selectConnection}
 							moduleId={''}
 							{onUpdateMock}
-							hideHeaderBar
+							hideHeaderBar={nodeKind !== 'result'}
 							simpleViewer={inputJson}
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
+							{onEditInput}
+							selectionId={id ?? label ?? ''}
+							testJob={job}
+							disableMock
+							disableHistory
+							customEmptyJobMessage={nodeKind === 'result'
+								? 'Test the flow to see results'
+								: undefined}
 						/>
 					{/snippet}
 				</OutputPicker>
 			{/if}
 		</div>
+
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 			{#if cache}
 				<Popover notClickable>
@@ -128,5 +206,37 @@
 				</Popover>
 			{/if}
 		</div>
+	{/snippet}
+	{#snippet previewButton()}
+		{#if nodeKind === 'input'}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="absolute top-1/2 -translate-y-[35px] -translate-x-[100%] -left-[0] flex py-4 justify-end w-fit px-2 min-w-32"
+				onmouseenter={() => {
+					hoverButton = true
+				}}
+				onmouseleave={() => {
+					hoverButton = false
+				}}
+			>
+				{#if outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						<FlowGraphPreviewButton
+							{isRunning}
+							hover={hoverButton}
+							{selected}
+							{onTestFlow}
+							{onCancelTestFlow}
+							{onOpenPreview}
+							{onHideJobStatus}
+							{individualStepTests}
+							{job}
+							{showJobStatus}
+							{flowHasChanged}
+						/>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/snippet}
 </VirtualItemWrapper>
