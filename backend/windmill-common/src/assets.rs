@@ -10,7 +10,6 @@ use crate::{error, scripts::ScriptLang};
 pub enum AssetKind {
     S3Object,
     Resource,
-    Variable,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -41,7 +40,7 @@ pub struct AssetUsage {
     pub access_type: AssetUsageAccessType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, sqlx::Type)]
 pub struct AssetWithAltAccessType {
     pub path: String,
     pub kind: AssetKind,
@@ -77,7 +76,6 @@ impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
         match kind {
             windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
             windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
-            windmill_parser::asset_parser::AssetKind::Variable => AssetKind::Variable,
         }
     }
 }

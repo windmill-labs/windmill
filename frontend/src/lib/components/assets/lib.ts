@@ -20,8 +20,6 @@ export function formatAsset(asset: Asset): string {
 			return `res://${asset.path}`
 		case 's3object':
 			return `s3://${asset.path}`
-		case 'variable':
-			return `var://${asset.path}`
 	}
 }
 
@@ -38,6 +36,11 @@ export function assetEq(a: Asset | undefined, b: Asset | undefined): boolean {
 	return a.kind === b.kind && a.path === b.path
 }
 
+export function assetsEq(a: Asset[], b: Asset[]): boolean {
+	if (a.length !== b.length) return false
+	return a.every((asset, index) => assetEq(asset, b[index]))
+}
+
 export function parseAssetFromString(s: string): Asset | undefined {
 	if (s.startsWith('res://')) {
 		return { kind: 'resource', path: s.slice(6) }
@@ -45,8 +48,6 @@ export function parseAssetFromString(s: string): Asset | undefined {
 		return { kind: 'resource', path: s.slice(5) }
 	} else if (s.startsWith('s3://')) {
 		return { kind: 's3object', path: s.slice(5) }
-	} else if (s.startsWith('var://')) {
-		return { kind: 'variable', path: s.slice(6) }
 	}
 	return undefined
 }
@@ -67,8 +68,6 @@ export function formatAssetKind(asset: {
 			}
 		case 's3object':
 			return 'S3 Object'
-		case 'variable':
-			return 'Variable'
 	}
 }
 

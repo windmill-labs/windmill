@@ -524,7 +524,8 @@
 					no_main_func: script.no_main_func,
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
-					on_behalf_of_email: script.on_behalf_of_email
+					on_behalf_of_email: script.on_behalf_of_email,
+					assets: script.assets
 				}
 			})
 
@@ -665,7 +666,8 @@
 						visible_to_runner_only: script.visible_to_runner_only,
 						no_main_func: script.no_main_func,
 						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email
+						on_behalf_of_email: script.on_behalf_of_email,
+						assets: script.assets
 					}
 				})
 			}
@@ -1780,6 +1782,7 @@
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable
+			bind:assets={script.assets}
 		/>
 	</div>
 {:else}

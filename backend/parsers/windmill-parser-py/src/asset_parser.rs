@@ -66,8 +66,6 @@ impl AssetsFinder {
             "get_boto3_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
             "get_polars_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
             "get_duckdb_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
-            "get_variable" => (AssetKind::Variable, Some(R), Arg::Pos(0)),
-            "set_variable" => (AssetKind::Variable, Some(W), Arg::Pos(0)),
             _ => return Err(()),
         };
 

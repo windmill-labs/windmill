@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { clone, pluralize } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
 	import { Pyramid } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import {
+		assetsEq,
 		formatAssetAccessType,
 		formatAssetKind,
 		type Asset,
@@ -64,7 +64,7 @@
 	$effect(() => {
 		assets
 		untrack(() => {
-			if (deepEqual(assets, prevAssets)) return
+			if (assetsEq(assets, prevAssets)) return
 			prevAssets = clone(assets)
 
 			// Replay animation

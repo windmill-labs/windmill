@@ -1,4 +1,5 @@
 import type { NewScript } from '$lib/gen'
+import type { AssetWithAltAccessType } from './assets/lib'
 import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 import type { DiffDrawerI } from './diff_drawer'
 import type { ScriptBuilderFunctionExports } from './scriptBuilder'
@@ -8,6 +9,7 @@ import type { NewScriptWithDraftAndDraftTriggers, Trigger } from './triggers/uti
 export interface ScriptBuilderProps {
 	script: NewScript & {
 		draft_triggers?: Trigger[]
+		assets?: AssetWithAltAccessType[]
 	}
 	disableAi?: boolean
 	fullyLoaded?: boolean

@@ -285,7 +285,6 @@ components:
                 enum:
                   - s3object
                   - resource
-                  - variable
               access_type:
                 type: string
                 enum: [r, w, rw]

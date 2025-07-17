@@ -2,14 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import {
-		type AssetUsageAccessType,
-		type CompletedJob,
-		type Job,
-		JobService,
-		type Preview,
-		type ScriptLang
-	} from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -54,8 +47,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import type { AssetWithAltAccessType } from './assets/lib'
+	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -86,6 +78,7 @@
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
+		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
 	}
 
@@ -116,6 +109,7 @@
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
 		disableAi = false,
+		assets = $bindable(),
 		editor_bar_right
 	}: Props = $props()
 
@@ -145,30 +139,18 @@
 			dispatch('change', { code, schema })
 	})
 
-	let parsedAssets = usePromise(() => inferAssets(lang, code), { clearValueOnRefresh: false })
 	$effect(() => {
-		untrack(() => parsedAssets.refresh()), [lang, code]
-	})
-	// AssetWithAccessType are parsed (derived from the code content)
-	// but alt_access_type is a user-defined state
-	// We use a Proxy to have a single asset interface while separating
-	// the derived and stateful parts
-	let altAccessTypes: Record<string, AssetUsageAccessType> = $state({})
-	let assets: AssetWithAltAccessType[] = $derived(
-		parsedAssets.value?.map((a) => {
-			return new Proxy(a, {
-				get(target, prop) {
-					if (prop === 'alt_access_type') return altAccessTypes[target.path]
-					return target[prop as keyof AssetWithAltAccessType]
-				},
-				set(target, prop, value) {
-					if (prop === 'alt_access_type') altAccessTypes[target.path] = value
-					else target[prop] = value
-					return true
+		;[lang, code]
+		untrack(() => {
+			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
+				for (const asset of newAssets) {
+					const old = assets?.find((a) => assetEq(a, asset))
+					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 				}
+				assets = newAssets
 			})
-		}) ?? []
-	)
+		})
+	})
 
 	let width = $state(1200)
 
