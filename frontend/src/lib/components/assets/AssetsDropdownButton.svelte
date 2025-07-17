@@ -17,6 +17,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import Tooltip2 from '../Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
 	import AssetButtons from './AssetButtons.svelte'
@@ -122,7 +123,7 @@
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
 					<Popover
-						contentClasses="py-2 px-4 flex flex-col gap-2 items-center"
+						contentClasses="py-2 px-4 flex flex-col gap-2"
 						disablePopup={!!asset.access_type}
 					>
 						<svelte:fragment slot="trigger">
@@ -142,15 +143,22 @@
 							{#if !asset.access_type}
 								<span class="text-sm text-tertiary leading-4">
 									Could not infer automatically <br />
-									<span class="text-xs">Please select manually</span>
+									<span class="text-xs">Please select manually </span>
 								</span>
-								<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
-									{#snippet children({ item })}
-										<ToggleButton value="r" label="Read" {item} />
-										<ToggleButton value="w" label="Write" {item} />
-										<ToggleButton value="rw" label="Read/Write" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
+								<div class="flex items-center gap-2">
+									<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+										{#snippet children({ item })}
+											<ToggleButton value="r" label="Read" {item} />
+											<ToggleButton value="w" label="Write" {item} />
+											<ToggleButton value="rw" label="Read/Write" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+
+									<Tooltip2>
+										This is used to determine if the asset should be displayed as an input or an
+										output node in the flow editor
+									</Tooltip2>
+								</div>
 							{/if}
 						</svelte:fragment>
 					</Popover>
