@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
   Command,
