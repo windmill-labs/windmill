@@ -796,11 +796,7 @@ pub fn start_interactive_worker_shell(
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
                     Connection::Http(client) => {
-                        let body = serde_json::json!({
-                            "tags": vec![hostname.clone()]
-                        });
-
-                        crate::agent_workers::pull_job(&client, None, Some(body))
+                        crate::agent_workers::pull_job(&client, None, Some(true))
                             .await
                             .map_err(|e| error::Error::InternalErr(e.to_string()))
                             .map(|x| x.map(|y| NextJob::Http(y)))
@@ -1600,12 +1596,10 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http(client) => {
-                        crate::agent_workers::pull_job::<()>(&client, None, None)
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
-                            .map(|x| x.map(|y| NextJob::Http(y)))
-                    }
+                        .map(|x| x.map(|y| NextJob::Http(y))),
                 }
             }
         };
