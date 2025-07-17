@@ -14945,6 +14945,7 @@ dependencies = [
  "sqlx",
  "strum 0.27.1",
  "strum_macros 0.27.1",
+ "sysinfo",
  "systemstat",
  "tar",
  "tempfile",
