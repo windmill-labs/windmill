@@ -137,7 +137,12 @@
 									Could not infer automatically <br />
 									<span class="text-xs">Please select manually</span>
 								</span>
-								<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+								<ToggleButtonGroup
+									bind:selected={
+										() => asset.alt_access_type ?? 'r', (a) => (asset.alt_access_type = a)
+									}
+									class="max-w-fit"
+								>
 									{#snippet children({ item })}
 										<ToggleButton value="r" label="Read" {item} />
 										<ToggleButton value="w" label="Write" {item} />
