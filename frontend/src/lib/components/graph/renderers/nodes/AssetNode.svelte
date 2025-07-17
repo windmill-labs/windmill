@@ -3,10 +3,10 @@
 	export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 45
 	export const READ_ASSET_Y_OFFSET = -45
 	export const WRITE_ASSET_Y_OFFSET = 64
-	export const assetDisplaysAsInputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
-		!a.access_type || a.access_type === 'r' || a.access_type === 'rw'
-	export const assetDisplaysAsOutputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
-		a.access_type === 'w' || a.access_type === 'rw'
+	export const assetDisplaysAsInputInFlowGraph = (a: AssetWithAltAccessType) =>
+		!getAccessType(a) || getAccessType(a) === 'r' || getAccessType(a) === 'rw'
+	export const assetDisplaysAsOutputInFlowGraph = (a: AssetWithAltAccessType) =>
+		getAccessType(a) === 'w' || getAccessType(a) === 'rw'
 
 	let computeAssetNodesCache:
 		| [(Node & NodeLayout)[], ReturnType<typeof computeAssetNodes>]
@@ -204,7 +204,12 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { AssetN, AssetsOverflowedN, NodeLayout } from '../../graphBuilder.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { assetEq, formatAssetKind } from '$lib/components/assets/lib'
+	import {
+		assetEq,
+		formatAssetKind,
+		getAccessType,
+		type AssetWithAltAccessType
+	} from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
@@ -215,7 +220,6 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { NODE } from '../../util'
-	import type { AssetUsageAccessType } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 
 	interface Props {

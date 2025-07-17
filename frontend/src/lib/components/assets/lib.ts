@@ -7,12 +7,12 @@ import type {
 	ScriptArgs
 } from '$lib/gen'
 import { capitalize } from '$lib/utils'
-import { getContext } from 'svelte'
-import type { FlowGraphAssetContext } from '../flows/types'
-
 export type Asset = _Asset
 export type AssetKind = _AssetKind
 export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
+export type AssetWithAltAccessType = AssetWithAccessType & {
+	alt_access_type?: AssetUsageAccessType
+}
 
 export function formatAsset(asset: Asset): string {
 	switch (asset.kind) {
@@ -70,6 +70,23 @@ export function formatAssetKind(asset: {
 		case 'variable':
 			return 'Variable'
 	}
+}
+
+export function formatAssetAccessType(asset: AssetWithAltAccessType) {
+	switch (getAccessType(asset)) {
+		case 'r':
+			return 'Read'
+		case 'w':
+			return 'Write'
+		case 'rw':
+			return 'R/W'
+	}
+	return '?'
+}
+
+export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {
+	if (asset.alt_access_type) return asset.alt_access_type
+	if (asset.access_type) return asset.access_type
 }
 
 export function getFlowModuleAssets(

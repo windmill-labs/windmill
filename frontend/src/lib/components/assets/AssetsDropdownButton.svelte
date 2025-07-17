@@ -5,7 +5,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import { formatAssetKind, type Asset } from './lib'
+	import {
+		formatAssetAccessType,
+		formatAssetKind,
+		type Asset,
+		type AssetWithAltAccessType
+	} from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -15,6 +20,8 @@
 	import type { Placement } from '@floating-ui/core'
 	import VariableEditor from '../VariableEditor.svelte'
 	import AssetButtons from './AssetButtons.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	let {
 		assets,
@@ -26,7 +33,7 @@
 		onHoverLi,
 		liSubtitle
 	}: {
-		assets: Asset[]
+		assets: AssetWithAltAccessType[]
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
@@ -111,11 +118,36 @@
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
 				<li
-					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover/25"
+					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
-					<div class="flex flex-col">
+					<Popover
+						contentClasses="py-2 px-4 flex flex-col gap-2 items-center"
+						disablePopup={!!asset.access_type}
+					>
+						<svelte:fragment slot="trigger">
+							<div class="text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md">
+								{formatAssetAccessType(asset)}
+							</div>
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							{#if !asset.access_type}
+								<span class="text-sm text-tertiary leading-4">
+									Could not infer automatically <br />
+									<span class="text-xs">Please select manually</span>
+								</span>
+								<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+									{#snippet children({ item })}
+										<ToggleButton value="r" label="Read" {item} />
+										<ToggleButton value="w" label="Write" {item} />
+										<ToggleButton value="rw" label="Read/Write" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							{/if}
+						</svelte:fragment>
+					</Popover>
+					<div class="flex flex-col flex-1">
 						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
 							{asset.path}
 							<svelte:fragment slot="text">
