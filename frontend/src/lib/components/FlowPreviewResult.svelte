@@ -81,9 +81,8 @@
 			{#if mod.type == 'InProgress'}
 				{@const rawMod = job.raw_flow?.modules[i]}
 
-				<div
-					><span class="inline-flex gap-1"
-						><Badge color="indigo">{mod.id}</Badge>
+				<div>
+					<span class="inline-flex gap-1">
 						<span class="font-medium text-primary">
 							{#if !emptyString(rawMod?.summary)}
 								{rawMod?.summary ?? ''}
