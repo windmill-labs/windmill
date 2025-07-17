@@ -427,11 +427,10 @@
 						currentId = undefined
 					}
 					return isCompleted
-				}
-
-				// Only start SSE if job is running and we haven't started it yet
-				if (job && `running` in job && !currentEventSource) {
-					callbacks?.running?.(id)
+				} else if (job?.type === 'QueuedJob' && !currentEventSource) {
+					if (job.running) {
+						callbacks?.running?.(id)
+					}
 
 					let getProgress: boolean | undefined = setJobProgress(job)
 
@@ -460,6 +459,9 @@
 						try {
 							const previewJobUpdates = JSON.parse(event.data)
 							jobUpdateLastFetch = new Date()
+							if (previewJobUpdates.running) {
+								callbacks?.running?.(id)
+							}
 
 							if (job) {
 								updateJobFromProgress(previewJobUpdates, offset, job)

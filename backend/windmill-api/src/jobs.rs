@@ -5750,20 +5750,22 @@ async fn get_job_update(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { log_offset, get_progress, running, only_result }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
-    Ok(Json(get_job_update_data(
-        &opt_authed,
-        &opt_tokened,
-        &db,
-        &w_id,
-        &job_id,
-        log_offset,
-        get_progress,
-        running,
-        true,
-        false,
-        only_result
-
-    ).await?))
+    Ok(Json(
+        get_job_update_data(
+            &opt_authed,
+            &opt_tokened,
+            &db,
+            &w_id,
+            &job_id,
+            log_offset,
+            get_progress,
+            running,
+            true,
+            false,
+            only_result,
+        )
+        .await?,
+    ))
 }
 
 async fn get_job_update_sse(
@@ -5782,7 +5784,7 @@ async fn get_job_update_sse(
         log_offset,
         get_progress,
         running,
-        only_result
+        only_result,
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -5815,6 +5817,7 @@ fn get_job_update_sse_stream(
         let mut completion_sent = false;
 
         // Send initial update immediately
+        let mut running = running;
         if let Ok(update) = get_job_update_data(
             &opt_authed,
             &opt_tokened,
@@ -5826,11 +5829,10 @@ fn get_job_update_sse_stream(
             running,
             true,
             true,
-            only_result
-        ).await {
-            if update.completed.unwrap_or(false) {
-                return;
-            }
+            only_result,
+        )
+        .await
+        {
             if let Ok(serialized) = serde_json::to_string(&update) {
                 let event_data = format!("data: {}\n\n", serialized);
                 if tx.send(event_data.clone()).await.is_err() {
@@ -5842,6 +5844,10 @@ fn get_job_update_sse_stream(
                     log_offset = new_offset;
                 }
                 completion_sent = update.completed.unwrap_or(false);
+                running = update.running.unwrap_or(false);
+            } else {
+                tracing::warn!("Failed to serialize job update for job {job_id}");
+                return;
             }
         }
 
@@ -5854,7 +5860,13 @@ fn get_job_update_sse_stream(
         let mut i = 0;
         loop {
             i += 1;
-            let ms_duration = if i > 10 { 500 } else if i > 100 { 3000 } else { 100 };
+            let ms_duration = if i > 10 {
+                500
+            } else if i > 100 {
+                3000
+            } else {
+                100
+            };
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
             match get_job_update_data(
@@ -5868,9 +5880,12 @@ fn get_job_update_sse_stream(
                 running,
                 false,
                 true,
-                only_result
-            ).await {
+                only_result,
+            )
+            .await
+            {
                 Ok(update) => {
+                    running = update.running.unwrap_or(false);
                     if let Ok(serialized) = serde_json::to_string(&update) {
                         // Only send if the update has changed
                         if last_update.as_ref() != Some(&serialized) {
@@ -5882,12 +5897,11 @@ fn get_job_update_sse_stream(
                                 break;
                             }
                             last_update = Some(serialized);
-                            
+
                             // Update log offset if available
                             if let Some(new_offset) = update.log_offset {
                                 log_offset = new_offset;
                             }
-                            
                         }
                     }
                 }
@@ -5925,9 +5939,9 @@ async fn get_job_update_data(
         )
         .await?;
         opt_authed
-        .as_ref()
-        .map(|authed| get_scope_tags(authed))
-        .flatten()
+            .as_ref()
+            .map(|authed| get_scope_tags(authed))
+            .flatten()
     } else {
         None
     };
@@ -5936,30 +5950,33 @@ async fn get_job_update_data(
         let result = if let Some(tags) = tags {
             sqlx::query_scalar!(
                 "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed
-                LEFT JOIN v2_job j USING (id)
+                RIGHT JOIN v2_job j USING (id)
                 WHERE id = $2 AND v2_job_completed.workspace_id = $1
                 AND j.tag = ANY($3)",
                 w_id,
                 job_id,
                 tags.as_slice() as &[&str],
-            ).fetch_optional(db).await?
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?
         } else {
             sqlx::query_scalar!(
                 "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
                 w_id,
                 job_id,
-            ).fetch_optional(db).await?
+            ).fetch_optional(db).await?.flatten()
         };
         Ok(JobUpdate {
             running: None,
-            completed: result.is_some(),
+            completed: if result.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
             mem_peak: None,
             progress: None,
             job: None,
             flow_status: None,
-            only_result: result,
+            only_result: result.map(|x| x.0),
         })
     } else {
         let record = sqlx::query!(
@@ -6018,16 +6035,12 @@ async fn get_job_update_data(
         }
 
         let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
-            let get = GetQuery::new()
-                .with_auth(&opt_authed)
-                .without_logs();
+            let get = GetQuery::new().with_auth(&opt_authed).without_logs();
             Some(get.fetch(&db, job_id, &w_id).await?)
         } else {
             None
         };
 
-
-        
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
