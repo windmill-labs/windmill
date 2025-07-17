@@ -2,7 +2,14 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import {
+		type AssetUsageAccessType,
+		type CompletedJob,
+		type Job,
+		JobService,
+		type Preview,
+		type ScriptLang
+	} from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -48,6 +55,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import type { AssetWithAltAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -141,6 +149,26 @@
 	$effect(() => {
 		untrack(() => parsedAssets.refresh()), [lang, code]
 	})
+	// AssetWithAccessType are parsed (derived from the code content)
+	// but alt_access_type is a user-defined state
+	// We use a Proxy to have a single asset interface while separating
+	// the derived and stateful parts
+	let altAccessTypes: Record<string, AssetUsageAccessType> = $state({})
+	let assets: AssetWithAltAccessType[] = $derived(
+		parsedAssets.value?.map((a) => {
+			return new Proxy(a, {
+				get(target, prop) {
+					if (prop === 'alt_access_type') return altAccessTypes[target.path]
+					return target[prop as keyof AssetWithAltAccessType]
+				},
+				set(target, prop, value) {
+					if (prop === 'alt_access_type') altAccessTypes[target.path] = value
+					else target[prop] = value
+					return true
+				}
+			})
+		}) ?? []
+	)
 
 	let width = $state(1200)
 
@@ -513,8 +541,8 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if parsedAssets.value?.length}
-						<AssetsDropdownButton assets={parsedAssets.value} />
+					{#if assets?.length}
+						<AssetsDropdownButton {assets} />
 					{/if}
 					{#if testPanelSize === 0}
 						<HideButton
