@@ -886,7 +886,7 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     if (entry.isDirectory || entry.ignored) continue;
     const content = await entry.getContentText();
 
-    // Iterate over availible languages to find which lockfile
+    // Iterate over available languages to find which lockfile
     languagesWithRawReqsSupport.map((lock) => {
       if (entry.path.endsWith(lock.rrFilename)){
         const current = globalDeps.get(lock) ?? {};
