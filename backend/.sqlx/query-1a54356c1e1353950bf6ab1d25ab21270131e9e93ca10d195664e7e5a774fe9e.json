@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Int8Array",
+        "Text",
+        "Text",
+        "Text",
+        "Varchar",
+        "Text",
+        "Bool",
+        "Jsonb",
+        "Text",
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "script_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "trigger",
+                "failure",
+                "command",
+                "approval",
+                "preprocessor"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Bool",
+        "VarcharArray",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Bool",
+        "Bool",
+        "Int2",
+        "Bool",
+        "Bool",
+        "Int4",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Text",
+        "Bool",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a54356c1e1353950bf6ab1d25ab21270131e9e93ca10d195664e7e5a774fe9e"
+}

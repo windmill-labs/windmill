@@ -11,9 +11,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
-use windmill_common::assets::{
-    clear_asset_usage, insert_asset_usage, parse_assets, AssetUsageKind,
-};
+use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -946,7 +944,7 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
-            asset_fallback_access_types,
+            assets,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -1139,12 +1137,11 @@ async fn lock_modules<'c>(
             continue;
         };
 
-        for asset in parse_assets(&content, language)?.iter().flatten() {
+        for asset in assets.iter().flatten() {
             insert_asset_usage(
                 &mut *tx,
                 &job.workspace_id,
                 asset,
-                asset_fallback_access_types.as_ref().map(Vec::as_slice),
                 job_path,
                 AssetUsageKind::Flow,
             )
@@ -1266,7 +1263,7 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
-            asset_fallback_access_types,
+            assets,
         });
         new_flow_modules.push(e);
 
@@ -1418,6 +1415,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1436,6 +1434,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                 };
             }
             ForloopFlow { modules, modules_node, .. }
