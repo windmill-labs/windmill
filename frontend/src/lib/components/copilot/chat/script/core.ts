@@ -14,6 +14,7 @@ import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/ut
 import type { CodePieceElement, ContextElement } from '../context'
 import type { Tool } from '../shared'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
+import { createSearchHubScriptsTool } from '../flow/core'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -334,7 +335,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
-	- When asked to create a script that communicates with an external service, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible. 
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -479,6 +480,7 @@ export function prepareScriptTools(
 		tools.push(dbSchemaTool)
 	}
 	if (['bun', 'deno'].includes(language)) {
+		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
 	return tools
