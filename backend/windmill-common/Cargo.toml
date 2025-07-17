@@ -102,3 +102,6 @@ tonic = { workspace = true, optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+sysinfo.workspace = true
