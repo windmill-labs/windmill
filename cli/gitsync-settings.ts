@@ -1,4 +1,4 @@
-import { colors, Command, log, yamlStringify } from "./deps.ts";
+import { colors, Command, Confirm, log, yamlStringify } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { requireLogin } from "./auth.ts";
 import { resolveWorkspace } from "./context.ts";
@@ -164,6 +164,147 @@ function includeTypeToSyncOptions(
   };
 }
 
+// Shared migration function for legacy repositories
+async function handleLegacyRepositoryMigration(
+  selectedRepo: any,
+  gitSyncSettings: any,
+  workspace: any,
+  opts: { yes?: boolean },
+  operationName: string = "operation"
+): Promise<any> {
+  if (selectedRepo.settings) {
+    return selectedRepo; // Already migrated
+  }
+
+  // This repository is in legacy format - handle migration
+  if (!gitSyncSettings.include_path || !gitSyncSettings.include_type) {
+    throw new Error(
+      `Repository "${selectedRepo.git_repo_resource_path}" has legacy format but workspace-level include_path or include_type is missing. This indicates corrupted git-sync settings.`
+    );
+  }
+
+  const workspaceIncludePath = gitSyncSettings.include_path;
+  const workspaceIncludeType = gitSyncSettings.include_type;
+
+  if (Deno.stdout.isTerminal() && !opts.yes) {
+    // Interactive mode - show migration prompt
+    console.log(colors.yellow('\n⚠️  Legacy git-sync settings detected!'));
+    console.log(`\nRepository "${selectedRepo.git_repo_resource_path}" has legacy settings format.`);
+    console.log('The new format allows per-repository filter configuration.');
+    if (operationName === "push") {
+      console.log('This repository must be migrated before pushing settings.\n');
+    } else {
+      console.log('\n');
+    }
+
+    console.log(colors.bold('Current workspace-level settings:'));
+    console.log(`  Include paths: ${workspaceIncludePath.join(', ')}`);
+    console.log(`  Include types: ${workspaceIncludeType.join(', ')}\n`);
+
+    // Show what the migration will do
+    let finalIncludeType = [...workspaceIncludeType];
+    if (selectedRepo.exclude_types_override && selectedRepo.exclude_types_override.length > 0) {
+      const originalCount = finalIncludeType.length;
+      finalIncludeType = finalIncludeType.filter(
+        type => !selectedRepo.exclude_types_override.includes(type)
+      );
+      const excludedCount = originalCount - finalIncludeType.length;
+      console.log(colors.yellow(`Repository excludes ${excludedCount} types: ${selectedRepo.exclude_types_override.join(', ')}`));
+    }
+
+    console.log(colors.bold('\nAfter migration, repository will have:'));
+    console.log(`  Include paths: ${workspaceIncludePath.join(', ')}`);
+    console.log(`  Include types: ${finalIncludeType.join(', ')}\n`);
+
+    const confirm = await Confirm.prompt({
+      message: operationName === "push"
+        ? 'Do you want to migrate this repository before pushing?'
+        : 'Do you want to migrate this repository?',
+      default: true
+    });
+
+    if (!confirm) {
+      const message = operationName === "push"
+        ? '\n⚠️  Migration skipped. Cannot push to legacy repository.'
+        : '\n⚠️  Migration skipped. You can migrate later via the UI.';
+      console.log(colors.yellow(message));
+      if (operationName === "push") {
+        return null; // Signal to exit push operation
+      }
+      throw new Error('Migration cancelled by user');
+    }
+
+    // Perform the migration
+    let migratedIncludeType = [...workspaceIncludeType];
+    if (selectedRepo.exclude_types_override && selectedRepo.exclude_types_override.length > 0) {
+      migratedIncludeType = migratedIncludeType.filter(
+        type => !selectedRepo.exclude_types_override.includes(type)
+      );
+    }
+
+    const migratedRepo = {
+      ...selectedRepo,
+      settings: {
+        include_path: [...workspaceIncludePath],
+        include_type: migratedIncludeType,
+        exclude_path: [],
+        extra_include_path: []
+      }
+    };
+
+    // Remove the old field
+    delete migratedRepo.exclude_types_override;
+
+    // Update the backend with migrated repository
+    const updatedRepositories = gitSyncSettings.repositories.map((repo: any) => {
+      if (repo.git_repo_resource_path === selectedRepo.git_repo_resource_path) {
+        return migratedRepo;
+      }
+      return repo;
+    });
+
+    await wmill.editWorkspaceGitSyncConfig({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        git_sync_settings: {
+          repositories: updatedRepositories,
+          // Keep workspace-level settings if other repos are still legacy
+          ...(gitSyncSettings.repositories.some((r: any) => r.git_repo_resource_path !== selectedRepo.git_repo_resource_path && !r.settings) && {
+            include_path: workspaceIncludePath,
+            include_type: workspaceIncludeType
+          })
+        }
+      }
+    });
+
+    console.log(colors.green('\n✓ Repository migration completed successfully!'));
+    if (operationName === "push") {
+      console.log('Now proceeding with push operation...\n');
+    }
+    return migratedRepo;
+
+  } else {
+    // Non-interactive mode - show error
+    console.error(colors.red('\n❌ Legacy git-sync settings detected!'));
+    console.error(`\nRepository "${selectedRepo.git_repo_resource_path}" has legacy settings format.`);
+    if (operationName === "push") {
+      console.error('This repository must be migrated before pushing settings.');
+    }
+    console.error('Please choose one of the following options:\n');
+    console.error('1. Go to the Windmill UI > Workspace Settings > Git Sync');
+    console.error('   Review and save this repository to migrate to the new format.\n');
+    console.error('2. Run this command in interactive mode (with TTY) to migrate.');
+    console.error(`   Example: wmill gitsync-settings ${operationName}\n`);
+    if (operationName === "push") {
+      console.error('3. Pull settings first to migrate: wmill gitsync-settings pull\n');
+    } else {
+      console.error('3. Push local settings to override backend settings:');
+      console.error('   wmill gitsync-settings push\n');
+    }
+    Deno.exit(1);
+  }
+}
+
 // Convert SyncOptions boolean flags to backend include_type array
 function syncOptionsToIncludeType(opts: SyncOptions): string[] {
   const includeTypes: string[] = [];
@@ -279,6 +420,31 @@ function displayChanges(
   }
 }
 
+async function selectAndLogRepository(
+  repositories: GitSyncRepository[],
+  repository?: string,
+): Promise<GitSyncRepository> {
+  let selectedRepo: GitSyncRepository;
+
+  if (repository) {
+    const found = repositories.find(
+      (r: GitSyncRepository) =>
+        r.git_repo_resource_path === repository ||
+        r.git_repo_resource_path === `$res:${repository}`,
+    );
+    if (!found) {
+      throw new Error(`Repository ${repository} not found`);
+    }
+    selectedRepo = found;
+    const repoPath = selectedRepo.git_repo_resource_path.replace(/^\$res:/, "");
+    log.info(colors.cyan(`Using repository: ${colors.bold(repoPath)}`));
+  } else {
+    selectedRepo = await selectRepository(repositories);
+  }
+
+  return selectedRepo;
+}
+
 async function pullGitSyncSettings(
   opts: GlobalOptions & {
     repository?: string;
@@ -289,6 +455,7 @@ async function pullGitSyncSettings(
     replace?: boolean;
     override?: boolean;
     withBackendSettings?: string;
+    yes?: boolean;
   },
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -401,22 +568,19 @@ async function pullGitSyncSettings(
     }
 
     // Find the repository to work with
-    let selectedRepo: GitSyncRepository;
-    if (opts.repository) {
-      const found = settings.git_sync.repositories.find(
-        (r: GitSyncRepository) =>
-          r.git_repo_resource_path === opts.repository ||
-          r.git_repo_resource_path === `$res:${opts.repository}`,
-      );
-      if (!found) {
-        throw new Error(`Repository ${opts.repository} not found`);
-      }
-      selectedRepo = found;
-    } else {
-      selectedRepo = await selectRepository(
-        settings.git_sync.repositories,
-      );
-    }
+    let selectedRepo = await selectAndLogRepository(
+      settings.git_sync.repositories,
+      opts.repository,
+    );
+
+    // Check if the selected repository needs migration and handle it
+    selectedRepo = await handleLegacyRepositoryMigration(
+      selectedRepo,
+      settings.git_sync,
+      workspace,
+      opts,
+      "pull"
+    );
 
     // Convert backend settings to SyncOptions format
     const backendSyncOptions: SyncOptions = {
@@ -534,7 +698,7 @@ async function pullGitSyncSettings(
         );
       } else {
         if (hasChanges) {
-          log.info("Changes that would be made:");
+          log.info("Changes that would be applied locally:");
           const changes = generateChanges(normalizedCurrent, normalizedBackend);
 
           if (Object.keys(changes).length === 0) {
@@ -573,7 +737,14 @@ async function pullGitSyncSettings(
       );
       const hasConflict = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
-      if (hasConflict && Deno.stdin.isTerminal()) {
+      if (hasConflict && !opts.yes && Deno.stdin.isTerminal()) {
+        // Show the diff first
+        log.info("Changes that would be applied locally:");
+        const changes = generateChanges(currentSettings, backendSyncOptions);
+        if (Object.keys(changes).length > 0) {
+          displayChanges(changes);
+        }
+
         // Interactive mode - ask user
         const { Select } = await import("./deps.ts");
         const choice = await Select.prompt({
@@ -607,6 +778,16 @@ async function pullGitSyncSettings(
             repoPath,
           );
         }
+      } else if (hasConflict && opts.yes) {
+        // --yes flag: default to override behavior for conflicts
+        writeMode = "override";
+        const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
+        overrideKey = constructOverrideKey(
+          workspace.remote,
+          workspace.workspaceId,
+          repoPath,
+        );
+        log.info(colors.yellow("Settings conflict detected. Using --override behavior (default for --yes)."));
       } else if (hasConflict) {
         // Non-interactive mode with conflicts - show message and exit
         if (opts.jsonOutput) {
@@ -664,11 +845,19 @@ async function pullGitSyncSettings(
     // Apply the settings based on write mode
     let updatedConfig: SyncOptions;
 
+    // Log which settings mode is being used
+    const repoPath = selectedRepo.git_repo_resource_path.replace(/^\$res:/, "");
+    if (writeMode === "override") {
+      log.info(`Applied repository-specific overrides for repository "${repoPath}"`);
+    } else {
+      log.info(`Applied settings for repository "${repoPath}"`);
+    }
+
     if (writeMode === "replace") {
       // Preserve existing local config and update only git-sync fields
       updatedConfig = { ...localConfig };
-      // Remove overrides since we're in replace mode
-      delete updatedConfig.overrides;
+      // Clear overrides since we're in replace mode, but keep empty object for consistency
+      updatedConfig.overrides = {};
       // Update with backend git-sync settings
       Object.assign(updatedConfig, backendSyncOptions);
     } else if (writeMode === "override" && overrideKey) {
@@ -761,6 +950,7 @@ async function pushGitSyncSettings(
     diff?: boolean;
     jsonOutput?: boolean;
     withBackendSettings?: string;
+    yes?: boolean;
   },
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -888,21 +1078,23 @@ async function pushGitSyncSettings(
     }
 
     // Find the repository to work with
-    let selectedRepo: GitSyncRepository;
-    if (opts.repository) {
-      const found = settings.git_sync.repositories.find(
-        (r: GitSyncRepository) =>
-          r.git_repo_resource_path === opts.repository ||
-          r.git_repo_resource_path === `$res:${opts.repository}`,
-      );
-      if (!found) {
-        throw new Error(`Repository ${opts.repository} not found`);
-      }
-      selectedRepo = found;
-    } else {
-      selectedRepo = await selectRepository(
-        settings.git_sync.repositories,
-      );
+    let selectedRepo = await selectAndLogRepository(
+      settings.git_sync.repositories,
+      opts.repository,
+    );
+
+    // Check if the selected repository needs migration and handle it
+    selectedRepo = await handleLegacyRepositoryMigration(
+      selectedRepo,
+      settings.git_sync,
+      workspace,
+      opts,
+      "push"
+    );
+
+    // If migration was cancelled, exit
+    if (selectedRepo === null) {
+      return;
     }
 
     // Get effective settings for this workspace/repo
@@ -922,24 +1114,25 @@ async function pushGitSyncSettings(
       extra_include_path: effectiveSettings.extraIncludes || [],
     };
 
+    // Calculate diff for all modes
+    const currentBackend = selectedRepo.settings;
+
+    // Convert current backend settings to SyncOptions for user-friendly display
+    const currentSyncOptions: SyncOptions = {
+      includes: currentBackend.include_path || [],
+      excludes: currentBackend.exclude_path || [],
+      extraIncludes: currentBackend.extra_include_path || [],
+      ...includeTypeToSyncOptions(currentBackend.include_type || []),
+    };
+
+    const normalizedCurrent = normalizeSyncOptions(currentSyncOptions);
+    const normalizedEffective = normalizeSyncOptions(effectiveSettings);
+    const gitSyncCurrent = extractGitSyncFields(normalizedCurrent);
+    const gitSyncEffective = extractGitSyncFields(normalizedEffective);
+    const hasChanges = !deepEqual(gitSyncEffective, gitSyncCurrent);
+
     if (opts.diff) {
-      // Show what would be pushed
-      const currentBackend = selectedRepo.settings;
-
-      // Convert current backend settings to SyncOptions for user-friendly display
-      const currentSyncOptions: SyncOptions = {
-        includes: currentBackend.include_path || [],
-        excludes: currentBackend.exclude_path || [],
-        extraIncludes: currentBackend.extra_include_path || [],
-        ...includeTypeToSyncOptions(currentBackend.include_type || []),
-      };
-
-      const normalizedCurrent = normalizeSyncOptions(currentSyncOptions);
-      const normalizedEffective = normalizeSyncOptions(effectiveSettings);
-      const gitSyncCurrent = extractGitSyncFields(normalizedCurrent);
-      const gitSyncEffective = extractGitSyncFields(normalizedEffective);
-      const hasChanges = !deepEqual(gitSyncEffective, gitSyncCurrent);
-
+      // --diff flag: show differences and exit
       if (opts.jsonOutput) {
         // Generate structured diff using the same normalized objects
         const structuredDiff = hasChanges
@@ -958,7 +1151,7 @@ async function pushGitSyncSettings(
         );
       } else {
         if (hasChanges) {
-          log.info("Changes that would be pushed:");
+          log.info("Changes that would be pushed to Windmill:");
           const changes = generateChanges(
             normalizedCurrent,
             normalizedEffective,
@@ -973,6 +1166,39 @@ async function pushGitSyncSettings(
           log.info(colors.green("No changes to push"));
         }
       }
+      return;
+    }
+
+    // Default behavior: show changes and ask for confirmation (unless --yes is passed)
+    if (hasChanges) {
+      if (!opts.jsonOutput) {
+        const changes = generateChanges(
+          normalizedCurrent,
+          normalizedEffective,
+        );
+
+        if (Object.keys(changes).length === 0) {
+          log.info(colors.green("No changes to push"));
+          return;
+        } else {
+          log.info("Changes that would be pushed to Windmill:");
+          displayChanges(changes);
+        }
+      }
+
+      // Ask for confirmation unless --yes is passed or not in TTY
+      if (!opts.yes && Deno.stdin.isTerminal()) {
+        const confirmed = await Confirm.prompt({
+          message: `Do you want to apply these changes to the remote?`,
+          default: true,
+        });
+
+        if (!confirmed) {
+          return;
+        }
+      }
+    } else {
+      log.info(colors.green("No changes to push"));
       return;
     }
 
@@ -1104,6 +1330,7 @@ const command = new Command()
     "--with-backend-settings <json:string>",
     "Use provided JSON settings instead of querying backend (for testing)",
   )
+  .option("--yes", "Skip interactive prompts and use default behavior")
   .action(pullGitSyncSettings as any)
   .command("push")
   .description(
@@ -1119,6 +1346,7 @@ const command = new Command()
     "--with-backend-settings <json:string>",
     "Use provided JSON settings instead of querying backend (for testing)",
   )
+  .option("--yes", "Skip interactive prompts and use default behavior")
   .action(pushGitSyncSettings as any);
 
 export { pullGitSyncSettings, pushGitSyncSettings };
