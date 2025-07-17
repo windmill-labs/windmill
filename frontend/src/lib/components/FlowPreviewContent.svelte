@@ -122,7 +122,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		if (stepHistoryLoader?.flowJobInitial) {
+		if (stepHistoryLoader?.flowJobInitial !== false) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
 		try {
