@@ -1,22 +1,23 @@
 use axum::{routing::get, Json, Router};
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use windmill_common::error::JsonResult;
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct ScopeOption {
     pub value: String,
     pub label: String,
     pub requires_resource_path: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ScopeDomain {
     pub name: String,
     pub description: Option<String>,
     pub scopes: Vec<ScopeOption>,
 }
 
-fn trigger_scope_domains() -> Vec<ScopeDomain> {
+fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
     const TRIGGER_DOMAINS: &[(&str, &str)] = &[
         ("http_triggers", "HTTP"),
         ("websocket_triggers", "WebSocket"),
@@ -28,9 +29,9 @@ fn trigger_scope_domains() -> Vec<ScopeDomain> {
         ("postgres_triggers", "PostgreSQL"),
     ];
 
-    let mut domains = Vec::new();
-    for (domain, display_name) in TRIGGER_DOMAINS {
-        domains.push(ScopeDomain {
+    TRIGGER_DOMAINS
+        .iter()
+        .map(|(domain, display_name)| ScopeDomain {
             name: format!("{} Triggers", display_name),
             description: Some(format!("{} trigger management", display_name)),
             scopes: vec![
@@ -45,12 +46,11 @@ fn trigger_scope_domains() -> Vec<ScopeDomain> {
                     requires_resource_path: true,
                 },
             ],
-        });
-    }
-    domains
+        })
+        .collect()
 }
 
-fn standard_scope_domains() -> Vec<ScopeDomain> {
+fn build_standard_scope_domains() -> Vec<ScopeDomain> {
     const STANDARD_DOMAINS: &[(&str, &str, &str, bool)] = &[
         (
             "scripts",
@@ -125,64 +125,65 @@ fn standard_scope_domains() -> Vec<ScopeDomain> {
         ),
     ];
 
-    let mut domains = Vec::new();
-    for (domain_key, domain_name, description, requires_resource_path) in STANDARD_DOMAINS {
-        domains.push(ScopeDomain {
-            name: domain_name.to_string(),
-            description: if description.is_empty() {
+    STANDARD_DOMAINS
+        .iter()
+        .map(|(key, name, desc, req)| ScopeDomain {
+            name: name.to_string(),
+            description: if desc.is_empty() {
                 None
             } else {
-                Some(description.to_string())
+                Some(desc.to_string())
             },
             scopes: vec![
                 ScopeOption {
-                    value: format!("{domain_key}:read"),
+                    value: format!("{key}:read"),
                     label: "Read".to_string(),
-                    requires_resource_path: *requires_resource_path,
+                    requires_resource_path: *req,
                 },
                 ScopeOption {
-                    value: format!("{domain_key}:write"),
+                    value: format!("{key}:write"),
                     label: "Write".to_string(),
-                    requires_resource_path: *requires_resource_path,
+                    requires_resource_path: *req,
                 },
             ],
-        });
-    }
-    domains
+        })
+        .collect()
 }
 
-fn get_scopes() -> Vec<ScopeDomain> {
-    let mut groups = vec![ScopeDomain {
-        name: "Jobs".to_string(),
-        description: Some("Job management".to_string()),
-        scopes: vec![
-            ScopeOption {
-                value: "jobs:read".to_string(),
-                label: "Read".to_string(),
-                requires_resource_path: false,
-            },
-            ScopeOption {
-                value: "jobs:write".to_string(),
-                label: "Write".to_string(),
-                requires_resource_path: false,
-            },
-            ScopeOption {
-                value: "jobs:run:scripts".to_string(),
-                label: "Run scripts".to_string(),
-                requires_resource_path: true,
-            },
-            ScopeOption {
-                value: "jobs:run:flows".to_string(),
-                label: "Run flows".to_string(),
-                requires_resource_path: true,
-            },
-        ],
-    }];
+lazy_static! {
+    static ref ALL_SCOPES: Vec<ScopeDomain> = {
+        let mut groups = vec![ScopeDomain {
+            name: "Jobs".to_string(),
+            description: Some("Job management".to_string()),
+            scopes: vec![
+                ScopeOption {
+                    value: "jobs:read".to_string(),
+                    label: "Read".to_string(),
+                    requires_resource_path: false,
+                },
+                ScopeOption {
+                    value: "jobs:write".to_string(),
+                    label: "Write".to_string(),
+                    requires_resource_path: false,
+                },
+                ScopeOption {
+                    value: "jobs:run:scripts".to_string(),
+                    label: "Run scripts".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
+                    value: "jobs:run:flows".to_string(),
+                    label: "Run flows".to_string(),
+                    requires_resource_path: true,
+                },
+            ],
+        }];
 
-    groups.extend(standard_scope_domains());
-    groups.extend(trigger_scope_domains());
+        groups.extend(build_standard_scope_domains());
+        groups.extend(build_trigger_scope_domains());
 
-    groups
+        groups
+    };
 }
 
 pub fn global_service() -> Router {
@@ -190,5 +191,5 @@ pub fn global_service() -> Router {
 }
 
 async fn get_all_available_scopes() -> JsonResult<Vec<ScopeDomain>> {
-    Ok(Json(get_scopes()))
+    Ok(Json(ALL_SCOPES.clone()))
 }
