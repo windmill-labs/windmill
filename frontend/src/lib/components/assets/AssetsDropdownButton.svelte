@@ -127,7 +127,15 @@
 						disablePopup={!!asset.access_type}
 					>
 						<svelte:fragment slot="trigger">
-							<div class="text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md">
+							<div
+								class={twMerge(
+									'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+									!asset.access_type && !asset.alt_access_type
+										? 'text-orange-500 !border-orange-500'
+										: '',
+									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
+								)}
+							>
 								{formatAssetAccessType(asset)}
 							</div>
 						</svelte:fragment>
@@ -137,12 +145,7 @@
 									Could not infer automatically <br />
 									<span class="text-xs">Please select manually</span>
 								</span>
-								<ToggleButtonGroup
-									bind:selected={
-										() => asset.alt_access_type ?? 'r', (a) => (asset.alt_access_type = a)
-									}
-									class="max-w-fit"
-								>
+								<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
 									{#snippet children({ item })}
 										<ToggleButton value="r" label="Read" {item} />
 										<ToggleButton value="w" label="Write" {item} />
