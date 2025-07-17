@@ -189,7 +189,7 @@ export async function generateFlowLockInternal(
       });
 
     // Overwrite `flow.yaml` with the new lockfile references
-    Deno.writeTextFile(
+    await Deno.writeTextFile(
       Deno.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(
         flowValue as Record<string, any>
