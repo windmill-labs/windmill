@@ -153,23 +153,6 @@ pub async fn maybe_refresh_folders(
     }
 }
 
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if authed.scopes.as_ref().is_some_and(|scopes| {
-        scopes
-            .iter()
-            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-    }) {
-        let req = &required();
-        if !authed.scopes.as_ref().unwrap().contains(req) {
-            return Err(Error::BadRequest(format!("missing required scope: {req}")));
-        }
-    }
-    Ok(())
-}
-
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
     authed.scopes.as_ref()?.iter().find_map(|s| {
         if s.starts_with("if_jobs:filter_tags:") {

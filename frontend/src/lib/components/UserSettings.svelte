@@ -49,7 +49,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="800px" on:close={removeHash}>
+<Drawer bind:this={drawer} size="900px" on:close={removeHash}>
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			{#if scopes == undefined}
