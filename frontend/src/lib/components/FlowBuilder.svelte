@@ -86,6 +86,7 @@
 	} from './stepHistoryLoader.svelte'
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -608,6 +609,11 @@
 		modulesTestStates,
 		outputPickerOpenFns
 	})
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => flowStore.val.value.modules })
+	)
 
 	// Add triggers context store
 	const triggersState = $state(
@@ -1255,4 +1261,11 @@
 	on:reload={() => {
 		renderCount += 1
 	}}
+/>
+
+<FlowAssetsHandler
+	modules={flowStore.val.value.modules}
+	enableParser
+	enableDbExplore
+	enablePathScriptAndFlowAssets
 />

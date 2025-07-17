@@ -15,7 +15,6 @@ use AssetUsageAccessType::*;
 pub enum AssetKind {
     S3Object,
     Resource,
-    Variable,
 }
 
 #[derive(Serialize)]
@@ -57,8 +56,6 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
         Some((AssetKind::Resource, &s[6..]))
     } else if s.starts_with("$res:") {
         Some((AssetKind::Resource, &s[5..]))
-    } else if s.starts_with("var://") {
-        Some((AssetKind::Variable, &s[6..]))
     } else {
         None
     }

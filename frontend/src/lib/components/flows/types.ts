@@ -89,10 +89,11 @@ export type FlowEditorContext = {
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
-	assetsMap: Record<string, AssetWithAccessType[]> // Maps module ids to their assets
 	s3FilePicker: S3FilePicker | undefined
 	dbManagerDrawer: DbManagerDrawer | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error
 	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
+	additionalAssetsMap: Record<string, AssetWithAccessType[]>
+	computeAssetsCount: (asset: Asset) => number
 }>

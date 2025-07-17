@@ -84,8 +84,6 @@ impl AssetsFinder {
             "denoS3LightClientSettings" => (AssetKind::Resource, None, 0),
             "duckdbConnectionSettings" => (AssetKind::Resource, None, 0),
             "polarsConnectionSettings" => (AssetKind::Resource, None, 0),
-            "getVariable" => (AssetKind::Variable, Some(R), 0),
-            "setVariable" => (AssetKind::Variable, Some(W), 0),
             _ => return Err(()),
         };
 

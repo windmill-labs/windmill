@@ -1,5 +1,6 @@
 // https://github.com/sveltejs/svelte/issues/14600
 
+import { untrack } from 'svelte'
 import type { StateStore } from './utils'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
@@ -8,6 +9,11 @@ export function withProps<Component, Props>(component: Component, props: Props) 
 		props
 	})
 	return ret
+}
+
+export function createState<T>(initialValue: T): T {
+	let s = $state(initialValue)
+	return s
 }
 
 export function stateSnapshot<T>(state: T) {
@@ -38,23 +44,25 @@ export function usePromise<T>(
 		status: 'loading',
 		__promise: undefined,
 		refresh: () => {
-			let promise = createPromise()
-			ret.__promise = promise
-			ret.status = 'loading'
-			if (clearValueOnRefresh) ret.value = undefined
-			ret.error = undefined
+			untrack(() => {
+				let promise = createPromise()
+				ret.__promise = promise
+				ret.status = 'loading'
+				if (clearValueOnRefresh) ret.value = undefined
+				ret.error = undefined
 
-			promise
-				.then((value) => {
-					if (ret.__promise !== promise) return
-					ret.value = value
-					ret.status = 'ok'
-				})
-				.catch((error) => {
-					if (ret.__promise !== promise) return
-					ret.error = error
-					ret.status = 'error'
-				})
+				promise
+					.then((value) => {
+						if (ret.__promise !== promise) return
+						ret.value = value
+						ret.status = 'ok'
+					})
+					.catch((error) => {
+						if (ret.__promise !== promise) return
+						ret.error = error
+						ret.status = 'error'
+					})
+			})
 		}
 	})
 	if (loadInit) ret.refresh()

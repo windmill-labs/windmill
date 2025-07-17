@@ -525,7 +525,7 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
-					fallback_access_types: script.fallback_access_types
+					assets: script.assets
 				}
 			})
 
@@ -666,7 +666,8 @@
 						visible_to_runner_only: script.visible_to_runner_only,
 						no_main_func: script.no_main_func,
 						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email
+						on_behalf_of_email: script.on_behalf_of_email,
+						assets: script.assets
 					}
 				})
 			}
@@ -1776,12 +1777,12 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
-			bind:fallbackAccessTypes={script.fallback_access_types}
 			lastSavedCode={savedScript?.draft?.content}
 			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable
+			bind:assets={script.assets}
 		/>
 	</div>
 {:else}

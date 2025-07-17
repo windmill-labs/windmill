@@ -1,20 +1,26 @@
 <script lang="ts">
 	import { clone, pluralize } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
-	import { AlertTriangle, Edit2, Pyramid } from 'lucide-svelte'
+	import { Pyramid } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
-	import { assetEq, formatAssetKind, type Asset, type AssetWithAccessType } from './lib'
+	import {
+		assetsEq,
+		formatAssetAccessType,
+		formatAssetKind,
+		getAccessType,
+		type Asset,
+		type AssetWithAltAccessType
+	} from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
-	import { tick, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import Button from '../common/button/Button.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import Tooltip2 from '../Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
+	import AssetButtons from './AssetButtons.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
@@ -25,17 +31,15 @@
 		noBtnText = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
-		fallbackAccessTypes = $bindable(),
 		onHoverLi,
 		liSubtitle
 	}: {
-		assets: AssetWithAccessType[]
+		assets: AssetWithAltAccessType[]
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
-		fallbackAccessTypes?: AssetWithAccessType[]
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
 	} = $props()
@@ -60,7 +64,7 @@
 	$effect(() => {
 		assets
 		untrack(() => {
-			if (deepEqual(assets, prevAssets)) return
+			if (assetsEq(assets, prevAssets)) return
 			prevAssets = clone(assets)
 
 			// Replay animation
@@ -113,16 +117,52 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
-				{@const fallbackAccessType = fallbackAccessTypes?.find((a) =>
-					assetEq(a, asset)
-				)?.access_type}
-				{@const hasWarning = !asset.access_type && !fallbackAccessType}
 				<li
-					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
+					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
-					<div class="flex flex-col">
+					<Popover
+						contentClasses="py-2 px-4 flex flex-col gap-2"
+						disablePopup={!!asset.access_type}
+					>
+						<svelte:fragment slot="trigger">
+							<div
+								class={twMerge(
+									'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+									!asset.access_type && !asset.alt_access_type
+										? 'text-orange-500 !border-orange-500'
+										: '',
+									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
+								)}
+							>
+								{formatAssetAccessType(getAccessType(asset))}
+							</div>
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							{#if !asset.access_type}
+								<span class="text-sm text-tertiary leading-4">
+									Could not infer automatically <br />
+									<span class="text-xs">Please select manually </span>
+								</span>
+								<div class="flex items-center gap-2">
+									<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+										{#snippet children({ item })}
+											<ToggleButton value="r" label="Read" {item} />
+											<ToggleButton value="w" label="Write" {item} />
+											<ToggleButton value="rw" label="Read/Write" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+
+									<Tooltip2>
+										This is used to determine if the asset should be displayed as an input or an
+										output node in the flow editor
+									</Tooltip2>
+								</div>
+							{/if}
+						</svelte:fragment>
+					</Popover>
+					<div class="flex flex-col flex-1">
 						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
 							{asset.path}
 							<svelte:fragment slot="text">
@@ -133,68 +173,21 @@
 							{liSubtitle?.(asset) ??
 								formatAssetKind({
 									...asset,
-									metadata: { resource_type: resourceDataCache[asset.path] }
+									...(asset.kind === 'resource'
+										? { metadata: { resource_type: resourceDataCache[asset.path] } }
+										: {})
 								})}
 						</span>
 					</div>
 
-					<div class="flex gap-2 items-center">
-						{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
-							<Button
-								startIcon={{ icon: Edit2 }}
-								size="xs"
-								variant="border"
-								spacingSize="xs2"
-								iconOnly
-								on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
-							/>
-						{/if}
-						{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
-							<Tooltip class="mr-2.5">
-								<AlertTriangle size={16} class="text-orange-600 dark:text-orange-500" />
-								<svelte:fragment slot="text">Could not find resource</svelte:fragment>
-							</Tooltip>
-						{/if}
-						{#if assetCanBeExplored(asset, { resource_type: resourceDataCache[asset.path] })}
-							<ExploreAssetButton
-								{asset}
-								{s3FilePicker}
-								{dbManagerDrawer}
-								onClick={() => (isOpen = false)}
-								noText
-								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
-							/>
-						{/if}
-
-						<ToggleButtonGroup
-							disabled={!!asset.access_type}
-							tabListClass={hasWarning ? 'bg-red-200 dark:bg-red-300' : ''}
-							bind:selected={
-								() => asset.access_type ?? fallbackAccessType,
-								async (access_type) => {
-									fallbackAccessTypes ??= []
-									await tick()
-									let val = fallbackAccessTypes?.filter((a) => !assetEq(a, asset))
-									val.push({ ...asset, access_type })
-									fallbackAccessTypes = val
-								}
-							}
-						>
-							{#snippet children({ item })}
-								{#each ['r', 'w', 'rw'] as v}
-									<ToggleButton
-										class={hasWarning
-											? 'bg-transparent hover:bg-red-100 dark:text-primary-inverse'
-											: ''}
-										value={v}
-										label={v}
-										{item}
-										tooltip={'Could not infer access type from code, please select manually'}
-									/>
-								{/each}
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
+					<AssetButtons
+						onClick={() => (isOpen = false)}
+						{asset}
+						{resourceDataCache}
+						{dbManagerDrawer}
+						{resourceEditorDrawer}
+						{s3FilePicker}
+					/>
 				</li>
 			{/each}
 		</ul>

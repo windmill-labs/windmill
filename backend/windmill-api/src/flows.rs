@@ -1391,7 +1391,7 @@ mod tests {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
-                        asset_fallback_access_types: None,
+                        assets: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),

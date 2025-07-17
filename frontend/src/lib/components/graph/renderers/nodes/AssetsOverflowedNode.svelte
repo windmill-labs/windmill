@@ -14,12 +14,12 @@
 		data: AssetsOverflowedN['data']
 	}
 	let { data }: Props = $props()
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let isOpen = $state(false)
 
 	let includesSelected = $derived(
-		data.overflowedAssets.some((asset) => assetEq(flowGraphAssetsCtx.val.selectedAsset, asset))
+		data.overflowedAssets.some((asset) => assetEq(flowGraphAssetsCtx?.val.selectedAsset, asset))
 	)
 
 	let wasOpenedBecauseOfExternalSelected = false
