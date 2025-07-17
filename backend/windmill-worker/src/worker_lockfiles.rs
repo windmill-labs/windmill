@@ -269,16 +269,6 @@ pub async fn handle_dependency_job(
         None
     };
 
-    let local_lockfiles = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("local_lockfiles")
-                .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
-                .flatten()
-        })
-        .flatten();
-
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
@@ -314,22 +304,6 @@ pub async fn handle_dependency_job(
         },
     };
 
-    // Check if we have a local lockfile for this language
-    let (content_to_use, raw_deps_to_use) = if let Some(local_lockfiles) = local_lockfiles.as_ref()
-    {
-        if let Some(language) = job.script_lang.as_ref() {
-            if let Some(local_lockfile) = local_lockfiles.get(language.as_str()) {
-                (local_lockfile.clone(), true)
-            } else {
-                (script_data.code.clone(), raw_deps)
-            }
-        } else {
-            (script_data.code.clone(), raw_deps)
-        }
-    } else {
-        (script_data.code.clone(), raw_deps)
-    };
-
     let content = capture_dependency_job(
         &job.id,
         job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -337,7 +311,7 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &content_to_use,
+        &script_data.code,
         mem_peak,
         canceled_by,
         job_dir,
@@ -348,7 +322,7 @@ pub async fn handle_dependency_job(
         base_internal_url,
         token,
         script_path,
-        raw_deps_to_use,
+        raw_deps,
         npm_mode,
         occupancy_metrics,
     )
