@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -81,9 +81,8 @@
 			{#if mod.type == 'InProgress'}
 				{@const rawMod = job.raw_flow?.modules[i]}
 
-				<div
-					><span class="inline-flex gap-1"
-						><Badge color="indigo">{mod.id}</Badge>
+				<div>
+					<span class="inline-flex gap-1">
 						<span class="font-medium text-primary">
 							{#if !emptyString(rawMod?.summary)}
 								{rawMod?.summary ?? ''}
