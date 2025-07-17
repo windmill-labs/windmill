@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Default directory
 EE_DIR="../windmill-ee-private"

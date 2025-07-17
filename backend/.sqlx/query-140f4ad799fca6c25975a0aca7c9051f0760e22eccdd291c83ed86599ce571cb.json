@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_status (id, workflow_as_code_status)\n            VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))\n            ON CONFLICT (id) DO UPDATE SET\n                workflow_as_code_status = JSONB_SET(\n                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB),\n                    array[$2],\n                    $3\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "140f4ad799fca6c25975a0aca7c9051f0760e22eccdd291c83ed86599ce571cb"
+}

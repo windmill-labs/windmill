@@ -26,8 +26,10 @@ import {
   parseMetadataFile,
 } from "./metadata.ts";
 import {
+    LanguageWithRawReqsSupport,
   ScriptLanguage,
   inferContentTypeFromFilePath,
+  languagesWithRawReqsSupport,
 } from "./script_common.ts";
 import {
   elementsToMap,
@@ -865,43 +867,35 @@ async function bootstrap(
   );
 }
 
-export type GlobalDeps = {
-  pkgs: Record<string, string>;
-  reqs: Record<string, string>;
-  composers: Record<string, string>;
-  goMods: Record<string, string>;
-};
+export type GlobalDeps = Map<LanguageWithRawReqsSupport, Record<string, string>>;
+
 export async function findGlobalDeps(): Promise<GlobalDeps> {
-  const pkgs: { [key: string]: string } = {};
-  const reqs: { [key: string]: string } = {};
-  const composers: { [key: string]: string } = {};
-  const goMods: { [key: string]: string } = {};
+  var globalDeps: GlobalDeps = new Map();
   const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = SEP + p;
     return (
       !isDir &&
-      !(
-        p.endsWith(SEP + "package.json") ||
-        p.endsWith(SEP + "requirements.txt") ||
-        p.endsWith(SEP + "composer.json") ||
-        p.endsWith(SEP + "go.mod")
+      // Skip if the filename is not one of lockfile names
+      !(languagesWithRawReqsSupport.some(
+        lockfile =>
+        p.endsWith(SEP + lockfile.rrFilename))
       )
     );
   }, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const content = await entry.getContentText();
-    if (entry.path.endsWith("package.json")) {
-      pkgs[entry.path.substring(0, entry.path.length - "package.json".length)] = content;
-    } else if (entry.path.endsWith("requirements.txt")) {
-      reqs[entry.path.substring(0, entry.path.length - "requirements.txt".length)] = content;
-    } else if (entry.path.endsWith("composer.json")) {
-      composers[entry.path.substring(0, entry.path.length - "composer.json".length)] = content;
-    } else if (entry.path.endsWith("go.mod")) {
-      goMods[entry.path.substring(0, entry.path.length - "go.mod".length)] = content;
-    }
+
+    // Iterate over available languages to find which lockfile
+    languagesWithRawReqsSupport.map((lock) => {
+      if (entry.path.endsWith(lock.rrFilename)){
+        const current = globalDeps.get(lock) ?? {};
+        current[entry.path.substring(0, entry.path.length - lock.rrFilename.length)] = content;
+        globalDeps.set(lock, current);
+      }
+    });
   }
-  return { pkgs, reqs, composers, goMods };
+  return globalDeps;
 }
 async function generateMetadata(
   opts: GlobalOptions & {

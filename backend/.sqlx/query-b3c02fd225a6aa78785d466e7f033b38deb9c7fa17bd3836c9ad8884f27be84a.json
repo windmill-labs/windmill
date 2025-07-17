@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT \n                    j.id,\n                    j.kind AS \"kind: _\",\n                    COALESCE(s.path, f.path) AS \"script_path!\",\n                    COALESCE(s.hash, f.id) AS \"script_hash!: _\",\n                    COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS \"scheduled_for!: _\",\n                    args AS input,\n                    COALESCE(s.schema, f.schema) AS \"schema: _\"\n                FROM v2_job j\n                LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'\n                LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'\n                LEFT JOIN v2_job_completed jc ON jc.id = j.id\n                LEFT JOIN v2_job_queue jq ON jq.id = j.id\n                WHERE j.id = ANY($1)\n                    AND j.workspace_id = $2\n                    AND COALESCE(s.hash, f.id) IS NOT NULL\n                    AND COALESCE(s.path, f.path) IS NOT NULL",
+  "query": "SELECT\n                    j.id,\n                    j.kind AS \"kind: _\",\n                    COALESCE(s.path, f.path) AS \"script_path!\",\n                    COALESCE(s.hash, f.id) AS \"script_hash!: _\",\n                    COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS \"scheduled_for!: _\",\n                    args AS input,\n                    COALESCE(s.schema, f.schema) AS \"schema: _\"\n                FROM v2_job j\n                LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'\n                LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'\n                LEFT JOIN v2_job_completed jc ON jc.id = j.id\n                LEFT JOIN v2_job_queue jq ON jq.id = j.id\n                WHERE j.id = ANY($1)\n                    AND j.workspace_id = $2\n                    AND COALESCE(s.hash, f.id) IS NOT NULL\n                    AND COALESCE(s.path, f.path) IS NOT NULL",
   "describe": {
     "columns": [
       {
@@ -81,5 +81,5 @@
       null
     ]
   },
-  "hash": "ad88831c9021b79c9037a925c2b53be3a93dbe2a67bdc4d4342c84f439b5eaf9"
+  "hash": "b3c02fd225a6aa78785d466e7f033b38deb9c7fa17bd3836c9ad8884f27be84a"
 }

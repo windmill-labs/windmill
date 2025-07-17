@@ -211,6 +211,7 @@
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
           PHP_PATH = "${pkgs.php}/bin/php";
+          COMPOSER_PATH = "${pkgs.php84Packages.composer}/bin/composer";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
