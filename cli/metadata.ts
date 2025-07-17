@@ -177,7 +177,7 @@ export async function generateFlowLockInternal(
 
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      newPathAssigner("bun"),
+      newPathAssigner(opts.defaultTs ?? "bun"),
     );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
@@ -187,6 +187,14 @@ export async function generateFlowLockInternal(
           s.content,
         );
       });
+
+    // Update the flow.yaml file with the new lockfile references
+    Deno.writeTextFile(
+      Deno.cwd() + SEP + folder + SEP + "flow.yaml",
+      yamlStringify(
+        flowValue as Record<string, any>
+      )
+    );
   }
 
   hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
