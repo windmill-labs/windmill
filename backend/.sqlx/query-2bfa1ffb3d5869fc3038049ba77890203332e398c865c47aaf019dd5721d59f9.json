@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"\n        FROM v2_as_completed_job \n        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+  "query": "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"\n        FROM v2_as_completed_job\n        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       true
     ]
   },
-  "hash": "47fb4bceddd36fa60ccbe84f6341436fb133f0b3c97abb1267a9c12326dd1a33"
+  "hash": "2bfa1ffb3d5869fc3038049ba77890203332e398c865c47aaf019dd5721d59f9"
 }
