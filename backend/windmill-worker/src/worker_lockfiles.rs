@@ -724,7 +724,6 @@ pub async fn handle_flow_dependency_job(
     let raw_deps = job
         .args
         .as_ref()
-        // TODO: Refactor
         .map(|x| {
             x.get("raw_deps")
                 .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())

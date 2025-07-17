@@ -66,7 +66,7 @@ async function generateFlowHash(
   defaultTs: "bun" | "deno" | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
-  const hashes: Record<string, string | undefined> = {};
+  const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
       let reqs: string | undefined;
@@ -74,10 +74,10 @@ async function generateFlowHash(
         // Get language name from path
         const lang = inferContentTypeFromFilePath(f.path, defaultTs);
         // Get lock for that language
-        [, reqs] = Object.entries(rawReqs ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
+        [, reqs] = Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
       }
 
-      // NOTE: We embed lock into hash
+      // Embed lock into hash
       hashes[f.path] = await generateHash(await f.getContentText() + (reqs ?? ""));
     }
   }
@@ -112,7 +112,7 @@ export async function generateFlowLockInternal(
     // Find closest dependency files for this flow
     rawReqs = {};
 
-    // TODO: Only include raw reqs for the languages that are in the flow
+    // TODO: PERF: Only include raw reqs for the languages that are in the flow
     languagesWithRawReqsSupport.map((lang) => {
       const dep = findClosestRawReqs(lang, folder, globalDeps);
       if (dep) {
@@ -188,7 +188,7 @@ export async function generateFlowLockInternal(
         );
       });
 
-    // Update the flow.yaml file with the new lockfile references
+    // Overwrite `flow.yaml` with the new lockfile references
     Deno.writeTextFile(
       Deno.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(
@@ -231,17 +231,18 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+  const rrLang =  languagesWithRawReqsSupport.find((l) => language == l.language);
 
   const rawReqs = findClosestRawReqs(
-    languagesWithRawReqsSupport.find((l) => language == l.language),
+    rrLang,
     scriptPath,
     globalDeps,
   );
 
-  if (rawReqs) {
+  if (rawReqs && rrLang) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (${languagesWithRawReqsSupport.map((l) => l.rrFilename).join("/")}) for ${scriptPath}, using it`,
+        `Found raw requirements (${rrLang.rrFilename}) for ${scriptPath}, using it`,
       ),
     );
   }
