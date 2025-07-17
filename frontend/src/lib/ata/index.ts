@@ -264,7 +264,7 @@ type ATADownload = {
 	path: string
 }
 
-function treeToDTSFiles(tree: NPMTreeMeta, vfsPrefix: string) {
+export function treeToDTSFiles(tree: NPMTreeMeta, vfsPrefix: string) {
 	const dtsRefs: ATADownload[] = []
 
 	for (const file of tree.files) {
@@ -341,7 +341,7 @@ interface Logger {
 }
 
 // Taken from dts-gen: https://github.com/microsoft/dts-gen/blob/master/lib/names.ts
-function getDTName(s: string) {
+export function getDTName(s: string) {
 	if (s.indexOf('@') === 0 && s.indexOf('/') !== -1) {
 		// we have a scoped module, e.g. @bla/foo
 		// which should be converted to   bla__foo

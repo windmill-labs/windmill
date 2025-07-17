@@ -15,6 +15,8 @@ import type { CodePieceElement, ContextElement } from '../context'
 import type { Tool } from '../shared'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import { createSearchHubScriptsTool } from '../flow/core'
+import { getDTName, getFileTreeForModuleWithTag, treeToDTSFiles } from '$lib/ata'
+import { getDTSFileForModuleWithVersion, type ResLimit } from '$lib/ata/apis'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -664,15 +666,17 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 
 async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
 	try {
-		const SCORE_THRESHOLD = 0.75
-		const result = await fetch(
-			`https://api.npms.io/v2/search?q=${args.query}+not:deprecated,insecure`
-		)
+		const SCORE_THRESHOLD = 1000
+		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
 		const data = await result.json()
-		const filtered = data.results.filter((r: any) => r.score.final >= SCORE_THRESHOLD)
+		console.log('data', data.objects.length)
+		const filtered = data.objects.filter((r: any) => r.searchScore >= SCORE_THRESHOLD)
+		console.log('filtered', filtered.length)
+
 		let results = await Promise.all(
 			filtered.map(async (r: any) => {
 				let documentation = ''
+				let types: { success: boolean; types: string; error?: string } | undefined = undefined
 				try {
 					if (r.package.links.repository) {
 						// get raw readme from the repository
@@ -682,6 +686,7 @@ async function searchExternalIntegrationResources(args: { query: string }): Prom
 						)
 						const docUrl = repoUrl + '/refs/heads/main/README.md'
 						let docResponse = await fetch(docUrl)
+						// try to get the documentation from the master branch if main is not found
 						if (!docResponse.ok) {
 							docResponse = await fetch(docUrl.replace('/main/', '/master/'))
 						}
@@ -692,12 +697,20 @@ async function searchExternalIntegrationResources(args: { query: string }): Prom
 					console.error('Error getting documentation for package:', error)
 					documentation = ''
 				}
+				try {
+					types = await fetchNpmPackageTypes(r.package.name, r.package.version)
+				} catch (error) {
+					console.error('Error getting types for package:', error)
+					types = { success: false, types: '' }
+				}
 				return {
 					package: r.package,
-					documentation: documentation
+					documentation: documentation,
+					types: types.types.slice(0, 10000)
 				}
 			})
 		)
+		console.log('results', results)
 		return JSON.stringify(results)
 	} catch (error) {
 		console.error('Error searching external integration resources:', error)
@@ -730,5 +743,122 @@ export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
 		const result = await searchExternalIntegrationResources(args)
 		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
 		return result
+	}
+}
+
+/**
+ * Fetches TypeScript type definitions for a specific NPM package.
+ * Uses the existing ATA (Automatic Type Acquisition) infrastructure.
+ *
+ * @param packageName - The NPM package name (e.g., 'axios', '@types/node')
+ * @param version - The package version (defaults to 'latest')
+ * @returns Promise<{success: boolean, types: string, error?: string}>
+ */
+export async function fetchNpmPackageTypes(
+	packageName: string,
+	version: string = 'latest'
+): Promise<{ success: boolean; types: string; error?: string }> {
+	try {
+		const resLimit: ResLimit = { usage: 0 }
+
+		// Get file tree for the package
+		const tree = await getFileTreeForModuleWithTag(packageName, version, packageName, resLimit)
+
+		if ('error' in tree) {
+			return {
+				success: false,
+				types: '',
+				error: tree.userFacingMessage || 'Failed to fetch package information'
+			}
+		}
+
+		// Check if package has direct .d.ts files
+		const directDtsFiles = tree.files.filter((f) => f.name.endsWith('.d.ts'))
+		let dtsFiles: {
+			moduleName: string
+			moduleVersion: string
+			vfsPath: string
+			path: string
+		}[] = []
+
+		if (directDtsFiles.length > 0) {
+			// Package has its own types
+			dtsFiles = treeToDTSFiles(tree, `/node_modules/${packageName}`)
+		} else {
+			// Look for @types/package-name
+			const dtName = getDTName(packageName)
+			const dtTree = await getFileTreeForModuleWithTag(
+				`@types/${dtName}`,
+				'latest',
+				`@types/${dtName}`,
+				resLimit
+			)
+
+			if ('error' in dtTree) {
+				return {
+					success: false,
+					types: '',
+					error: `No type definitions found for ${packageName}. Neither direct types nor @types/${dtName} are available.`
+				}
+			}
+
+			dtsFiles = treeToDTSFiles(dtTree, `/node_modules/@types/${dtName}`)
+		}
+
+		if (dtsFiles.length === 0) {
+			return {
+				success: false,
+				types: '',
+				error: `No .d.ts files found for ${packageName}`
+			}
+		}
+
+		// Download all .d.ts files
+		const typeDefinitions = await Promise.all(
+			dtsFiles.map(async (dts) => {
+				const dtsCode = await getDTSFileForModuleWithVersion(
+					dts.moduleName,
+					dts.moduleVersion,
+					dts.path
+				)
+
+				if (dtsCode instanceof Error) {
+					console.warn(`Failed to download ${dts.path} for ${dts.moduleName}:`, dtsCode)
+					return null
+				}
+
+				return {
+					path: dts.vfsPath,
+					content: dtsCode
+				}
+			})
+		)
+
+		// Filter out failed downloads and format results
+		const validTypes = typeDefinitions.filter((type): type is NonNullable<typeof type> =>
+			Boolean(type)
+		)
+
+		if (validTypes.length === 0) {
+			return {
+				success: false,
+				types: '',
+				error: `Failed to download type definitions for ${packageName}`
+			}
+		}
+
+		const result = validTypes.map((type) => `// ${type.path}\n${type.content}`).join('\n\n')
+
+		return {
+			success: true,
+			types: result
+		}
+	} catch (error) {
+		console.error('Error fetching NPM package types:', error)
+		return {
+			success: false,
+			types: '',
+			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
+		}
 	}
 }

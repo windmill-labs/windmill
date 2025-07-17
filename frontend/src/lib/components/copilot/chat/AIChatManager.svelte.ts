@@ -396,6 +396,11 @@ class AIChatManager {
 					}
 				}
 			}
+
+			console.log(
+				'messages',
+				messages.reduce((acc, m) => acc + (m.content?.length ?? 0), 0)
+			)
 		} catch (err) {
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
@@ -427,6 +432,8 @@ class AIChatManager {
 			role: 'system',
 			content: INLINE_CHAT_SYSTEM_PROMPT
 		}
+
+		console.log('systemMessage', systemMessage.content.length)
 
 		let reply = ''
 
@@ -509,6 +516,8 @@ class AIChatManager {
 		if (!this.instructions.trim()) {
 			return
 		}
+		// searchExternalIntegrationResources({ query: this.instructions })
+		// return
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT) {
