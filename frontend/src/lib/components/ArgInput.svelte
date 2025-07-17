@@ -762,6 +762,7 @@
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
+															{prettifyHeader}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -904,6 +905,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
+												{prettifyHeader}
 												bind:schema={
 													() => ({
 														properties: obj.properties ?? {},
@@ -934,6 +936,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
+												{prettifyHeader}
 												hiddenArgs={['label', 'kind']}
 												schema={{
 													properties: obj.properties,
@@ -1009,6 +1012,7 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							bind:schema={
 								() => ({
 									properties,
@@ -1044,6 +1048,7 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							schema={{
 								properties,
 								order,
