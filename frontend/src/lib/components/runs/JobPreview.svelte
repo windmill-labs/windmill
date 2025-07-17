@@ -15,8 +15,10 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 
 	interface Props {
 		id: string
@@ -44,6 +46,11 @@
 	}
 
 	let viewTab = $state('result')
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
@@ -193,6 +200,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>
+					<Tab size="xs" value="assets">Assets</Tab>
 					{#if isScriptPreview(job?.job_kind)}
 						<Tab size="xs" value="code">Code</Tab>
 					{/if}
@@ -206,6 +214,8 @@
 								<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
 							</div>
 						</div>
+					{:else if viewTab == 'assets'}
+						<JobAssetsViewer {job} />
 					{:else}
 						<div class="flex flex-col border rounded-md p-2 mt-2 h-full overflow-auto">
 							{#if viewTab == 'logs'}
@@ -264,3 +274,8 @@
 		</div>
 	{/if}
 </div>
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

@@ -194,7 +194,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.2.18 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer

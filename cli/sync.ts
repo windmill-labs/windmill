@@ -1,4 +1,5 @@
-import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { fetchVersion, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,
@@ -55,43 +56,8 @@ function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { 
   cliOpts: T,
   effectiveOpts: SyncOptions
 ): T {
-  // Start with effective options from config, then overlay only explicitly provided CLI flags
-  const mergedOpts = Object.assign({}, effectiveOpts) as T;
-
-  // Always preserve these operational CLI flags
-  if (cliOpts.dryRun !== undefined) mergedOpts.dryRun = cliOpts.dryRun;
-  if (cliOpts.yes !== undefined) mergedOpts.yes = cliOpts.yes;
-  if (cliOpts.stateful !== undefined) mergedOpts.stateful = cliOpts.stateful;
-  if (cliOpts.skipPull !== undefined) mergedOpts.skipPull = cliOpts.skipPull;
-  if (cliOpts.failConflicts !== undefined) mergedOpts.failConflicts = cliOpts.failConflicts;
-  if (cliOpts.plainSecrets !== undefined) mergedOpts.plainSecrets = cliOpts.plainSecrets;
-  if (cliOpts.json !== undefined) mergedOpts.json = cliOpts.json;
-  if (cliOpts.message !== undefined) mergedOpts.message = cliOpts.message;
-  if (cliOpts.parallel !== undefined) mergedOpts.parallel = cliOpts.parallel;
-  if (cliOpts.jsonOutput !== undefined) mergedOpts.jsonOutput = cliOpts.jsonOutput;
-  if (cliOpts.repository !== undefined) mergedOpts.repository = cliOpts.repository;
-
-  // Always preserve CLI include flags (they should override config file settings)
-  if (cliOpts.includeUsers !== undefined) mergedOpts.includeUsers = cliOpts.includeUsers;
-  if (cliOpts.includeGroups !== undefined) mergedOpts.includeGroups = cliOpts.includeGroups;
-  if (cliOpts.includeSettings !== undefined) mergedOpts.includeSettings = cliOpts.includeSettings;
-  if (cliOpts.includeKey !== undefined) mergedOpts.includeKey = cliOpts.includeKey;
-  if (cliOpts.includeSchedules !== undefined) mergedOpts.includeSchedules = cliOpts.includeSchedules;
-  if (cliOpts.includeTriggers !== undefined) mergedOpts.includeTriggers = cliOpts.includeTriggers;
-
-  // Always preserve CLI skip flags (they should override config file settings)
-  if (cliOpts.skipScripts !== undefined) mergedOpts.skipScripts = cliOpts.skipScripts;
-  if (cliOpts.skipFolders !== undefined) mergedOpts.skipFolders = cliOpts.skipFolders;
-  if (cliOpts.skipVariables !== undefined) mergedOpts.skipVariables = cliOpts.skipVariables;
-  if (cliOpts.skipResources !== undefined) mergedOpts.skipResources = cliOpts.skipResources;
-  if (cliOpts.skipResourceTypes !== undefined) mergedOpts.skipResourceTypes = cliOpts.skipResourceTypes;
-  if (cliOpts.skipSecrets !== undefined) mergedOpts.skipSecrets = cliOpts.skipSecrets;
-  if (cliOpts.skipFlows !== undefined) mergedOpts.skipFlows = cliOpts.skipFlows;
-  if (cliOpts.skipApps !== undefined) mergedOpts.skipApps = cliOpts.skipApps;
-
-
-
-  return mergedOpts;
+  // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
+  return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
 // Resolve effective sync options with smart repository detection
@@ -163,12 +129,14 @@ async function resolveEffectiveSyncOptions(
       } else {
         // Non-interactive mode - list options and use top-level
         log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
-        log.warn(`Use --repository flag to specify which one to use. Using top-level settings.`);
+        log.warn(`Running in non-interactive mode. Use --repository flag to specify which one to use.`);
+        log.info(`Falling back to top-level settings (no repository-specific overrides applied)`);
       }
     }
   }
 
   // No repository overrides found or selected - use top-level settings
+  log.info(`No repository overrides found, using top-level settings`);
   return getEffectiveSettings(
     localConfig,
     workspace.remote,
@@ -1491,7 +1459,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, true);
+      await generateFlowLockInternal(change, false, workspace, opts, true);
     }
     if (tracker.apps.length > 0) {
       log.info(
@@ -1686,6 +1654,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
       change,
       true,
       workspace,
+      opts,
       false,
       true
     );

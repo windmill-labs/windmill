@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.507.1"
+version = "1.508.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.507.1"
+version = "1.508.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -267,6 +267,7 @@ google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
 winapi = { version = "0.3.9", features = ["sysinfoapi"] }
+sysinfo = { version = "0.32.1" }
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"

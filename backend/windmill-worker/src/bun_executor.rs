@@ -418,17 +418,17 @@ try {{
 
 }}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/wrapper.mjs"],
-    outdir: "./",
-    target: "node",
-    plugins: [p],
-    external: fileNames,
-    minify: true,
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/wrapper.mjs"],
+        outdir: "./",
+        target: "node",
+        plugins: [p],
+        external: fileNames,
+        minify: true,
+    }});
+}} catch(err) {{
+    console.log(err);
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
@@ -462,21 +462,21 @@ plugin(p)
                 r#"
 {}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/main.ts"],
-    outdir: "./",
-    target: "{}",
-    plugins: [p],
-    external: ["electron"],
-    minify: {{
-        identifiers: false,
-        syntax: true,
-        whitespace: false
-    }},
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/main.ts"],
+        outdir: "./",
+        target: "{}",
+        plugins: [p],
+        external: ["electron"],
+        minify: {{
+            identifiers: false,
+            syntax: true,
+            whitespace: false
+        }},
+    }});
+}} catch(err) {{
+    console.log(err)
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
