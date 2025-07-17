@@ -15,8 +15,7 @@ import type { CodePieceElement, ContextElement } from '../context'
 import type { Tool } from '../shared'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import { createSearchHubScriptsTool } from '../flow/core'
-import { getDTName, getFileTreeForModuleWithTag, treeToDTSFiles } from '$lib/ata'
-import { getDTSFileForModuleWithVersion, type ResLimit } from '$lib/ata/apis'
+import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -746,112 +745,54 @@ export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
-/**
- * Fetches TypeScript type definitions for a specific NPM package.
- * Uses the existing ATA (Automatic Type Acquisition) infrastructure.
- *
- * @param packageName - The NPM package name (e.g., 'axios', '@types/node')
- * @param version - The package version (defaults to 'latest')
- * @returns Promise<{success: boolean, types: string, error?: string}>
- */
 export async function fetchNpmPackageTypes(
 	packageName: string,
 	version: string = 'latest'
 ): Promise<{ success: boolean; types: string; error?: string }> {
 	try {
-		const resLimit: ResLimit = { usage: 0 }
+		const typeDefinitions = new Map<string, string>()
 
-		// Get file tree for the package
-		const tree = await getFileTreeForModuleWithTag(packageName, version, packageName, resLimit)
+		// Create a minimal ATA config for collecting types
+		const ata = setupTypeAcquisition({
+			projectName: 'NPM-Package-Types',
+			depsParser: () => [], // Not used for single package
+			root: '',
+			delegate: {
+				receivedFile: (code: string, path: string) => {
+					if (path.endsWith('.d.ts')) {
+						typeDefinitions.set(path, code)
+					}
+				},
+				localFile: () => {} // Not used for single package
+			}
+		})
 
-		if ('error' in tree) {
+		// Create dependency object for the specific package
+		const depsToGet: DepsToGet = [
+			{
+				raw: packageName,
+				module: packageName,
+				version: version
+			}
+		]
+
+		await ata(depsToGet)
+
+		if (typeDefinitions.size === 0) {
 			return {
 				success: false,
 				types: '',
-				error: tree.userFacingMessage || 'Failed to fetch package information'
+				error: `No type definitions found for ${packageName}`
 			}
 		}
 
-		// Check if package has direct .d.ts files
-		const directDtsFiles = tree.files.filter((f) => f.name.endsWith('.d.ts'))
-		let dtsFiles: {
-			moduleName: string
-			moduleVersion: string
-			vfsPath: string
-			path: string
-		}[] = []
-
-		if (directDtsFiles.length > 0) {
-			// Package has its own types
-			dtsFiles = treeToDTSFiles(tree, `/node_modules/${packageName}`)
-		} else {
-			// Look for @types/package-name
-			const dtName = getDTName(packageName)
-			const dtTree = await getFileTreeForModuleWithTag(
-				`@types/${dtName}`,
-				'latest',
-				`@types/${dtName}`,
-				resLimit
-			)
-
-			if ('error' in dtTree) {
-				return {
-					success: false,
-					types: '',
-					error: `No type definitions found for ${packageName}. Neither direct types nor @types/${dtName} are available.`
-				}
-			}
-
-			dtsFiles = treeToDTSFiles(dtTree, `/node_modules/@types/${dtName}`)
-		}
-
-		if (dtsFiles.length === 0) {
-			return {
-				success: false,
-				types: '',
-				error: `No .d.ts files found for ${packageName}`
-			}
-		}
-
-		// Download all .d.ts files
-		const typeDefinitions = await Promise.all(
-			dtsFiles.map(async (dts) => {
-				const dtsCode = await getDTSFileForModuleWithVersion(
-					dts.moduleName,
-					dts.moduleVersion,
-					dts.path
-				)
-
-				if (dtsCode instanceof Error) {
-					console.warn(`Failed to download ${dts.path} for ${dts.moduleName}:`, dtsCode)
-					return null
-				}
-
-				return {
-					path: dts.vfsPath,
-					content: dtsCode
-				}
-			})
-		)
-
-		// Filter out failed downloads and format results
-		const validTypes = typeDefinitions.filter((type): type is NonNullable<typeof type> =>
-			Boolean(type)
-		)
-
-		if (validTypes.length === 0) {
-			return {
-				success: false,
-				types: '',
-				error: `Failed to download type definitions for ${packageName}`
-			}
-		}
-
-		const result = validTypes.map((type) => `// ${type.path}\n${type.content}`).join('\n\n')
+		const formattedTypes = Array.from(typeDefinitions.entries())
+			.map(([path, content]) => `// ${path}\n${content}`)
+			.join('\n\n')
 
 		return {
 			success: true,
-			types: result
+			types: formattedTypes
 		}
 	} catch (error) {
 		console.error('Error fetching NPM package types:', error)
