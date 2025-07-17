@@ -1201,12 +1201,15 @@ pub async fn run_worker(
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
+    // This is used to wake up the background processor when main loop is done and just waiting for new same workers jobs, and that bg processor is also not processing any jobs, bg processing can exit if no more same worker jobs
+    let wake_up_notify = Arc::new(tokio::sync::Notify::new());
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
+            wake_up_notify.clone(),
             last_processing_duration.clone(),
             base_internal_url.to_string(),
             db.clone(),
@@ -1496,6 +1499,7 @@ pub async fn run_worker(
                     tracing::info!(worker = %worker_name, hostname = %hostname, "all running jobs have completed and all completed jobs have been fully processed, exiting");
                     break;
                 } else {
+                    wake_up_notify.notify_one();
                     tracing::info!(worker = %worker_name, hostname = %hostname, "there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.506.0
+  version: 1.508.0
   title: Windmill API
 
   contact:
@@ -581,7 +581,7 @@ paths:
       summary: get connected repositories
       operationId: getGlobalConnectedRepositories
       tags:
-        - git_sync
+        - Git Sync
       responses:
         "200":
           description: connected repositories
@@ -12304,8 +12304,7 @@ paths:
         "200":
           description: Parquet Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/load_table_count/{path}:
     get:
@@ -12384,8 +12383,7 @@ paths:
         "200":
           description: Csv Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
@@ -17006,27 +17004,6 @@ components:
     WorkspaceGitSyncSettings:
       type: object
       properties:
-        include_path:
-          type: array
-          items:
-            type: string
-        include_type:
-          type: array
-          items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
         repositories:
           type: array
           items:
@@ -17078,6 +17055,42 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        collapsed:
+          type: boolean
+        settings:
+          type: object
+          properties:
+            include_path:
+              type: array
+              items:
+                type: string
+            include_type:
+              type: array
+              items:
+                type: string
+                enum:
+                  - script
+                  - flow
+                  - app
+                  - folder
+                  - resource
+                  - variable
+                  - secret
+                  - resourcetype
+                  - schedule
+                  - user
+                  - group
+                  - trigger
+                  - settings
+                  - key
+            exclude_path:
+              type: array
+              items:
+                type: string
+            extra_include_path:
+              type: array
+              items:
+                type: string
         exclude_types_override:
           type: array
           items:
@@ -17095,6 +17108,8 @@ components:
               - user
               - group
               - trigger
+              - settings
+              - key
       required:
         - script_path
         - git_repo_resource_path

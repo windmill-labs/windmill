@@ -28,6 +28,7 @@
 	} from '$lib/components/jobs/batchReruns'
 	import Toggle from '../Toggle.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
+	import { readFieldsRecursively } from '$lib/utils'
 
 	let {
 		selectedIds,
@@ -149,7 +150,10 @@
 				(options[selected.kind][selected.script_path]?.use_latest_version ?? false))
 	)
 
-	const jobGroupsPromise = $derived(selectedIds && untrack(() => fetchJobGroups()))
+	const jobGroupsPromise = $derived.by(() => {
+		readFieldsRecursively(selectedIds)
+		return untrack(() => fetchJobGroups())
+	})
 </script>
 
 <div class="flex-1 flex flex-col">
