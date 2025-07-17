@@ -668,9 +668,7 @@ async function searchExternalIntegrationResources(args: { query: string }): Prom
 		const SCORE_THRESHOLD = 1000
 		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
 		const data = await result.json()
-		console.log('data', data.objects.length)
 		const filtered = data.objects.filter((r: any) => r.searchScore >= SCORE_THRESHOLD)
-		console.log('filtered', filtered.length)
 
 		let results = await Promise.all(
 			filtered.map(async (r: any) => {
@@ -709,7 +707,6 @@ async function searchExternalIntegrationResources(args: { query: string }): Prom
 				}
 			})
 		)
-		console.log('results', results)
 		return JSON.stringify(results)
 	} catch (error) {
 		console.error('Error searching external integration resources:', error)
