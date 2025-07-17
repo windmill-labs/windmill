@@ -334,6 +334,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
+	- When asked to create a script that communicates with an external service, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -476,6 +477,9 @@ export function prepareScriptTools(
 	}
 	if (context.some((c) => c.type === 'db')) {
 		tools.push(dbSchemaTool)
+	}
+	if (['bun', 'deno'].includes(language)) {
+		tools.push(searchNpmPackagesTool)
 	}
 	return tools
 }
@@ -653,5 +657,76 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		const stringSchema = await formatDBSchema(db)
 		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
 		return stringSchema
+	}
+}
+
+async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
+	try {
+		const SCORE_THRESHOLD = 0.75
+		const result = await fetch(
+			`https://api.npms.io/v2/search?q=${args.query}+not:deprecated,insecure`
+		)
+		const data = await result.json()
+		const filtered = data.results.filter((r: any) => r.score.final >= SCORE_THRESHOLD)
+		let results = await Promise.all(
+			filtered.map(async (r: any) => {
+				let documentation = ''
+				try {
+					if (r.package.links.repository) {
+						// get raw readme from the repository
+						const repoUrl = r.package.links.repository.replace(
+							'github.com',
+							'raw.githubusercontent.com'
+						)
+						const docUrl = repoUrl + '/refs/heads/main/README.md'
+						let docResponse = await fetch(docUrl)
+						if (!docResponse.ok) {
+							docResponse = await fetch(docUrl.replace('/main/', '/master/'))
+						}
+						const docText = await docResponse.text()
+						documentation = docText.slice(0, 10000)
+					}
+				} catch (error) {
+					console.error('Error getting documentation for package:', error)
+					documentation = ''
+				}
+				return {
+					package: r.package,
+					documentation: documentation
+				}
+			})
+		)
+		return JSON.stringify(results)
+	} catch (error) {
+		console.error('Error searching external integration resources:', error)
+		return 'Error searching external integration resources: ' + error.message
+	}
+}
+
+const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'search_npm_packages',
+		description: 'Search for npm packages and their documentation',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'The query to search for'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+	def: SEARCH_NPM_PACKAGES_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, 'Searching for relevant packages...')
+		const result = await searchExternalIntegrationResources(args)
+		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
+		return result
 	}
 }
