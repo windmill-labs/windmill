@@ -58,11 +58,7 @@
 		allowMultiple = true,
 		allowDelete = true,
 		folderOnly = false,
-		containerText = folderOnly
-			? 'Drag and drop a folder here or click to browse'
-			: allowMultiple
-				? 'Drag and drop files here or click to browse'
-				: 'Drag and drop a file here or click to browse',
+		containerText: customContainerText = undefined,
 		customResourcePath = undefined,
 		customResourceType = undefined,
 		customClass = '',
@@ -79,6 +75,15 @@
 		initialValue = undefined,
 		computeForceViewerPolicies = undefined
 	}: Props = $props()
+
+	const containerText = $derived(
+		customContainerText ??
+			(folderOnly
+				? 'Drag and drop a folder here or click to browse'
+				: allowMultiple
+					? 'Drag and drop files here or click to browse'
+					: 'Drag and drop a file here or click to browse')
+	)
 
 	const dispatch = createEventDispatcher<{
 		addition: { path?: string; filename?: string }

@@ -5,6 +5,7 @@
 	import FileUpload from './FileUpload.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Button from '../button/Button.svelte'
+	import { userStore } from '$lib/stores'
 
 	let {
 		multiple,
@@ -45,24 +46,26 @@
 	let fileUpload: FileUpload | undefined = $state(undefined)
 </script>
 
-<S3FilePicker
-	bind:this={s3FilePicker}
-	on:selectAndClose={(ev) => {
-		if (multiple) {
-			if (Array.isArray(value)) {
-				value.push(ev.detail)
+{#if $userStore}
+	<S3FilePicker
+		bind:this={s3FilePicker}
+		on:selectAndClose={(ev) => {
+			if (multiple) {
+				if (Array.isArray(value)) {
+					value.push(ev.detail)
+				} else {
+					value = [ev.detail]
+				}
+				fileUpload?.addUpload(ev.detail)
 			} else {
-				value = [ev.detail]
+				value = ev.detail
+				fileUpload?.setUpload(value)
 			}
-			fileUpload?.addUpload(ev.detail)
-		} else {
-			value = ev.detail
-			fileUpload?.setUpload(value)
-		}
-		editor?.setCode(JSON.stringify(value))
-	}}
-	readOnlyMode={false}
-/>
+			editor?.setCode(JSON.stringify(value))
+		}}
+		readOnlyMode={false}
+	/>
+{/if}
 
 <div class="flex flex-col w-full gap-1">
 	<Toggle
@@ -127,16 +130,18 @@
 			initialValue={value}
 		/>
 	{/if}
-	<Button
-		variant="border"
-		color="light"
-		size="xs"
-		btnClasses="mt-1"
-		on:click={() => {
-			s3FilePicker?.open?.(value)
-		}}
-		startIcon={{ icon: Pipette }}
-	>
-		{multiple ? 'Add' : 'Choose'} an object from the catalog
-	</Button>
+	{#if $userStore}
+		<Button
+			variant="border"
+			color="light"
+			size="xs"
+			btnClasses="mt-1"
+			on:click={() => {
+				s3FilePicker?.open?.(value)
+			}}
+			startIcon={{ icon: Pipette }}
+		>
+			{multiple ? 'Add' : 'Choose'} an object from the catalog
+		</Button>
+	{/if}
 </div>
