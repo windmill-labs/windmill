@@ -108,31 +108,45 @@ export function getEffectiveSettings(
 ): SyncOptions {
   // Start with empty object - no defaults
   let effective = {} as SyncOptions;
-  
+
   // Merge top-level settings from config (which contains user's chosen defaults)
   Object.keys(config).forEach(key => {
     if (key !== 'overrides' && config[key as keyof SyncOptions] !== undefined) {
       (effective as any)[key] = config[key as keyof SyncOptions];
     }
   });
-  
+
   if (!config.overrides) {
+    if (repo) {
+      log.info(`No overrides found in wmill.yaml, using top-level settings (repository flag ignored)`);
+    }
     return effective;
   }
-  
+
   // Construct override keys using the single format
   const workspaceKey = `${baseUrl}:${workspaceId}:*`;
   const repoKey = `${baseUrl}:${workspaceId}:${repo}`;
-  
+
+  let appliedOverrides: string[] = [];
+
   // Apply workspace-level overrides
   if (config.overrides[workspaceKey]) {
     Object.assign(effective, config.overrides[workspaceKey]);
+    appliedOverrides.push("workspace-level");
   }
-  
+
   // Apply repository-specific overrides (overrides workspace-level)
   if (config.overrides[repoKey]) {
     Object.assign(effective, config.overrides[repoKey]);
+    appliedOverrides.push("repository-specific");
+  } else if (repo) {
+    // Repository was specified but no override found
+    log.info(`Repository override not found for "${repo}", using ${appliedOverrides.length > 0 ? appliedOverrides.join(" + ") : "top-level"} settings`);
   }
-  
+
+  if (appliedOverrides.length > 0) {
+    log.info(`Applied ${appliedOverrides.join(" + ")} overrides${repo ? ` for repository "${repo}"` : ""}`);
+  }
+
   return effective;
 }

@@ -126,8 +126,8 @@ Deno.test("Init: --use-backend flag applies git-sync settings", async () => {
     assertStringIncludes(wmillYaml, "*.test.ts", "Should include backend's exclude_path");
     assertStringIncludes(wmillYaml, "g/**", "Should include backend's extra_include_path");
     
-    // Should NOT have overrides section since we're starting fresh
-    assertEquals(wmillYaml.includes("overrides:"), false, "Init should not create overrides section");
+    // Should have empty overrides section for consistency
+    assertStringIncludes(wmillYaml, "overrides: {}");
   });
 });
 
@@ -180,6 +180,6 @@ Deno.test("Init: --use-default bypasses backend settings check", async () => {
     
     // Should NOT have backend-specific settings
     assertEquals(wmillYaml.includes("f/should-be-ignored/**"), false, "Should not include backend settings");
-    assertEquals(wmillYaml.includes("overrides:"), false, "Should not create overrides when using defaults");
+    assertStringIncludes(wmillYaml, "overrides: {}", "Should have empty overrides section for consistency");
   });
 });
