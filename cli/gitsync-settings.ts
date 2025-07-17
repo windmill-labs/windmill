@@ -1,6 +1,7 @@
 import { colors, Command, log, yamlStringify } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace } from "./context.ts";
 import * as wmill from "./gen/services.gen.ts";
 import {
   DEFAULT_SYNC_OPTIONS,

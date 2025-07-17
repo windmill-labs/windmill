@@ -159,9 +159,8 @@ const command = new Command()
                 // Check for backend git-sync settings unless --use-default is specified
                 if (!opts.useDefault) {
                     try {
-                        const { requireLogin, resolveWorkspace } = await import(
-                            "./context.ts"
-                        );
+                        const { requireLogin } = await import("./auth.ts");
+                        const { resolveWorkspace } = await import("./context.ts");
 
                         // Check if user has workspace configured
                         const { getActiveWorkspace } = await import(
