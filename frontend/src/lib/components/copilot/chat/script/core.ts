@@ -671,13 +671,27 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
+type PackageSearchQuery = {
+	package: {
+		name: string
+		version: string
+		links: {
+			npm: string
+			homepage: string
+			repository: string
+			bugs: string
+		}
+	}
+	searchScore: number
+}
+
 type PackageSearchResult = {
 	package: string
 	documentation: string
 	types: string
 }
 
-const packagesSearchCache = new Map<string, { packages: PackageSearchResult[] }>()
+const packagesSearchCache = new Map<string, PackageSearchResult[]>()
 export async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
 	try {
 		if (packagesSearchCache.has(args.query)) {
@@ -686,11 +700,13 @@ export async function searchExternalIntegrationResources(args: { query: string }
 
 		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
 		const data = await result.json()
-		const filtered = data.objects.filter((r: any) => r.searchScore >= SCORE_THRESHOLD)
+		const filtered = data.objects.filter(
+			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
+		)
 
 		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
-		let results = await Promise.all(
-			filtered.map(async (r: any) => {
+		const results: PackageSearchResult[] = await Promise.all(
+			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''
 				let types = ''
 				try {
@@ -711,17 +727,17 @@ export async function searchExternalIntegrationResources(args: { query: string }
 					types = ''
 				}
 				return {
-					package: r.package,
+					package: r.package.name,
 					documentation: documentation,
 					types: types
 				}
 			})
 		)
-		packagesSearchCache.set(args.query, { packages: results })
+		packagesSearchCache.set(args.query, results)
 		return JSON.stringify(results)
 	} catch (error) {
 		console.error('Error searching external integration resources:', error)
-		return 'Error searching external integration resources: ' + error.message
+		return 'Error searching external integration resources'
 	}
 }
 
