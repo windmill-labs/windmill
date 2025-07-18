@@ -27,11 +27,12 @@
 		inputClass?: string
 	} = $props()
 
+	let loading = $state(false)
+
 	loadWorkerGroups()
 
 	const dispatch = createEventDispatcher()
 
-	let loading = $state(false)
 	async function loadWorkerGroups() {
 		loading = true
 		try {
