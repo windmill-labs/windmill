@@ -18,7 +18,7 @@
 	import type { Script } from '$lib/gen'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { deepEqual } from 'fast-equals'
-	import ResultJobLoader from './ResultJobLoader.svelte'
+	import JobLoader from './JobLoader.svelte'
 	import Select from './select/Select.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -72,6 +72,8 @@
 						helperScript.lang,
 						{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
 						undefined,
+						undefined,
+						undefined,
 						cb
 					)
 				: resultJobLoader?.runScriptByHash(
@@ -89,13 +91,13 @@
 		untrack(() => _items.refresh())
 	})
 
-	let resultJobLoader: ResultJobLoader | undefined = $state()
+	let resultJobLoader: JobLoader | undefined = $state()
 	let filterText: string = $state('')
 	let open: boolean = $state(false)
 </script>
 
 {#if helperScript}
-	<ResultJobLoader bind:this={resultJobLoader} />
+	<JobLoader bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
 		<Select
