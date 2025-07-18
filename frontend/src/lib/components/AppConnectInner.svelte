@@ -115,6 +115,7 @@
 	 */
 	let clientId = $state('')
 	let clientSecret = $state('')
+	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 
@@ -135,6 +136,7 @@
 		useClientCredentials = false
 		clientId = ''
 		clientSecret = ''
+		tokenUrl = ''
 
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
@@ -344,13 +346,20 @@
 						return
 					}
 
+					const requestBody: any = {
+						scopes: scopes,
+						cc_client_id: trimmedClientId,
+						cc_client_secret: trimmedClientSecret
+					}
+
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						requestBody.cc_token_url = tokenUrl.trim()
+					}
+
 					const tokenResponse = await OauthService.connectClientCredentials({
 						client: resourceType,
-						requestBody: {
-							scopes: scopes,
-							cc_client_id: trimmedClientId,
-							cc_client_secret: trimmedClientSecret
-						}
+						requestBody
 					})
 
 					// Process the token response like in popup flow
@@ -426,6 +435,10 @@
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						accountData.cc_token_url = tokenUrl.trim()
+					}
 				}
 
 				account = Number(
@@ -743,6 +756,18 @@
 									class="w-full p-2 border border-gray-300 rounded mt-1"
 									required
 								/>
+							</label>
+							<label style="display: block; margin-top: 8px;">
+								<span style="font-weight: 600;">Token URL Override (Optional)</span>
+								<input
+									type="url"
+									bind:value={tokenUrl}
+									placeholder="Custom token endpoint URL"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+								/>
+								<div style="font-size: 12px; color: #666; margin-top: 4px;">
+									Override the instance-level token URL for this resource
+								</div>
 							</label>
 						</div>
 					{/if}
