@@ -6,14 +6,14 @@ export function argSigToJsonSchemaType(
 		| { resource: string | null }
 		| {
 				list:
-					| (string | { object: { key: string; typ: any }[] })
+					| (string | { name?: string; props?: { key: string; typ: any }[] })
 					| { str: any }
-					| { object: { key: string; typ: any }[] }
+					| { object: { name?: string; props?: { key: string; typ: any }[] } }
 					| null
 		  }
 		| { dynselect: string }
 		| { str: string[] | null }
-		| { object: { key: string; typ: any }[] }
+		| { object: { name?: string; props?: { key: string; typ: any }[] } }
 		| {
 				oneof: {
 					label: string
@@ -69,9 +69,12 @@ export function argSigToJsonSchemaType(
 		}
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
-		if (t.object) {
+		if (t.object.name) {
+			newS.format = `resource-${t.object.name}`
+		}
+		if (t.object.props) {
 			const properties: Record<string, any> = {}
-			for (const prop of t.object) {
+			for (const prop of t.object.props) {
 				if (oldS.properties && prop.key in oldS.properties) {
 					properties[prop.key] = oldS.properties[prop.key]
 				} else {
@@ -119,21 +122,20 @@ export function argSigToJsonSchemaType(
 				resourceType: t.list.resource as string
 			}
 			newS.originalType = 'resource[]'
-		} else if (
-			t.list &&
-			typeof t.list == 'object' &&
-			'object' in t.list &&
-			t.list.object &&
-			t.list.object.length > 0
-		) {
-			const properties: Record<string, any> = {}
-			for (const prop of t.list.object) {
-				properties[prop.key] = { description: '', type: '' }
-
-				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+		} else if (t.list && typeof t.list == 'object' && 'object' in t.list && t.list.object) {
+			if (t.list.object.name) {
+				newS.format = `resource-${t.list.object.name}`
 			}
-
-			newS.items = { type: 'object', properties: properties }
+			if (t.list.object.props && t.list.object.props.length > 0) {
+				const properties: Record<string, any> = {}
+				for (const prop of t.list.object.props) {
+					properties[prop.key] = { description: '', type: '' }
+					argSigToJsonSchemaType(prop.typ, properties[prop.key])
+				}
+				newS.items = { type: 'object', properties: properties }
+			} else {
+				newS.items = { type: 'object' }
+			}
 			newS.originalType = 'record[]'
 		} else {
 			newS.items = { type: 'object' }
@@ -184,14 +186,14 @@ export function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
-	Object.assign(oldS, newS)
+	if (oldS.format && !newS.format) {
+		oldS.format = undefined
+	}
 
+	Object.assign(oldS, newS)
 	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
 	// 	sendUserToast(JSON.stringify(savedItems))
 	// 	oldS.items = savedItems
 	// }
 
-	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
-		oldS.format = undefined
-	}
 }

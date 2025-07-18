@@ -683,7 +683,7 @@
 														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
 														multiple={false}
 													/>
-												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
+												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
@@ -709,10 +709,16 @@
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
-												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+												{:else if (itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)) || (format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
+													{@const resourceFormat =
+														itemsType?.type == 'resource' &&
+														itemsType.resourceType &&
+														resourceTypes.includes(itemsType.resourceType)
+															? `resource-${itemsType.resourceType}`
+															: format!}
 													<ObjectResourceInput
 														bind:value={value[i]}
-														format={'resource-' + itemsType?.resourceType}
+														format={resourceFormat}
 														defaultValue={undefined}
 													/>
 												{:else if itemsType?.type == 'resource'}
@@ -780,7 +786,11 @@
 									if (itemsType?.type == 'number') {
 										value = value.concat(0)
 									} else if (
-										itemsType?.type == 'object' ||
+										(itemsType?.type == 'object' &&
+											!(
+												format?.startsWith('resource-') &&
+												resourceTypes?.includes(format.split('-')[1])
+											)) ||
 										(itemsType?.type == 'resource' &&
 											!(
 												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)

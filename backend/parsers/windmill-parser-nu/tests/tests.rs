@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use serde_json::json;
-    use windmill_parser::{Arg, MainArgSignature, Typ};
+    use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
     use windmill_parser_nu::parse_nu_signature;
 
     #[test]
@@ -200,7 +200,7 @@ mod test {
                     Arg {
                         name: "a7".into(),
                         otyp: None,
-                        typ: Typ::Object(vec![]),
+                        typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
                         oidx: None
@@ -216,7 +216,7 @@ mod test {
                     Arg {
                         name: "a9".into(),
                         otyp: None,
-                        typ: Typ::List(Box::new(Typ::Object(vec![]))),
+                        typ: Typ::List(Box::new(Typ::Object(ObjectType::new(None, Some(vec![]))))),
                         default: None,
                         has_default: false,
                         oidx: None

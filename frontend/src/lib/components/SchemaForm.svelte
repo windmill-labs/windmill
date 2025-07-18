@@ -252,6 +252,7 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
+
 	const actions_render = $derived(actions)
 </script>
 

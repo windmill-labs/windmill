@@ -9,7 +9,7 @@ use regex_lite::Regex;
 
 use serde_json::json;
 
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_graphql_file(&code)?;
@@ -75,7 +75,7 @@ pub fn parse_graphql_typ(typ: &str) -> Typ {
         "Int" => Typ::Int,
         "Boolean" => Typ::Bool,
         "Float" => Typ::Float,
-        _ => Typ::Object(vec![]),
+        _ => Typ::Object(ObjectType::new(None, Some(vec![]))),
     }
 }
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use serde_json::json;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
 use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
 
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
@@ -147,9 +147,9 @@ fn parse_ansible_typ(arg: &Yaml) -> Typ {
                                 })
                             }
                         }
-                        Typ::Object(prop_vec)
+                        Typ::Object(ObjectType::new(None, Some(prop_vec)))
                     } else {
-                        Typ::Object(vec![])
+                        Typ::Object(ObjectType::new(None, Some(vec![])))
                     }
                 }
                 "array" => {

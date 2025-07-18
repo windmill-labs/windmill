@@ -7,7 +7,7 @@ use gosyn::{
 use itertools::Itertools;
 
 use regex::Regex;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
 
 lazy_static::lazy_static! {
     pub static ref REQUIRE_PARSE: Regex = Regex::new(r"//require (.*)\n").unwrap();
@@ -142,13 +142,13 @@ fn parse_go_typ(typ: &Expression) -> (Option<String>, Typ) {
                     "struct {{ {} }}",
                     otyps.iter().join("; ").to_string()
                 )),
-                Typ::Object(typs),
+                Typ::Object(ObjectType::new(None, Some(typs))),
             )
         }
-        Expression::TypeInterface(_) => (Some("interface{}".to_string()), Typ::Object(vec![])),
+        Expression::TypeInterface(_) => (Some("interface{}".to_string()), Typ::Object(ObjectType::new(None, Some(vec![])))),
         Expression::TypeMap(_) => (
             Some("map[string]interface{}".to_string()),
-            Typ::Object(vec![]),
+            Typ::Object(ObjectType::new(None, Some(vec![]))),
         ),
         _ => (None, Typ::Unknown),
     }
@@ -218,10 +218,10 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                     Arg {
                         otyp: Some("struct { Name string `json:\"name\"` }".to_string()),
                         name: "o".to_string(),
-                        typ: Typ::Object(vec![ObjectProperty {
+                        typ: Typ::Object(ObjectType::new(None, Some(vec![ObjectProperty {
                             key: "name".to_string(),
                             typ: Box::new(Typ::Str(None))
-                        },]),
+                        },]))),
                         default: None,
                         has_default: false,
                         oidx: None
@@ -229,7 +229,7 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                     Arg {
                         otyp: Some("interface{}".to_string()),
                         name: "n".to_string(),
-                        typ: Typ::Object(vec![]),
+                        typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
                         oidx: None
@@ -237,7 +237,7 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                     Arg {
                         otyp: Some("map[string]interface{}".to_string()),
                         name: "m".to_string(),
-                        typ: Typ::Object(vec![]),
+                        typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
                         oidx: None
