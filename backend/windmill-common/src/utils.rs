@@ -215,29 +215,12 @@ pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str)
     }
 }
 
-pub fn retrieve_hostname_from_worker_name(
-    prefix: &str,
-    worker_name: &str,
-    worker_group: &str,
-) -> Option<String> {
-    // Worker name format: {prefix}-{worker_group}-{suffix}
-    // where {suffix} = {hostname}-{random_string}
-    //
-    // To extract the hostname part, we skip the "{prefix}-" prefix plus the '-'
-    // and also skip the worker_group segment and the '-' following it.
-    //
-    // That gives us the suffix starting at "{hostname}-{random_string}".
-    // We then split from the end (rsplit) on '-' to separate the hostname
-    let len_prefix = prefix.len() + 1 + worker_group.len() + 1;
-    let hostname = if worker_name.len() <= len_prefix {
-        None
-    } else {
-        let suffix = &worker_name[len_prefix..];
-        let (hostname, _) = suffix.rsplit_once('-').unzip();
-        hostname.map(|host| host.to_owned())
-    };
+pub fn retrieve_common_worker_prefix(worker_name: &str) -> String {
+    let (prefix, _) = worker_name.rsplit_once('-').unzip();
 
-    hostname
+    prefix
+        .expect("Invalid worker_name: expected at least one '-' in the name")
+        .to_owned()
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {

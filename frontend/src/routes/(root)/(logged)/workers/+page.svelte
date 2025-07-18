@@ -25,7 +25,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
+	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 
@@ -695,7 +695,7 @@
 																	sendUserToast('Worker must be alive', true)
 																	return
 																}
-																tag = hostname
+																tag = retrieveCommonWorkerPrefix(worker)
 																replForWorkerDrawer?.openDrawer()
 															}}
 															startIcon={{ icon: Terminal }}

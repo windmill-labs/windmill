@@ -13,6 +13,7 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -779,7 +780,8 @@ pub fn start_interactive_worker_shell(
             } else {
                 let pulled_job = match &conn {
                     Connection::Sql(db) => {
-                        let query = ("".to_string(), make_pull_query(&[hostname.clone()]));
+                        let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
+                        let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();

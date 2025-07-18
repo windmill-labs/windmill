@@ -129,6 +129,12 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 	}
 }
 
+export function retrieveCommonWorkerPrefix(workerName: string): string {
+	const lastDashIndex = workerName.lastIndexOf('-')
+	
+	return workerName.substring(0, lastDashIndex)
+}
+
 export function subtractDaysFromDateString(
 	dateString: string | undefined,
 	days: number
