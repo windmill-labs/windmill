@@ -260,6 +260,10 @@
 		}
 	}
 
+	function supportsSSE() {
+		return typeof EventSource !== 'undefined'
+	}
+
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
 		syncIteration = 0
@@ -272,7 +276,11 @@
 		currentEventSource = undefined
 
 		// Try SSE first, fall back to polling if needed
-		await loadTestJobWithSSE(testId, 0, callbacks)
+		if (supportsSSE()) {
+			await loadTestJobWithSSE(testId, 0, callbacks)
+		} else {
+			syncer(testId, callbacks)
+		}
 	}
 
 	function setJobProgress(job: Job) {
@@ -359,19 +367,31 @@
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({ workspace: workspace!, id, noCode })
+						job = await JobService.getJob({ workspace: workspace!, id, noCode, noLogs: onlyResult })
 					}
 
 					updateJobFromProgress(previewJobUpdates, job, callbacks)
 				} else {
-					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
+					job = await JobService.getJob({
+						workspace: workspace!,
+						id,
+						noLogs: lazyLogs || onlyResult,
+						noCode
+					})
 				}
 				jobUpdateLastFetch = new Date()
 
 				if (job?.type === 'CompletedJob') {
 					//only CompletedJob has success property
 					isCompleted = true
-					onJobCompleted(id, job, callbacks)
+					if (onlyResult) {
+						callbacks?.doneResult?.({
+							id,
+							result: job?.result
+						})
+					} else {
+						onJobCompleted(id, job, callbacks)
+					}
 				}
 				notfound = false
 			} catch (err) {
@@ -565,7 +585,7 @@
 							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), 1000)
 						} else {
 							// Fall back to polling on error
-							setTimeout(() => syncer(id), 1000)
+							setTimeout(() => syncer(id, callbacks), 1000)
 						}
 					}
 
@@ -592,7 +612,7 @@
 					loadTestJobWithSSE(id, attempt, callbacks)
 				} else {
 					// Fall back to polling on error
-					setTimeout(() => syncer(id), 1000)
+					setTimeout(() => syncer(id, callbacks), 1000)
 				}
 			}
 			return isCompleted
