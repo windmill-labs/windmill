@@ -568,6 +568,9 @@ export async function getFimCompletion(
 		}
 	}
 
+	console.log('prompt', prompt)
+	// console.log('suffix', suffix)
+
 	const workspace = get(workspaceStore)
 
 	const response = await fetch(
@@ -587,6 +590,7 @@ export async function getFimCompletion(
 	)
 
 	const body = await response.json()
+	console.log('response', body)
 	const parsedBody = mistralFimResponseSchema.parse(body)
 
 	const choice = parsedBody.choices[0]

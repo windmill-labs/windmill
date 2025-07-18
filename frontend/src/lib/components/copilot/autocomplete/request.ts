@@ -5,12 +5,14 @@ import { getFimCompletion } from '../lib'
 import { getLangContext } from '../chat/script/core'
 import { type ScriptLang } from '$lib/gen/types.gen'
 import { getCommentSymbol } from '../utils'
+import type { editor } from 'monaco-editor'
 
 export async function autocompleteRequest(
 	context: {
 		prefix: string
 		suffix: string
 		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+		markers: editor.IMarker[]
 	},
 	abortController: AbortController
 ) {
@@ -20,7 +22,11 @@ export async function autocompleteRequest(
 
 	if (langContext) {
 		const contextLines = langContext.split('\n')
-		const commentedContext = contextLines.map((line) => `${commentSymbol} ${line}`).join('\n')
+		const markersLines = context.markers.map((m) => m.message)
+		let commentedContext = contextLines.map((line) => `${commentSymbol} ${line}`).join('\n')
+		if (markersLines.length > 0) {
+			commentedContext = commentedContext + '\nDIAGNOSTICS:\n' + markersLines.join('\n')
+		}
 		context.prefix = commentedContext + '\n' + context.prefix
 	}
 
@@ -31,7 +37,14 @@ export async function autocompleteRequest(
 	}
 
 	try {
-		const completion = await getFimCompletion(context.prefix, context.suffix, providerModel, abortController)
+		const completion = await getFimCompletion(
+			context.prefix,
+			context.suffix,
+			providerModel,
+			abortController
+		)
+
+		console.log('completion', completion)
 
 		return completion
 	} catch (err) {

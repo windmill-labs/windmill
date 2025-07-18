@@ -1,6 +1,6 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen'
 import { sleep } from '$lib/utils'
-import { Position, type editor as meditor, languages, type IDisposable } from 'monaco-editor'
+import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
@@ -44,6 +44,7 @@ export class Autocompletor {
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
+	#markers: meditor.IMarker[] = []
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -109,9 +110,13 @@ export class Autocompletor {
 		)
 
 		this.#cursorDisposable = editor.onDidChangeCursorPosition(async (e) => {
-			if (e.source === 'mouse') {
-				const model = editor.getModel()
-				if (model) {
+			const model = editor.getModel()
+			if (model) {
+				const markers = meditor.getModelMarkers({ resource: model.uri })
+				const hits = this.#markersAtCursor(e.position, markers)
+				this.#markers = hits
+				console.log('hits', hits)
+				if (e.source === 'mouse') {
 					this.#autocomplete(model, e.position)
 				}
 			}
@@ -143,6 +148,14 @@ export class Autocompletor {
 			}
 		}
 		return false
+	}
+
+	#markersAtCursor(pos: Position, all: meditor.IMarker[]) {
+		const lineBeforeCount = 1
+		return all.filter(
+			(m) =>
+				m.startLineNumber >= pos.lineNumber - lineBeforeCount && m.endLineNumber <= pos.lineNumber
+		)
 	}
 
 	async #autocomplete(
@@ -211,7 +224,8 @@ export class Autocompletor {
 			{
 				prefix,
 				suffix,
-				scriptLang: this.#scriptLang
+				scriptLang: this.#scriptLang,
+				markers: this.#markers
 			},
 			this.#abortController
 		)
