@@ -120,7 +120,8 @@
 				result: state?.result,
 				jobId: module.job,
 				logs,
-				status
+				status,
+				type: rootJob.raw_flow?.modules?.[i]?.value?.type
 			}
 
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)

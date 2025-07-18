@@ -17,4 +17,14 @@ export interface StepData {
 	subflows?: FlowData[]
 	iterations?: FlowData[]
 	selectedIteration?: number
+	type:
+		| 'script'
+		| 'flow'
+		| 'identity'
+		| 'branchall'
+		| 'rawscript'
+		| 'forloopflow'
+		| 'whileloopflow'
+		| 'branchone'
+		| undefined
 }
