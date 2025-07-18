@@ -8,7 +8,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { type DBSchema, dbSchemas } from '$lib/stores'
+import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
@@ -16,6 +16,14 @@ import type { Tool } from '../shared'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import { createSearchHubScriptsTool } from '../flow/core'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
+import { getModelContextWindow } from '../../lib'
+
+// Score threshold for npm packages search filtering
+const SCORE_THRESHOLD = 1000
+// percentage of the context window for documentation of npm packages
+const DOCS_CONTEXT_PERCENTAGE = 1
+// percentage of the context window for types of npm packages
+const TYPES_CONTEXT_PERCENTAGE = 1
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -686,43 +694,53 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
+type PackageSearchResult = {
+	package: string
+	documentation: string
+	types: string
+}
+
+const packagesSearchCache = new Map<string, { packages: PackageSearchResult[] }>()
 export async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
 	try {
-		const SCORE_THRESHOLD = 1000
-		const DOCS_LIMIT = 10000
-		const TYPES_LIMIT = 15000
+		if (packagesSearchCache.has(args.query)) {
+			return JSON.stringify(packagesSearchCache.get(args.query))
+		}
+
 		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
 		const data = await result.json()
 		const filtered = data.objects.filter((r: any) => r.searchScore >= SCORE_THRESHOLD)
 
+		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
 		let results = await Promise.all(
 			filtered.map(async (r: any) => {
 				let documentation = ''
-				let types: { success: boolean; types: string; error?: string } | undefined = {
-					success: false,
-					types: ''
-				}
+				let types = ''
 				try {
 					const docResponse = await fetch(`https://unpkg.com/${r.package.name}/readme.md`)
+					const docLimit = Math.floor(modelContextWindow * DOCS_CONTEXT_PERCENTAGE)
 					documentation = await docResponse.text()
-					documentation = documentation.slice(0, DOCS_LIMIT)
+					documentation = documentation.slice(0, docLimit)
 				} catch (error) {
 					console.error('Error getting documentation for package:', error)
 					documentation = ''
 				}
 				try {
-					types = await fetchNpmPackageTypes(r.package.name, r.package.version)
+					const typesResponse = await fetchNpmPackageTypes(r.package.name, r.package.version)
+					const typesLimit = Math.floor(modelContextWindow * TYPES_CONTEXT_PERCENTAGE)
+					types = typesResponse.types.slice(0, typesLimit)
 				} catch (error) {
 					console.error('Error getting types for package:', error)
-					types = { success: false, types: '' }
+					types = ''
 				}
 				return {
 					package: r.package,
 					documentation: documentation,
-					types: types.types.slice(0, TYPES_LIMIT)
+					types: types
 				}
 			})
 		)
+		packagesSearchCache.set(args.query, { packages: results })
 		return JSON.stringify(results)
 	} catch (error) {
 		console.error('Error searching external integration resources:', error)
