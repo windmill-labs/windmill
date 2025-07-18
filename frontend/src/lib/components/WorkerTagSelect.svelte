@@ -29,9 +29,10 @@
 
 	loadWorkerGroups()
 
+	let loading = $state(false)
+
 	const dispatch = createEventDispatcher()
 
-	let loading = $state(false)
 	async function loadWorkerGroups() {
 		loading = true
 		try {
