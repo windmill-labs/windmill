@@ -25,14 +25,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		AGENT_WORKER_NAME_PREFIX,
-		displayDate,
-		groupBy,
-		isAgentWorkerShell,
-		pluralize,
-		truncate
-	} from '$lib/utils'
+	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 
@@ -585,7 +578,8 @@
 									<tr class="border-t">
 										<Cell
 											first
-											colspan={(!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)
+											colspan={(!config || config?.dedicated_worker == undefined) &&
+											($superadmin || $devopsRole)
 												? 12
 												: 9}
 											scope="colgroup"
@@ -606,11 +600,6 @@
 										</Cell>
 									</tr>
 									{#if workers}
-										{@const sshWorker = workers.find((worker) => {
-											return (
-												isAgentWorkerShell(worker.worker) && isWorkerMaybeAlive(worker.last_ping)
-											)
-										})?.worker}
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 											<tr>
@@ -706,18 +695,7 @@
 																	sendUserToast('Worker must be alive', true)
 																	return
 																}
-																if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
-																	if (!sshWorker) {
-																		sendUserToast(
-																			'Unexpected error could not find agent worker handling repl feature',
-																			true
-																		)
-																		return
-																	}
-																	tag = sshWorker
-																} else {
-																	tag = hostname
-																}
+																tag = retrieveCommonWorkerPrefix(worker)
 																replForWorkerDrawer?.openDrawer()
 															}}
 															startIcon={{ icon: Terminal }}
