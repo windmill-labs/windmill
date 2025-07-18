@@ -119,10 +119,9 @@ export function argSigToJsonSchemaType(
 			newS.originalType = 'string[]'
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
 			newS.items = {
-				type: 'resource'
+				type: 'resource',
+				resourceType: t.list.resource as string
 			}
-			keepFormat = true
-			newS.format = `resource-${t.list.resource}`
 			newS.originalType = 'resource[]'
 		} else if (t.list && typeof t.list == 'object' && 'object' in t.list && t.list.object) {
 			if (t.list.object.name) {

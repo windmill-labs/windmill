@@ -650,25 +650,32 @@ export function argSigToJsonSchemaType(
     | { resource: string | null }
     | {
         list:
-          | (string | { object: { key: string; typ: any }[] })
+          | (
+              | string
+              | {
+                  object: {
+                    name?: string;
+                    props?: { key: string; typ: any }[];
+                  };
+                }
+            )
           | { str: any }
-          | { object: { key: string; typ: any }[] }
+          | { object: { name?: string; props?: { key: string; typ: any }[] } }
           | null;
       }
     | { dynselect: string }
     | { str: string[] | null }
-    | { object: { key: string; typ: any }[] }
+    | { object: { name?: string; props?: { key: string; typ: any }[] } }
     | {
-        oneof: [
-          {
-            label: string;
-            properties: { key: string; typ: any }[];
-          }
-        ];
+        oneof: {
+          label: string;
+          properties: { key: string; typ: any }[];
+        }[];
       },
   oldS: SchemaProperty
 ): void {
   const newS: SchemaProperty = { type: "" };
+  let keepFormat = false;
   if (t === "int") {
     newS.type = "integer";
   } else if (t === "float") {
@@ -716,9 +723,12 @@ export function argSigToJsonSchemaType(
     }
   } else if (typeof t !== "string" && `object` in t) {
     newS.type = "object";
-    if (t.object) {
+    if (t.object.name) {
+      newS.format = `resource-${t.object.name}`;
+    }
+    if (t.object.props) {
       const properties: Record<string, any> = {};
-      for (const prop of t.object) {
+      for (const prop of t.object.props) {
         if (oldS.properties && prop.key in oldS.properties) {
           properties[prop.key] = oldS.properties[prop.key];
         } else {
@@ -750,12 +760,24 @@ export function argSigToJsonSchemaType(
     newS.type = "array";
     if (t.list === "int" || t.list === "float") {
       newS.items = { type: "number" };
+      newS.originalType = "number[]";
     } else if (t.list === "bytes") {
       newS.items = { type: "string", contentEncoding: "base64" };
-    } else if (t.list == "string") {
-      newS.items = { type: "string" };
-    } else if (t.list && typeof t.list == "object" && "str" in t.list) {
+      newS.originalType = "bytes[]";
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "str" in t.list &&
+      t.list.str
+    ) {
       newS.items = { type: "string", enum: t.list.str };
+      newS.originalType = "enum[]";
+    } else if (
+      t.list == "string" ||
+      (t.list && typeof t.list == "object" && "str" in t.list)
+    ) {
+      newS.items = { type: "string", enum: oldS.items?.enum };
+      newS.originalType = "string[]";
     } else if (
       t.list &&
       typeof t.list == "object" &&
@@ -766,23 +788,31 @@ export function argSigToJsonSchemaType(
         type: "resource",
         resourceType: t.list.resource as string,
       };
+      newS.originalType = "resource[]";
     } else if (
       t.list &&
       typeof t.list == "object" &&
       "object" in t.list &&
-      t.list.object &&
-      t.list.object.length > 0
+      t.list.object
     ) {
-      const properties: Record<string, any> = {};
-      for (const prop of t.list.object) {
-        properties[prop.key] = { description: "", type: "" };
-
-        argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+      if (t.list.object.name) {
+        keepFormat = true;
+        newS.format = `resource-${t.list.object.name}`;
       }
-
-      newS.items = { type: "object", properties: properties };
+      if (t.list.object.props && t.list.object.props.length > 0) {
+        const properties: Record<string, any> = {};
+        for (const prop of t.list.object.props) {
+          properties[prop.key] = { description: "", type: "" };
+          argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+        }
+        newS.items = { type: "object", properties: properties };
+      } else {
+        newS.items = { type: "object" };
+      }
+      newS.originalType = "record[]";
     } else {
       newS.items = { type: "object" };
+      newS.originalType = "object[]";
     }
   } else {
     newS.type = "object";
@@ -833,13 +863,16 @@ export function argSigToJsonSchemaType(
   }
 
   Object.assign(oldS, newS);
-
   // if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
   // 	sendUserToast(JSON.stringify(savedItems))
   // 	oldS.items = savedItems
   // }
 
-  if (oldS.format?.startsWith("resource-") && newS.type != "object") {
+  if (
+    oldS.format?.startsWith("resource-") &&
+    newS.type != "object" &&
+    !keepFormat
+  ) {
     oldS.format = undefined;
   }
 }
