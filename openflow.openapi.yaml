@@ -376,7 +376,7 @@ components:
         type:
           type: string
           enum:
-            - forloopflow
+            - whileloopflow
         parallel:
           type: boolean
         parallelism:
