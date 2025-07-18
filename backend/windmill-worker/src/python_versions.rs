@@ -380,7 +380,6 @@ impl PyV {
 
         if output.status.success() {
             let res = String::from_utf8(output.stdout)?;
-            tracing::error!("{}", &res);
             let list = serde_json::from_str::<Vec<serde_json::Map<String, Value>>>(&res)?
                 .into_iter()
                 .filter_map(|e| {

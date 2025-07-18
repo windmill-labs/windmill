@@ -26,7 +26,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import FileUpload from './common/fileUpload/FileUpload.svelte'
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
@@ -622,7 +621,7 @@
 		{:else if (inputCat == 'resource-object' && format && format.split('-').length > 1 && format
 				.replace('resource-', '')
 				.replace('_', '')
-				.toLowerCase() == 's3object') || (inputCat == 'list' && itemsType?.resourceType === 's3_object')}
+				.toLowerCase() == 's3object') || (inputCat == 'list' && (itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object'))}
 			<S3ArgInput
 				multiple={inputCat == 'list'}
 				bind:value
@@ -666,30 +665,6 @@
 								items={safeSelectItems(itemsType?.enum)}
 								onOpen={() => dispatch('focus')}
 								reorderable
-							/>
-						</div>
-					{:else if itemsType?.type == 'object' && itemsType?.resourceType == 's3object'}
-						<div class="w-full">
-							<FileUpload
-								{appPath}
-								computeForceViewerPolicies={computeS3ForceViewerPolicies}
-								{workspace}
-								allowMultiple={true}
-								randomFileKey={true}
-								on:addition={(evt) => {
-									value = [
-										...value,
-										{
-											s3: evt.detail?.path ?? '',
-											filename: evt.detail?.filename ?? ''
-										}
-									]
-								}}
-								on:deletion={(evt) => {
-									value = value.filter((v) => v.s3 !== evt.detail?.path)
-								}}
-								defaultValue={defaultValue?.map((v) => v.s3)}
-								initialValue={value}
 							/>
 						</div>
 					{:else}

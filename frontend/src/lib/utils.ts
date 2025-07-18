@@ -1465,3 +1465,20 @@ export function isS3Uri(uri: string): uri is S3Uri {
 	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
 	return !!match && match.length === 3
 }
+
+export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
+	const seen = new Set()
+	return array.filter((item) => {
+		const value = key(item)
+		if (seen.has(value)) {
+			return false
+		} else {
+			seen.add(value)
+			return true
+		}
+	})
+}
+
+export function pruneNullishArrayWithSet<T>(array: (T | null | undefined)[]): T[] {
+	return array.filter((item): item is T => item !== null && item !== undefined)
+}

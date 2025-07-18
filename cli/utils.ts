@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { log, encodeHex, SEP } from "./deps.ts";
+import { colors, log, encodeHex, SEP } from "./deps.ts";
 import crypto from "node:crypto";
 
 export function deepEqual<T>(a: T, b: T): boolean {
@@ -167,7 +167,7 @@ export async function selectRepository<T extends Repository>(
 
   if (repositories.length === 1) {
     const repoPath = repositories[0].git_repo_resource_path.replace(/^\$res:/, "");
-    log.info(`Using repository: ${repoPath}`);
+    log.info(colors.cyan(`Auto-selected repository: ${colors.bold(repoPath)}`));
     return repositories[0];
   }
 

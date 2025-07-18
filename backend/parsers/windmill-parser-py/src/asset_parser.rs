@@ -57,27 +57,27 @@ impl AssetsFinder {
             })
             .ok_or(())?;
 
+        use AssetKind::*;
         let (kind, access_type, arg) = match ident.as_str() {
-            "load_s3_file" => (AssetKind::S3Object, Some(R), Arg::Pos(0)),
-            "load_s3_file_reader" => (AssetKind::S3Object, Some(R), Arg::Pos(0)),
-            "write_s3_file" => (AssetKind::S3Object, Some(W), Arg::Pos(0)),
-            "get_resource" => (AssetKind::Resource, None, Arg::Pos(0)),
-            "set_resource" => (AssetKind::Resource, Some(W), Arg::Named("path")),
-            "get_boto3_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
-            "get_polars_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
-            "get_duckdb_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
-            "get_variable" => (AssetKind::Variable, Some(R), Arg::Pos(0)),
-            "set_variable" => (AssetKind::Variable, Some(W), Arg::Pos(0)),
+            "load_s3_file" => (S3Object, Some(R), Arg::Pos(0, "s3object")),
+            "load_s3_file_reader" => (S3Object, Some(R), Arg::Pos(0, "s3object")),
+            "write_s3_file" => (S3Object, Some(W), Arg::Pos(0, "s3object")),
+            "get_resource" => (Resource, None, Arg::Pos(0, "path")),
+            "set_resource" => (Resource, Some(W), Arg::Pos(0, "path")),
+            "get_boto3_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
+            "get_polars_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
+            "get_duckdb_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
             _ => return Err(()),
         };
 
         let arg_val = match arg {
-            Arg::Pos(i) => node.args.get(i),
-            Arg::Named(name) => node
-                .keywords
-                .iter()
-                .find(|kw| kw.arg.as_deref() == Some(name))
-                .map(|kw| &kw.value),
+            Arg::Pos(i, name) => node.args.get(i).or_else(|| {
+                // Get arg by name
+                node.keywords
+                    .iter()
+                    .find(|kw| kw.arg.as_deref() == Some(name))
+                    .map(|kw| &kw.value)
+            }),
         };
 
         match arg_val {
@@ -93,6 +93,6 @@ impl AssetsFinder {
 }
 
 enum Arg {
-    Pos(usize),
-    Named(&'static str),
+    // Positional arguments in python can also be used by their name
+    Pos(usize, &'static str),
 }
