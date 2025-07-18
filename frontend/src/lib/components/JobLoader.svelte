@@ -472,9 +472,7 @@
 				if (job?.type === 'CompletedJob') {
 					isCompleted = true
 					if (currentId === id) {
-						await tick()
-						callbacks?.done?.(job)
-						currentId = undefined
+						onJobCompleted(id, job, callbacks)
 					}
 					return isCompleted
 				} else if (onlyResult || (job?.type === 'QueuedJob' && !currentEventSource)) {
@@ -566,7 +564,6 @@
 									const njob = previewJobUpdates.job as Job
 									njob.logs = job?.logs ?? ''
 									job = njob
-									callbacks?.done?.(previewJobUpdates.job as Job)
 									isCompleted = true
 									onJobCompleted(id, job, callbacks)
 								}

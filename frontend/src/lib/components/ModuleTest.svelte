@@ -4,7 +4,7 @@
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import JobLoader from './JobLoader.svelte'
+	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 
 	interface Props {
@@ -53,9 +53,10 @@
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
-		let callbacks = {
-			done(x) {
-				jobDone()
+		let callbacks: Callbacks = {
+			done: (x) => {
+				jobDone(x)
+				console.log('testJob', x)
 			}
 		}
 		if (val.type == 'rawscript') {
@@ -90,8 +91,8 @@
 		}
 	}
 
-	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
+	function jobDone(testJob: Job & { result?: any }) {
+		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
 			if ($flowStateStore[mod.id]) {
 				$flowStateStore[mod.id].previewResult = testJob.result
 				$flowStateStore[mod.id].previewSuccess = testJob.success
