@@ -695,7 +695,7 @@ export async function searchExternalIntegrationResources(args: { query: string }
 				let types = ''
 				try {
 					const docResponse = await fetch(`https://unpkg.com/${r.package.name}/readme.md`)
-					const docLimit = Math.floor(modelContextWindow * DOCS_CONTEXT_PERCENTAGE)
+					const docLimit = Math.floor((modelContextWindow * DOCS_CONTEXT_PERCENTAGE) / 100)
 					documentation = await docResponse.text()
 					documentation = documentation.slice(0, docLimit)
 				} catch (error) {
@@ -704,7 +704,7 @@ export async function searchExternalIntegrationResources(args: { query: string }
 				}
 				try {
 					const typesResponse = await fetchNpmPackageTypes(r.package.name, r.package.version)
-					const typesLimit = Math.floor(modelContextWindow * TYPES_CONTEXT_PERCENTAGE)
+					const typesLimit = Math.floor((modelContextWindow * TYPES_CONTEXT_PERCENTAGE) / 100)
 					types = typesResponse.types.slice(0, typesLimit)
 				} catch (error) {
 					console.error('Error getting types for package:', error)
