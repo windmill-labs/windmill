@@ -10,7 +10,8 @@
 		token_url: '',
 		req_body_auth: false,
 		extra_params: {},
-		extra_params_callback: {}
+		extra_params_callback: {},
+		extra_resource_attributes: []
 	}
 
 	$: if (!connect_config) {
@@ -20,7 +21,8 @@
 			token_url: '',
 			req_body_auth: false,
 			extra_params: {},
-			extra_params_callback: {}
+			extra_params_callback: {},
+			extra_resource_attributes: []
 		}
 	}
 </script>
