@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.507.0
+  version: 1.508.0
   title: Windmill API
 
   contact:
@@ -2792,6 +2792,22 @@ paths:
               schema:
                 type: string
 
+  /tokens/list/scopes:
+    get:
+      summary: list of available scopes
+      operationId: ListAvailableScopes
+      tags:
+        - token
+      responses:
+        "200":
+          description: list of available scopes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScopeDomain"
+
   /users/tokens/create:
     post:
       summary: create token
@@ -3099,7 +3115,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
-  
+
   /w/{workspace}/workspaces/get_secondary_storage_names:
     get:
       summary: get secondary storage names
@@ -13822,18 +13838,25 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
-        fallback_access_types:
+        assets:
           type: array
           items:
             type: object
-            required: [path, kind, access_type]
+            required:
+              - path
+              - kind
             properties:
               path:
                 type: string
               kind:
                 type: string
-                enum: [s3object, resource]
+                enum:
+                  - s3object
+                  - resource
               access_type:
+                type: string
+                enum: [r, w, rw]
+              alt_access_type:
                 type: string
                 enum: [r, w, rw]
 
@@ -16742,6 +16765,40 @@ components:
         - edited_at
         - execution_mode
 
+    ScopeDefinition:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+          nullable: true
+        requires_resource_path:
+          type: boolean
+      required:
+        - value
+        - label
+        - requires_resource_path
+
+    ScopeDomain:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeDefinition"
+      required:
+        - name
+        - scopes
+
+
     ListableRawApp:
       type: object
       properties:
@@ -17561,7 +17618,6 @@ components:
       enum:
         - s3object
         - resource
-        - variable
     Asset:
       type: object
       properties:

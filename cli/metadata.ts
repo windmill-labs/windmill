@@ -14,9 +14,9 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
-import { ScriptLanguage } from "./script_common.ts";
+import { languagesWithRawReqsSupport, LanguageWithRawReqsSupport, ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { GlobalDeps, exts } from "./script.ts";
+import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
   FSFSElement,
   extractInlineScriptsForFlows,
@@ -37,43 +37,16 @@ export class LockfileGenerationError extends Error {
   }
 }
 
-export async function generateAllMetadata() {}
+export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
-  lang: "bun" | "python3" | "php" | "go" | undefined,
+  lang: LanguageWithRawReqsSupport | undefined,
   remotePath: string,
-  globalDeps: GlobalDeps
+  globalDeps: GlobalDeps,
 ): string | undefined {
   let bestCandidate: { k: string; v: string } | undefined = undefined;
-  if (lang == "bun") {
-    Object.entries(globalDeps.pkgs).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "python3") {
-    Object.entries(globalDeps.reqs).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "php") {
-    Object.entries(globalDeps.composers).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "go") {
-    Object.entries(globalDeps.goMods).forEach(([k, v]) => {
+  if (lang) {
+    Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
         k.length >= (bestCandidate?.k ?? "").length
@@ -87,12 +60,25 @@ function findClosestRawReqs(
 }
 
 const TOP_HASH = "__flow_hash";
-async function generateFlowHash(folder: string) {
+async function generateFlowHash(
+  rawReqs: Record<string, string> | undefined,
+  folder: string,
+  defaultTs: "bun" | "deno" | undefined
+) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
-      hashes[f.path] = await generateHash(await f.getContentText());
+      let reqs: string | undefined;
+      if (rawReqs) {
+        // Get language name from path
+        const lang = inferContentTypeFromFilePath(f.path, defaultTs);
+        // Get lock for that language
+        [, reqs] = Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
+      }
+
+      // Embed lock into hash
+      hashes[f.path] = await generateHash(await f.getContentText() + (reqs ?? ""));
     }
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
@@ -101,9 +87,13 @@ export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
   workspace: Workspace,
+  opts: GlobalOptions & {
+    defaultTs?: "bun" | "deno";
+  },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean
-): Promise<string | undefined> {
+  noStaleMessage?: boolean,
+  useRawReqs?: boolean,
+): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
@@ -114,7 +104,24 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let hashes = await generateFlowHash(folder);
+  let rawReqs: Record<string, string> | undefined = undefined;
+  if (useRawReqs) {
+    // Find all dependency files in the workspace
+    const globalDeps = await findGlobalDeps();
+
+    // Find closest dependency files for this flow
+    rawReqs = {};
+
+    // TODO: PERF: Only include raw reqs for the languages that are in the flow
+    languagesWithRawReqsSupport.map((lang) => {
+      const dep = findClosestRawReqs(lang, folder, globalDeps);
+      if (dep) {
+        // @ts-ignore
+        rawReqs[lang.language] = dep;
+      }
+    });
+  }
+  let hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -128,8 +135,17 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
+  if (useRawReqs) {
+    log.warn("If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)")
+    log.info(
+      (await blueColor())(
+        `Found raw requirements (${languagesWithRawReqsSupport.map((l) => l.rrFilename).join("/")}) for ${folder}, using it`,
+      ),
+    );
+  }
+
   const flowValue = (await yamlParseFile(
-    folder! + SEP + "flow.yaml"
+    folder! + SEP + "flow.yaml",
   )) as FlowFile;
 
   if (!justUpdateMetadataLock) {
@@ -148,26 +164,40 @@ export async function generateFlowLockInternal(
     replaceInlineScripts(
       flowValue.value.modules,
       folder + SEP!,
-      changedScripts
+      changedScripts,
     );
+
     //removeChangedLocks
-    flowValue.value = await updateFlow(workspace, flowValue.value, remote_path);
+    flowValue.value = await updateFlow(
+      workspace,
+      flowValue.value,
+      remote_path,
+      rawReqs,
+    );
 
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      newPathAssigner("bun")
+      newPathAssigner(opts.defaultTs ?? "bun"),
     );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
         Deno.writeTextFileSync(
           Deno.cwd() + SEP + folder + SEP + s.path,
-          s.content
+          s.content,
         );
       });
+
+    // Overwrite `flow.yaml` with the new lockfile references
+    await Deno.writeTextFile(
+      Deno.cwd() + SEP + folder + SEP + "flow.yaml",
+      yamlStringify(
+        flowValue as Record<string, any>
+      )
+    );
   }
 
-  hashes = await generateFlowHash(folder);
+  hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -176,7 +206,7 @@ export async function generateFlowLockInternal(
 }
 
 // on windows, when using powershell, blue is not readable
-async function blueColor(): Promise<(x: string) => void> {
+export async function blueColor(): Promise<(x: string) => void> {
   const isWin = await getIsWin();
   return isWin ? colors.black : colors.blue;
 }
@@ -193,7 +223,7 @@ export async function generateScriptMetadataInternal(
   noStaleMessage: boolean,
   globalDeps: GlobalDeps,
   codebases: SyncCodebase[],
-  justUpdateMetadataLock?: boolean
+  justUpdateMetadataLock?: boolean,
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
@@ -201,23 +231,26 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+  const rrLang =  languagesWithRawReqsSupport.find((l) => language == l.language);
+
   const rawReqs = findClosestRawReqs(
-    language as "bun" | "python3" | "php" | "go" | undefined,
+    rrLang,
     scriptPath,
-    globalDeps
+    globalDeps,
   );
-  if (rawReqs) {
+
+  if (rawReqs && rrLang) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${scriptPath}, using it`
-      )
+        `Found raw requirements (${rrLang.rrFilename}) for ${scriptPath}, using it`,
+      ),
     );
   }
   const metadataWithType = await parseMetadataFile(
     remotePath,
     undefined,
     globalDeps,
-    codebases
+    codebases,
   );
 
   // read script content
@@ -229,7 +262,7 @@ export async function generateScriptMetadataInternal(
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
       log.info(
-        colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
+        colors.green(`Script ${remotePath} metadata is up-to-date, skipping`),
       );
     }
     return;
@@ -251,7 +284,7 @@ export async function generateScriptMetadataInternal(
       scriptContent,
       language,
       metadataParsedContent,
-      scriptPath
+      scriptPath,
     );
   }
 
@@ -265,7 +298,7 @@ export async function generateScriptMetadataInternal(
         language,
         remotePath,
         metadataParsedContent,
-        rawReqs
+        rawReqs,
       );
     } else {
       metadataParsedContent.lock = "";
@@ -286,7 +319,7 @@ export async function generateScriptMetadataInternal(
   hash = await generateScriptHash(
     rawReqs,
     scriptContent,
-    metadataContentUsedForHash
+    metadataContentUsedForHash,
   );
   await updateMetadataGlobalLock(remotePath, hash);
   if (!justUpdateMetadataLock) {
@@ -299,14 +332,14 @@ export async function updateScriptSchema(
   scriptContent: string,
   language: ScriptLanguage,
   metadataContent: Record<string, any>,
-  path: string
+  path: string,
 ): Promise<void> {
   // infer schema from script content and update it inplace
   const result = await inferSchema(
     language,
     scriptContent,
     metadataContent.schema,
-    path
+    path,
   );
   metadataContent.schema = result.schema;
   if (result.has_preprocessor) {
@@ -327,15 +360,12 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawDeps: string | undefined
+  rawDeps: string | undefined,
 ): Promise<void> {
   if (
     !(
-      language == "bun" ||
-      language == "python3" ||
-      language == "go" ||
+      languagesWithRawReqsSupport.some((l) => l.language == language) ||
       language == "deno" ||
-      language == "php" ||
       language == "rust" ||
       language == "ansible"
     )
@@ -363,7 +393,7 @@ async function updateScriptLock(
         raw_deps: rawDeps,
         entrypoint: remotePath,
       }),
-    }
+    },
   );
 
   let responseText = "reading response failed";
@@ -374,11 +404,11 @@ async function updateScriptLock(
     if (lock === undefined) {
       if (response?.["error"]?.["message"]) {
         throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
+          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`,
         );
       }
       throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
+        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`,
       );
     }
     const lockPath = remotePath + ".script.lock";
@@ -390,7 +420,7 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch { }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -398,7 +428,7 @@ async function updateScriptLock(
       throw e;
     }
     throw new LockfileGenerationError(
-      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
+      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`,
     );
   }
 }
@@ -406,24 +436,48 @@ async function updateScriptLock(
 export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
-  remotePath: string
+  remotePath: string,
+  rawDeps?: Record<string, string>
 ): Promise<FlowValue | undefined> {
-  // generate the script lock running a dependency job in Windmill and update it inplace
-  // TODO: update this once the client is released
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-    {
-      method: "POST",
-      headers: {
-        Cookie: `token=${workspace.token}`,
-        "Content-Type": "application/json",
+  let rawResponse;
+
+  if (rawDeps != undefined) {
+    log.info(colors.blue("Using raw requirements for flow dependencies"));
+
+    // generate the script lock running a dependency job in Windmill and update it inplace
+    rawResponse = await fetch(
+      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `token=${workspace.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          flow_value,
+          path: remotePath,
+          use_local_lockfiles: true,
+          raw_deps: rawDeps,
+        }),
       },
-      body: JSON.stringify({
-        flow_value,
-        path: remotePath,
-      }),
-    }
-  );
+    );
+  } else {
+    // Standard dependency resolution on the server
+    rawResponse = await fetch(
+      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `token=${workspace.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          flow_value,
+          path: remotePath,
+        }),
+      },
+    );
+  }
 
   let responseText = "reading response failed";
   try {
@@ -435,20 +489,20 @@ export async function updateFlow(
       const msg = (res as any)?.["error"]?.["message"];
       if (msg) {
         throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${msg}`
+          `Failed to generate lockfile: ${msg}`,
         );
       }
       throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`
+        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`,
       );
     }
     return (res as any).updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch { }
     throw new Error(
-      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
+      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`,
     );
   }
 }
@@ -460,7 +514,7 @@ export async function inferSchema(
   language: ScriptLanguage,
   content: string,
   currentSchema: any,
-  path: string
+  path: string,
 ): Promise<{
   schema: any;
   has_preprocessor: boolean | undefined;
@@ -586,8 +640,8 @@ export async function inferSchema(
   if (inferedSchema.type == "Invalid") {
     log.info(
       colors.yellow(
-        `Script ${path} invalid, it cannot be parsed to infer schema.`
-      )
+        `Script ${path} invalid, it cannot be parsed to infer schema.`,
+      ),
     );
     return {
       schema: defaultScriptMetadata().schema,
@@ -601,7 +655,7 @@ export async function inferSchema(
   }
   currentSchema.required = [];
   const oldProperties = JSON.parse(
-    JSON.stringify(currentSchema?.properties ?? {})
+    JSON.stringify(currentSchema?.properties ?? {}),
   );
   currentSchema.properties = {};
 
@@ -612,7 +666,7 @@ export async function inferSchema(
       currentSchema.properties[arg.name] = oldProperties[arg.name];
     }
     currentSchema.properties[arg.name] = sortObject(
-      currentSchema.properties[arg.name]
+      currentSchema.properties[arg.name],
     );
 
     argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name]);
@@ -639,7 +693,7 @@ function sortObject(obj: any): any {
         ...acc,
         [key]: obj[key],
       }),
-      {}
+      {},
     );
 }
 
@@ -891,7 +945,9 @@ export function replaceLock(o?: { lock?: string | string[] }) {
       o.lock = readInlinePathSync(lockPath);
     } catch (e) {
       log.info(
-        colors.yellow(`Failed to read lockfile, doing as if it was empty: ${e}`)
+        colors.yellow(
+          `Failed to read lockfile, doing as if it was empty: ${e}`,
+        ),
       );
       o.lock = "";
     }
@@ -901,13 +957,13 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & {
-        path: string;
-        workspaceRemote: Workspace;
-        schemaOnly?: boolean;
-      })
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+    })
     | undefined,
   globalDeps: GlobalDeps,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -933,14 +989,14 @@ export async function parseMetadataFile(
       // no metadata file at all. Create it
       log.info(
         (await blueColor())(
-          `Creating script metadata file for ${metadataFilePath}`
-        )
+          `Creating script metadata file for ${metadataFilePath}`,
+        ),
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
       const scriptInitialMetadataYaml = yamlStringify(
         scriptInitialMetadata as Record<string, any>,
-        yamlOptions
+        yamlOptions,
       );
       await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
         createNew: true,
@@ -949,8 +1005,8 @@ export async function parseMetadataFile(
       if (generateMetadataIfMissing) {
         log.info(
           (await blueColor())(
-            `Generating lockfile and schema for ${metadataFilePath}`
-          )
+            `Generating lockfile and schema for ${metadataFilePath}`,
+          ),
         );
         try {
           await generateScriptMetadataInternal(
@@ -961,10 +1017,10 @@ export async function parseMetadataFile(
             false,
             globalDeps,
             codebases,
-            false
+            false,
           );
           scriptInitialMetadata = (await yamlParseFile(
-            metadataFilePath
+            metadataFilePath,
           )) as ScriptMetadata;
           if (!generateMetadataIfMissing.schemaOnly) {
             replaceLock(scriptInitialMetadata);
@@ -972,8 +1028,8 @@ export async function parseMetadataFile(
         } catch (e) {
           log.info(
             colors.yellow(
-              `Failed to generate lockfile and schema for ${metadataFilePath}: ${e}`
-            )
+              `Failed to generate lockfile and schema for ${metadataFilePath}: ${e}`,
+            ),
           );
         }
       }
@@ -1012,7 +1068,7 @@ export async function checkifMetadataUptodate(
   path: string,
   hash: string,
   conf: Lock | undefined,
-  subpath?: string
+  subpath?: string,
 ) {
   if (!conf) {
     conf = await readLockfile();
@@ -1028,17 +1084,17 @@ export async function checkifMetadataUptodate(
 export async function generateScriptHash(
   rawReqs: string | undefined,
   scriptContent: string,
-  newMetadataContent: string
+  newMetadataContent: string,
 ) {
   return await generateHash(
-    (rawReqs ?? "") + scriptContent + newMetadataContent
+    (rawReqs ?? "") + scriptContent + newMetadataContent,
   );
 }
 
 export async function updateMetadataGlobalLock(
   path: string,
   hash: string,
-  subpath?: string
+  subpath?: string,
 ): Promise<void> {
   const conf = await readLockfile();
   if (!conf?.locks) {
@@ -1057,6 +1113,6 @@ export async function updateMetadataGlobalLock(
   }
   await Deno.writeTextFile(
     WMILL_LOCKFILE,
-    yamlStringify(conf as Record<string, any>, yamlOptions)
+    yamlStringify(conf as Record<string, any>, yamlOptions),
   );
 }

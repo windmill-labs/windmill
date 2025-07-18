@@ -65,7 +65,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.507.0";
+export const VERSION = "1.508.0";
 
 const command = new Command()
     .name("wmill")
@@ -143,6 +143,7 @@ const command = new Command()
                     skipFolders: DEFAULT_SYNC_OPTIONS.skipFolders,
                     includeSchedules: DEFAULT_SYNC_OPTIONS.includeSchedules,
                     includeTriggers: DEFAULT_SYNC_OPTIONS.includeTriggers,
+                    overrides: {},
                 };
 
                 await Deno.writeTextFile(
@@ -159,9 +160,8 @@ const command = new Command()
                 // Check for backend git-sync settings unless --use-default is specified
                 if (!opts.useDefault) {
                     try {
-                        const { requireLogin, resolveWorkspace } = await import(
-                            "./context.ts"
-                        );
+                        const { requireLogin } = await import("./auth.ts");
+                        const { resolveWorkspace } = await import("./context.ts");
 
                         // Check if user has workspace configured
                         const { getActiveWorkspace } = await import(
