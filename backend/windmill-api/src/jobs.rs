@@ -947,6 +947,7 @@ impl<'a> GetQuery<'a> {
             with_code: self.with_code,
             with_flow: self.with_flow,
         );
+        tracing::error!("query: {}", query);
         let query = sqlx::query_as::<_, JobExtended<QueuedJob>>(query)
             .bind(job_id)
             .bind(workspace_id)
@@ -5669,8 +5670,8 @@ pub async fn run_job_by_hash_inner(
 
 #[derive(Deserialize)]
 pub struct JobUpdateQuery {
-    pub running: bool,
-    pub log_offset: i32,
+    pub running: Option<bool>,
+    pub log_offset: Option<i32>,
     pub get_progress: Option<bool>,
     pub only_result: Option<bool>,
 }
@@ -5800,9 +5801,9 @@ fn get_job_update_sse_stream(
     db: DB,
     w_id: String,
     job_id: Uuid,
-    initial_log_offset: i32,
+    initial_log_offset: Option<i32>,
     get_progress: Option<bool>,
-    running: bool,
+    running: Option<bool>,
     only_result: Option<bool>,
 ) -> impl futures::Stream<Item = String> {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
@@ -5837,10 +5838,12 @@ fn get_job_update_sse_stream(
                 }
                 last_update = Some(serialized);
                 if let Some(new_offset) = update.log_offset {
-                    log_offset = new_offset;
+                    log_offset = Some(new_offset);
                 }
                 completion_sent = update.completed.unwrap_or(false);
-                running = update.running.unwrap_or(false);
+                if running.is_some() {
+                    running = Some(update.running.unwrap_or(false));
+                }
             } else {
                 tracing::warn!("Failed to serialize job update for job {job_id}");
                 return;
@@ -5881,7 +5884,9 @@ fn get_job_update_sse_stream(
             .await
             {
                 Ok(update) => {
-                    running = update.running.unwrap_or(false);
+                    if running.is_some() {
+                        running = Some(update.running.unwrap_or(false));
+                    }
                     if let Ok(serialized) = serde_json::to_string(&update) {
                         // Only send if the update has changed
                         if last_update.as_ref() != Some(&serialized) {
@@ -5896,7 +5901,7 @@ fn get_job_update_sse_stream(
 
                             // Update log offset if available
                             if let Some(new_offset) = update.log_offset {
-                                log_offset = new_offset;
+                                log_offset = Some(new_offset);
                             }
                         }
                     }
@@ -5918,9 +5923,9 @@ async fn get_job_update_data(
     db: &DB,
     w_id: &str,
     job_id: &Uuid,
-    log_offset: i32,
+    log_offset: Option<i32>,
     get_progress: Option<bool>,
-    running: bool,
+    running: Option<bool>,
     log_view: bool,
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
@@ -5944,35 +5949,58 @@ async fn get_job_update_data(
 
     if only_result.unwrap_or(false) {
         let result = if let Some(tags) = tags {
-            sqlx::query_scalar!(
-                "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed
-                RIGHT JOIN v2_job j USING (id)
-                WHERE id = $2 AND v2_job_completed.workspace_id = $1
-                AND j.tag = ANY($3)",
+            let r = sqlx::query!(
+                "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
+                v2_job_queue.running as \"running: Option<bool>\"
+                FROM v2_job
+                LEFT JOIN v2_job_queue USING (id)
+                LEFT JOIN v2_job_completed USING (id)
+                WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
                 w_id,
                 job_id,
-                tags.as_slice() as &[&str],
             )
             .fetch_optional(db)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+            if !tags.contains(&r.tag.as_str()) {
+                return Err(Error::NotAuthorized(format!("Job tag {} is not in the scope tags: {}", r.tag, tags.join(", "))));
+            }
+            let running = r.running.as_ref().map(|x| *x);
+            (r.result.map(|x| x.0), running)
         } else {
-            sqlx::query_scalar!(
-                "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
-                w_id,
-                job_id,
-            ).fetch_optional(db).await?.flatten()
+            if running.is_some_and(|x| !x) {
+                let r = sqlx::query!(
+                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job_queue.running as \"running: Option<bool>\" FROM v2_job_completed FULL OUTER JOIN v2_job_queue USING (id) WHERE (v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2) OR (v2_job_completed.id = $1 AND v2_job_completed.workspace_id = $2)",
+                    job_id,
+                    w_id,
+                ).fetch_optional(db).await?;
+                tracing::error!("r: {:?}", r);
+                if let Some(r) = r {
+                    let running = r.running.as_ref().map(|x| *x);
+                    (r.result.map(|x| x.0), running)
+                } else {
+                    (None, None)
+                }
+            } else {
+                (sqlx::query_scalar!(
+                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
+                    w_id,
+                    job_id,
+                ).fetch_optional(db).await?.flatten()
+                .map(|x| x.0), running)
+            }
         };
         Ok(JobUpdate {
-            running: None,
-            completed: if result.is_some() { Some(true) } else { None },
+            running: result.1,
+            completed: if result.0.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
             mem_peak: None,
             progress: None,
             job: None,
             flow_status: None,
-            only_result: result.map(|x| x.0),
+            only_result: result.0
         })
     } else {
         let record = sqlx::query!(

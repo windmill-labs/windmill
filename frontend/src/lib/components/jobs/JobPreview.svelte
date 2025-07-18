@@ -43,7 +43,11 @@
 			openStore.set(id)
 			if (!loaded) {
 				await tick()
-				jobLoader?.watchJob(id)
+				jobLoader?.watchJob(id, {
+					done(job) {
+						onDone(job)
+					}
+				})
 			}
 		} else {
 			timeout && clearTimeout(timeout)
@@ -75,8 +79,8 @@
 		)
 	}
 
-	function onDone(event: { detail: Job }) {
-		job = event.detail
+	function onDone(njob: Job) {
+		job = njob
 		result = job['result']
 		loaded = true
 	}
@@ -88,7 +92,7 @@
 
 <svelte:window onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 {#if hovered}
-	<JobLoader bind:job bind:this={jobLoader} on:done={onDone} />
+	<JobLoader bind:job bind:this={jobLoader} />
 {/if}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

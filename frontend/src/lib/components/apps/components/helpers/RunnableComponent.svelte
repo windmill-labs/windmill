@@ -20,7 +20,6 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import { collectOneOfFields, selectId } from '../../editor/appUtils'
-	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
@@ -28,6 +27,7 @@
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 	import { executeRunnable } from './executeRunnable'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import JobLoader, { type Callbacks } from '$lib/components/JobLoader.svelte'
 
 	interface Props {
 		// Component props
@@ -137,7 +137,7 @@
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
 			console.debug('debounce execute')
-			executeComponent(true)
+			executeComponent()
 		}, 200)
 	}
 
@@ -164,6 +164,101 @@
 	// $: sendUserToast('args' + JSON.stringify(runnableInputValues) + Boolean(extraQueryParams) || args)
 	// $: console.log(runnableInputValues)
 	let firstRefresh = true
+
+	// 	on:started={(e) => {
+	// 	console.log('started', e.detail)
+	// 	loading = true
+	// 	setJobId(e.detail)
+	// 	dispatch('started', e.detail)
+	// }}
+	// 	on:done={(e) => {
+	// 	lastJobId = e.detail.id
+	// 	setResult(e.detail.result, e.detail.id)
+	// 	loading = false
+	// 	dispatch('done', { id: e.detail?.id, result: e.detail?.result })
+	// }}
+	// on:cancel={(e) => {
+	// 	let jobId = e.detail
+	// 	console.debug('cancel', jobId)
+	// 	let job = $jobsById[jobId]
+	// 	if (job && job.created_at && !job.duration_ms) {
+	// 		$jobsById[jobId] = {
+	// 			...job,
+	// 			started_at: job.started_at ?? Date.now(),
+	// 			duration_ms: Date.now() - (job.started_at ?? job.created_at)
+	// 		}
+	// 	}
+	// 	dispatch('cancel', { id: e.detail })
+	// }}
+	// on:running={(e) => {
+	// 	let jobId = e.detail
+	// 	let job = $jobsById[jobId]
+	// 	if (job && !job.started_at) {
+	// 		$jobsById[jobId] = { ...job, started_at: Date.now() }
+	// 	}
+	// }}
+	// on:doneError={(e) => {
+	// 	setResult({ error: e.detail.error }, e.detail.id)
+	// 	loading = false
+	// 	dispatch('doneError', { id: e.detail.id, result: e.detail.result })
+	// }}
+
+	type RunnableCallback = {
+		onDone?: (r: any) => void
+		onCancel?: () => void
+		onError?: (e: any) => void
+	}
+	function genCallbacks({ onDone, onCancel, onError }: RunnableCallback) {
+		const callbacks: Callbacks & { doneWithoutCompute?: (r: any) => void } = {
+			started({ id }: { id: string }) {
+				console.log('started', id)
+				loading = true
+				outputs.jobId?.set(id)
+				dispatch('started', id)
+			},
+			doneWithoutCompute(r: any) {
+				onDone?.(r)
+			},
+			doneResult({ id, result }: { id: string; result: any }) {
+				onDone?.(result)
+				lastJobId = id
+				setResult(result, id)
+				loading = false
+				dispatch('done', { id, result })
+			},
+			cancel({ id }: { id: string }) {
+				onCancel?.()
+				let jobId = id
+				console.debug('cancel', jobId)
+				let job = $jobsById[jobId]
+				if (job && job.created_at && !job.duration_ms) {
+					$jobsById[jobId] = {
+						...job,
+						started_at: job.started_at ?? Date.now(),
+						duration_ms: Date.now() - (job.started_at ?? job.created_at)
+					}
+				}
+				dispatch('cancel', { id })
+			},
+			doneError({ id, error }: { id?: string; error: any }) {
+				onError?.(error)
+				setResult({ error }, id)
+				loading = false
+				dispatch('doneError', { id, error })
+			}
+		}
+		if (isEditor) {
+			callbacks.running = ({ id }: { id: string }) => {
+				console.log('running', id)
+				let jobId = id
+				let job = $jobsById[jobId]
+				if (job && !job.started_at) {
+					$jobsById[jobId] = { ...job, started_at: Date.now() }
+				}
+			}
+		}
+		return callbacks
+	}
 
 	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
 		// console.log(
@@ -212,7 +307,7 @@
 	}
 
 	// Test job internal state
-	let resultJobLoader: ResultJobLoader | undefined = $state(undefined)
+	let resultJobLoader: JobLoader | undefined = $state(undefined)
 
 	let schemaStripped: Schema | undefined = $state(
 		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
@@ -281,12 +376,12 @@
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
 		dynamicArgsOverride?: Record<string, any>,
-		callbacks?: Callbacks
+		callbacks?: RunnableCallback
 	): Promise<string | undefined> {
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
 			return
 		}
@@ -336,7 +431,7 @@
 				await setResult(r, job)
 			}
 			loading = false
-			callbacks?.done(r)
+			callbacks?.onDone?.(r)
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -350,37 +445,40 @@
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			return
 		}
 
 		if (!resultJobLoader) {
 			console.warn('No test job loader')
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			return
 		}
 
 		try {
-			jobId = await resultJobLoader?.abstractRun(async () => {
-				const uuid = await executeRunnable(
-					runnable,
-					workspace,
-					$app.version,
-					$userStore?.username,
-					$appPath,
-					id,
-					await buildRequestBody(dynamicArgsOverride),
-					inlineScriptOverride
-				)
-				if (isEditor) {
-					addJob(uuid)
-				}
-				return uuid
-			}, callbacks)
+			jobId = await resultJobLoader?.abstractRun(
+				async () => {
+					const uuid = await executeRunnable(
+						runnable,
+						workspace,
+						$app.version,
+						$userStore?.username,
+						$appPath,
+						id,
+						await buildRequestBody(dynamicArgsOverride),
+						inlineScriptOverride
+					)
+					if (isEditor) {
+						addJob(uuid)
+					}
+					return uuid
+				},
+				genCallbacks(callbacks ?? {})
+			)
 
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
@@ -396,12 +494,11 @@
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 
-			callbacks?.done({ error })
+			callbacks?.onError?.({ error })
 			sendUserToast(error, true)
 			loading = false
 		}
 	}
-	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (e: any) => void }
 
 	export async function buildRequestBody(dynamicArgsOverride: Record<string, any> | undefined) {
 		const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
@@ -452,8 +549,7 @@
 		noToast = true,
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
-		dynamicArgsOverride?: Record<string, any>,
-		callbacks?: Callbacks
+		dynamicArgsOverride?: Record<string, any>
 	): Promise<string | undefined> {
 		try {
 			if (cancellableRun && !dynamicArgsOverride) {
@@ -464,8 +560,7 @@
 					noToast,
 					inlineScriptOverride,
 					setRunnableJobEditorPanel,
-					dynamicArgsOverride,
-					callbacks
+					dynamicArgsOverride
 				)
 			}
 		} catch (e) {
@@ -473,10 +568,6 @@
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 		}
-	}
-
-	async function setJobId(jobId: string) {
-		outputs.jobId?.set(jobId)
 	}
 
 	function recordJob(
@@ -624,13 +715,13 @@
 					dispatch('recompute')
 					rejectCb = reject
 					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
-						done: (x) => {
+						onDone: (x) => {
 							resolve(x)
 						},
-						cancel: () => {
+						onCancel: () => {
 							reject()
 						},
-						error: (e) => {
+						onError: (e) => {
 							console.error(e)
 							reject(e)
 						}
@@ -786,47 +877,10 @@
 	{/each}
 {/if}
 
-<ResultJobLoader
+<JobLoader
 	{allowConcurentRequests}
-	{isEditor}
-	on:started={(e) => {
-		console.log('started', e.detail)
-		loading = true
-		setJobId(e.detail)
-		dispatch('started', e.detail)
-	}}
+	onlyResult
 	workspaceOverride={workspace}
-	on:done={(e) => {
-		lastJobId = e.detail.id
-		setResult(e.detail.result, e.detail.id)
-		loading = false
-		dispatch('done', { id: e.detail?.id, result: e.detail?.result })
-	}}
-	on:cancel={(e) => {
-		let jobId = e.detail
-		console.debug('cancel', jobId)
-		let job = $jobsById[jobId]
-		if (job && job.created_at && !job.duration_ms) {
-			$jobsById[jobId] = {
-				...job,
-				started_at: job.started_at ?? Date.now(),
-				duration_ms: Date.now() - (job.started_at ?? job.created_at)
-			}
-		}
-		dispatch('cancel', { id: e.detail })
-	}}
-	on:running={(e) => {
-		let jobId = e.detail
-		let job = $jobsById[jobId]
-		if (job && !job.started_at) {
-			$jobsById[jobId] = { ...job, started_at: Date.now() }
-		}
-	}}
-	on:doneError={(e) => {
-		setResult({ error: e.detail.error }, e.detail.id)
-		loading = false
-		dispatch('doneError', { id: e.detail.id, result: e.detail.result })
-	}}
 	bind:this={resultJobLoader}
 />
 

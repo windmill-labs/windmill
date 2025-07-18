@@ -7687,6 +7687,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: only_result
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -16826,7 +16830,6 @@ components:
       required:
         - name
         - scopes
-
 
     ListableRawApp:
       type: object

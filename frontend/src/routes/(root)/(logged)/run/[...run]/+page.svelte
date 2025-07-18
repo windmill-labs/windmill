@@ -181,7 +181,13 @@
 	}
 
 	async function getJob() {
-		await jobLoader?.watchJob($page.params.run)
+		await jobLoader?.watchJob($page.params.run, {
+			done(job) {
+				if (job?.['result'] != undefined) {
+					viewTab = 'result'
+				}
+			}
+		})
 		initView()
 	}
 
@@ -423,7 +429,6 @@
 	<JobLoader
 		lazyLogs
 		bind:scriptProgress
-		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
 		bind:job

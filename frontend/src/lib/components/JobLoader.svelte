@@ -14,13 +14,13 @@
 
 	// Will be set to number if job is not a flow
 
-	type Callbacks = {
+	export type Callbacks = {
 		done?: (x: Job & { result?: any }) => void
-		doneError?: (x: { id: string; error: Error }) => void
-		cancel?: () => void
-		error?: (err: Error) => void
-		started?: (id: string) => void
-		running?: (id: string) => void
+		doneResult?: ({ id, result }: { id: string; result: any }) => void
+		doneError?: ({ id, error }: { id?: string; error: Error }) => void
+		cancel?: ({ id }: { id: string }) => void
+		started?: ({ id }: { id: string }) => void
+		running?: ({ id }: { id: string }) => void
 	}
 
 	interface Props {
@@ -36,6 +36,7 @@
 		onlyResult?: boolean
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
+
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -98,7 +99,7 @@
 			if (lastStartedAt < startedAt || allowConcurentRequests) {
 				lastStartedAt = startedAt
 				if (testId) {
-					callbacks?.started?.(testId)
+					callbacks?.started?.({ id: testId })
 					try {
 						await watchJob(testId, callbacks)
 					} catch {
@@ -113,7 +114,7 @@
 			if (toastError) {
 				sendUserToast(err.body, true)
 			}
-			callbacks?.error?.(err)
+			callbacks?.doneError?.({ error: err })
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -173,13 +174,19 @@
 		)
 	}
 
+	function refreshLogOffset() {
+		if (logOffset == 0) {
+			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
+		}
+	}
 	export async function getLogs() {
 		if (job) {
+			refreshLogOffset()
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspace!,
 				id: job.id,
 				running: `running` in job && job.running,
-				logOffset: job.logs?.length ?? 0
+				logOffset: logOffset
 			})
 
 			if ((job?.logs ?? '').length == 0) {
@@ -224,7 +231,7 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
-			lastCallbacks?.cancel?.()
+			lastCallbacks?.cancel?.({ id })
 			lastCallbacks = undefined
 			currentId = undefined
 			// Clean up SSE connection
@@ -245,7 +252,7 @@
 	export async function clearCurrentJob() {
 		if (currentId && !allowConcurentRequests) {
 			job = undefined
-			lastCallbacks?.cancel?.()
+			lastCallbacks?.cancel?.({ id: currentId })
 			lastCallbacks = undefined
 			await cancelJob()
 		}
@@ -297,18 +304,23 @@
 
 	function updateJobFromProgress(
 		previewJobUpdates: GetJobUpdatesResponse,
-		offset: number,
-		job: Job
+		job: Job,
+		callbacks: Callbacks | undefined
 	) {
 		// Clamp number between two values with the following line:
-
+		if (previewJobUpdates.running) {
+			if (job && job.type == 'QueuedJob' && !job.running) {
+				callbacks?.running?.({ id: job.id })
+				job.running = true
+			}
+		}
 		if (previewJobUpdates.progress) {
 			// Progress cannot go back and cannot be set to 100
 			scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
 		}
 
 		if (previewJobUpdates.new_logs) {
-			if (offset == 0) {
+			if (logOffset == 0) {
 				job.logs = previewJobUpdates.new_logs ?? ''
 			} else {
 				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
@@ -331,16 +343,16 @@
 		if (currentId === id || allowConcurentRequests) {
 			try {
 				if (job && `running` in job) {
-					callbacks?.running?.(id)
+					callbacks?.running?.({ id })
 					let getProgress: boolean | undefined = setJobProgress(job)
 
-					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+					refreshLogOffset()
 
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: offset,
+						logOffset: logOffset,
 						getProgress: getProgress
 					})
 
@@ -348,7 +360,7 @@
 						job = await JobService.getJob({ workspace: workspace!, id, noCode })
 					}
 
-					updateJobFromProgress(previewJobUpdates, offset, job)
+					updateJobFromProgress(previewJobUpdates, job, callbacks)
 				} else {
 					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
 				}
@@ -384,12 +396,11 @@
 		if (currentId === id || allowConcurentRequests) {
 			await tick()
 			if (
-				(callbacks?.error || callbacks?.doneError) &&
+				callbacks?.doneError &&
 				!job?.success &&
 				typeof job?.result == 'object' &&
 				'error' in (job?.result ?? {})
 			) {
-				callbacks?.error?.(job.result.error)
 				callbacks?.doneError?.({
 					id,
 					error: job.result.error
@@ -414,7 +425,7 @@
 		if (currentId === id) {
 			try {
 				// First load the job to get initial state
-				if (!job) {
+				if (!job && !onlyResult) {
 					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
 				}
 
@@ -427,22 +438,33 @@
 						currentId = undefined
 					}
 					return isCompleted
-				} else if (job?.type === 'QueuedJob' && !currentEventSource) {
-					if (job.running) {
-						callbacks?.running?.(id)
+				} else if (onlyResult || (job?.type === 'QueuedJob' && !currentEventSource)) {
+					if (job?.type === 'QueuedJob' && job?.running) {
+						callbacks?.running?.({ id })
+						if (!job.running) {
+							job.running = true
+						}
 					}
 
-					let getProgress: boolean | undefined = setJobProgress(job)
+					let getProgress: boolean | undefined =
+						onlyResult || !job ? undefined : setJobProgress(job)
 
-					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
-
+					refreshLogOffset()
 					// Build SSE URL with query parameters
 					const params = new URLSearchParams({
-						running: job.running.toString(),
-						log_offset: offset.toString()
+						log_offset: logOffset.toString()
 					})
+					if (job && job.type === 'QueuedJob') {
+						params.set('running', job.running.toString())
+					} else if (onlyResult && callbacks?.running) {
+						params.set('running', 'false')
+					}
+
 					if (getProgress !== undefined) {
 						params.set('get_progress', getProgress.toString())
+					}
+					if (onlyResult) {
+						params.set('only_result', 'true')
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
@@ -459,24 +481,30 @@
 						try {
 							const previewJobUpdates = JSON.parse(event.data)
 							jobUpdateLastFetch = new Date()
-							if (previewJobUpdates.running) {
-								callbacks?.running?.(id)
-							}
 
 							if (job) {
-								updateJobFromProgress(previewJobUpdates, offset, job)
+								updateJobFromProgress(previewJobUpdates, job, callbacks)
+							} else if (onlyResult && callbacks?.running && previewJobUpdates.running) {
+								callbacks?.running?.({ id })
 							}
 
 							// Check if job is completed
 							if (previewJobUpdates.completed) {
-								const njob = previewJobUpdates.job as Job
-								njob.logs = job?.logs ?? ''
-								job = njob
 								currentEventSource?.close()
 								currentEventSource = undefined
-
-								isCompleted = true
-								onJobCompleted(id, job, callbacks)
+								if (onlyResult) {
+									callbacks?.doneResult?.({
+										id,
+										result: previewJobUpdates?.only_result
+									})
+								} else {
+									const njob = previewJobUpdates.job as Job
+									njob.logs = job?.logs ?? ''
+									job = njob
+									callbacks?.done?.(previewJobUpdates.job as Job)
+									isCompleted = true
+									onJobCompleted(id, job, callbacks)
+								}
 							}
 						} catch (parseErr) {
 							console.warn('Failed to parse SSE data:', parseErr)
@@ -488,7 +516,7 @@
 						currentEventSource?.close()
 						currentEventSource = undefined
 						if (attempt < 3) {
-							console.log(`SSE error )1), retrying ...  attempt: ${attempt}/3`)
+							console.log(`SSE error (1), retrying ...  attempt: ${attempt}/3`)
 							attempt++
 							setTimeout(() => loadTestJobWithSSE(id, attempt, callbacks), 1000)
 						} else {
@@ -534,7 +562,7 @@
 
 	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
 		if ((currentId != id && !allowConcurentRequests) || finished.includes(id)) {
-			callbacks?.cancel?.()
+			callbacks?.cancel?.({ id })
 			return
 		}
 		syncIteration++
