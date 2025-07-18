@@ -1407,6 +1407,10 @@
 		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 
+			const addLibraryToAutocompletor = async (code: string, _path: string) => {
+				autocompletor?.addLibrary(code, _path)
+			}
+
 			const addLibraryToRuntime = async (code: string, _path: string) => {
 				const path = 'file://' + _path
 				let uri = mUri.parse(path)
@@ -1454,7 +1458,10 @@
 				scriptPath: path,
 				logger: console,
 				delegate: {
-					receivedFile: addLibraryToRuntime,
+					receivedFile: (code, path) => {
+						addLibraryToAutocompletor(code, path)
+						addLibraryToRuntime(code, path)
+					},
 					localFile: addLocalFile,
 					progress: (downloaded: number, total: number) => {
 						// console.log({ dl, ttl })

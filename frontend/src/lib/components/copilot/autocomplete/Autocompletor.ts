@@ -1,6 +1,6 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen'
 import { sleep } from '$lib/utils'
-import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
+import { editor as meditor, Position, languages, type IDisposable, Range } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
@@ -45,6 +45,7 @@ export class Autocompletor {
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
 	#markers: meditor.IMarker[] = []
+	#libraries: { code: string; path: string }[] = []
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -130,6 +131,10 @@ export class Autocompletor {
 			providerModel.model.startsWith('codestral-') &&
 			!providerModel.model.startsWith('codestral-embed')
 		)
+	}
+
+	addLibrary(code: string, path: string) {
+		this.#libraries.push({ code, path })
 	}
 
 	dispose() {
@@ -220,12 +225,19 @@ export class Autocompletor {
 			endColumn: position.column
 		})
 
+		const librariesLimitedCode: string = this.#libraries
+			.filter((l) => !l.path.includes('windmill') && !l.path.includes('package.json'))
+			.map((l) => l.code)
+			.join('\n')
+			.slice(0, 1500)
+
 		const completion = await autocompleteRequest(
 			{
 				prefix,
 				suffix,
 				scriptLang: this.#scriptLang,
-				markers: this.#markers
+				markers: this.#markers,
+				libraries: librariesLimitedCode
 			},
 			this.#abortController
 		)
