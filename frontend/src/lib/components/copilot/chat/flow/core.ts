@@ -348,7 +348,44 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
+export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	def: searchHubScriptsToolDef,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(
+			toolId,
+			'Searching for hub scripts related to "' + args.query + '"...'
+		)
+		const parsedArgs = searchScriptsSchema.parse(args)
+		const scripts = await ScriptService.queryHubScripts({
+			text: parsedArgs.query,
+			kind: 'script'
+		})
+		toolCallbacks.setToolStatus(
+			toolId,
+			'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
+		)
+		// if withContent, fetch scripts with their content, limit to 3 results
+		const results = await Promise.all(
+			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {
+				let content = ''
+				if (withContent) {
+					content = await ScriptService.getHubScriptContentByPath({
+						path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+					})
+				}
+				return {
+					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					summary: s.summary,
+					...(withContent ? { content } : {})
+				}
+			})
+		)
+		return JSON.stringify(results)
+	}
+})
+
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
+	createSearchHubScriptsTool(false),
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -367,30 +404,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					'"'
 			)
 			return JSON.stringify(scriptResults)
-		}
-	},
-	{
-		def: searchHubScriptsToolDef,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Searching for hub scripts related to "' + args.query + '"...'
-			)
-			const parsedArgs = searchScriptsSchema.parse(args)
-			const scripts = await ScriptService.queryHubScripts({
-				text: parsedArgs.query,
-				kind: 'script'
-			})
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
-			)
-			return JSON.stringify(
-				scripts.map((s) => ({
-					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-					summary: s.summary
-				}))
-			)
 		}
 	},
 	{
