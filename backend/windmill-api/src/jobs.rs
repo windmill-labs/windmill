@@ -2027,7 +2027,7 @@ pub async fn resume_suspended_flow_as_owner(
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
-    
+
     let value = value.unwrap_or(serde_json::Value::Null);
 
     insert_resume_job(
@@ -5677,7 +5677,7 @@ pub struct JobUpdateQuery {
     pub fast: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct JobUpdate {
     pub running: Option<bool>,
     pub completed: Option<bool>,
@@ -5708,9 +5708,6 @@ impl From<&JobUpdate> for JobUpdateLastStatus {
         }
     }
 }
-
-
-
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     let local_file = format!("{TMP_DIR}/logs/{file_p}");
@@ -5768,7 +5765,9 @@ async fn get_job_update(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, .. }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, .. }): Query<
+        JobUpdateQuery,
+    >,
 ) -> JsonResult<JobUpdate> {
     Ok(Json(
         get_job_update_data(
@@ -5793,9 +5792,10 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, fast }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, fast }): Query<
+        JobUpdateQuery,
+    >,
 ) -> Response {
-    
     let stream = get_job_update_sse_stream(
         opt_authed,
         opt_tokened,
@@ -5809,7 +5809,10 @@ async fn get_job_update_sse(
         fast,
     )
     .map(|x| {
-        format!("data: {}\n\n", serde_json::to_string(&x).unwrap_or_default())
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&x).unwrap_or_default()
+        )
     });
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -5869,30 +5872,33 @@ fn get_job_update_sse_stream(
         .await
         {
             Ok(update) => {
-            last_update = Some((&update).into());
-            let completion_sent = update.completed.unwrap_or(false);
-            if running.is_some() {
-                running = Some(update.running.unwrap_or(false));
+                last_update = Some((&update).into());
+                let completion_sent = update.completed.unwrap_or(false);
+                if running.is_some() && update.running.is_some_and(|x| x) {
+                    running = Some(true);
+                }
+                if let Some(new_offset) = update.log_offset {
+                    log_offset = Some(new_offset);
+                }
+                if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
+                    tracing::warn!("Failed to send initial job update for job {job_id}");
+                    return;
+                }
+                if completion_sent {
+                    return;
+                }
             }
-            if let Some(new_offset) = update.log_offset {
-                log_offset = Some(new_offset);
-            }
-            if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
-                tracing::warn!("Failed to send initial job update for job {job_id}");
-                return;
-            }
-            if completion_sent {
-                return
+            Err(e) => {
+                if tx
+                    .send(JobUpdateSSEStream::Error(e.to_string()))
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("Failed to send initial job update for job {job_id}");
+                    return;
+                }
             }
         }
-        Err(e) => {
-            if tx.send(JobUpdateSSEStream::Error(e.to_string())).await.is_err() {
-                tracing::warn!("Failed to send initial job update for job {job_id}");
-                return;
-            }
-        }
-    }
-
 
         // Poll for updates every 1 second
         let mut i = 0;
@@ -5939,13 +5945,15 @@ fn get_job_update_sse_stream(
             .await
             {
                 Ok(update) => {
-                    if running.is_some() {
-                        running = Some(update.running.unwrap_or(false));
+                    if running.is_some() && update.running.is_some_and(|x| x) {
+                        running = Some(true);
                     }
+                    // if !only_result.unwrap_or(false) {
+                    //     tracing::error!("update {:?}", update);
+                    // }
                     let update_last_status = (&update).into();
                     // Only send if the update has changed
                     if last_update.as_ref() != Some(&update_last_status) {
-
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
                             log_offset = Some(new_offset);
@@ -5959,7 +5967,6 @@ fn get_job_update_sse_stream(
                         }
 
                         last_update = Some(update_last_status);
-
                     }
                 }
                 Err(_) => {
@@ -6022,7 +6029,11 @@ async fn get_job_update_data(
             .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
             if !tags.contains(&r.tag.as_str()) {
-                return Err(Error::NotAuthorized(format!("Job tag {} is not in the scope tags: {}", r.tag, tags.join(", "))));
+                return Err(Error::NotAuthorized(format!(
+                    "Job tag {} is not in the scope tags: {}",
+                    r.tag,
+                    tags.join(", ")
+                )));
             }
             let running = r.running.as_ref().map(|x| *x);
             (r.result.map(|x| x.0), running)
@@ -6033,7 +6044,6 @@ async fn get_job_update_data(
                     job_id,
                     w_id,
                 ).fetch_optional(db).await?;
-                tracing::error!("r: {:?}", r);
                 if let Some(r) = r {
                     let running = r.running.as_ref().map(|x| *x);
                     (r.result.map(|x| x.0), running)
@@ -6058,7 +6068,7 @@ async fn get_job_update_data(
             progress: None,
             job: None,
             flow_status: None,
-            only_result: result.0
+            only_result: result.0,
         })
     } else {
         let record = sqlx::query!(
