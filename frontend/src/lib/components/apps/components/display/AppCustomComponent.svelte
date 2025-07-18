@@ -121,7 +121,7 @@
 <InitializeComponent {id} />
 <div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
 	<RunnableWrapper {outputs} render autoRefresh {componentInput} {id} bind:result>
-		{#if !loaded}
+		{#if !loaded && render}
 			<Loader2 class="animate-spin" />
 		{/if}
 		<div id={divId}></div>
