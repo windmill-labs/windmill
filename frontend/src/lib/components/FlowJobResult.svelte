@@ -23,6 +23,7 @@
 	export let refreshLog: boolean = false
 	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
 	export let downloadLogs = true
+	export let tagLabel: string | undefined = undefined
 
 	let lastJobId: string | undefined = undefined
 	let drawer: Drawer | undefined = undefined
@@ -93,6 +94,7 @@
 			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
 		>
 		<LogViewer
+			{tagLabel}
 			download={downloadLogs}
 			content={logs ?? ''}
 			{jobId}
