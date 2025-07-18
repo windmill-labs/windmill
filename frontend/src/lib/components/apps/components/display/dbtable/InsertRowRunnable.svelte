@@ -47,14 +47,14 @@
 
 		if (runnableComponent) {
 			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				done: (x) => {
+				onDone: (_x) => {
 					dispatch('insert')
 					sendUserToast('Row inserted', false)
 				},
-				cancel: () => {
+				onCancel: () => {
 					sendUserToast('Error inserting row', true)
 				},
-				error: () => {
+				onError: () => {
 					sendUserToast('Error inserting row', true)
 				}
 			})
