@@ -23,7 +23,6 @@ export function argSigToJsonSchemaType(
 	oldS: SchemaProperty
 ): void {
 	const newS: SchemaProperty = { type: '' }
-	let keepFormat = false
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -125,7 +124,6 @@ export function argSigToJsonSchemaType(
 			newS.originalType = 'resource[]'
 		} else if (t.list && typeof t.list == 'object' && 'object' in t.list && t.list.object) {
 			if (t.list.object.name) {
-				keepFormat = true
 				newS.format = `resource-${t.list.object.name}`
 			}
 			if (t.list.object.props && t.list.object.props.length > 0) {
@@ -188,13 +186,14 @@ export function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
+	if (oldS.format && !newS.format) {
+		oldS.format = undefined
+	}
+
 	Object.assign(oldS, newS)
 	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
 	// 	sendUserToast(JSON.stringify(savedItems))
 	// 	oldS.items = savedItems
 	// }
 
-	if (oldS.format?.startsWith('resource-') && newS.type != 'object' && !keepFormat) {
-		oldS.format = undefined
-	}
 }
