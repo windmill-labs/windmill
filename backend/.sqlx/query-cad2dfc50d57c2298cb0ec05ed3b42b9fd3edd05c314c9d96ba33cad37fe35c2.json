@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) \n        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+  "query": "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)\n        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
   "describe": {
     "columns": [],
     "parameters": {
@@ -17,5 +17,5 @@
     },
     "nullable": []
   },
-  "hash": "fe7221651a982861dede4116bc71fe2dce615ff76a53f72cb5386dc17e4e07aa"
+  "hash": "cad2dfc50d57c2298cb0ec05ed3b42b9fd3edd05c314c9d96ba33cad37fe35c2"
 }

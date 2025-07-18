@@ -55,7 +55,7 @@ excludes: []`);
     // Read updated config
     const updatedConfig = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
     const backendUrl = new URL(backend.baseUrl).toString();
-    
+
     // Should create workspace wildcard override
     assertStringIncludes(updatedConfig, `'${backendUrl}:${backend.workspace}:*':`);
     assertStringIncludes(updatedConfig, "overrides:");
@@ -109,14 +109,14 @@ skipVariables: false`);
 
     // Read updated config
     const updatedConfig = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
-    
+
     // Should update top-level settings, not create overrides
     assertStringIncludes(updatedConfig, "includes:\n  - f/special/**");
     assertStringIncludes(updatedConfig, "excludes:\n  - '*.test.ts'");
     assertStringIncludes(updatedConfig, "extraIncludes:\n  - g/**");
-    
-    // Should NOT have overrides section
-    assertEquals(updatedConfig.includes("overrides:"), false, "Default mode should not create overrides");
+
+    // Should have empty overrides section for consistency
+    assertStringIncludes(updatedConfig, "overrides: {}", "Should have empty overrides section for consistency");
   });
 });
 
@@ -168,9 +168,9 @@ skipResources: false`);
     ], tempDir);
 
     assertEquals(result.code, 0);
-    
+
     // Should show differences
-    assertStringIncludes(result.stdout, "Changes that would be made:");
+    assertStringIncludes(result.stdout, "Changes that would be applied locally:");
     // Should show the change for skipResources (ignoring ANSI color codes)
     assertStringIncludes(result.stdout, "skipResources:");
   });

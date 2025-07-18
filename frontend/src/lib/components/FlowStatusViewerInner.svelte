@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
+
 	import {
 		type FlowStatusModule,
 		type Job,
@@ -6,20 +8,20 @@
 		type FlowStatus,
 		type FlowModuleValue,
 		type FlowModule,
-		type ScriptArgs
+		ResourceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, setContext, tick, untrack } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { isScriptPreview, msToSec, truncateRev } from '$lib/utils'
+	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
@@ -30,10 +32,12 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder.svelte'
-	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
+	import { parseInputArgsAssets } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import FlowSequenceViewer from './FlowSequenceViewer.svelte'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
+	import type { FlowGraphAssetContext } from './flows/types'
+	import { createState } from '$lib/svelte5Utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -48,77 +52,110 @@
 		hideJobId
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
-	export let jobId: string
-	export let initialJob: Job | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let flowJobIds:
-		| {
-				moduleId: string
-				flowJobs: string[]
-				flowJobsSuccess: (boolean | undefined)[]
-				length: number
-				branchall?: boolean
-		  }
-		| undefined = undefined
-
-	//only useful when forloops are optimized and the job doesn't contain the mod id anymore
-	export let innerModule: FlowModuleValue | undefined = undefined
-	export let globalRefreshes: Record<string, (clear, root) => Promise<void>> = {}
-	export let render = true
-
-	export let isOwner = false
-
-	export let selectedNode: string | undefined = undefined
-
-	export let globalModuleStates: Writable<Record<string, GraphModuleState>>[]
-	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
-
-	export let childFlow: boolean = false
-	export let isSubflow: boolean = false
-	export let reducedPolling = false
-
-	export let wideResults = false
-	export let hideFlowResult = false
-	export let workspace: string | undefined = $workspaceStore
-	export let prefix: string | undefined = undefined
-	export let subflowParentsGlobalModuleStates: Writable<Record<string, GraphModuleState>>[] = []
-	export let subflowParentsDurationStatuses: Writable<Record<string, DurationStatus>>[] = []
-	export let isForloopSelected = false
-	export let parentRecursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
-	export let job: Job | undefined = undefined
-	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
-		'timeline'
-
-	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
-	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
-	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
-
-	$: inputAssets = parseInputAssets(job?.args ?? {})
-
-	function parseInputAssets(args: ScriptArgs): AssetWithAccessType[] {
-		const arr: AssetWithAccessType[] = []
-		for (const v of Object.values(args)) {
-			if (typeof v === 'string') {
-				const asset = parseAssetFromString(v)
-				if (asset) arr.push(asset)
-			} else if (v && typeof v === 'object' && typeof v['s3'] === 'string') {
-				const s3 = v['s3']
-				const storage = typeof v['storage'] == 'string' ? v['storage'] : undefined
-				arr.push({ kind: 's3object', path: `${storage ?? ''}/${s3}` })
-			}
-		}
-		return arr
+	interface Props {
+		jobId: string
+		initialJob?: Job | undefined
+		workspaceId?: string | undefined
+		flowJobIds?:
+			| {
+					moduleId: string
+					flowJobs: string[]
+					flowJobsSuccess: (boolean | undefined)[]
+					length: number
+					branchall?: boolean
+			  }
+			| undefined
+		//only useful when forloops are optimized and the job doesn't contain the mod id anymore
+		innerModule?: FlowModuleValue | undefined
+		globalRefreshes?: Record<string, (clear, root) => Promise<void>>
+		render?: boolean
+		isOwner?: boolean
+		selectedNode?: string | undefined
+		globalModuleStates: Writable<Record<string, GraphModuleState>>[]
+		globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
+		childFlow?: boolean
+		isSubflow?: boolean
+		reducedPolling?: boolean
+		wideResults?: boolean
+		hideFlowResult?: boolean
+		workspace?: string | undefined
+		prefix?: string | undefined
+		subflowParentsGlobalModuleStates?: Writable<Record<string, GraphModuleState>>[]
+		subflowParentsDurationStatuses?: Writable<Record<string, DurationStatus>>[]
+		isForloopSelected?: boolean
+		parentRecursiveRefresh?: Record<string, (clear, root) => Promise<void>>
+		job?: Job | undefined
+		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 	}
 
-	let jobResults: any[] =
-		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
+	let {
+		jobId,
+		initialJob = undefined,
+		workspaceId = undefined,
+		flowJobIds = undefined,
+		innerModule = undefined,
+		globalRefreshes = $bindable({}),
+		render = true,
+		isOwner = false,
+		selectedNode = $bindable(undefined),
+		globalModuleStates,
+		globalDurationStatuses,
+		childFlow = false,
+		isSubflow = false,
+		reducedPolling = false,
+		wideResults = false,
+		hideFlowResult = false,
+		workspace = $workspaceStore,
+		prefix = undefined,
+		subflowParentsGlobalModuleStates = [],
+		subflowParentsDurationStatuses = [],
+		isForloopSelected = false,
+		parentRecursiveRefresh = $bindable({}),
+		job = $bindable(undefined),
+		rightColumnSelect = $bindable('timeline'),
+		localModuleStates = writable({}),
+		localDurationStatuses = writable({})
+	}: Props = $props()
+	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
-	let retry_selected = ''
+	// Add support for the input args assets shown as an asset node
+	const _flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+	let extendedFlowGraphAssetsCtx = $state(createState(clone(_flowGraphAssetsCtx)))
+	setContext('FlowGraphAssetContext', extendedFlowGraphAssetsCtx)
+	$effect(() => {
+		readFieldsRecursively(_flowGraphAssetsCtx)
+		job?.args
+		untrack(() => {
+			if (extendedFlowGraphAssetsCtx && _flowGraphAssetsCtx) {
+				const inputAssets = parseInputArgsAssets(job?.args ?? {})
+				const resourceMetadataCache = _flowGraphAssetsCtx.val.resourceMetadataCache
+				for (const asset of inputAssets) {
+					if (asset.kind === 'resource' && !(asset.path in resourceMetadataCache)) {
+						resourceMetadataCache[asset.path] = undefined
+						ResourceService.getResource({
+							workspace: workspace ?? $workspaceStore!,
+							path: asset.path
+						})
+							.then((r) => (resourceMetadataCache[asset.path] = r))
+							.catch((err) => {})
+					}
+				}
+				extendedFlowGraphAssetsCtx.val = clone(_flowGraphAssetsCtx?.val)
+				extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
+			}
+		})
+	})
+
+	let jobResults: any[] = $state(
+		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
+	)
+
+	let retry_selected = $state('')
 	let timeout: NodeJS.Timeout | undefined = undefined
 
-	let expandedSubflows: Record<string, FlowModule[]> = {}
-
-	$: flowJobIds?.moduleId && onFlowModuleId()
+	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
 	let selectedId: Writable<string | undefined> = writable(selectedNode)
 
@@ -330,7 +367,7 @@
 		}
 	}
 
-	let innerModules: FlowStatusModule[] = []
+	let innerModules: FlowStatusModule[] = $state([])
 
 	function updateStatus(status: FlowStatus) {
 		innerModules =
@@ -438,8 +475,6 @@
 		}
 	}
 
-	$: isForloopSelected && globalModuleStates && debounceLoadJobInProgress()
-
 	async function getNewJob(jobId: string, initialJob: Job | undefined) {
 		if (
 			jobId == initialJob?.id &&
@@ -448,11 +483,12 @@
 		) {
 			return initialJob
 		} else {
-			return await JobService.getJob({
+			let r = await JobService.getJob({
 				workspace: workspaceId ?? $workspaceStore ?? '',
 				id: jobId ?? '',
 				noLogs: true
 			})
+			return r
 		}
 	}
 
@@ -476,7 +512,7 @@
 	}
 
 	let errorCount = 0
-	let notAnonynmous = false
+	let notAnonynmous = $state(false)
 	let started = false
 	async function loadJobInProgress() {
 		if (!started) {
@@ -548,20 +584,15 @@
 		}
 	}
 
-	$: jobId && updateJobId()
-
-	$: isListJob = flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs)
-
 	function getTopModuleStates() {
 		return get(globalModuleStates?.[globalModuleStates?.length - 1])
 	}
 
-	let forloop_selected = getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop
+	let forloop_selected = $state(getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop)
 
 	let sub: Unsubscriber | undefined = undefined
 	let timeoutForloopSelectedSub: NodeJS.Timeout | undefined = undefined
 	let timeoutForloopSelected: NodeJS.Timeout | undefined = undefined
-	$: flowJobIds?.moduleId && onModuleIdChange()
 
 	function onModuleIdChange() {
 		clearTimeout(timeoutForloopSelectedSub)
@@ -584,8 +615,6 @@
 		timeout && clearTimeout(timeout)
 		sub?.()
 	})
-
-	$: selected = isListJob ? 'sequence' : 'graph'
 
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
@@ -817,7 +846,7 @@
 		}
 	}
 
-	let flowTimeline: FlowTimeline
+	let flowTimeline: FlowTimeline | undefined = $state()
 
 	function loadPreviousIters(lenToAdd: number) {
 		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
@@ -833,10 +862,10 @@
 		// updateSlicedListJobIds()
 	}
 
-	let stepDetail: FlowModule | string | undefined = undefined
+	let stepDetail: FlowModule | string | undefined = $state(undefined)
 
-	let storedListJobs: Record<number, Job> = {}
-	let wrapperHeight: number = 0
+	let storedListJobs: Record<number, Job> = $state({})
+	let wrapperHeight: number = $state(0)
 
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
@@ -884,6 +913,21 @@
 
 		return rec(ids, undefined)
 	}
+
+	$effect(() => {
+		flowJobIds?.moduleId && untrack(() => onFlowModuleId())
+	})
+	$effect(() => {
+		isForloopSelected && globalModuleStates && untrack(() => debounceLoadJobInProgress())
+	})
+	$effect(() => {
+		jobId && untrack(() => updateJobId())
+	})
+	let isListJob = $derived(flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs))
+	$effect(() => {
+		flowJobIds?.moduleId && untrack(() => onModuleIdChange())
+	})
+	let selected = $derived(isListJob ? 'sequence' : 'graph')
 </script>
 
 {#if notAnonynmous}
@@ -906,7 +950,7 @@
 				<p class="text-tertiary italic text-xs">
 					For performance reasons, only the last 20 items are shown by default <button
 						class="text-primary underline ml-4"
-						on:click={() => {
+						onclick={() => {
 							loadPreviousIters(lenToAdd)
 						}}
 						>Load {lenToAdd} prior
@@ -915,7 +959,7 @@
 						{sliceFrom}
 						<button
 							class="text-primary underline ml-4"
-							on:click={() => {
+							onclick={() => {
 								loadPreviousIters(allToAdd)
 							}}
 							>Load {allToAdd} prior
@@ -1041,7 +1085,7 @@
 
 									<!-- <LogId id={loopJobId} /> -->
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
-										<svelte:self
+										<FlowStatusViewerInner
 											{globalRefreshes}
 											parentRecursiveRefresh={recursiveRefresh}
 											{childFlow}
@@ -1060,7 +1104,7 @@
 							{/if}
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
-									<svelte:self
+									<FlowStatusViewerInner
 										{globalRefreshes}
 										parentRecursiveRefresh={recursiveRefresh}
 										globalModuleStates={[]}
@@ -1078,7 +1122,7 @@
 										]}
 										render={selected == 'sequence' && render}
 										{workspaceId}
-										jobId={mod.job}
+										jobId={mod.job ?? ''}
 										{reducedPolling}
 										isSubflow
 										childFlow
@@ -1090,7 +1134,7 @@
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">no subflow (empty loop?)</div>
 								{:else}
-									<svelte:self
+									<FlowStatusViewerInner
 										{globalRefreshes}
 										parentRecursiveRefresh={recursiveRefresh}
 										{childFlow}
@@ -1101,14 +1145,14 @@
 										{prefix}
 										{subflowParentsGlobalModuleStates}
 										{subflowParentsDurationStatuses}
-										jobId={mod.job}
+										jobId={mod.job ?? ''}
 										{reducedPolling}
 										innerModule={mod.flow_jobs ? job.raw_flow?.modules[i]?.value : undefined}
 										flowJobIds={mod.flow_jobs
 											? {
-													moduleId: mod.id,
+													moduleId: mod.id ?? '',
 													flowJobs: mod.flow_jobs,
-													flowJobsSuccess: mod.flow_jobs_success,
+													flowJobsSuccess: mod.flow_jobs_success ?? [],
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
@@ -1159,7 +1203,6 @@
 						</div>
 
 						<FlowGraphV2
-							{inputAssets}
 							{selectedId}
 							triggerNode={true}
 							download={!hideDownloadInGraph}

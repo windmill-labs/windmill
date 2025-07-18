@@ -2,7 +2,8 @@
 import { Command, log } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace } from "./context.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 import { deepEqual } from "./utils.ts";

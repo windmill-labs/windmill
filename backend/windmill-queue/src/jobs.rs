@@ -2524,7 +2524,7 @@ pub async fn pull(
                 estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
             }
             if i % 50 == 0 {
-                tracing::warn!("Window finding job loop count: {}", pull_loop_count);
+                tracing::warn!("Window finding for job {} loop count: {}", job_uuid, pull_loop_count);
                 tokio::task::yield_now().await;
             }
             if i > 1000000000 {
@@ -3691,7 +3691,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value } => (
+        JobPayload::RawFlowDependencies { path, flow_value } => {
+            (
             None,
             Some(path),
             None,
@@ -3705,7 +3706,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-        ),
+        )},
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.

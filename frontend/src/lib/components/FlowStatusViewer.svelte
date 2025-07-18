@@ -74,8 +74,8 @@
 	}}
 	globalModuleStates={[]}
 	globalDurationStatuses={[]}
-	bind:localModuleStates
-	bind:localDurationStatuses
+	{localModuleStates}
+	{localDurationStatuses}
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done
