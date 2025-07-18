@@ -549,7 +549,8 @@
 		noToast = true,
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
-		dynamicArgsOverride?: Record<string, any>
+		dynamicArgsOverride?: Record<string, any>,
+		callbacks?: RunnableCallback
 	): Promise<string | undefined> {
 		try {
 			if (cancellableRun && !dynamicArgsOverride) {
@@ -560,7 +561,8 @@
 					noToast,
 					inlineScriptOverride,
 					setRunnableJobEditorPanel,
-					dynamicArgsOverride
+					dynamicArgsOverride,
+					callbacks
 				)
 			}
 		} catch (e) {
