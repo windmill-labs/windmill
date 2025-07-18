@@ -78,6 +78,7 @@
 
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
+	let noPingTimeout: NodeJS.Timeout | undefined = undefined
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -93,6 +94,7 @@
 			isLoading = true
 			clearCurrentJob()
 			lastCallbacks = callbacks
+			noPingTimeout = undefined
 			const startedAt = Date.now()
 			const testId = await fn()
 
@@ -377,7 +379,9 @@
 				if (errorIteration == 5) {
 					notfound = true
 					job = undefined
+					currentId = undefined
 				}
+				callbacks?.doneError?.({ error: err, id })
 				console.warn(err)
 			}
 			return isCompleted
@@ -414,6 +418,21 @@
 			} else {
 				finished.push(id)
 			}
+		}
+	}
+
+	function setNoPingTimeout(id: string, attempt: number, callbacks?: Callbacks) {
+		if (noPingTimeout) {
+			clearTimeout(noPingTimeout)
+		}
+		if (id === currentId || allowConcurentRequests) {
+			noPingTimeout = setTimeout(() => {
+				if (currentId === id || allowConcurentRequests) {
+					currentEventSource?.close()
+					currentEventSource = undefined
+					loadTestJobWithSSE(id, attempt + 1, callbacks)
+				}
+			}, 10000)
 		}
 	}
 	async function loadTestJobWithSSE(
@@ -467,10 +486,15 @@
 						params.set('only_result', 'true')
 					}
 
+					if (lastStartedAt > Date.now() - 5000) {
+						params.set('fast', 'true')
+					}
+
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
 
 					currentEventSource = new EventSource(sseUrl)
 
+					setNoPingTimeout(id, attempt, callbacks)
 					currentEventSource.onmessage = async (event) => {
 						if (currentId !== id) {
 							currentEventSource?.close()
@@ -480,6 +504,26 @@
 
 						try {
 							const previewJobUpdates = JSON.parse(event.data)
+							let type = previewJobUpdates.type
+							if (type == 'timeout') {
+								currentEventSource?.close()
+								currentEventSource = undefined
+								loadTestJobWithSSE(id, 0, callbacks)
+								return
+							} else if (type == 'ping') {
+								setNoPingTimeout(id, attempt, callbacks)
+								return
+							} else if (type == 'error') {
+								currentEventSource?.close()
+								currentEventSource = undefined
+								console.error('SSE error:', previewJobUpdates)
+								throw new Error('SSE error: ' + previewJobUpdates)
+							} else if (type == 'not_found') {
+								currentEventSource?.close()
+								currentEventSource = undefined
+								console.error('Not found')
+								throw new Error('Not found')
+							}
 							jobUpdateLastFetch = new Date()
 
 							if (job) {
@@ -492,6 +536,7 @@
 							if (previewJobUpdates.completed) {
 								currentEventSource?.close()
 								currentEventSource = undefined
+								noPingTimeout = undefined
 								if (onlyResult) {
 									callbacks?.doneResult?.({
 										id,
@@ -516,9 +561,8 @@
 						currentEventSource?.close()
 						currentEventSource = undefined
 						if (attempt < 3) {
-							console.log(`SSE error (1), retrying ...  attempt: ${attempt}/3`)
-							attempt++
-							setTimeout(() => loadTestJobWithSSE(id, attempt, callbacks), 1000)
+							console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
+							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), 1000)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id), 1000)

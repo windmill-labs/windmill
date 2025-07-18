@@ -20,6 +20,7 @@ use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
+use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -947,7 +948,6 @@ impl<'a> GetQuery<'a> {
             with_code: self.with_code,
             with_flow: self.with_flow,
         );
-        tracing::error!("query: {}", query);
         let query = sqlx::query_as::<_, JobExtended<QueuedJob>>(query)
             .bind(job_id)
             .bind(workspace_id)
@@ -5674,6 +5674,7 @@ pub struct JobUpdateQuery {
     pub log_offset: Option<i32>,
     pub get_progress: Option<bool>,
     pub only_result: Option<bool>,
+    pub fast: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -5688,6 +5689,28 @@ pub struct JobUpdate {
     pub job: Option<Job>,
     pub only_result: Option<Box<serde_json::value::RawValue>>,
 }
+
+#[derive(PartialEq)]
+pub struct JobUpdateLastStatus {
+    pub running: Option<bool>,
+    pub completed: Option<bool>,
+    pub log_offset: Option<i32>,
+    pub mem_peak: Option<i32>,
+}
+
+impl From<&JobUpdate> for JobUpdateLastStatus {
+    fn from(update: &JobUpdate) -> Self {
+        Self {
+            running: update.running,
+            completed: update.completed,
+            log_offset: update.log_offset,
+            mem_peak: update.mem_peak,
+        }
+    }
+}
+
+
+
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     let local_file = format!("{TMP_DIR}/logs/{file_p}");
@@ -5745,7 +5768,7 @@ async fn get_job_update(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, .. }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     Ok(Json(
         get_job_update_data(
@@ -5770,8 +5793,9 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, fast }): Query<JobUpdateQuery>,
 ) -> Response {
+    
     let stream = get_job_update_sse_stream(
         opt_authed,
         opt_tokened,
@@ -5782,7 +5806,11 @@ async fn get_job_update_sse(
         get_progress,
         running,
         only_result,
-    );
+        fast,
+    )
+    .map(|x| {
+        format!("data: {}\n\n", serde_json::to_string(&x).unwrap_or_default())
+    });
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
@@ -5795,6 +5823,16 @@ async fn get_job_update_sse(
         .unwrap()
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum JobUpdateSSEStream {
+    Update(JobUpdate),
+    Error(String),
+    NotFound,
+    Timeout,
+    Ping,
+}
+
 fn get_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
@@ -5805,17 +5843,17 @@ fn get_job_update_sse_stream(
     get_progress: Option<bool>,
     running: Option<bool>,
     only_result: Option<bool>,
-) -> impl futures::Stream<Item = String> {
+    fast: Option<bool>,
+) -> impl futures::Stream<Item = JobUpdateSSEStream> {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
-        let mut last_update: Option<String> = None;
-        let mut completion_sent = false;
+        let mut last_update: Option<JobUpdateLastStatus> = None;
 
         // Send initial update immediately
         let mut running = running;
-        if let Ok(update) = get_job_update_data(
+        match get_job_update_data(
             &opt_authed,
             &opt_tokened,
             &db,
@@ -5830,42 +5868,59 @@ fn get_job_update_sse_stream(
         )
         .await
         {
-            if let Ok(serialized) = serde_json::to_string(&update) {
-                let event_data = format!("data: {}\n\n", serialized);
-                if tx.send(event_data.clone()).await.is_err() {
-                    tracing::warn!("Failed to send initial job update for job {job_id}");
-                    return;
-                }
-                last_update = Some(serialized);
-                if let Some(new_offset) = update.log_offset {
-                    log_offset = Some(new_offset);
-                }
-                completion_sent = update.completed.unwrap_or(false);
-                if running.is_some() {
-                    running = Some(update.running.unwrap_or(false));
-                }
-            } else {
-                tracing::warn!("Failed to serialize job update for job {job_id}");
+            Ok(update) => {
+            last_update = Some((&update).into());
+            let completion_sent = update.completed.unwrap_or(false);
+            if running.is_some() {
+                running = Some(update.running.unwrap_or(false));
+            }
+            if let Some(new_offset) = update.log_offset {
+                log_offset = Some(new_offset);
+            }
+            if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
+                tracing::warn!("Failed to send initial job update for job {job_id}");
+                return;
+            }
+            if completion_sent {
+                return
+            }
+        }
+        Err(e) => {
+            if tx.send(JobUpdateSSEStream::Error(e.to_string())).await.is_err() {
+                tracing::warn!("Failed to send initial job update for job {job_id}");
                 return;
             }
         }
+    }
 
-        // If job is already completed, no need to poll
-        if completion_sent {
-            return;
-        }
 
         // Poll for updates every 1 second
         let mut i = 0;
+        let start = Instant::now();
+        let mut last_ping = Instant::now();
         loop {
             i += 1;
-            let ms_duration = if i > 10 {
-                500
-            } else if i > 100 {
+            let ms_duration = if i > 100 || !fast.unwrap_or(false) {
                 3000
+            } else if i > 10 {
+                500
             } else {
                 100
             };
+            if last_ping.elapsed().as_secs() > 5 {
+                if tx.send(JobUpdateSSEStream::Ping).await.is_err() {
+                    tracing::warn!("Failed to send job ping for job {job_id}");
+                    return;
+                }
+                last_ping = Instant::now();
+            }
+
+            if start.elapsed().as_secs() > 30 {
+                if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
+                    tracing::warn!("Failed to send job timeout for job {job_id}");
+                }
+                return;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
             match get_job_update_data(
@@ -5887,28 +5942,31 @@ fn get_job_update_sse_stream(
                     if running.is_some() {
                         running = Some(update.running.unwrap_or(false));
                     }
-                    if let Ok(serialized) = serde_json::to_string(&update) {
-                        // Only send if the update has changed
-                        if last_update.as_ref() != Some(&serialized) {
-                            let event_data = format!("data: {}\n\n", serialized);
-                            if tx.send(event_data).await.is_err() {
-                                break;
-                            }
-                            if update.completed.unwrap_or(false) {
-                                break;
-                            }
-                            last_update = Some(serialized);
+                    let update_last_status = (&update).into();
+                    // Only send if the update has changed
+                    if last_update.as_ref() != Some(&update_last_status) {
 
-                            // Update log offset if available
-                            if let Some(new_offset) = update.log_offset {
-                                log_offset = Some(new_offset);
-                            }
+                        // Update log offset if available
+                        if let Some(new_offset) = update.log_offset {
+                            log_offset = Some(new_offset);
                         }
+                        let completed = update.completed.unwrap_or(false);
+                        if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
+                            break;
+                        }
+                        if completed {
+                            break;
+                        }
+
+                        last_update = Some(update_last_status);
+
                     }
                 }
                 Err(_) => {
-                    // Job might have been deleted or access denied, break the loop
-                    break;
+                    if tx.send(JobUpdateSSEStream::NotFound).await.is_err() {
+                        tracing::warn!("Failed to send job not found for job {job_id}");
+                    }
+                    return;
                 }
             }
         }

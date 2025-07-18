@@ -212,6 +212,10 @@
 			{
 				done(_x) {
 					loadPastTests()
+				},
+				doneError({ error }) {
+					console.error(error)
+					sendUserToast('Error running test', true)
 				}
 			}
 		)
