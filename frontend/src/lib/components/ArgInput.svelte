@@ -698,7 +698,7 @@
 														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
 														multiple={false}
 													/>
-												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
+												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
@@ -727,7 +727,7 @@
 												{:else if format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1])}
 													<ObjectResourceInput
 														bind:value={value[i]}
-														format={format.split('-')[1]}
+														{format}
 														defaultValue={undefined}
 													/>
 												{:else if itemsType?.type == 'resource'}
@@ -794,7 +794,7 @@
 									if (itemsType?.type == 'number') {
 										value = value.concat(0)
 									} else if (
-										itemsType?.type == 'object' &&
+										(itemsType?.type == 'object' || itemsType?.type == 'resource') &&
 										!(
 											format?.startsWith('resource-') &&
 											resourceTypes?.includes(format.split('-')[1])

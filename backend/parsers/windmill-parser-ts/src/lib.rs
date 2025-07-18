@@ -421,27 +421,35 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
 }
 
 fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ) {
+    let mut visited = std::collections::HashSet::new();
+    resolve_type_ref_with_visited(type_resolver, typ, &mut visited);
+}
+
+fn resolve_type_ref_with_visited(
+    type_resolver: &HashMap<String, (Typ, bool)>,
+    typ: &mut Typ,
+    visited: &mut std::collections::HashSet<String>,
+) {
     match typ {
         Typ::Object(ObjectType { props: Some(obj), .. }) => {
             for property in obj.iter_mut() {
-                resolve_type_ref(type_resolver, &mut property.typ);
+                resolve_type_ref_with_visited(type_resolver, &mut property.typ, visited);
             }
         }
-        Typ::List(list) => match list.as_mut() {
-            Typ::Object(ObjectType { props: Some(obj), .. }) => {
-                for property in obj.iter_mut() {
-                    resolve_type_ref(type_resolver, &mut property.typ);
-                }
-            }
-            Typ::List(list) => {
-                resolve_type_ref(type_resolver, list);
-            }
-            _ => {}
-        },
+        Typ::List(list) => resolve_type_ref_with_visited(type_resolver, list, visited),
         Typ::Object(ObjectType { name: Some(name), props: None }) => {
+            if visited.contains(name) {
+                return;
+            }
             let maybe_resolved_type = type_resolver
                 .get(name)
-                .map(|rs_typ| rs_typ.0.clone())
+                .map(|rs_typ| {
+                    let mut typ = rs_typ.0.clone();
+                    visited.insert(name.clone());
+                    resolve_type_ref_with_visited(type_resolver, &mut typ, visited);
+                    visited.remove(name);
+                    typ
+                })
                 .unwrap_or(Typ::Object(ObjectType::new(Some(name.to_owned()), None)));
 
             *typ = maybe_resolved_type;
@@ -461,7 +469,9 @@ fn resolve_interface(
         // If the current interface extends other interfaces,
         // retrieve their properties first and add them to the current interface's object definition.
         if let Expr::Ident(Ident { sym, .. }) = &*ext.expr {
-            if let Some(TypeDecl::Interface(parent_iface)) = symbol_table.get(sym.as_str()) {
+            if let Some(TypeDecl::Interface(parent_iface)) =
+                symbol_table.get(&to_snake_case(sym.as_str()))
+            {
                 properties.extend(resolve_interface(parent_iface, symbol_table, type_resolver));
             }
         }

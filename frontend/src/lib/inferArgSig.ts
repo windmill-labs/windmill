@@ -118,6 +118,9 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string', enum: oldS.items?.enum }
 			newS.originalType = 'string[]'
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
+			newS.items = {
+				type: 'resource'
+			}
 			keepFormat = true
 			newS.format = `resource-${t.list.resource}`
 			newS.originalType = 'resource[]'
@@ -126,7 +129,7 @@ export function argSigToJsonSchemaType(
 				keepFormat = true
 				newS.format = `resource-${t.list.object.name}`
 			}
-			if (t.list.object.props) {
+			if (t.list.object.props && t.list.object.props.length > 0) {
 				const properties: Record<string, any> = {}
 				for (const prop of t.list.object.props) {
 					properties[prop.key] = { description: '', type: '' }
