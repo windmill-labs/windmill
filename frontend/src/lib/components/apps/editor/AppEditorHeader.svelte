@@ -321,16 +321,23 @@
 		if (
 			items.findIndex((x) => {
 				const c = x.data as AppComponent
-				if (c.type === 'schemaformcomponent') {
+				if (
+					c.type === 'schemaformcomponent' ||
+					c.type === 'formbuttoncomponent' ||
+					c.type === 'formcomponent'
+				) {
+					const props =
+						c.type === 'schemaformcomponent'
+							? (c.componentInput as any)?.value?.properties
+							: (c.componentInput as any)?.runnable?.type === 'runnableByName'
+								? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
+								: (c.componentInput as any)?.runnable?.schema?.properties
 					return (
-						Object.values((c.componentInput as any)?.value?.properties ?? {}).findIndex(
-							(p: any) => p?.type === 'object' && p?.format === 'resource-s3_object'
-						) !== -1
-					)
-				} else if (c.type === 'formbuttoncomponent' || c.type === 'formcomponent') {
-					return (
-						Object.values((c.componentInput as any)?.fields ?? {}).findIndex(
-							(p: any) => p?.fieldType === 'object' && p?.format === 'resource-s3_object'
+						Object.values(props ?? {}).findIndex(
+							(p: any) =>
+								(p?.type === 'object' && p?.format === 'resource-s3_object') ||
+								(p?.type === 'array' &&
+									(p?.items?.resourceType === 's3object' || p?.items?.resourceType === 's3_object'))
 						) !== -1
 					)
 				} else {
