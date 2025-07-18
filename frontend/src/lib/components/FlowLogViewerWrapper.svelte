@@ -87,11 +87,6 @@
 			: false
 	}
 
-	function isIterationStep(stepIndex: number): boolean {
-		const stepType = job.raw_flow?.modules?.[stepIndex]?.value?.type
-		return stepType ? ['forloopflow', 'whileloopflow'].includes(stepType) : false
-	}
-
 	// Build the flow data structure
 	async function buildFlowData(modules: FlowStatusModule[], rootJob: Job): Promise<FlowData> {
 		const steps: StepData[] = []
@@ -105,7 +100,6 @@
 			const state = $localModuleStates[module.id]
 			const summary = rootJob.raw_flow?.modules?.[i]?.summary
 			const isSubflow = isSubflowStep(i)
-			const isIteration = isIterationStep(i)
 
 			let logs = ''
 			if (module.job) {
@@ -126,34 +120,15 @@
 
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)
 			if (isSubflow && module.flow_jobs && module.flow_jobs.length > 0) {
-				if (isIteration) {
-					// For forloop/whileloop, each flow_job is an iteration
-					stepData.iterations = []
-					stepData.selectedIteration = 0
-
-					for (let j = 0; j < module.flow_jobs.length; j++) {
-						const iterationJobId = module.flow_jobs[j]
-						const iterationJob = await fetchSubflowJob(iterationJobId)
-						if (iterationJob) {
-							const iterationFlow = await buildFlowData(
-								iterationJob.flow_status?.modules || [],
-								iterationJob
-							)
-							stepData.iterations.push(iterationFlow)
-						}
-					}
-				} else {
-					// For branchall/brancheone, each flow_job is a separate subflow
-					stepData.subflows = []
-					for (const subflowJobId of module.flow_jobs) {
-						const subflowJob = await fetchSubflowJob(subflowJobId)
-						if (subflowJob) {
-							const subflowData = await buildFlowData(
-								subflowJob.flow_status?.modules || [],
-								subflowJob
-							)
-							stepData.subflows.push(subflowData)
-						}
+				stepData.subflows = []
+				for (const subflowJobId of module.flow_jobs) {
+					const subflowJob = await fetchSubflowJob(subflowJobId)
+					if (subflowJob) {
+						const subflowData = await buildFlowData(
+							subflowJob.flow_status?.modules || [],
+							subflowJob
+						)
+						stepData.subflows.push(subflowData)
 					}
 				}
 			}
@@ -161,11 +136,17 @@
 			steps.push(stepData)
 		}
 
+		// Calculate flow status based on steps
+		const flowStatus = steps.some(s => s.status === 'failure') ? 'failure' : 
+		                  steps.some(s => s.status === 'in_progress' || s.status === 'waiting') ? 'in_progress' :
+		                  steps.every(s => s.status === 'success') ? 'success' : 'waiting'
+
 		return {
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
-			steps
+			steps,
+			status: flowStatus
 		}
 	}
 

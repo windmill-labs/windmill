@@ -3,6 +3,7 @@ export interface FlowData {
 	inputs: any
 	result: any
 	steps: StepData[]
+	status: 'success' | 'failure' | 'in_progress' | 'waiting'
 }
 
 export interface StepData {
@@ -15,7 +16,6 @@ export interface StepData {
 	logs?: string
 	status: 'success' | 'failure' | 'in_progress' | 'waiting'
 	subflows?: FlowData[]
-	iterations?: FlowData[]
 	selectedIteration?: number
 	type:
 		| 'script'
