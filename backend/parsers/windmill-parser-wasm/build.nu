@@ -94,48 +94,39 @@ def main [
     panic $"Target '($target)' does not exist\n\nAvailable targets:\n($pretty)"
   } else {
     let t = $t | get 0;
+    mut profile = "";
+    mut tar = "";
 
     if ($cli) {
       $env.OUT_DIR = $"../../../cli/wasm/($t.ident)"
-      $env.TAR = "deno"
+      $tar = "deno"
     } else {
       $env.OUT_DIR = $"pkg-($t.ident)"
-      $env.TAR = "web"
+      $tar = "web"
     }
+    if ($no_opt) {
+      $profile = "--no-opt"
+    } else {
+      $profile = "--release"
+    }
+    print $"Building in ($profile) mode ($env.OUT_DIR)"
     match $t.env {
       "default" => {
-        if ($no_opt) {
-          print $"Building in debug mode ($env.OUT_DIR)"
-          wasm-pack build --no-opt --target ($env.TAR) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
-        } else {
-          print $"Building in release mode ($env.OUT_DIR)"
-          wasm-pack build --release --target ($env.TAR) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
-        }
-        if ($cli) {
-          rm ($env.OUT_DIR)/.gitignore
-        } else {
-          let p = ($env.OUT_DIR)/package.json
-          open $p | update name $"windmill-parser-wasm-($t.ident)" | save -f $p
-        }
+        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
       },
       "tree-sitter" => {
         $env.CFLAGS_wasm32_unknown_unknown = "-I$(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"
         $env.RUSTFLAGS = "-Zwasm-c-abi=spec"
-        if ($no_opt) {
-          print $"Building in debug mode ($env.OUT_DIR)"
-          wasm-pack build --no-opt --target ($env.TAR) --out-dir $env.OUT_DIR --features $t.features
-        } else {
-          print $"Building in release mode ($env.OUT_DIR)"
-          wasm-pack build --release --target ($env.TAR) --out-dir $env.OUT_DIR --features $t.features
-        }
-        if ($cli) {
-          rm ($env.OUT_DIR)/.gitignore
-        } else {
-          let p = ($env.OUT_DIR)/package.json
-          open $p | update name $"windmill-parser-wasm-($t.ident)" | save -f $p
-        }
+        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features $t.features
       },
       _ => { panic $"Unknown env template: ($t.env)" },
+    }
+
+    if ($cli) {
+      rm ($env.OUT_DIR)/.gitignore
+    } else {
+      let p = ($env.OUT_DIR)/package.json
+      open $p | update name $"windmill-parser-wasm-($t.ident)" | save -f $p
     }
   }
 }
