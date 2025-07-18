@@ -1918,6 +1918,8 @@ paths:
                     type: boolean
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
+                  ducklake:
+                    $ref: "#/components/schemas/DucklakeSettings"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   deploy_ui:
@@ -2421,6 +2423,26 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+
+  /w/{workspace}/workspaces/edit_ducklake_config:
+    post:
+      summary: edit ducklake settings
+      operationId: editDucklakeConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Ducklake settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  $ref: "#/components/schemas/DucklakeSettings"
 
       responses:
         "200":
@@ -16996,6 +17018,38 @@ components:
                 type: string
               public_resource:
                 type: boolean
+
+    DucklakeSettings:
+      type: object
+      required: [ducklakes]
+      properties:
+        ducklakes:
+          type: object
+          additionalProperties:
+            type: object
+            required: [catalog, storage]
+            properties:
+              catalog:
+                type: object
+                properties:
+                  resource_type:
+                    type: string
+                    enum:
+                      - postgresql
+                      - mysql
+                  resource_path:
+                    type: string
+                required:
+                  - resource_type
+              storage:
+                type: object
+                properties:
+                  storage:
+                    type: string
+                  path:
+                    type: string
+                required:
+                  - path
 
     WindmillLargeFile:
       type: object

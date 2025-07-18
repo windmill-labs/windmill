@@ -1,4 +1,6 @@
 <script module lang="ts">
+	import { _ } from 'ag-grid-community'
+
 	export type DucklakeSettingsType = {
 		ducklakes: {
 			name: string
@@ -11,6 +13,34 @@
 				path: string
 			}
 		}[]
+	}
+
+	export function convertDucklakeSettingsFromBackend(
+		settings: GetSettingsResponse['ducklake']
+	): DucklakeSettingsType {
+		const s: DucklakeSettingsType = { ducklakes: [] }
+		if (settings?.ducklakes) {
+			for (const [name, rest] of Object.entries(settings.ducklakes)) {
+				s.ducklakes.push({ name, ...rest })
+			}
+		}
+		return s
+	}
+	export function convertDucklakeSettingsToBackend(
+		settings: DucklakeSettingsType
+	): NonNullable<GetSettingsResponse['ducklake']> {
+		const s: GetSettingsResponse['ducklake'] = { ducklakes: {} }
+		for (const ducklake of settings.ducklakes) {
+			if (ducklake.name in s.ducklakes)
+				throw 'Settings contain duplicate ducklake name: ' + ducklake.name
+			if (!ducklake.catalog.resource_path) throw 'No resource selected for ' + ducklake.name
+
+			s.ducklakes[ducklake.name] = {
+				catalog: ducklake.catalog,
+				storage: ducklake.storage
+			}
+		}
+		return s
 	}
 </script>
 
@@ -28,9 +58,9 @@
 	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { SettingService } from '$lib/gen'
+	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { safeSelectItems } from '../select/utils.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
@@ -53,6 +83,20 @@
 	}
 	function removeDucklake(index: number) {
 		ducklakeSettings.ducklakes.splice(index, 1)
+	}
+
+	async function onSave() {
+		try {
+			const settings = convertDucklakeSettingsToBackend(ducklakeSettings)
+			await WorkspaceService.editDucklakeConfig({
+				workspace: $workspaceStore!,
+				requestBody: { settings }
+			})
+			sendUserToast('Ducklake settings saved successfully')
+		} catch (e) {
+			sendUserToast(e, true)
+			console.error('Error saving ducklake settings', e)
+		}
 	}
 
 	let secondaryStorageNames = usePromise(
@@ -118,11 +162,15 @@
 				<Cell>
 					<div class="flex gap-4">
 						<Select
-							items={safeSelectItems(secondaryStorageNames.value)}
+							placeholder="Default storage"
+							items={[
+								{ value: undefined, label: 'Default storage' },
+								...(secondaryStorageNames.value?.map((value) => ({ value })) ?? [])
+							]}
 							bind:value={ducklake.storage.storage}
-							class="w-36"
+							class="w-48"
 						/>
-						<input placeholder="Data path" />
+						<input placeholder="Data path" bind:value={ducklake.storage.path} />
 					</div>
 				</Cell>
 				<Cell class="w-12">
@@ -141,3 +189,5 @@
 		</Row>
 	</tbody>
 </DataTable>
+
+<Button wrapperClasses="mt-6 max-w-fit" on:click={onSave}>Save ducklake settings</Button>

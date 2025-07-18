@@ -102,6 +102,7 @@
 	// Import the generated backend type
 	import type { GitRepositorySettings as BackendGitRepositorySettings } from '$lib/gen'
 	import DucklakeSettings, {
+		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 
@@ -630,6 +631,7 @@
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
+		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
