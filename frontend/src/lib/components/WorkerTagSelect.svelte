@@ -27,9 +27,9 @@
 		inputClass?: string
 	} = $props()
 
-	loadWorkerGroups()
-
 	let loading = $state(false)
+
+	loadWorkerGroups()
 
 	const dispatch = createEventDispatcher()
 
