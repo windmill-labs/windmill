@@ -5,6 +5,7 @@
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewer from './FlowLogViewer.svelte'
+	import type { FlowData, StepData } from './FlowLogUtils'
 
 	interface Props {
 		innerModules: FlowStatusModule[]
@@ -14,27 +15,6 @@
 		render: boolean
 		prefix?: string
 		level?: number
-	}
-
-	interface FlowData {
-		jobId: string
-		inputs: any
-		result: any
-		steps: StepData[]
-	}
-
-	interface StepData {
-		stepId: string
-		stepNumber: number
-		summary?: string
-		inputs: any
-		result?: any
-		jobId?: string
-		logs?: string
-		status: 'success' | 'failure' | 'in_progress' | 'waiting'
-		subflows?: FlowData[]
-		iterations?: FlowData[]
-		selectedIteration?: number
 	}
 
 	let { innerModules, job, localModuleStates, workspaceId, render }: Props = $props()
@@ -47,9 +27,6 @@
 
 	// State for tracking expanded rows
 	let expandedRows: Set<string> = $state(new Set())
-
-	// State for tracking selected iteration for forloop/whileloop steps
-	let selectedIterations: Record<string, number> = $state({})
 
 	// Fetch logs for a specific job
 	async function fetchJobLogs(jobId: string): Promise<string> {
@@ -151,7 +128,7 @@
 				if (isIteration) {
 					// For forloop/whileloop, each flow_job is an iteration
 					stepData.iterations = []
-					stepData.selectedIteration = selectedIterations[module.id] ?? 0
+					stepData.selectedIteration = 0
 
 					for (let j = 0; j < module.flow_jobs.length; j++) {
 						const iterationJobId = module.flow_jobs[j]
@@ -212,7 +189,13 @@
 	}
 
 	function updateSelectedIteration(stepId: string, iteration: number) {
-		selectedIterations[stepId] = iteration
+		if (flowData) {
+			const step = flowData.steps.find((step) => step.stepId === stepId)
+			if (step) {
+				step.selectedIteration = iteration
+				console.log('dbg updated selected iteration', step)
+			}
+		}
 	}
 </script>
 
@@ -221,7 +204,6 @@
 		<FlowLogViewer
 			{flowData}
 			{expandedRows}
-			{selectedIterations}
 			{toggleExpanded}
 			{updateSelectedIteration}
 			{workspaceId}

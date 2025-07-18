@@ -6,32 +6,11 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-
-	interface FlowData {
-		jobId: string
-		inputs: any
-		result: any
-		steps: StepData[]
-	}
-
-	interface StepData {
-		stepId: string
-		stepNumber: number
-		summary?: string
-		inputs: any
-		result?: any
-		jobId?: string
-		logs?: string
-		status: 'success' | 'failure' | 'in_progress' | 'waiting'
-		subflows?: FlowData[]
-		iterations?: FlowData[]
-		selectedIteration?: number
-	}
+	import type { FlowData, StepData } from './FlowLogUtils'
 
 	interface Props {
 		flowData: FlowData
 		expandedRows: Set<string>
-		selectedIterations: Record<string, number>
 		toggleExpanded: (id: string) => void
 		updateSelectedIteration: (stepId: string, iteration: number) => void
 		workspaceId: string | undefined
@@ -42,7 +21,6 @@
 	let {
 		flowData,
 		expandedRows,
-		selectedIterations,
 		toggleExpanded,
 		updateSelectedIteration,
 		workspaceId,
@@ -55,7 +33,7 @@
 	}
 
 	function getSelectedIteration(stepId: string): number {
-		return selectedIterations[stepId] ?? 0
+		return flowData.steps.find((step) => step.stepId === stepId)?.selectedIteration ?? 0
 	}
 
 	function handleIterationChange(stepId: string, newIteration: number) {
@@ -222,7 +200,6 @@
 													<FlowLogViewer
 														flowData={entry.stepData.iterations[getSelectedIteration(entry.stepId)]}
 														{expandedRows}
-														{selectedIterations}
 														{toggleExpanded}
 														{updateSelectedIteration}
 														{workspaceId}
@@ -252,7 +229,6 @@
 														<FlowLogViewer
 															flowData={subflow}
 															{expandedRows}
-															{selectedIterations}
 															{toggleExpanded}
 															{updateSelectedIteration}
 															{workspaceId}
