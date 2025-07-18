@@ -6,6 +6,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import type { FlowData, StepData } from './FlowLogUtils'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		innerModules: FlowStatusModule[]
@@ -137,9 +138,13 @@
 		}
 
 		// Calculate flow status based on steps
-		const flowStatus = steps.some(s => s.status === 'failure') ? 'failure' : 
-		                  steps.some(s => s.status === 'in_progress' || s.status === 'waiting') ? 'in_progress' :
-		                  steps.every(s => s.status === 'success') ? 'success' : 'waiting'
+		const flowStatus = steps.some((s) => s.status === 'failure')
+			? 'failure'
+			: steps.some((s) => s.status === 'in_progress' || s.status === 'waiting')
+				? 'in_progress'
+				: steps.every((s) => s.status === 'success')
+					? 'success'
+					: 'waiting'
 
 		return {
 			jobId: rootJob.id,
@@ -155,7 +160,7 @@
 
 	$effect(() => {
 		if (render && innerModules.length > 0) {
-			buildFlowData(innerModules, job).then((data) => {
+			untrack(() => buildFlowData(innerModules, job)).then((data) => {
 				flowData = data
 			})
 		}
