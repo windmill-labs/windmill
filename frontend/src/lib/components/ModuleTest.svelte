@@ -56,7 +56,7 @@
 		let callbacks: Callbacks = {
 			done: (x) => {
 				jobDone(x)
-				console.log('testJob', x)
+				g
 			}
 		}
 		if (val.type == 'rawscript') {
