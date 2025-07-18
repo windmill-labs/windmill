@@ -184,9 +184,9 @@ components:
         type:
           type: string
           enum:
-            - javascript
+            - static
       required:
-        - expr
+        - value
         - type
 
     JavascriptTransform:
@@ -437,7 +437,6 @@ components:
                   $ref: "#/components/schemas/FlowModule"
             required:
               - modules
-              - expr
         type:
           type: string
           enum:
