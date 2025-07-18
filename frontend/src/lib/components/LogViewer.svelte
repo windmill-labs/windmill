@@ -31,6 +31,7 @@
 		noAutoScroll?: boolean
 		download?: boolean
 		customEmptyMessage?: string
+		tagLabel?: string
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		noMaxH = false,
 		noAutoScroll = false,
 		download = true,
-		customEmptyMessage = 'No logs are available yet'
+		customEmptyMessage = 'No logs are available yet',
+		tagLabel = undefined
 	}: Props = $props()
 
 	// @ts-ignore
@@ -248,8 +250,10 @@
 				<Loader2 class="animate-spin" />
 				{#if tag}
 					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
-						<NoWorkerWithTagWarning {tag} />
+						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
+							>{tagLabel ?? 'tag'}: {tag}</div
+						>
+						<NoWorkerWithTagWarning {tagLabel} {tag} />
 					</div>
 				{/if}
 			</div>

@@ -25,6 +25,7 @@
 		disableHistory?: boolean
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		loadingJob?: boolean
+		tagLabel?: string
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		disableMock = false,
 		disableHistory = false,
 		onUpdateMock,
-		loadingJob = false
+		loadingJob = false,
+		tagLabel = undefined
 	}: Props = $props()
 
 	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -98,6 +100,7 @@
 				isLoading={false}
 				tag={undefined}
 				customEmptyMessage="Using pinned data"
+				{tagLabel}
 			/>
 		{:else}
 			<LogViewer
@@ -108,6 +111,7 @@
 				content={logJob?.logs}
 				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
 				tag={logJob?.tag}
+				{tagLabel}
 			/>
 		{/if}
 	</Pane>
