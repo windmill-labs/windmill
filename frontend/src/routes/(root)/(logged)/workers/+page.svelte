@@ -25,7 +25,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { AGENT_WORKER_NAME_PREFIX, displayDate, groupBy, pluralize, truncate } from '$lib/utils'
+	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 
@@ -695,11 +695,7 @@
 																	sendUserToast('Worker must be alive', true)
 																	return
 																}
-																if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
-																	tag = worker
-																} else {
-																	tag = hostname
-																}
+																tag = hostname
 																replForWorkerDrawer?.openDrawer()
 															}}
 															startIcon={{ icon: Terminal }}

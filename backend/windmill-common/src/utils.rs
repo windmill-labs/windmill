@@ -215,11 +215,11 @@ pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str)
     }
 }
 
-pub fn retrieve_hostname_from_worker_name<'worker>(
+pub fn retrieve_hostname_from_worker_name(
     prefix: &str,
-    worker_name: &'worker str,
+    worker_name: &str,
     worker_group: &str,
-) -> Option<&'worker str> {
+) -> Option<String> {
     // Worker name format: {prefix}-{worker_group}-{suffix}
     // where {suffix} = {hostname}-{random_string}
     //
@@ -234,7 +234,7 @@ pub fn retrieve_hostname_from_worker_name<'worker>(
     } else {
         let suffix = &worker_name[len_prefix..];
         let (hostname, _) = suffix.rsplit_once('-').unzip();
-        hostname
+        hostname.map(|host| host.to_owned())
     };
 
     hostname
