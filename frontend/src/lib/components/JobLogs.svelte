@@ -4,6 +4,7 @@
 	import LogViewer from './LogViewer.svelte'
 
 	export let jobId: string
+	export let tagLabel: string | undefined = undefined
 
 	let logs: string | undefined = undefined
 
@@ -13,4 +14,4 @@
 	}
 </script>
 
-<LogViewer content={logs} isLoading={false} tag={undefined} {jobId} />
+<LogViewer content={logs} isLoading={false} tag={undefined} {jobId} {tagLabel} />

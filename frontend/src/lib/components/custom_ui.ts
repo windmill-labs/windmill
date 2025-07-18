@@ -51,6 +51,7 @@ export type PreviewPanelUi = {
 	displayResult?: DisplayResultUi
 	disableVariablePicker?: boolean
 	disableDownload?: boolean
+	tagLabel?: string
 }
 
 export type EditorBarUi = {

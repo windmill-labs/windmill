@@ -30,7 +30,7 @@
 	export let noAutoScroll = false
 	export let download = true
 	export let customEmptyMessage = 'No logs are available yet'
-
+	export let tagLabel: string | undefined = undefined
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
 
@@ -227,8 +227,10 @@
 				<Loader2 class="animate-spin" />
 				{#if tag}
 					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
-						<NoWorkerWithTagWarning {tag} />
+						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
+							>{tagLabel ?? 'tag'}: {tag}</div
+						>
+						<NoWorkerWithTagWarning {tagLabel} {tag} />
 					</div>
 				{/if}
 			</div>
