@@ -185,39 +185,38 @@
 							{#if expandedRows.has(entry.id)}
 								<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
 									{#if entry.type === 'start'}
-										<!-- Show input arguments -->
-										{#if entry.args && Object.keys(entry.args).length > 0}
-											<div class="mb-2">
-												<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
-												<ObjectViewer json={entry.args} pureViewer={true} />
-											</div>
-										{/if}
-
 										<!-- Show iteration/subflow content -->
 										{#if entry.stepData.iterations && entry.stepData.iterations.length > 0}
 											<!-- This is a forloop/whileloop, show iteration picker -->
 											<div class="mb-2">
-												<div class="flex items-center gap-2 mb-1">
-													<h4 class="text-xs font-mono font-medium">
-														Iterations ({entry.stepData.iterations.length}):
-													</h4>
-													<div class="w-48">
-														<select
-															value={getSelectedIteration(entry.stepId)}
-															onchange={(e) => {
-																const target = e.target as HTMLSelectElement
-																handleIterationChange(entry.stepId, Number(target.value))
-															}}
-															class="w-full px-1 text-xs border rounded bg-surface font-mono"
-														>
-															{#each entry.stepData.iterations as iter, index}
-																<option value={index}>
-																	#{index + 1}: {truncateRev(iter.jobId, 8)}
-																</option>
-															{/each}
-														</select>
+												<span
+													class="text-xs font-mono font-medium inline-flex items-center gap-1 w-full"
+												>
+													Iteration&nbsp;
+													<select
+														value={getSelectedIteration(entry.stepId)}
+														onchange={(e) => {
+															const target = e.target as HTMLSelectElement
+															handleIterationChange(entry.stepId, Number(target.value))
+														}}
+														class="inline-block !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
+													>
+														{#each entry.stepData.iterations as _, index}
+															<option value={index}>
+																{index + 1}
+															</option>
+														{/each}
+													</select>
+													{`/${entry.stepData.iterations.length}`}
+												</span>
+
+												<!-- Show input arguments -->
+												{#if entry.args && Object.keys(entry.args).length > 0}
+													<div class="mb-2 ml-2">
+														<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
+														<ObjectViewer json={entry.args} pureViewer={true} />
 													</div>
-												</div>
+												{/if}
 
 												{#if entry.stepData.iterations[getSelectedIteration(entry.stepId)]}
 													<FlowLogViewer
@@ -238,8 +237,15 @@
 												<h4 class="text-xs font-mono font-medium mb-1">
 													Subflows ({entry.stepData.subflows.length}):
 												</h4>
+												<!-- Show input arguments -->
+												{#if entry.args && Object.keys(entry.args).length > 0}
+													<div class="mb-2">
+														<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
+														<ObjectViewer json={entry.args} pureViewer={true} />
+													</div>
+												{/if}
 												{#each entry.stepData.subflows as subflow, index}
-													<div class="mb-2 border-l-2 border-gray-300 pl-2">
+													<div class="mb-2 border-l border-gray-300 pl-2">
 														<div class="text-xs font-mono font-medium mb-1">
 															Branch #{index + 1}:
 														</div>
@@ -258,6 +264,13 @@
 											</div>
 										{:else}
 											<!-- Regular step, show logs -->
+											<!-- Show input arguments -->
+											{#if entry.args && Object.keys(entry.args).length > 0}
+												<div class="mb-2">
+													<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
+													<ObjectViewer json={entry.args} pureViewer={true} />
+												</div>
+											{/if}
 											{#if entry.logs}
 												<div class="mb-2">
 													<LogViewer
