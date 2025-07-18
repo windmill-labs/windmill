@@ -146,6 +146,7 @@
 									isLoading={previewJob?.['running'] == false && previewIsLoading}
 									tag={previewJob?.tag}
 									download={customUi?.disableDownload !== true}
+									tagLabel={customUi?.tagLabel}
 								/>
 							</Pane>
 							<Pane>
