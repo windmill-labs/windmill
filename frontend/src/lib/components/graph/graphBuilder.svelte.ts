@@ -1,9 +1,12 @@
-import type { FlowModule, RawScript, Script } from '$lib/gen'
+import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
-import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
+import type { Writable } from 'svelte/store'
+import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
 export type InsertKind =
 	| 'script'
@@ -54,6 +57,10 @@ export type GraphEventHandlers = {
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
+	testFlow: () => void
+	cancelTestFlow: () => void
+	openPreview: () => void
+	hideJobStatus: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
@@ -90,6 +97,8 @@ export type FlowNode =
 	| SubflowBoundN
 	| NoBranchN
 	| TriggerN
+	| AssetN
+	| AssetsOverflowedN
 
 export type InputN = {
 	type: 'input2'
@@ -102,6 +111,12 @@ export type InputN = {
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		flowHasChanged: boolean
+		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -117,6 +132,9 @@ export type ModuleN = {
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
 		editMode: boolean
+		flowJob: Job | undefined
+		isOwner: boolean
+		assets: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -174,6 +192,9 @@ export type ResultN = {
 	data: {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
+		editMode: boolean
+		job: Job | undefined
+		showJobStatus: boolean
 	}
 }
 
@@ -256,6 +277,20 @@ export type TriggerN = {
 	}
 }
 
+export type AssetN = {
+	type: 'asset'
+	data: {
+		asset: AssetWithAltAccessType
+	}
+}
+
+export type AssetsOverflowedN = {
+	type: 'assetsOverflowed'
+	data: {
+		overflowedAssets: AssetWithAltAccessType[]
+	}
+}
+
 // input2: InputNode,
 // module: ModuleNode,
 // branchAllStart: BranchAllStart,
@@ -283,6 +318,14 @@ export function graphBuilder(
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isOwner: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
+		flowHasChanged: boolean
+		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -333,13 +376,25 @@ export function graphBuilder(
 					moving: moving,
 					flowModuleStates: extra.flowModuleStates,
 					insertable: extra.insertable,
-					editMode: extra.editMode
+					editMode: extra.editMode,
+					isOwner: extra.isOwner,
+					flowJob: extra.flowJob,
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
 				},
 				type: 'module'
 			})
 
 			return module.id
 		}
+
+		// TODO : Do better than this
+		const nodeIdsWithOutputAssets = new Set(
+			getAllModules(modules)
+				.filter((m) =>
+					getFlowModuleAssets(m, extra.additionalAssetsMap)?.some(assetDisplaysAsOutputInFlowGraph)
+				)
+				.map((m) => m.id)
+		)
 
 		const parents: { [key: string]: string[] } = {}
 
@@ -417,11 +472,13 @@ export function graphBuilder(
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : (mods?.length ?? 0),
 					...extra,
-					insertable: extra.insertable && !options?.disableInsert && prefix == undefined
+					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				}
 			})
 		}
 
+		const inputAssets = extra.additionalAssetsMap?.['Input']
 		const inputNode: NodeLayout = {
 			id: 'Input',
 			type: 'input2',
@@ -433,7 +490,13 @@ export function graphBuilder(
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
-				editMode: extra.editMode
+				editMode: extra.editMode,
+				isRunning: extra.isRunning,
+				individualStepTests: extra.individualStepTests,
+				flowJob: extra.flowJob,
+				showJobStatus: extra.showJobStatus,
+				flowHasChanged: extra.flowHasChanged,
+				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
 
@@ -467,7 +530,10 @@ export function graphBuilder(
 			id: 'result',
 			data: {
 				eventHandlers: eventHandlers,
-				success: success
+				success: success,
+				editMode: extra.editMode,
+				job: extra.flowJob,
+				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
 		}

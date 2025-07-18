@@ -15,8 +15,10 @@ use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow, KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
+    KEEP_JOB_DIR,
 };
+
 use anyhow::Context;
 use futures::TryFutureExt;
 use mappable_rc::Marc;
@@ -1190,7 +1192,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             append_logs(&flow_job.id, w_id, logs, &db.into()).await;
         }
         #[cfg(feature = "enterprise")]
-        if flow_job.parent_job.is_none() {
+        if let Some(parent_job) = flow_job.parent_job {
+            // if has parent job, append flow cleanup modules to parent job
+            if !_cleanup_module.flow_jobs_to_clean.is_empty() {
+                let uuids_json = serde_json::to_value(&_cleanup_module.flow_jobs_to_clean)
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Unable to serialize uuids: {e:#}"))
+                    })?;
+                sqlx::query!(
+                    "UPDATE v2_job_status
+                    SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
+                    WHERE id = $2",
+                    uuids_json,
+                    parent_job
+                )
+                .execute(db)
+                .warn_after_seconds(3)
+                .await?;
+            }
+        } else {
             // run the cleanup step only when the root job is complete
             if !_cleanup_module.flow_jobs_to_clean.is_empty() {
                 tracing::debug!(
@@ -1527,6 +1547,11 @@ async fn compute_bool_from_expr(
     }
 }
 
+struct FailureContext {
+    started_at: Arc<Box<RawValue>>,
+    flow_job_id: Uuid,
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
@@ -1536,6 +1561,7 @@ async fn transform_input(
     resumes: Arc<Box<RawValue>>,
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
+    failure_context: Option<FailureContext>,
     by_id: &IdContext,
     client: &AuthedClient,
 ) -> windmill_common::error::Result<HashMap<String, Box<RawValue>>> {
@@ -1552,6 +1578,13 @@ async fn transform_input(
         env.insert("resume".to_string(), resume);
         env.insert("resumes".to_string(), resumes);
         env.insert("approvers".to_string(), approvers);
+        if let Some(FailureContext { started_at, flow_job_id }) = failure_context {
+            env.insert("started_at".to_string(), started_at);
+            env.insert(
+                "flow_job_id".to_string(),
+                Arc::new(to_raw_value(&flow_job_id)),
+            );
+        }
     }
 
     for (key, val) in input_transforms.into_iter() {
@@ -1665,7 +1698,7 @@ pub async fn handle_flow(
                         update_flow.success
                     );
                     job_completed_tx
-                        .send(SendResult::UpdateFlow(update_flow), false)
+                        .send(SendResultPayload::UpdateFlow(update_flow), false)
                         .warn_after_seconds(3)
                         .await
                         .map_err(|e| {
@@ -2030,6 +2063,7 @@ async fn push_next_flow_job(
                     .to_string(),
                 email: flow_job.permissioned_as_email.clone(),
                 username_override: None,
+                token_prefix: Some(format!("psh.nxt.flowjob-{}", client.token.to_string())),
             };
 
             if can_be_resumed || disapproved_or_timeout_but_continue {
@@ -2386,90 +2420,101 @@ async fn push_next_flow_job(
         false
     };
 
-    let args: windmill_common::error::Result<_> =
-        if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
-            let mut hm = HashMap::new();
-            hm.insert(
-                "previous_result".to_string(),
-                to_raw_value(
-                    &module
-                        .mock
-                        .as_ref()
-                        .unwrap()
-                        .return_value
-                        .clone()
-                        .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
-                ),
-            );
-            Ok(Marc::new(hm))
-        } else if let Some(id) = get_args_from_id {
-            let args = sqlx::query_scalar!(
-                "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
+    let args: windmill_common::error::Result<_> = if module.mock.is_some()
+        && module.mock.as_ref().unwrap().enabled
+    {
+        let mut hm = HashMap::new();
+        hm.insert(
+            "previous_result".to_string(),
+            to_raw_value(
+                &module
+                    .mock
+                    .as_ref()
+                    .unwrap()
+                    .return_value
+                    .clone()
+                    .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
+            ),
+        );
+        Ok(Marc::new(hm))
+    } else if let Some(id) = get_args_from_id {
+        let args = sqlx::query_scalar!(
+            "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
                  FROM v2_job WHERE id = $1 AND workspace_id = $2",
-                id,
-                &flow_job.workspace_id
-            )
-            .fetch_optional(db)
-            .warn_after_seconds(3)
-            .await?;
-            if let Some(args) = args {
-                Ok(Marc::new(args.map(|x| x.0).unwrap_or_else(HashMap::new)))
-            } else {
-                Ok(Marc::new(HashMap::new()))
-            }
-        } else if matches!(step, Step::PreprocessorStep) {
-            let mut hm = (*arc_flow_job_args).clone();
-            hm.insert(
-                ENTRYPOINT_OVERRIDE.to_string(),
-                to_raw_value(&"preprocessor"),
-            );
-            Ok(Marc::new(hm))
+            id,
+            &flow_job.workspace_id
+        )
+        .fetch_optional(db)
+        .warn_after_seconds(3)
+        .await?;
+        if let Some(args) = args {
+            Ok(Marc::new(args.map(|x| x.0).unwrap_or_else(HashMap::new)))
         } else {
-            let value = module.get_value();
-            match &value {
-                Ok(_) if matches!(value, Ok(FlowModuleValue::Identity)) || is_skipped => {
-                    serde_json::from_str(
-                        &serde_json::to_string(&PreviousResult {
-                            previous_result: Some(&arc_last_job_result),
-                        })
-                        .unwrap(),
-                    )
-                    .map(Marc::new)
-                    .map_err(|e| error::Error::internal_err(format!("identity: {e:#}")))
-                }
-                Ok(
-                    FlowModuleValue::Script { input_transforms, .. }
-                    | FlowModuleValue::RawScript { input_transforms, .. }
-                    | FlowModuleValue::FlowScript { input_transforms, .. }
-                    | FlowModuleValue::Flow { input_transforms, .. },
-                ) => {
-                    let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                        .warn_after_seconds(3)
-                        .await?;
-                    transform_context = Some(ctx);
-                    let by_id = transform_context.as_ref().unwrap();
-                    transform_input(
-                        arc_flow_job_args.clone(),
-                        arc_last_job_result.clone(),
-                        input_transforms,
-                        resumes.clone(),
-                        resume.clone(),
-                        approvers.clone(),
-                        by_id,
-                        client,
-                    )
-                    .warn_after_seconds(3)
-                    .await
-                    .map(Marc::new)
-                }
-                Ok(_) => Ok(arc_flow_job_args.clone()),
-                Err(e) => {
-                    return Err(error::Error::internal_err(format!(
-                        "module was not convertible to acceptable value {e:?}"
-                    )))
-                }
+            Ok(Marc::new(HashMap::new()))
+        }
+    } else if matches!(step, Step::PreprocessorStep) {
+        let mut hm = (*arc_flow_job_args).clone();
+        hm.insert(
+            ENTRYPOINT_OVERRIDE.to_string(),
+            to_raw_value(&"preprocessor"),
+        );
+        Ok(Marc::new(hm))
+    } else {
+        let value = module.get_value();
+        match &value {
+            Ok(_) if matches!(value, Ok(FlowModuleValue::Identity)) || is_skipped => {
+                serde_json::from_str(
+                    &serde_json::to_string(&PreviousResult {
+                        previous_result: Some(&arc_last_job_result),
+                    })
+                    .unwrap(),
+                )
+                .map(Marc::new)
+                .map_err(|e| error::Error::internal_err(format!("identity: {e:#}")))
             }
-        };
+            Ok(
+                FlowModuleValue::Script { input_transforms, .. }
+                | FlowModuleValue::RawScript { input_transforms, .. }
+                | FlowModuleValue::FlowScript { input_transforms, .. }
+                | FlowModuleValue::Flow { input_transforms, .. },
+            ) => {
+                let ctx = get_transform_context(&flow_job, &previous_id, &status)
+                    .warn_after_seconds(3)
+                    .await?;
+                transform_context = Some(ctx);
+                let by_id = transform_context.as_ref().unwrap();
+                // if a failure step, we add flow job id and started_at to the context. This is for error handling of triggers where we wrap scripts into single step flows
+                // It's to make its arguments consistent with global/workspace/schedule error handlers.
+                let failure_context = match step {
+                    Step::FailureStep if flow_job.started_at.is_some() => Some(FailureContext {
+                        started_at: Arc::new(to_raw_value(&flow_job.started_at.unwrap())),
+                        flow_job_id: flow_job.id,
+                    }),
+                    _ => None,
+                };
+                transform_input(
+                    arc_flow_job_args.clone(),
+                    arc_last_job_result.clone(),
+                    input_transforms,
+                    resumes.clone(),
+                    resume.clone(),
+                    approvers.clone(),
+                    failure_context,
+                    by_id,
+                    client,
+                )
+                .warn_after_seconds(3)
+                .await
+                .map(Marc::new)
+            }
+            Ok(_) => Ok(arc_flow_job_args.clone()),
+            Err(e) => {
+                return Err(error::Error::internal_err(format!(
+                    "module was not convertible to acceptable value {e:?}"
+                )))
+            }
+        }
+    };
     tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow job args computed");
 
     let next_flow_transform = compute_next_flow_transform(
@@ -2613,6 +2658,7 @@ async fn push_next_flow_job(
                         resumes.clone(),
                         resume.clone(),
                         approvers.clone(),
+                        None,
                         &ctx,
                         client,
                     )
@@ -2662,6 +2708,7 @@ async fn push_next_flow_job(
                             resumes.clone(),
                             resume.clone(),
                             approvers.clone(),
+                            None,
                             &ctx,
                             client,
                         )
@@ -2772,6 +2819,10 @@ async fn push_next_flow_job(
             &flow_job.created_by,
             email,
             permissioned_as,
+            Some(&format!(
+                "job-span-{}",
+                flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
+            )),
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -3291,9 +3342,16 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
-            let payload =
-                script_to_payload(script_hash, script_path, db, flow_job, module, tag_override)
-                    .await?;
+            let payload = script_to_payload(
+                script_hash,
+                script_path,
+                db,
+                flow_job,
+                module,
+                tag_override,
+                module.apply_preprocessor,
+            )
+            .await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -3919,7 +3977,16 @@ async fn payload_from_simple_module(
             flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
-            script_to_payload(script_hash, script_path, db, flow_job, module, tag_override).await?
+            script_to_payload(
+                script_hash,
+                script_path,
+                db,
+                flow_job,
+                module,
+                tag_override,
+                module.apply_preprocessor,
+            )
+            .await?
         }
         FlowModuleValue::RawScript {
             path,
@@ -4028,6 +4095,7 @@ async fn script_to_payload(
     flow_job: &MiniPulledJob,
     module: &FlowModule,
     tag_override: Option<String>,
+    apply_preprocessor: Option<bool>,
 ) -> Result<JobPayloadWithTag, Error> {
     let tag_override = if tag_override.as_ref().is_some_and(|x| x.trim().is_empty()) {
         None
@@ -4068,6 +4136,10 @@ async fn script_to_payload(
             None
         };
         (
+            // We only apply the preprocessor if it's explicitly set to true in the module,
+            // which can only happen if the the flow is a SingleScriptFlow triggered by a trigger with retries or error handling.
+            // In that case, apply_preprocessor is still only set to true if the script has a preprocesor.
+            // We only check for script hash because SingleScriptFlow triggers specifies the script hash
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
@@ -4078,7 +4150,7 @@ async fn script_to_payload(
                 language,
                 dedicated_worker,
                 priority,
-                apply_preprocessor: false,
+                apply_preprocessor: apply_preprocessor.unwrap_or(false),
             },
             tag_override.to_owned().or(tag),
             delete_after_use,

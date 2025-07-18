@@ -8,12 +8,22 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { type DBSchema, dbSchemas } from '$lib/stores'
+import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import type { Tool } from '../shared'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
+import { createSearchHubScriptsTool } from '../flow/core'
+import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
+import { getModelContextWindow } from '../../lib'
+
+// Score threshold for npm packages search filtering
+const SCORE_THRESHOLD = 1000
+// percentage of the context window for documentation of npm packages
+const DOCS_CONTEXT_PERCENTAGE = 1
+// percentage of the context window for types of npm packages
+const TYPES_CONTEXT_PERCENTAGE = 1
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -83,8 +93,8 @@ wmill.runScriptAsync(path: string, args?: Record<string, any>): Promise<string> 
 wmill.waitJob(jobId: string): Promise<any> // Wait for job completion and get result
 
 // S3 file operations (if S3 is configured)
-wmill.loadS3File(s3object: S3Object): Promise<Uint8Array> // Load file content from S3
-wmill.writeS3File(s3object: S3Object, content: string | Blob): Promise<S3Object> // Write file to S3
+wmill.loadS3File(s3object: S3Object | string): Promise<Uint8Array> // Load file content from S3
+wmill.writeS3File(s3object: S3Object | string, content: string | Blob): Promise<S3Object> // Write file to S3
 
 // Flow operations
 wmill.setFlowUserState(key: string, value: any): Promise<void> // Set flow user state
@@ -119,8 +129,8 @@ wmill.run_script_async(path: str, args: dict = None, scheduled_in_secs: int = No
 wmill.wait_job(job_id: str, timeout = None) -> Any  // Wait for job completion and get result
 
 // S3 file operations (if S3 is configured)
-wmill.load_s3_file(s3object: S3Object, s3_resource_path: str = None) -> bytes  // Load file content from S3
-wmill.write_s3_file(s3object: S3Object, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
+wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str = None) -> bytes  // Load file content from S3
+wmill.write_s3_file(s3object: S3Object | str, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
 
 // Flow operations  
 wmill.run_flow_async(path: str, args: dict = None) -> str  // Run flow asynchronously
@@ -334,9 +344,95 @@ export const CHAT_SYSTEM_PROMPT = `
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
+	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
+`
+
+export const INLINE_CHAT_SYSTEM_PROMPT = `
+# Windmill Inline Coding Assistant
+
+You are a coding assistant for the Windmill platform. You provide precise code modifications based on user instructions.
+
+## Input Format
+
+You will receive:
+- **INSTRUCTIONS**: User's modification request
+- **CODE**: Current code content with modification boundaries
+- **DATABASES** *(optional)*: Available workspace databases
+
+### Code Boundaries
+
+The code contains \`[#START]\` and \`[#END]\` markers indicating the modification scope:
+- **MUST** only modify code between these markers
+- **MUST** remove the markers in your response
+- **MUST** preserve all other code exactly as provided
+
+## Task Requirements
+
+Return the modified CODE that fulfills the user's request. Assume all user queries are valid and actionable.
+
+### Critical Rules
+
+- ✅ **ALWAYS** include a single code block with the entire updated CODE
+- ✅ **ALWAYS** use the structured XML output format below
+- ❌ **NEVER** include only modified sections
+- ❌ **NEVER** add explanatory text or comments outside the format
+- ❌ **NEVER** include \`\`\` code fences in your response
+- ❌ **NEVER** modify the code outside the boundaries
+
+## Output Format
+
+\`\`\`xml
+<changes_made>
+Brief description of what was changed
+</changes_made>
+<new_code>
+[complete modified code without markers]
+</new_code>
+\`\`\`
+
+## Example
+
+### Input:
+\`\`\`xml
+<user_request>
+INSTRUCTIONS:
+Return 2 instead of 1
+
+CODE:
+import * as wmill from "windmill-client"
+
+function test() {
+	return "hello"
+}
+
+[#START]
+export async function main() {
+	return 1;
+}
+[#END]
+</user_request>
+\`\`\`
+
+### Expected Output:
+\`\`\`xml
+<changes_made>
+Changed return value from 1 to 2 in main function
+</changes_made>
+<new_code>
+import * as wmill from "windmill-client"
+
+function test() {
+	return "hello"
+}
+
+export async function main() {
+	return 2;
+}
+</new_code>
+\`\`\`
 `
 
 const CHAT_USER_CODE_CONTEXT = `
@@ -391,6 +487,10 @@ export function prepareScriptTools(
 	}
 	if (context.some((c) => c.type === 'db')) {
 		tools.push(dbSchemaTool)
+	}
+	if (['bun', 'deno'].includes(language)) {
+		tools.push(createSearchHubScriptsTool(true))
+		tools.push(searchNpmPackagesTool)
 	}
 	return tools
 }
@@ -568,5 +668,160 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		const stringSchema = await formatDBSchema(db)
 		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
 		return stringSchema
+	}
+}
+
+type PackageSearchQuery = {
+	package: {
+		name: string
+		version: string
+		links: {
+			npm: string
+			homepage: string
+			repository: string
+			bugs: string
+		}
+	}
+	searchScore: number
+}
+
+type PackageSearchResult = {
+	package: string
+	documentation: string
+	types: string
+}
+
+const packagesSearchCache = new Map<string, PackageSearchResult[]>()
+export async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
+	try {
+		if (packagesSearchCache.has(args.query)) {
+			return JSON.stringify(packagesSearchCache.get(args.query))
+		}
+
+		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
+		const data = await result.json()
+		const filtered = data.objects.filter(
+			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
+		)
+
+		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		const results: PackageSearchResult[] = await Promise.all(
+			filtered.map(async (r: PackageSearchQuery) => {
+				let documentation = ''
+				let types = ''
+				try {
+					const docResponse = await fetch(`https://unpkg.com/${r.package.name}/readme.md`)
+					const docLimit = Math.floor((modelContextWindow * DOCS_CONTEXT_PERCENTAGE) / 100)
+					documentation = await docResponse.text()
+					documentation = documentation.slice(0, docLimit)
+				} catch (error) {
+					console.error('Error getting documentation for package:', error)
+					documentation = ''
+				}
+				try {
+					const typesResponse = await fetchNpmPackageTypes(r.package.name, r.package.version)
+					const typesLimit = Math.floor((modelContextWindow * TYPES_CONTEXT_PERCENTAGE) / 100)
+					types = typesResponse.types.slice(0, typesLimit)
+				} catch (error) {
+					console.error('Error getting types for package:', error)
+					types = ''
+				}
+				return {
+					package: r.package.name,
+					documentation: documentation,
+					types: types
+				}
+			})
+		)
+		packagesSearchCache.set(args.query, results)
+		return JSON.stringify(results)
+	} catch (error) {
+		console.error('Error searching external integration resources:', error)
+		return 'Error searching external integration resources'
+	}
+}
+
+const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'search_npm_packages',
+		description: 'Search for npm packages and their documentation',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'The query to search for'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+	def: SEARCH_NPM_PACKAGES_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, 'Searching for relevant packages...')
+		const result = await searchExternalIntegrationResources(args)
+		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
+		return result
+	}
+}
+
+export async function fetchNpmPackageTypes(
+	packageName: string,
+	version: string = 'latest'
+): Promise<{ success: boolean; types: string; error?: string }> {
+	try {
+		const typeDefinitions = new Map<string, string>()
+
+		const ata = setupTypeAcquisition({
+			projectName: 'NPM-Package-Types',
+			depsParser: () => [],
+			root: '',
+			delegate: {
+				receivedFile: (code: string, path: string) => {
+					if (path.endsWith('.d.ts')) {
+						typeDefinitions.set(path, code)
+					}
+				},
+				localFile: () => {}
+			}
+		})
+
+		const depsToGet: DepsToGet = [
+			{
+				raw: packageName,
+				module: packageName,
+				version: version
+			}
+		]
+
+		await ata(depsToGet)
+
+		if (typeDefinitions.size === 0) {
+			return {
+				success: false,
+				types: '',
+				error: `No type definitions found for ${packageName}`
+			}
+		}
+
+		const formattedTypes = Array.from(typeDefinitions.entries())
+			.map(([path, content]) => `// ${path}\n${content}`)
+			.join('\n\n')
+
+		return {
+			success: true,
+			types: formattedTypes
+		}
+	} catch (error) {
+		console.error('Error fetching NPM package types:', error)
+		return {
+			success: false,
+			types: '',
+			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
+		}
 	}
 }

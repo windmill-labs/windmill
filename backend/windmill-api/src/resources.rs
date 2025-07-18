@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -280,6 +281,7 @@ async fn get_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableResource> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let resource_o = sqlx::query_as!(
@@ -331,6 +333,7 @@ async fn get_resource_value(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -422,12 +425,15 @@ async fn get_resource_value_interpolated(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(job_info): Query<JobInfo>,
 ) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
     return get_resource_value_interpolated_internal(
         &authed,
         Some(user_db),
         &db,
         w_id.as_str(),
-        path.to_path(),
+        path,
         job_info.job_id,
         token.as_str(),
     )
@@ -508,6 +514,7 @@ pub async fn transform_json_value<'c>(
                         email: "backend".to_string(),
                         username: "backend".to_string(),
                         username_override: None,
+                        token_prefix: None,
                     }),
             )
             .await?;
@@ -657,6 +664,7 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     if *CLOUD_HOSTED {
         let nb_resources = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
@@ -739,6 +747,7 @@ async fn delete_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -797,6 +806,7 @@ async fn update_resource(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
 
     let mut sqlb = SqlBuilder::update_table("resource");
     sqlb.and_where_eq("path", "?".bind(&path));
@@ -890,6 +900,7 @@ async fn update_resource_value(
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(

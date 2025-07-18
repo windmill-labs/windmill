@@ -6,7 +6,8 @@ import type {
 	EditorBreakpoint,
 	FocusedGrid,
 	GeneralAppInput,
-	GridItem
+	GridItem,
+	RichConfiguration
 } from '../types'
 import {
 	ccomponents,
@@ -482,8 +483,65 @@ export function appComponentFromType<T extends keyof typeof components>(
 			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
 			verticalAlignment: override?.verticalAlignment ?? init.verticalAlignment,
 			id,
+			datasets:
+				type === 'plotlycomponentv2'
+					? createPlotlyComponentDataset()
+					: type === 'chartjscomponentv2'
+						? createChartjsComponentDataset()
+						: undefined,
+			xData:
+				type === 'plotlycomponentv2' || type === 'chartjscomponentv2'
+					? {
+							type: 'evalv2',
+							fieldType: 'array',
+							expr: '[1, 2, 3, 4]',
+							connections: []
+						}
+					: undefined,
 			...(extra ?? {})
 		}
+	}
+}
+
+export function createChartjsComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'chartjs',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [25, 25, 50]
+				},
+				name: 'Dataset 1'
+			}
+		]
+	}
+}
+
+export function createPlotlyComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'plotly',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [1, 2, 3, 4]
+				},
+				name: 'Dataset 1',
+				aggregation_method: 'sum',
+				type: 'bar',
+				tooltip: '',
+				color: '#C8A2C8'
+			}
+		]
 	}
 }
 export function insertNewGridItem(
@@ -1261,6 +1319,7 @@ export function isContainer(type: string): boolean {
 		type === 'horizontalsplitpanescomponent' ||
 		type === 'steppercomponent' ||
 		type === 'listcomponent' ||
+		type === 'carousellistcomponent' ||
 		type === 'decisiontreecomponent'
 	)
 }
@@ -1277,6 +1336,9 @@ export function subGridIndexKey(type: string | undefined, id: string, world: Wor
 		}
 		case 'steppercomponent': {
 			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'carousellistcomponent': {
+			return (world?.outputsById?.[id]?.currentIndex?.peak() as number) ?? 0
 		}
 		case 'decisiontreecomponent': {
 			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0

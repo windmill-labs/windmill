@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -36,7 +36,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -50,6 +50,9 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
+	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
+	import type { FlowGraphAssetContext } from '../flows/types'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -86,6 +89,12 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		isOwner?: boolean
+		isRunning?: boolean
+		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -108,6 +117,11 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -146,7 +160,18 @@
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		isOwner = false,
+		onTestFlow = undefined,
+		isRunning = false,
+		onCancelTestFlow = undefined,
+		onOpenPreview = undefined,
+		onHideJobStatus = undefined,
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
+		suspendStatus = writable({}),
+		flowHasChanged = false
 	}: Props = $props()
 
 	setContext<{
@@ -181,10 +206,10 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
-	function layoutNodes(nodes: NodeLayout[]): Node[] {
+	let lastNodes: [NodeLayout[], (Node & NodeLayout)[]] | undefined = undefined
+	function layoutNodes(nodes: NodeLayout[]): (Node & NodeLayout)[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+		if (lastResult && nodes === lastNodes?.[0]) {
 			return lastResult
 		}
 		let seenId: string[] = []
@@ -234,6 +259,7 @@
 			boxSize = layout(dag as any)
 		}
 
+		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			...des.data,
 			id: des.data.id,
@@ -248,7 +274,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: des.y || 0
+				y: (des.y || 0) + yOffset
 			}
 		}))
 
@@ -307,15 +333,26 @@
 		},
 		editInput: (moduleId: string, key: string) => {
 			onEditInput?.(moduleId, key)
+		},
+		testFlow: () => {
+			onTestFlow?.()
+		},
+		cancelTestFlow: () => {
+			onCancelTestFlow?.()
+		},
+		openPreview: () => {
+			onOpenPreview?.()
+		},
+		hideJobStatus: () => {
+			onHideJobStatus?.()
 		}
 	}
 
-	let lastModules = structuredClone($state.snapshot(modules))
+	let lastModules = $state.snapshot(modules)
 	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
-			console.log('modules changed', modules)
-			lastModules = structuredClone($state.snapshot(modules))
+			lastModules = $state.snapshot(modules)
 			moduleCounter++
 		}
 	}
@@ -342,9 +379,9 @@
 			return
 		}
 		let newGraph = graph
-
-		nodes = layoutNodes(newGraph.nodes)
-		edges = newGraph.edges
+		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
+		console.log('compute')
+		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -363,7 +400,9 @@
 		branchOneEnd: BranchOneEndNode,
 		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode
+		trigger: TriggersNode,
+		asset: AssetNode,
+		assetsOverflowed: AssetsOverflowedNode
 	} as any
 
 	const edgeTypes = {
@@ -380,11 +419,14 @@
 	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+
 	$effect(() => {
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		modules && untrack(() => onModulesChange2(modules))
+		readFieldsRecursively(modules)
+		untrack(() => onModulesChange2(modules))
 	})
 	let graph = $derived.by(() => {
 		moduleCounter
@@ -399,7 +441,15 @@
 				newFlow,
 				cache,
 				earlyStop,
-				editMode
+				editMode,
+				isOwner,
+				isRunning,
+				individualStepTests,
+				flowJob,
+				showJobStatus,
+				suspendStatus,
+				flowHasChanged,
+				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			failureModule,
 			preprocessorModule,
@@ -414,8 +464,10 @@
 		)
 	})
 	$effect(() => {
-		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
+		;[graph, allowSimplifiedPoll]
+		untrack(() => updateStores())
 	})
+
 	let showDataflow = $derived(
 		$selectedId != undefined &&
 			!$selectedId.startsWith('constants') &&
@@ -444,6 +496,11 @@
 			}
 		}, 10)
 	})
+
+	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return viewportResizer?.isNodeVisible(nodeId) ?? false
+	}
 </script>
 
 {#if insertable}
@@ -466,7 +523,7 @@
 		</div>
 	{:else}
 		<SvelteFlowProvider>
-			<ViewportResizer {width} />
+			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
 				onpaneclick={(e) => {
 					document.dispatchEvent(new Event('focus'))
@@ -488,7 +545,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton

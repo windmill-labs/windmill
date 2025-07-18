@@ -1,14 +1,13 @@
-import { page } from '$app/state'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
-import { aiChatManager } from '../AIChatManager.svelte'
 import { ResourceService } from '$lib/gen'
-import { workspaceStore } from '$lib/stores'
+import { enterpriseLicense, workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { triggerablesByAi } from '../sharedChatState.svelte'
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -30,6 +29,7 @@ INSTRUCTIONS:
 - If you are asked to fill a form or act on an input, input the existing json object and change the fields the user asked you to change. Take into account the prompt_for_ai field of the schema to know what and how to do changes. Then tell the user that you have updated the form, and ask him to review the changes before running the script or flow.
 - For form inputs where format starts with "resource-" and is not "resource-obj", fetch the available resources using get_available_resources, and then use the resource_path prefixed with "$res:" to fill the input.
 - If you are not sure about an input, set the ones you are sure about, and then ask the user for the value of the input you are not sure about.
+${get(enterpriseLicense) ? `- If asked to look through the jobs logs, use the /srch/w/{workspace}/index/search/job endpoint to search for the relevant jobs runs. Then use /w/{workspace}/jobs_u/get to get the logs of each job.` : ''}
 
 GENERAL PRINCIPLES:
 - Be concise but thorough
@@ -160,8 +160,8 @@ const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
 
 function getTriggerableComponents(): string {
 	try {
-		// Get components registered in the triggerablesByAI store
-		const registeredComponents = aiChatManager.triggerablesByAI
+		// Get components registered in the triggerablesByAi store
+		const registeredComponents = triggerablesByAi
 		let result = 'TRIGGERABLE_COMPONENTS:\n'
 
 		// If there are no components registered, return a message
@@ -189,7 +189,7 @@ function getTriggerableComponents(): string {
 // Function to get the current page name
 function getCurrentPageName(): string {
 	try {
-		const currentPage = page.url.pathname
+		const currentPage = window.location.pathname
 		switch (currentPage) {
 			case '/':
 				return 'Home Page'
@@ -218,7 +218,7 @@ function triggerComponent(args: { id: string; value: string }): string {
 			return 'Trigger command requires an id parameter'
 		}
 
-		const component = aiChatManager.triggerablesByAI[id]
+		const component = triggerablesByAi[id]
 
 		if (!component) {
 			return `No triggerable component found with id: ${id}`

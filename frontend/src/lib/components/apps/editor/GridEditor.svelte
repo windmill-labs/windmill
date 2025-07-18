@@ -6,7 +6,7 @@
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import {
 		dfs,
 		expandGriditem,
@@ -231,7 +231,7 @@
 				}}
 				disableMove={!!$connectingInput.opened}
 			>
-				{#snippet children({ dataItem, overlapped, moveMode, componentDraggedId })}
+				{#snippet children({ dataItem, overlapped, componentDraggedId })}
 					<ComponentWrapper
 						id={dataItem.id}
 						type={dataItem.data.type}
@@ -276,7 +276,6 @@
 									$app = $app
 								}}
 								{overlapped}
-								{moveMode}
 								{componentDraggedId}
 							/>
 						</GridEditorMenu>

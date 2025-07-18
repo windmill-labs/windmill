@@ -70,5 +70,8 @@ RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2
 	&& chmod +x /usr/bin/coursier
 RUN /usr/bin/java -jar /usr/bin/coursier about
 
+# iptables
+RUN apt-get install -y iptables
+
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 

@@ -1,18 +1,20 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 
 	import FlowHistoryInner from './FlowHistoryInner.svelte'
 
-	export let path: string
-	let drawer: Drawer
-
-	export function open() {
-		drawer.openDrawer()
+	interface Props {
+		path: string
+		onHistoryRestore?: () => void
 	}
 
-	const dispatch = createEventDispatcher()
+	let { path, onHistoryRestore }: Props = $props()
+	let drawer: Drawer | undefined = $state()
+
+	export function open() {
+		drawer?.openDrawer()
+	}
 </script>
 
 <Drawer bind:this={drawer} size="1200px">
@@ -25,9 +27,9 @@
 	>
 		<FlowHistoryInner
 			allowFork
-			on:historyRestore={() => {
-				drawer.closeDrawer()
-				dispatch('historyRestore')
+			onHistoryRestore={() => {
+				drawer?.closeDrawer()
+				onHistoryRestore?.()
 			}}
 			{path}
 		/>

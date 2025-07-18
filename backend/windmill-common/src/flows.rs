@@ -18,6 +18,7 @@ use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
 use crate::{
+    assets::AssetWithAltAccessType,
     cache,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
@@ -252,7 +253,7 @@ pub struct Mock {
     pub return_value: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct FlowModule {
     #[serde(default = "default_id")]
     pub id: String,
@@ -284,6 +285,8 @@ pub struct FlowModule {
     pub continue_on_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_if: Option<SkipIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_preprocessor: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -502,6 +505,8 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        assets: Option<Vec<AssetWithAltAccessType>>,
     },
     Identity,
     // Internal only, never exposed to the frontend.
@@ -521,6 +526,8 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        assets: Option<Vec<AssetWithAltAccessType>>,
     },
 }
 
@@ -555,6 +562,7 @@ struct UntaggedFlowModuleValue {
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
+    assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -629,6 +637,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
+                assets: untagged.assets,
             }),
             "flowscript" => Ok(FlowModuleValue::FlowScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -643,6 +652,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
+                assets: untagged.assets,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
             other => Err(serde::de::Error::unknown_variant(
@@ -710,6 +720,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             delete_after_use: None,
             continue_on_error: None,
             skip_if: None,
+            apply_preprocessor: None,
         });
     }
 }
@@ -777,6 +788,7 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
+                assets,
             } = std::mem::replace(&mut val, Identity)
             else {
                 unreachable!()
@@ -800,6 +812,7 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
+                assets,
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {

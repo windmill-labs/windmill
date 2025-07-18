@@ -1,8 +1,11 @@
-import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { fetchVersion, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,
   Confirm,
+  Input,
+  Select,
   ensureDir,
   minimatch,
   JSZip,
@@ -34,8 +37,9 @@ import {
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual, isFileResource } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
+import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
+import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
@@ -45,6 +49,101 @@ import {
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
+
+
+// Merge CLI options with effective settings, preserving CLI flags as overrides
+function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(
+  cliOpts: T,
+  effectiveOpts: SyncOptions
+): T {
+  // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
+  return Object.assign({}, effectiveOpts, cliOpts) as T;
+}
+
+// Resolve effective sync options with smart repository detection
+async function resolveEffectiveSyncOptions(
+  workspace: Workspace,
+  repositoryPath?: string
+): Promise<SyncOptions> {
+  const localConfig = await readConfigFile();
+
+  // If repository path is already specified, use it directly
+  if (repositoryPath) {
+    return getEffectiveSettings(
+      localConfig,
+      workspace.remote,
+      workspace.workspaceId,
+      repositoryPath
+    );
+  }
+
+  // Auto-detect repository from overrides if not specified
+  if (localConfig.overrides) {
+    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
+    const applicableRepos: string[] = [];
+
+    // Find all repository-specific overrides for this workspace
+    for (const key of Object.keys(localConfig.overrides)) {
+      if (key.startsWith(prefix) && !key.endsWith(':*')) {
+        const repo = key.substring(prefix.length);
+        if (repo) {
+          applicableRepos.push(repo);
+        }
+      }
+    }
+
+    if (applicableRepos.length === 1) {
+      // Single repository found - auto-select it
+      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
+      return getEffectiveSettings(
+        localConfig,
+        workspace.remote,
+        workspace.workspaceId,
+        applicableRepos[0]
+      );
+    } else if (applicableRepos.length > 1) {
+      // Multiple repositories found - prompt for selection
+      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+
+      if (isInteractive) {
+        const choices = [
+          { name: "Use top-level settings (no repository-specific override)", value: "" },
+          ...applicableRepos.map(repo => ({ name: repo, value: repo }))
+        ];
+
+        const selectedRepo = await Select.prompt({
+          message: "Multiple repository overrides found. Select which to use:",
+          options: choices
+        });
+
+        if (selectedRepo) {
+          log.info(`Selected repository: ${selectedRepo}`);
+        }
+
+        return getEffectiveSettings(
+          localConfig,
+          workspace.remote,
+          workspace.workspaceId,
+          selectedRepo
+        );
+      } else {
+        // Non-interactive mode - list options and use top-level
+        log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
+        log.warn(`Running in non-interactive mode. Use --repository flag to specify which one to use.`);
+        log.info(`Falling back to top-level settings (no repository-specific overrides applied)`);
+      }
+    }
+  }
+
+  // No repository overrides found or selected - use top-level settings
+  log.info(`No repository overrides found, using top-level settings`);
+  return getEffectiveSettings(
+    localConfig,
+    workspace.remote,
+    workspace.workspaceId,
+    ""
+  );
+}
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -678,7 +777,17 @@ export async function elementsToMap(
     if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
       continue;
 
-    if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
+    // Use getTypeStrFromPath for consistent type detection
+    try {
+      const fileType = getTypeStrFromPath(path);
+      if (skips.skipVariables && fileType === "variable") continue;
+      if (skips.skipScripts && fileType === "script") continue;
+      if (skips.skipFlows && fileType === "flow") continue;
+      if (skips.skipApps && fileType === "app") continue;
+      if (skips.skipFolders && fileType === "folder") continue;
+    } catch {
+      // If getTypeStrFromPath can't determine the type, continue processing the file
+    }
 
     if (skips.skipResources && isFileResource(path)) continue;
 
@@ -733,6 +842,10 @@ export interface Skips {
   skipResources?: boolean | undefined;
   skipResourceTypes?: boolean | undefined;
   skipSecrets?: boolean | undefined;
+  skipScripts?: boolean | undefined;
+  skipFlows?: boolean | undefined;
+  skipApps?: boolean | undefined;
+  skipFolders?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -1000,6 +1113,10 @@ export async function ignoreF(wmillconf: {
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
   json?: boolean;
+  includeUsers?: boolean;
+  includeGroups?: boolean;
+  includeSettings?: boolean;
+  includeKey?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -1014,7 +1131,7 @@ export async function ignoreF(wmillconf: {
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
             wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
-          (!wmillconf.extraIncludes ||
+          (!wmillconf.extraIncludes || wmillconf.extraIncludes.length === 0 ||
             wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
@@ -1035,6 +1152,28 @@ export async function ignoreF(wmillconf: {
     if (!isDirectory && p.endsWith(".resource-type" + ext)) {
       return wmillconf.skipResourceTypes ?? false;
     }
+
+    // Special files should bypass path-based filtering when their include flags are set
+    if (!isDirectory) {
+      try {
+        const fileType = getTypeStrFromPath(p);
+        if (wmillconf.includeUsers && fileType === "user") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeGroups && fileType === "group") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeSettings && fileType === "settings") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeKey && fileType === "encryption_key") {
+          return false; // Don't ignore, always include
+        }
+      } catch {
+        // If getTypeStrFromPath can't determine the type, fall through to normal logic
+      }
+    }
+
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1094,15 +1233,19 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions) {
-  opts = await mergeConfigWithConfigFile(opts);
-
+export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string }) {
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+
+  // Resolve effective sync options with repository awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+
+  // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
+  opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
 
   const codebases = await listSyncCodebases(opts);
 
@@ -1158,8 +1301,26 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
+
+  // Handle JSON output for dry-run
+  if (opts.dryRun && opts.jsonOutput) {
+    const result = {
+      success: true,
+      changes: changes.map(change => ({
+        type: change.name,
+        path: change.path,
+        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+      })),
+      total: changes.length
+    };
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   if (changes.length > 0) {
-    prettyChanges(changes);
+    if (!opts.jsonOutput) {
+      prettyChanges(changes);
+    }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
@@ -1298,7 +1459,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, true);
+      await generateFlowLockInternal(change, false, workspace, opts, true);
     }
     if (tracker.apps.length > 0) {
       log.info(
@@ -1307,11 +1468,27 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
         )} scripts were changed but ignoring for now`
       );
     }
-    log.info(
-      colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
-      )
-    );
+    if (opts.jsonOutput) {
+      const result = {
+        success: true,
+        message: `All ${changes.length} changes applied locally and wmill-lock.yaml updated`,
+        changes: changes.map(change => ({
+          type: change.name,
+          path: change.path,
+          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        })),
+        total: changes.length
+      };
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      log.info(
+        colors.bold.green.underline(
+          `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
+        )
+      );
+    }
+  } else if (opts.jsonOutput) {
+    console.log(JSON.stringify({ success: true, message: "No changes to apply", total: 0 }, null, 2));
   }
 }
 
@@ -1366,8 +1543,16 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-export async function push(opts: GlobalOptions & SyncOptions) {
-  opts = await mergeConfigWithConfigFile(opts);
+export async function push(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  // Resolve effective sync options with repository awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+
+  // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
+  opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
+
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
@@ -1382,9 +1567,6 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       log.info("\n");
     }
   }
-
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
 
   log.info(
     colors.gray(
@@ -1472,6 +1654,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       change,
       true,
       workspace,
+      opts,
       false,
       true
     );
@@ -1498,8 +1681,25 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
 
+  // Handle JSON output for dry-run
+  if (opts.dryRun && opts.jsonOutput) {
+    const result = {
+      success: true,
+      changes: changes.map(change => ({
+        type: change.name,
+        path: change.path,
+        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+      })),
+      total: changes.length
+    };
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   if (changes.length > 0) {
-    prettyChanges(changes);
+    if (!opts.jsonOutput) {
+      prettyChanges(changes);
+    }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
@@ -1860,13 +2060,30 @@ export async function push(opts: GlobalOptions & SyncOptions) {
         await Promise.race(pool);
       }
     }
-    log.info(
-      colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
-          workspace.workspaceId
-        } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
-      )
-    );
+    if (opts.jsonOutput) {
+      const result = {
+        success: true,
+        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        changes: changes.map(change => ({
+          type: change.name,
+          path: change.path,
+          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        })),
+        total: changes.length,
+        duration_ms: Math.round(performance.now() - start)
+      };
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      log.info(
+        colors.bold.green.underline(
+          `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+            workspace.workspaceId
+          } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
+        )
+      );
+    }
+  } else if (opts.jsonOutput) {
+    console.log(JSON.stringify({ success: true, message: "No changes to push", total: 0 }, null, 2));
   }
 }
 
@@ -1891,6 +2108,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -1898,6 +2119,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
@@ -1909,6 +2131,10 @@ const command = new Command()
   .option(
     "--extra-includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
+  )
+  .option(
+    "--repository <repo:string>",
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
@@ -1925,7 +2151,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
-
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -1933,6 +2162,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1950,6 +2180,10 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push"
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
+  .option(
+    "--repository <repo:string>",
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+  )
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 

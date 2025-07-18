@@ -26,6 +26,7 @@ use sqlx::{Pool, Postgres};
 
 pub mod agent_workers;
 pub mod apps;
+pub mod assets;
 pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
@@ -370,7 +371,7 @@ pub async fn connect(
     worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     use std::time::Duration;
-
+    use sqlx::Executor;
     sqlx::postgres::PgPoolOptions::new()
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
@@ -378,13 +379,30 @@ pub async fn connect(
         .after_connect(move |conn, _| {
             if worker_mode {
                 Box::pin(async move {
-                    sqlx::query("SET enable_seqscan = OFF;")
-                        .execute(conn)
-                        .await?;
+                    if let Err(e) = conn.execute(r#"
+        SET enable_seqscan = OFF;
+        SET statement_timeout = '5min';
+        SET idle_in_transaction_session_timeout = '10min';
+        SET tcp_keepalives_idle = 300;
+        SET tcp_keepalives_interval = 60;
+        SET tcp_keepalives_count = 10;"#)
+                        .await {
+                            tracing::error!("Error setting postgres settings: {}", e);
+                        }
                     Ok(())
                 })
             } else {
-                Box::pin(async move { Ok(()) })
+                Box::pin(async move { 
+                  if let Err(e) = conn.execute(r#"
+        SET statement_timeout = '5min';
+        SET idle_in_transaction_session_timeout = '10min';
+        SET tcp_keepalives_idle = 300;
+        SET tcp_keepalives_interval = 60;
+        SET tcp_keepalives_count = 10;"#)
+                       .await {
+                        tracing::error!("Error setting postgres settings: {}", e);
+                       }
+                    Ok(()) })
             }
         })
         .connect_with(

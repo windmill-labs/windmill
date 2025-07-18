@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import RangeSlider from 'svelte-range-slider-pips'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import type {
 		ListInputs,
 		AppViewerContext,
@@ -18,11 +20,21 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { parseISO, format as formatDateFns } from 'date-fns'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'dateslidercomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'dateslidercomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -30,22 +42,19 @@
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['dateslidercomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['dateslidercomponent'].initialData.configuration, configuration)
 	)
 
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
 
-	let values: [number] = [
+	let values: [number] = $state([
 		resolvedConfig.defaultValue
 			? new Date(resolvedConfig.defaultValue).getTime()
 			: new Date().getTime()
-	]
-
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
+	])
 
 	function handleDefault() {
 		values = [
@@ -55,7 +64,7 @@
 		]
 	}
 
-	let slider: HTMLElement
+	let slider: HTMLElement | undefined = $state()
 
 	const outputs = initOutput($worldStore, id, {
 		result: null as string | null
@@ -66,8 +75,6 @@
 			values = [nvalue]
 		}
 	}
-
-	$: values && handleValues()
 
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
 		if (formatString === '') {
@@ -92,18 +99,11 @@
 		}
 	}
 
-	let css = initCss($app.css?.dateslidercomponent, customCss)
+	let css = $state(initCss($app.css?.dateslidercomponent, customCss))
 
-	let lastStyle: string | undefined = undefined
-	$: if (css && slider && lastStyle !== css?.handle?.style) {
-		const handle = slider.querySelector<HTMLSpanElement>('.rangeNub')
-		if (handle) {
-			lastStyle = css?.handle?.style
-			handle.style.cssText = css?.handle?.style ?? ''
-		}
-	}
+	let lastStyle: string | undefined = $state(undefined)
 
-	let width = 0
+	let width = $state(0)
 
 	const spanClass =
 		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
@@ -123,9 +123,26 @@
 		}
 	}
 
-	$: if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
-		computeWidth()
-	}
+	$effect.pre(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
+	})
+	$effect.pre(() => {
+		values?.[0] && untrack(() => handleValues())
+	})
+	$effect.pre(() => {
+		if (css && slider && lastStyle !== css?.handle?.style) {
+			const handle = slider.querySelector<HTMLSpanElement>('.rangeNub')
+			if (handle) {
+				lastStyle = css?.handle?.style
+				handle.style.cssText = css?.handle?.style ?? ''
+			}
+		}
+	})
+	$effect.pre(() => {
+		if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
+			untrack(() => computeWidth())
+		}
+	})
 </script>
 
 {#each Object.keys(components['dateslidercomponent'].initialData.configuration) as key (key)}
@@ -169,7 +186,7 @@
 				resolvedConfig?.vertical ? 'h-full' : 'w-full'
 			)}
 			style={css?.bar?.style}
-			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+			onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}
 		>
 			<RangeSlider
 				springValues={{ stiffness: 1, damping: 1 }}

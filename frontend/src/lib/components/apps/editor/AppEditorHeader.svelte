@@ -8,7 +8,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { redo, undo } from '$lib/history'
+	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AlignHorizontalSpaceAround,
@@ -28,9 +28,11 @@
 		Sun,
 		Moon,
 		SunMoon,
-		Zap
+		Zap,
+		Globe,
+		AlertTriangle
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -55,7 +57,6 @@
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
@@ -80,6 +81,7 @@
 	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
 	async function hash(message) {
 		try {
@@ -101,7 +103,7 @@
 	interface Props {
 		policy: Policy
 		fromHub?: boolean
-		diffDrawer?: DiffDrawer | undefined
+		diffDrawer?: DiffDrawerI | undefined
 		savedApp?:
 			| {
 					value: App
@@ -120,6 +122,13 @@
 		newApp: boolean
 		newPath?: string
 		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+		onSavedNewAppPath?: (path: string) => void
+		onShowRightPanel?: () => void
+		onShowLeftPanel?: () => void
+		onShowBottomPanel?: () => void
+		onHideRightPanel?: () => void
+		onHideLeftPanel?: () => void
+		onHideBottomPanel?: () => void
 	}
 
 	let {
@@ -133,7 +142,14 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
-		unsavedConfirmationModal
+		unsavedConfirmationModal,
+		onSavedNewAppPath,
+		onShowLeftPanel,
+		onShowRightPanel,
+		onShowBottomPanel,
+		onHideLeftPanel,
+		onHideRightPanel,
+		onHideBottomPanel
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -404,7 +420,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -507,7 +523,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
 	}
 
@@ -587,7 +603,7 @@
 			}
 
 			draftDrawerOpen = false
-			dispatch('savedNewAppPath', newEditedPath)
+			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -684,7 +700,7 @@
 			}
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
+				onSavedNewAppPath?.(newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false
@@ -773,7 +789,13 @@
 	let dirtyPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
-	let moreItems = [
+	let secretUrlHref = $derived(
+		secretUrl
+			? `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`
+			: undefined
+	)
+
+	let moreItems = $derived([
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -789,6 +811,13 @@
 				appExport?.open($app)
 			}
 		},
+		{
+			displayName: 'Public URL',
+			icon: Globe,
+			disabled: !secretUrlHref,
+			href: secretUrlHref,
+			hrefTarget: '_blank'
+		},
 		// {
 		// 	displayName: 'Publish to Hub',
 		// 	icon: faGlobe,
@@ -797,13 +826,7 @@
 		// 		window.open(url.toString(), '_blank')
 		// 	}
 		// },
-		{
-			displayName: 'Hub compatible JSON',
-			icon: FileUp,
-			action: () => {
-				appExport?.open(toStatic($app, $staticExporter, $summary).app)
-			}
-		},
+
 		{
 			displayName: 'App inputs',
 			icon: FormInput,
@@ -860,8 +883,15 @@
 			action: () => {
 				lazyDrawerOpen = true
 			}
+		},
+		{
+			displayName: 'Hub export',
+			icon: FileUp,
+			action: () => {
+				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+			}
 		}
-	]
+	]) as Item[]
 
 	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
@@ -874,8 +904,6 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
-
-	const dispatch = createEventDispatcher()
 
 	function setTheme(newDarkMode: boolean | undefined) {
 		let globalDarkMode = window.localStorage.getItem('dark-mode')
@@ -965,8 +993,8 @@
 	})}
 {/if}
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
@@ -1167,29 +1195,24 @@
 			</div>
 		{/snippet}
 		<div class="py-2"></div>
-		{#if $appPath == ''}
-			<Alert title="Require saving" type="error">
-				Save this app once before you can publish it
-			</Alert>
-		{:else}
-			<Alert title="App executed on behalf of you">
-				A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
-				<Tooltip>
-					It ensures that all required resources/runnable visible for publisher but not for viewer
-					at time of creating the app would prevent the execution of the app. To guarantee tight
-					security, a policy is computed at time of deployment of the app which only allow the
-					scripts/flows referred to in the app to be called on behalf of. Furthermore, static
-					parameters are not overridable. Hence, users will only be able to use the app as intended
-					by the publisher without risk for leaking resources not used in the app.
-				</Tooltip>
-			</Alert>
+		<Alert title="App executed on behalf of you">
+			A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
+			<Tooltip>
+				It ensures that all required resources/runnable visible for publisher but not for viewer at
+				time of creating the app would prevent the execution of the app. To guarantee tight
+				security, a policy is computed at time of deployment of the app which only allow the
+				scripts/flows referred to in the app to be called on behalf of. Furthermore, static
+				parameters are not overridable. Hence, users will only be able to use the app as intended by
+				the publisher without risk for leaking resources not used in the app.
+			</Tooltip>
+		</Alert>
 
-			<div class="mt-10"></div>
+		<div class="mt-10"></div>
 
-			<h2>Public URL</h2>
-			<div class="mt-4"></div>
+		<h2>Public URL</h2>
 
-			<div class="flex gap-2 items-center">
+		<div class="my-6">
+			<div class="flex gap-2 items-center mb-2">
 				<Toggle
 					options={{
 						left: `Require login and read-access`,
@@ -1200,85 +1223,82 @@
 						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 						setPublishState()
 					}}
+					disabled={$appPath == ''}
 				/>
 			</div>
-
-			<div class="my-6 box">
-				<div class="text-secondary">
-					<div>Public URL</div>
-				</div>
-				{#if secretUrl}
-					{@const href = `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`}
-					<ClipboardPanel content={href} size="md" />
-				{:else}<Loader2 class="animate-spin" />
-				{/if}
-				<div class="text-xs text-secondary mt-1">
-					Share this url directly or embed it using an iframe (if requiring login, top-level domain
-					of embedding app must be the same as the one of Windmill)
-				</div>
-
-				<div class="mt-4">
-					{#if !$enterpriseLicense}
-						<Alert title="EE Only" type="warning" size="xs">
-							Custom path is an enterprise only feature.
-						</Alert>
-						<div class="mb-2"></div>
-					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
-						<Alert type="warning" title="Admin only" size="xs">
-							Custom path can only be set by workspace admins
-						</Alert>
-						<div class="mb-2"></div>
-					{/if}
-					<Toggle
-						on:change={({ detail }) => {
-							customPath = detail ? '' : undefined
-							if (customPath === undefined) {
-								customPathError = ''
-							}
-						}}
-						checked={customPath !== undefined}
-						options={{
-							right: 'Use a custom URL'
-						}}
-						disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
-					/>
-
-					{#if customPath !== undefined}
-						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-							<div>Custom path</div>
-						</div>
-						<input
-							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-							type="text"
-							autocomplete="off"
-							bind:value={customPath}
-							class={customPathError === ''
-								? ''
-								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-							oninput={() => {
-								dirtyCustomPath = true
-							}}
-						/>
-						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-							<div>Custom public URL</div>
-						</div>
-						<ClipboardPanel content={fullCustomUrl} size="md" />
-
-						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-							>{dirtyCustomPath ? customPathError : ''}
-						</div>
-					{/if}
-				</div>
+			{#if $appPath == ''}
+				<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
+			{:else if secretUrlHref}
+				<ClipboardPanel content={secretUrlHref} size="md" />
+			{:else}<Loader2 class="animate-spin" />
+			{/if}
+			<div class="text-xs text-secondary mt-1">
+				Share this url directly or embed it using an iframe (if requiring login, top-level domain of
+				embedding app must be the same as the one of Windmill)
 			</div>
-			<Alert type="info" title="Only latest deployed app is publicly available">
-				You will still need to deploy the app to make visible the latest changes
-			</Alert>
 
-			<a
-				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
-				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
-			>
-		{/if}
+			<div class="mt-4">
+				{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+					<Alert type="warning" title="Admin only" size="xs">
+						Custom path can only be set by workspace admins
+					</Alert>
+					<div class="mb-2"></div>
+				{/if}
+				{#if !$enterpriseLicense}
+					<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap mb-2">
+						<AlertTriangle size={16} />
+						EE only <Tooltip>Enterprise Edition only feature</Tooltip>
+					</div>
+				{/if}
+				<Toggle
+					on:change={({ detail }) => {
+						customPath = detail ? '' : undefined
+						if (customPath === undefined) {
+							customPathError = ''
+						}
+					}}
+					checked={customPath !== undefined}
+					options={{
+						right: 'Use a custom URL'
+					}}
+					disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
+				/>
+
+				{#if customPath !== undefined}
+					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+						<div>Custom path</div>
+					</div>
+					<input
+						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+						type="text"
+						autocomplete="off"
+						bind:value={customPath}
+						class={customPathError === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						oninput={() => {
+							dirtyCustomPath = true
+						}}
+					/>
+					<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
+						<div>Custom public URL</div>
+					</div>
+					<ClipboardPanel content={fullCustomUrl} size="md" />
+
+					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+						>{dirtyCustomPath ? customPathError : ''}
+					</div>
+				{/if}
+			</div>
+		</div>
+		<Alert type="info" title="Only latest deployed app is publicly available">
+			You will still need to deploy the app to make visible the latest changes
+		</Alert>
+
+		<a
+			href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+			class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
+		>
 	</DrawerContent>
 </Drawer>
 
@@ -1434,9 +1454,9 @@
 				hidden={leftPanelHidden}
 				on:click={() => {
 					if (leftPanelHidden) {
-						dispatch('showLeftPanel')
+						onShowLeftPanel?.()
 					} else {
-						dispatch('hideLeftPanel')
+						onHideLeftPanel?.()
 					}
 				}}
 			/>
@@ -1445,9 +1465,9 @@
 				direction="bottom"
 				on:click={() => {
 					if (bottomPanelHidden) {
-						dispatch('showBottomPanel')
+						onShowBottomPanel?.()
 					} else {
-						dispatch('hideBottomPanel')
+						onHideBottomPanel?.()
 					}
 				}}
 			/>
@@ -1456,9 +1476,9 @@
 				direction="right"
 				on:click={() => {
 					if (rightPanelHidden) {
-						dispatch('showRightPanel')
+						onShowRightPanel?.()
 					} else {
-						dispatch('hideRightPanel')
+						onHideRightPanel?.()
 					}
 				}}
 			/>

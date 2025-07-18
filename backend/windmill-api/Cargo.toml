@@ -40,7 +40,7 @@ mcp = ["dep:rmcp"]
 python = []
 
 [dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
+rmcp = { version = "0.2.1", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true

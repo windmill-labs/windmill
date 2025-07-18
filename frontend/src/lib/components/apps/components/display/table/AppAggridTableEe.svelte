@@ -1,4 +1,4 @@
-<script context="module">
+<script module>
 </script>
 
 <script lang="ts">
@@ -15,17 +15,31 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type { TableAction } from '$lib/components/apps/editor/component'
 
-	export let id: string
-	export let license: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
-	export let actions: TableAction[] = []
-	export let actionsOrder: RichConfiguration | undefined = undefined
+	interface Props {
+		id: string
+		license: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
+		actions?: TableAction[]
+		actionsOrder?: RichConfiguration | undefined
+	}
 
-	let loaded = false
+	let {
+		id,
+		license,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render,
+		customCss = undefined,
+		actions = [],
+		actionsOrder = undefined
+	}: Props = $props()
+
+	let loaded = $state(false)
 	async function load() {
 		await import('ag-grid-enterprise')
 		const { LicenseManager } = await import('ag-grid-enterprise')

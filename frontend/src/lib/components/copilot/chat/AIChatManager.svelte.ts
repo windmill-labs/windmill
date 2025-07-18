@@ -16,7 +16,11 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
+import {
+	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareScriptSystemMessage,
+	prepareScriptTools
+} from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -30,14 +34,10 @@ import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/type
 import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
-
-type TriggerablesMap = Record<
-	string,
-	{
-		description: string
-		onTrigger: ((value?: string) => void) | undefined
-	}
->
+import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import type { ContextElement } from './context'
+import type { Selection } from 'monaco-editor'
+import type AIChatInput from './AIChatInput.svelte'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -47,7 +47,6 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
@@ -57,8 +56,7 @@ class AIChatManager {
 	abortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
-	readonly isOpen = $derived(this.size > 0)
+	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
@@ -74,13 +72,13 @@ class AIChatManager {
 	tools = $state<Tool<any>[]>([])
 	helpers = $state<any | undefined>(undefined)
 
-	triggerablesByAI = $state<TriggerablesMap>({})
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
+	aiChatInput = $state<AIChatInput | null>(null)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -89,14 +87,27 @@ class AIChatManager {
 		ask: true
 	})
 
-	open = $derived(this.size > 0)
+	open = $derived(chatState.size > 0)
 
-	async loadApiTools() {
-		if (this.apiTools.length === 0) {
+	loadApiTools = async () => {
+		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.NAVIGATOR) {
 				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			}
+		} catch (err) {
+			console.error('Error loading api tools', err)
+			this.apiTools = []
+		}
+	}
+
+	setAiChatInput(aiChatInput: AIChatInput | null) {
+		this.aiChatInput = aiChatInput
+	}
+
+	focusInput() {
+		if (this.aiChatInput) {
+			this.aiChatInput.focusInput()
 		}
 	}
 
@@ -129,7 +140,7 @@ class AIChatManager {
 				getLang: () => lang
 			}
 			if (options?.closeScriptSettings) {
-				const closeComponent = this.triggerablesByAI['close-script-builder-settings']
+				const closeComponent = triggerablesByAi['close-script-builder-settings']
 				if (closeComponent) {
 					closeComponent.onTrigger?.()
 				}
@@ -188,22 +199,22 @@ class AIChatManager {
 	}
 
 	openChat = () => {
-		this.size = this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE
+		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
-		this.savedSize = this.size
-		this.size = 0
+		this.savedSize = chatState.size
+		chatState.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		if (this.size > 0) {
-			this.savedSize = this.size
+		if (chatState.size > 0) {
+			this.savedSize = chatState.size
 		}
-		this.size = this.size === 0 ? (this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
+		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
+		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -226,10 +237,37 @@ class AIChatManager {
 		}
 	}
 
+	retryRequest = (messageIndex: number) => {
+		const message = this.displayMessages[messageIndex]
+		if (message && message.role === 'user') {
+			this.restartGeneration(messageIndex)
+			message.error = false
+		} else {
+			throw new Error('No user message found at the specified index')
+		}
+	}
+
+	private getLastUserMessage = () => {
+		for (let i = this.displayMessages.length - 1; i >= 0; i--) {
+			const message = this.displayMessages[i]
+			if (message.role === 'user') {
+				return message
+			}
+		}
+	}
+
+	private flagLastMessageAsError = () => {
+		const lastUserMessage = this.getLastUserMessage()
+		if (lastUserMessage) {
+			lastUserMessage.error = true
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
-		callbacks
+		callbacks,
+		systemMessage: systemMessageOverride
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -237,12 +275,13 @@ class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
 			let completion: any = null
 
 			while (true) {
-				const systemMessage = this.systemMessage
+				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const tools = this.tools
 				const helpers = this.helpers
 
@@ -365,6 +404,90 @@ class AIChatManager {
 		}
 	}
 
+	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
+		// Validate inputs
+		if (!instructions.trim()) {
+			throw new Error('Instructions are required')
+		}
+		this.abortController = new AbortController()
+		const lang = this.scriptEditorOptions?.lang ?? 'bun'
+		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
+		const startLine = selection.startLineNumber
+		const endLine = selection.endLineNumber
+		selectedContext.push({
+			type: 'code_piece',
+			lang,
+			title: `L${startLine}-L${endLine}`,
+			startLine,
+			endLine,
+			content: selectedCode
+		})
+
+		const systemMessage: ChatCompletionSystemMessageParam = {
+			role: 'system',
+			content: INLINE_CHAT_SYSTEM_PROMPT
+		}
+
+		let reply = ''
+
+		try {
+			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+				isPreprocessor: false
+			})
+			const messages = [userMessage]
+
+			const params = {
+				messages,
+				abortController: this.abortController,
+				callbacks: {
+					onNewToken: (token: string) => {
+						reply += token
+					},
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
+				},
+				systemMessage
+			}
+
+			await this.chatRequest({ ...params })
+
+			// Validate we received a response
+			if (!reply.trim()) {
+				throw new Error('AI response was empty')
+			}
+
+			// Try to extract new code from response
+			const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
+			if (newCodeMatch && newCodeMatch[1]) {
+				const code = newCodeMatch[1].trim()
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// Fallback: try to take everything after the last <new_code> tag
+			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
+			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
+				const code = lastNewCodeMatch[1].trim().replace(/```/g, '')
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// If no code tags found, throw error with helpful message
+			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
+		} catch (error) {
+			// if abort controller is aborted, don't throw an error
+			if (this.abortController?.signal.aborted) {
+				return
+			}
+			console.error('Unexpected error in sendInlineRequest:', error)
+			throw new Error('An unexpected error occurred. Please try again.')
+		}
+	}
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -412,7 +535,8 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
-					snapshot
+					snapshot,
+					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
 			const oldInstructions = this.instructions
@@ -481,12 +605,17 @@ class AIChatManager {
 				}
 			}
 
+			if (this.mode === AIMode.NAVIGATOR && this.apiTools.length === 0) {
+				await this.loadApiTools()
+			}
+
 			await this.chatRequest({
 				...params
 			})
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
+			this.flagLastMessageAsError()
 			if (err instanceof Error) {
 				sendUserToast('Failed to send request: ' + err.message, true)
 			} else {
@@ -501,9 +630,9 @@ class AIChatManager {
 		this.abortController?.abort()
 	}
 
-	restartLastGeneration = (displayMessageIndex: number) => {
+	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
-		
+
 		if (!userMessage || userMessage.role !== 'user') {
 			throw new Error('No user message found at the specified index')
 		}
@@ -511,23 +640,17 @@ class AIChatManager {
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
-		// Find the last user message in actual messages and remove it and everything after it
-		let lastActualUserMessageIndex = -1
-		for (let i = this.messages.length - 1; i >= 0; i--) {
-			if (this.messages[i].role === 'user') {
-				lastActualUserMessageIndex = i
-				break
-			}
-		}
+		// Find corresponding message in actual messages and remove it and everything after it
+		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
 
-		if (lastActualUserMessageIndex === -1) {
+		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')
 		}
 
-		this.messages = this.messages.slice(0, lastActualUserMessageIndex)
+		this.messages = this.messages.slice(0, actualMessageIndex)
 
 		// Resend the request with the same instructions
-		this.instructions = userMessage.content
+		this.instructions = newContent ?? userMessage.content
 		this.sendRequest()
 	}
 
@@ -547,6 +670,7 @@ class AIChatManager {
 		}
 		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		this.focusInput()
 	}
 
 	saveAndClear = async () => {

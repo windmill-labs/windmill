@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components, type ButtonComponent } from '../../editor/component'
@@ -81,12 +79,14 @@
 			)
 		}
 	}
-	run(() => {
-		resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
+	$effect(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
 	})
-	run(() => {
-		resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	$effect(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
 	})
+
+	let menu: Menu | undefined = $state()
 </script>
 
 <InitializeComponent {id} />
@@ -115,6 +115,7 @@
 		<Menubar class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}>
 			{#snippet children({ createMenu })}
 				<Menu
+					bind:this={menu}
 					{createMenu}
 					placement="bottom-end"
 					justifyEnd={false}
@@ -183,6 +184,9 @@
 											componentInput={actionButton.componentInput}
 											noWFull={false}
 											isMenuItem={true}
+											onDone={() => {
+												menu?.close()
+											}}
 										/>
 									</div>
 								{/if}

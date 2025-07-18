@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	let cachedValues: Record<
+		string,
+		{
+			latestHash: string | undefined
+		}
+	> = {}
+</script>
+
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -7,28 +16,55 @@
 	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	export let flowModuleValue: FlowModuleValue | undefined = undefined
-	export let title: string | undefined = undefined
-	export let summary: string | undefined = undefined
+	interface Props {
+		flowModuleValue?: FlowModuleValue | undefined
+		title?: string | undefined
+		summary?: string | undefined
+		children?: import('svelte').Snippet
+	}
 
-	let latestHash: string | undefined = undefined
+	let {
+		flowModuleValue = undefined,
+		title = undefined,
+		summary = $bindable(undefined),
+		children
+	}: Props = $props()
+
+	let latestHash: string | undefined = $state(undefined)
+	function getCachedKey(path: string) {
+		return `${$workspaceStore}-${path}`
+	}
+	function getCachedValues(path: string) {
+		const key = getCachedKey(path)
+		latestHash = cachedValues[key]?.latestHash
+	}
+	if (flowModuleValue?.type === 'script' && flowModuleValue.path) {
+		getCachedValues(flowModuleValue.path)
+	}
+
 	async function loadLatestHash(value: PathScript) {
 		let script = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
 			path: value.path
 		})
+		const key = getCachedKey(value.path)
+		cachedValues[key] = {
+			latestHash: script.hash
+		}
 		latestHash = script.hash
 	}
 
 	const dispatch = createEventDispatcher()
 
-	$: $workspaceStore &&
-		flowModuleValue?.type === 'script' &&
-		flowModuleValue.path &&
-		!flowModuleValue.path.startsWith('hub/') &&
-		loadLatestHash(flowModuleValue)
+	$effect.pre(() => {
+		$workspaceStore &&
+			flowModuleValue?.type === 'script' &&
+			flowModuleValue.path &&
+			!flowModuleValue.path.startsWith('hub/') &&
+			untrack(() => loadLatestHash(flowModuleValue))
+	})
 </script>
 
 <div
@@ -114,5 +150,5 @@
 	{#if title}
 		<div class="text-sm font-bold text-primary pr-2">{title}</div>
 	{/if}
-	<slot />
+	{@render children?.()}
 </div>

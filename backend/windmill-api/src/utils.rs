@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -17,6 +17,8 @@ use windmill_common::{
     error::{self, Error},
     DB,
 };
+
+use crate::{db::ApiAuthed, scopes::ScopeDefinition};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
@@ -39,6 +41,36 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if let Some(scopes) = authed.scopes.as_ref() {
+        let mut is_scoped_token = false;
+        let required_scope = ScopeDefinition::from_scope_string(&required())?;
+        for scope in scopes {
+            if !scope.starts_with("if_jobs:filter_tags:") {
+                if !is_scoped_token {
+                    is_scoped_token = true;
+                }
+
+                match ScopeDefinition::from_scope_string(scope) {
+                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
+                    _ => {}
+                }
+            }
+        }
+
+        if is_scoped_token {
+            return Err(Error::NotAuthorized(format!(
+                "Required scope: {}",
+                required_scope.as_string()
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
@@ -191,8 +223,6 @@ where
     let o: Option<String> = Option::deserialize(deserializer)?;
     Ok(o.filter(|s| !s.trim().is_empty()))
 }
-
-use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct CriticalAlert {
@@ -414,4 +444,10 @@ pub async fn acknowledge_all_critical_alerts(
 pub struct ExpiringCacheEntry<T> {
     pub value: T,
     pub expiry: std::time::Instant,
+}
+
+#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
+    let mut w = lock.write().await;
+    *w = value;
 }

@@ -4,7 +4,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_assets_ts, parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -16,9 +16,10 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell
+	parse_powershell,
+	parse_assets_sql
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser-wasm-py'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
@@ -39,6 +40,7 @@ import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
+import { type AssetWithAccessType } from './components/assets/lib.js'
 
 const loadSchemaLastRun =
 	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
@@ -78,6 +80,40 @@ async function initWasmJava() {
 	await initJavaParser(wasmUrlJava)
 }
 
+export async function inferAssets(
+	language: SupportedLanguage | undefined,
+	code: string
+): Promise<AssetWithAccessType[]> {
+	try {
+		if (language === 'duckdb') {
+			await initWasmRegex()
+			return JSON.parse(parse_assets_sql(code))
+		}
+		if (language === 'deno' || language === 'nativets' || language === 'bun') {
+			await initWasmTs()
+			return JSON.parse(parse_assets_ts(code))
+		}
+		if (language === 'python3') {
+			await initWasmPython()
+			return JSON.parse(parse_assets_py(code))
+		}
+	} catch (e) {
+		console.error('error parsing assets', e)
+		return []
+	}
+	return []
+}
+
+const SQL_LANGUAGES = [
+	'postgresql',
+	'mysql',
+	'bigquery',
+	'snowflake',
+	'mssql',
+	'oracledb',
+	'duckdb'
+]
+
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
@@ -97,12 +133,17 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
+
+		if (language && SQL_LANGUAGES.includes(language)) {
+			await initWasmRegex()
+		}
+
 		if (
 			['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')
 		) {
-			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
+
 		if (language == 'python3') {
 			await initWasmPython()
 			inferedSchema = JSON.parse(parse_python(code, mainOverride))
@@ -151,7 +192,6 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'duckdb') {
-			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_duckdb(code))
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))

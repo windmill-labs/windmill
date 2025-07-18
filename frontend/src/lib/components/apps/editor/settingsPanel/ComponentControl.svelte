@@ -7,29 +7,35 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import { Button } from '$lib/components/common'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	export let type: keyof typeof components
+	interface Props {
+		type: keyof typeof components
+	}
+
+	let { type }: Props = $props()
 
 	const componentControls = getComponentControl(type)
 
-	let collapsed: boolean = true
+	let collapsed: boolean = $state(true)
 </script>
 
 <HighlightTheme />
 
 {#if componentControls?.length > 0}
 	<PanelSection title="Controls">
-		<div slot="action" class="flex justify-end flex-wrap gap-1">
-			<Button
-				color="light"
-				size="xs2"
-				btnClasses="text-2xs font-normal"
-				on:click={() => {
-					collapsed = !collapsed
-				}}
-			>
-				{collapsed ? 'Show' : 'Hide'} details
-			</Button>
-		</div>
+		{#snippet action()}
+			<div class="flex justify-end flex-wrap gap-1">
+				<Button
+					color="light"
+					size="xs2"
+					btnClasses="text-2xs font-normal"
+					on:click={() => {
+						collapsed = !collapsed
+					}}
+				>
+					{collapsed ? 'Show' : 'Hide'} details
+				</Button>
+			</div>
+		{/snippet}
 
 		{#if collapsed}
 			<div class="flex flex-row gap-1 flex-wrap">

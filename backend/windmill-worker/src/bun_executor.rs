@@ -171,7 +171,7 @@ pub async fn gen_bun_lockfile(
             )
             .await?;
         } else {
-            child_process.wait().await?;
+            Box::into_pin(child_process.wait()).await?;
         }
 
         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
@@ -366,7 +366,7 @@ pub async fn install_bun_lockfile(
         )
         .await?
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     if has_file {
@@ -418,17 +418,17 @@ try {{
 
 }}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/wrapper.mjs"],
-    outdir: "./",
-    target: "node",
-    plugins: [p],
-    external: fileNames,
-    minify: true,
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/wrapper.mjs"],
+        outdir: "./",
+        target: "node",
+        plugins: [p],
+        external: fileNames,
+        minify: true,
+    }});
+}} catch(err) {{
+    console.log(err);
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
@@ -462,21 +462,21 @@ plugin(p)
                 r#"
 {}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/main.ts"],
-    outdir: "./",
-    target: "{}",
-    plugins: [p],
-    external: ["electron"],
-    minify: {{
-        identifiers: false,
-        syntax: true,
-        whitespace: false
-    }},
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/main.ts"],
+        outdir: "./",
+        target: "{}",
+        plugins: [p],
+        external: ["electron"],
+        minify: {{
+            identifiers: false,
+            syntax: true,
+            whitespace: false
+        }},
+    }});
+}} catch(err) {{
+    console.log(err)
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
@@ -589,7 +589,7 @@ pub async fn generate_bun_bundle(
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
     Ok(())
 }
@@ -894,7 +894,8 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor =
+        job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;

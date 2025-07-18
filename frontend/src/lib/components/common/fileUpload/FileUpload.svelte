@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { AppService, HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
-	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
+	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash, XIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { emptyString } from '$lib/utils'
@@ -58,11 +58,7 @@
 		allowMultiple = true,
 		allowDelete = true,
 		folderOnly = false,
-		containerText = folderOnly
-			? 'Drag and drop a folder here or click to browse'
-			: allowMultiple
-				? 'Drag and drop files here or click to browse'
-				: 'Drag and drop a file here or click to browse',
+		containerText: customContainerText = undefined,
 		customResourcePath = undefined,
 		customResourceType = undefined,
 		customClass = '',
@@ -80,6 +76,15 @@
 		computeForceViewerPolicies = undefined
 	}: Props = $props()
 
+	const containerText = $derived(
+		customContainerText ??
+			(folderOnly
+				? 'Drag and drop a folder here or click to browse'
+				: allowMultiple
+					? 'Drag and drop files here or click to browse'
+					: 'Drag and drop a file here or click to browse')
+	)
+
 	const dispatch = createEventDispatcher<{
 		addition: { path?: string; filename?: string }
 		deletion: { path: string }
@@ -94,16 +99,15 @@
 	)
 	init()
 
+	function transform(initialValue: { s3: string; filename?: string }) {
+		return {
+			name: initialValue?.filename ?? initialValue?.s3 ?? 'Unknown file',
+			path: initialValue?.s3,
+			fromBucket: true
+		}
+	}
 	function init() {
 		if (initialS3) {
-			function transform(initialValue: { s3: string; filename: string }) {
-				return {
-					name: initialValue.filename,
-					size: 0,
-					progress: 100,
-					path: initialValue?.s3
-				}
-			}
 			for (const s3 of initialS3) {
 				if (!$fileUploads.find((fileUpload) => fileUpload.path === s3)) {
 					let initialFileUploads = initialValue
@@ -117,15 +121,24 @@
 		}
 	}
 
+	export function addUpload(upload: { s3: string; filename?: string }) {
+		$fileUploads = [...$fileUploads, transform(upload)]
+	}
+
+	export function setUpload(upload: { s3: string; filename?: string }) {
+		$fileUploads = [transform(upload)]
+	}
+
 	type FileUploadData = {
 		name: string
-		size: number
-		progress: number
+		size?: number
+		progress?: number
 		cancelled?: boolean
 		errorMessage?: string
 		path?: string
 		file?: File
 		deleteToken?: string
+		fromBucket?: boolean
 	}
 
 	async function handleChange(files: File[] | undefined) {
@@ -394,8 +407,28 @@
 	})
 </script>
 
+{#snippet fileInput()}
+	<FileInput
+		{folderOnly}
+		{disabled}
+		accept={acceptedFileTypes?.join(',')}
+		multiple={allowMultiple}
+		returnFileNames
+		{iconSize}
+		on:change={({ detail }) => {
+			forceDisplayUploads = false
+			handleChange(detail)
+		}}
+		class={twMerge('w-full h-full', customClass, 'wm-file-input')}
+		style={customStyle}
+		defaultFile={defaultValue}
+	>
+		{containerText}{#if disabled}<br />(Disabled){/if}
+	</FileInput>
+{/snippet}
+
 <div class="w-full h-full p-0 flex flex-col">
-	{#if $fileUploads.length > 0 && !forceDisplayUploads}
+	{#if $fileUploads.length > 0}
 		<div class="border rounded-md flex flex-col gap-1 divide-y h-full w-full p-1">
 			<div class="flex h-full overflow-y-auto flex-col">
 				{#each $fileUploads as fileUpload}
@@ -468,7 +501,7 @@
 										Remove from list
 									</Button>
 								{/if}
-								{#if fileUpload.progress < 100 && !fileUpload.cancelled && !fileUpload.errorMessage}
+								{#if fileUpload.progress !== undefined && fileUpload.progress < 100 && !fileUpload.cancelled && !fileUpload.errorMessage}
 									<Button
 										size="xs2"
 										color="light"
@@ -506,100 +539,115 @@
 									>
 										Delete
 									</Button>
+								{:else if fileUpload.fromBucket}
+									<Button
+										size="xs2"
+										color="red"
+										variant="border"
+										on:click={() => {
+											$fileUploads = $fileUploads.filter(
+												(_fileUpload) => _fileUpload.name !== fileUpload.name
+											)
+
+											if (fileUpload.path) {
+												dispatch('deletion', { path: fileUpload.path })
+											}
+										}}
+										startIcon={{
+											icon: XIcon
+										}}
+									>
+										Remove
+									</Button>
 								{/if}
 							</div>
 						</div>
-						<FileProgressBar
-							progress={fileUpload.progress}
-							color={fileUpload.errorMessage
-								? '#ef4444'
-								: fileUpload.cancelled
-									? '#eab308'
-									: fileUpload.progress === 100
-										? '#22c55e'
-										: '#3b82f6'}
-							ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
-						>
-							{#if fileUpload.errorMessage}
-								<span class="text-xs text-red-600">{fileUpload.errorMessage}</span>
-							{:else if fileUpload.cancelled}
-								<span class="text-xs text-yellow-600">Upload cancelled</span>
-							{/if}
-						</FileProgressBar>
+						{#if !fileUpload.fromBucket}
+							<FileProgressBar
+								progress={fileUpload.progress}
+								color={fileUpload.errorMessage
+									? '#ef4444'
+									: fileUpload.cancelled
+										? '#eab308'
+										: fileUpload.progress === 100
+											? '#22c55e'
+											: '#3b82f6'}
+								ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
+							>
+								{#if fileUpload.errorMessage}
+									<span class="text-xs text-red-600">{fileUpload.errorMessage}</span>
+								{:else if fileUpload.cancelled}
+									<span class="text-xs text-yellow-600">Upload cancelled</span>
+								{/if}
+							</FileProgressBar>
+						{/if}
 						{#if !(fileUpload.cancelled || fileUpload.errorMessage !== undefined)}
 							<span class="text-xs text-gray-500 dark:text-gray-200">
-								{fileUpload.progress === 100 ? 'Upload finished' : `Uploading`} to path: {fileUpload.path ??
-									'N/A'}
+								{#if fileUpload.fromBucket}
+									{fileUpload.path ?? 'N/A'}
+								{:else}
+									{fileUpload.progress === 100 ? 'Upload finished' : `Uploading`} to path: {fileUpload.path ??
+										'N/A'}
+								{/if}
 							</span>
 						{/if}
 					</div>
 				{/each}
 			</div>
-			{#if allowMultiple}
-				<div class="flex flex-row gap-1 items-center justify-end p-1">
-					{#if !$fileUploads.every((fileUpload) => fileUpload.progress === 100 || fileUpload.cancelled)}
-						<Button
-							size="xs2"
-							color="light"
-							on:click={() => {
-								$fileUploads = $fileUploads.map((fileUpload) => {
-									if (fileUpload.progress === 100 || fileUpload.cancelled) {
-										return fileUpload
-									}
-
-									fileUpload.cancelled = true
-									fileUpload.progress = 0
-									return fileUpload
-								})
-							}}
-							startIcon={{
-								icon: Ban
-							}}
-						>
-							Cancel all uploads
-						</Button>
-					{/if}
+			<div class="flex flex-row gap-1 items-center justify-end p-1">
+				{#if !forceDisplayUploads && (allowMultiple || folderOnly) && !$fileUploads.every((fileUpload) => fileUpload.progress === 100 || fileUpload.cancelled || fileUpload.fromBucket)}
 					<Button
 						size="xs2"
 						color="light"
 						on:click={() => {
-							forceDisplayUploads = true
+							$fileUploads = $fileUploads.map((fileUpload) => {
+								if (fileUpload.progress === 100 || fileUpload.cancelled) {
+									return fileUpload
+								}
+
+								fileUpload.cancelled = true
+								fileUpload.progress = 0
+								return fileUpload
+							})
 						}}
 						startIcon={{
-							icon: Files
+							icon: Ban
 						}}
-						disabled={$fileUploads.some(
-							(fileUpload) => fileUpload.progress !== 100 && !fileUpload.cancelled
-						)}
 					>
-						Upload more files
+						Cancel all uploads
 					</Button>
-				</div>
-			{/if}
+				{/if}
+				{#if allowMultiple}
+					{#if forceDisplayUploads}
+						{@render fileInput()}
+					{:else}
+						<Button
+							size="xs2"
+							color="light"
+							on:click={() => {
+								forceDisplayUploads = true
+							}}
+							startIcon={{
+								icon: Files
+							}}
+							disabled={$fileUploads.some(
+								(fileUpload) =>
+									fileUpload.progress !== 100 && !fileUpload.cancelled && !fileUpload.fromBucket
+							)}
+						>
+							Upload more files
+						</Button>
+					{/if}
+				{/if}
+			</div>
 		</div>
 	{:else}
-		<FileInput
-			{folderOnly}
-			{disabled}
-			accept={acceptedFileTypes?.join(',')}
-			multiple={allowMultiple}
-			returnFileNames
-			{iconSize}
-			on:change={({ detail }) => {
-				forceDisplayUploads = false
-				handleChange(detail)
-			}}
-			class={twMerge('w-full h-full', customClass, 'wm-file-input')}
-			style={customStyle}
-			defaultFile={defaultValue}
-		>
-			{containerText}{#if disabled}<br />(Disabled){/if}
-		</FileInput>
+		{@render fileInput()}
 	{/if}
 	{#if initialS3 && initialS3.length > 0 && $fileUploads.length == 0}
 		<div class="flex flex-row gap-1 items-center p-1">
 			<span class="text-sm">
-				File currently selected: {initialS3?.join(', ')}
+				File{initialS3.length > 1 ? 's' : ''} currently selected: {initialS3?.join(', ')}
 			</span>
 		</div>
 	{/if}

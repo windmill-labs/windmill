@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte'
+	import { onDestroy, onMount, tick, untrack } from 'svelte'
 	import {
 		AppService,
 		FlowService,
@@ -25,7 +25,8 @@
 		Route,
 		Search,
 		SearchCode,
-		Unplug
+		Unplug,
+		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -43,12 +44,12 @@
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 
-	let open: boolean = false
+	let open: boolean = $state(false)
 
-	let searchTerm: string = ''
-	let textInput: HTMLInputElement
-	let selectedWorkspace: string | undefined = undefined
-	let contentSearch: ContentSearchInner | undefined = undefined
+	let searchTerm: string = $state('')
+	let textInput: HTMLInputElement | undefined = $state()
+	let selectedWorkspace: string | undefined = $state(undefined)
+	let contentSearch: ContentSearchInner | undefined = $state(undefined)
 
 	const RUNS_PREFIX = '>'
 	const LOGS_PREFIX = '!'
@@ -57,7 +58,7 @@
 
 	type SearchMode = 'default' | 'switch-mode' | 'runs' | 'content' | 'logs'
 
-	let tab: SearchMode = 'default'
+	let tab: SearchMode = $state('default')
 
 	type quickMenuItem = {
 		search_id: string
@@ -195,15 +196,17 @@
 
 	let defaultMenuItemsWithHidden = [...defaultMenuItems, ...hiddenMenuItems]
 
-	let itemMap = {
+	let itemMap = $state({
 		default: defaultMenuItems as any[],
 		'switch-mode': switchModeItems,
 		runs: [] as any[],
 		content: [] as any[],
 		logs: [] as any[]
-	}
+	})
 
-	$: tab === 'content' && contentSearch?.open()
+	$effect(() => {
+		tab === 'content' && contentSearch?.open()
+	})
 
 	async function switchPrompt(tab: string) {
 		if (tab === 'default') {
@@ -222,7 +225,7 @@
 			searchTerm = LOGS_PREFIX
 		}
 		selectedItem = selectItem(0)
-		textInput.focus()
+		textInput?.focus()
 	}
 
 	function removePrefix(str: string, prefix: string): string {
@@ -235,10 +238,10 @@
 	let opts: uFuzzy.Options = {}
 
 	let uf = new uFuzzy(opts)
-	let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
+	// let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
 	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
-	let askAiButton: AskAiButton | undefined
+	let askAiButton: AskAiButton | undefined = $state()
 
 	function fuzzyFilter(filter: string, items: any[], itemsPlainText: string[]) {
 		if (filter === '') {
@@ -263,7 +266,7 @@
 		return r
 	}
 
-	let queryParseErrors: string[] = []
+	let queryParseErrors: string[] = $state([])
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -291,8 +294,7 @@
 		}
 
 		if (tab === 'default') {
-			if (searchTerm === '')
-				itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+			if (searchTerm === '') itemMap['default'] = defaultMenuItems
 			else
 				itemMap['default'] = fuzzyFilter(
 					searchTerm,
@@ -332,7 +334,7 @@
 		return itemMap[tab][index]
 	}
 
-	let selectedItem: any
+	let selectedItem: any = $state()
 
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
@@ -370,9 +372,6 @@
 					}
 				}
 			}
-			if ((itemMap[tab] ?? []).length === 0 && searchTerm.length > 0 && event.key === 'Enter') {
-				askAiButton?.onClick()
-			}
 		}
 	}
 
@@ -384,7 +383,7 @@
 	// Used by callbacks, call this to change the mode
 	function switchMode(mode: SearchMode) {
 		switchPrompt(mode)
-		textInput.focus()
+		textInput?.focus()
 	}
 
 	function gotoWindmillItemPage(e: TableAny, newtab: boolean = false) {
@@ -418,7 +417,7 @@
 		}
 	}
 
-	let mouseMoved: boolean = false
+	let mouseMoved: boolean = $state(false)
 	function handleMouseMove() {
 		mouseMoved = true
 	}
@@ -433,7 +432,10 @@
 		window.removeEventListener('mousemove', handleMouseMove)
 	})
 
-	$: searchTerm, handleSearch()
+	$effect(() => {
+		searchTerm
+		untrack(() => handleSearch())
+	})
 
 	function placeholderFromPrefix(text: string): string {
 		switch (text) {
@@ -470,7 +472,7 @@
 
 	type TableAny = TableScript | TableFlow | TableApp | TableRawApp
 
-	let combinedItems: TableAny[] | undefined = undefined
+	let combinedItems: TableAny[] | undefined = $state(undefined)
 
 	async function fetchCombinedItems() {
 		const scripts = await ScriptService.listScripts({
@@ -579,10 +581,10 @@
 		}
 	}
 
-	let runsSearch: RunsSearch
-	let runSearchRemainingCount: number | undefined = undefined
-	let runSearchTotalCount: number | undefined = undefined
-	let indexMetadata: SearchJobsIndexResponse['index_metadata'] = undefined
+	let runsSearch: RunsSearch | undefined = $state()
+	let runSearchRemainingCount: number | undefined = $state(undefined)
+	let runSearchTotalCount: number | undefined = $state(undefined)
+	let indexMetadata: SearchJobsIndexResponse['index_metadata'] = $state(undefined)
 </script>
 
 {#if open}
@@ -596,9 +598,11 @@
 		>
 			<div
 				class="{maxModalWidth(tab)} w-full mt-36 bg-surface rounded-lg relative"
-				use:clickOutside={false}
-				on:click_outside={() => {
-					open = false
+				use:clickOutside={{
+					capture: false,
+					onClickOutside: () => {
+						open = false
+					}
 				}}
 			>
 				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
@@ -631,7 +635,7 @@
 					{#if queryParseErrors.length > 0}
 						<Popover notClickable placement="bottom-start">
 							<AlertTriangle size={16} class="text-yellow-500" />
-							<svelte:fragment slot="text">
+							{#snippet text()}
 								Some of your search terms have been ignored because one or more parse errors:<br
 								/><br />
 								<ul>
@@ -639,17 +643,21 @@
 										<li>- {msg}</li>
 									{/each}
 								</ul>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 					{/if}
 				</div>
 				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) =>
-							defaultMenuItemsWithHidden.includes(e)
+							defaultMenuItemsWithHidden.some((x) => e.search_id === x.search_id)
 						)}
 						{#if items.length > 0}
-							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
+							<div
+								class={tab === 'switch-mode' || itemMap[tab].length === items.length
+									? 'p-2'
+									: 'p-2 border-b'}
+							>
 								{#each items as el}
 									<QuickMenuItem
 										onselect={(shift) => el?.action(shift)}
@@ -667,8 +675,8 @@
 					{/if}
 
 					{#if tab === 'default'}
-						<div class="p-2">
-							{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
+						{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
+							<div class="p-2">
 								<div class="py-2 px-1 text-xs font-semibold text-tertiary">
 									Flows/Scripts/Apps
 								</div>
@@ -687,19 +695,28 @@
 										bind:mouseMoved
 									/>
 								{/each}
-							{/if}
+							</div>
+						{/if}
 
-							{#if (itemMap[tab] ?? []).length === 0}
+						{#if (itemMap[tab] ?? []).length === 0}
+							<div class="p-2">
+								<QuickMenuItem
+									onselect={() => {
+										askAiButton?.onClick()
+									}}
+									id={'ai:no-results-ask-ai'}
+									hovered={true}
+									label={`Try asking \`${searchTerm}\` to AI`}
+									icon={WandSparkles}
+									bind:mouseMoved
+								/>
 								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
-										<div class="text-2xl font-bold"
-											>Nothing found, ask the AI to find what you need!</div
-										>
-										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
+										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
 								</div>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					{:else if tab === 'content'}
 						<ContentSearchInner
 							search={removePrefix(searchTerm, '#')}

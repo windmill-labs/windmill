@@ -9,7 +9,7 @@
 		emptyString,
 		getSchemaFromProperties
 	} from '$lib/utils'
-	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
+	import { DollarSign, Plus, X, Check, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
@@ -25,7 +25,6 @@
 	import ArgEnum from './ArgEnum.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
-	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 	import autosize from '$lib/autosize'
@@ -42,6 +41,7 @@
 	import type { ComponentCustomCSS } from './apps/types'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 
 	interface Props {
 		label?: string
@@ -227,8 +227,6 @@
 
 	let ignoreValueUndefined = $state(false)
 	let error: string = $state('')
-	let s3FilePicker: S3FilePicker | undefined = $state()
-	let s3FileUploadRawMode: boolean = $state(false)
 	let isListJson = $state(false)
 	let hasIsListJsonChanged = $state(false)
 
@@ -499,16 +497,6 @@
 	})
 </script>
 
-<S3FilePicker
-	bind:this={s3FilePicker}
-	bind:selectedFileKey={value}
-	on:close={() => {
-		rawValue = JSON.stringify(value, null, 2)
-		editor?.setCode(rawValue)
-	}}
-	readOnlyMode={false}
-/>
-
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
@@ -631,6 +619,22 @@
 					<span>&nbsp; Not set</span>
 				{/if}
 			</div>
+		{:else if (inputCat == 'resource-object' && format && format.split('-').length > 1 && format
+				.replace('resource-', '')
+				.replace('_', '')
+				.toLowerCase() == 's3object') || (inputCat == 'list' && itemsType?.resourceType === 's3_object')}
+			<S3ArgInput
+				multiple={inputCat == 'list'}
+				bind:value
+				{defaultValue}
+				{setNewValueFromCode}
+				{workspace}
+				onFocus={() => dispatch('focus')}
+				onBlur={() => dispatch('blur')}
+				bind:editor
+				{appPath}
+				{computeS3ForceViewerPolicies}
+			/>
 		{:else if inputCat == 'list' && !isListJson}
 			<div class="w-full flex gap-4">
 				<div class="w-full">
@@ -640,6 +644,16 @@
 								{disabled}
 								bind:value
 								items={safeSelectItems(itemsType?.multiselect)}
+								onOpen={() => dispatch('focus')}
+								reorderable
+							/>
+						</div>
+					{:else if enum_ && (Array.isArray(value) || value == undefined)}
+						<div class="items-start">
+							<MultiSelect
+								{disabled}
+								bind:value
+								items={safeSelectItems(enum_)}
 								onOpen={() => dispatch('focus')}
 								reorderable
 							/>
@@ -748,6 +762,7 @@
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
+															{prettifyHeader}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -846,75 +861,11 @@
 				format={format ?? ''}
 				bind:value
 				bind:editor
-				on:clear={() => {
+				onClear={() => {
 					defaultValue = null
 				}}
 				{showSchemaExplorer}
 			/>
-		{:else if inputCat == 'resource-object' && format && format.split('-').length > 1 && format
-				.replace('resource-', '')
-				.replace('_', '')
-				.toLowerCase() == 's3object'}
-			<div class="flex flex-col w-full gap-1">
-				<Toggle
-					class="flex justify-end"
-					bind:checked={s3FileUploadRawMode}
-					size="xs"
-					options={{ left: 'Raw S3 object input' }}
-				/>
-				{#if s3FileUploadRawMode}
-					{#await import('$lib/components/JsonEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default
-							bind:editor
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							on:blur={(e) => {
-								dispatch('blur')
-							}}
-							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-							on:changeValue={(e) => {
-								setNewValueFromCode(e.detail)
-							}}
-						/>
-					{/await}
-				{:else}
-					<FileUpload
-						{appPath}
-						computeForceViewerPolicies={computeS3ForceViewerPolicies}
-						{workspace}
-						allowMultiple={false}
-						randomFileKey={true}
-						on:addition={(evt) => {
-							value = {
-								s3: evt.detail?.path ?? '',
-								filename: evt.detail?.filename ?? ''
-							}
-						}}
-						on:deletion={(evt) => {
-							value = {
-								s3: ''
-							}
-						}}
-						defaultValue={defaultValue?.s3}
-						initialValue={value}
-					/>
-				{/if}
-				<Button
-					variant="border"
-					color="light"
-					size="xs"
-					btnClasses="mt-1"
-					on:click={() => {
-						s3FilePicker?.open?.(value)
-					}}
-					startIcon={{ icon: Pipette }}
-				>
-					Choose an object from the catalog
-				</Button>
-			</div>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
 				<div class="flex flex-col gap-2 w-full">
@@ -954,6 +905,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
+												{prettifyHeader}
 												bind:schema={
 													() => ({
 														properties: obj.properties ?? {},
@@ -984,6 +936,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
+												{prettifyHeader}
 												hiddenArgs={['label', 'kind']}
 												schema={{
 													properties: obj.properties,
@@ -1059,6 +1012,7 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							bind:schema={
 								() => ({
 									properties,
@@ -1094,6 +1048,7 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							schema={{
 								properties,
 								order,

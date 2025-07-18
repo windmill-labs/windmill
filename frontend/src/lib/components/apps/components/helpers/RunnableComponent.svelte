@@ -800,7 +800,7 @@
 		lastJobId = e.detail.id
 		setResult(e.detail.result, e.detail.id)
 		loading = false
-		dispatch('done', { id: e.detail.id, result: e.detail.result })
+		dispatch('done', { id: e.detail?.id, result: e.detail?.result })
 	}}
 	on:cancel={(e) => {
 		let jobId = e.detail

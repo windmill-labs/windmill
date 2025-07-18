@@ -2,6 +2,7 @@ import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
 	copilotInfo,
 	copilotSessionModel,
+	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
@@ -18,6 +19,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
+import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -102,6 +104,18 @@ function getModelMaxTokens(model: string) {
 		return 4096
 	}
 	return 8192
+}
+
+export function getModelContextWindow(model: string) {
+	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+		return 1000000
+	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+		return 128000
+	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+		return 200000
+	} else {
+		return 128000
+	}
 }
 
 function getModelSpecificConfig(
@@ -519,9 +533,82 @@ export async function getNonStreamingCompletion(
 				dangerouslyAllowBrowser: true
 			})
 		: workspaceAIClients.getOpenaiClient()
+
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+const mistralFimResponseSchema = z.object({
+	choices: z.array(
+		z.object({
+			message: z.object({
+				content: z.string().optional()
+			}),
+			finish_reason: z.string()
+		})
+	)
+})
+
+export const FIM_MAX_TOKENS = 256
+const FIM_MAX_LINES = 8
+export async function getFimCompletion(
+	prompt: string,
+	suffix: string,
+	providerModel: AIProviderModel,
+	abortController: AbortController
+): Promise<string | undefined> {
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': providerModel.provider
+		}
+	}
+
+	const workspace = get(workspaceStore)
+
+	const response = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				model: providerModel.model,
+				temperature: 0,
+				prompt,
+				suffix,
+				stop: ['\n\n'],
+				max_tokens: FIM_MAX_TOKENS
+			}),
+			...fetchOptions
+		}
+	)
+
+	const body = await response.json()
+	const parsedBody = mistralFimResponseSchema.parse(body)
+
+	const choice = parsedBody.choices[0]
+
+	if (choice && choice.message.content !== undefined) {
+		let lines = choice.message.content.split('\n')
+
+		// If finish_reason is 'length', remove the last line
+		if (choice.finish_reason === 'length') {
+			if (lines.length > 1) {
+				lines = lines.slice(0, -1)
+			} else {
+				lines = []
+			}
+		}
+
+		lines = lines.slice(0, FIM_MAX_LINES)
+
+		return lines.join('\n')
+	} else {
+		return undefined
+	}
 }
 
 export async function getCompletion(

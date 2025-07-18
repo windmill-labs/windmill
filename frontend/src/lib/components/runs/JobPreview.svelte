@@ -15,56 +15,71 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 
-	export let id: string
-	export let blankLink = false
-	export let workspace: string | undefined
+	interface Props {
+		id: string
+		blankLink?: boolean
+		workspace: string | undefined
+	}
 
-	let job: Job | undefined = undefined
-	let watchJob: ((id: string) => Promise<void>) | undefined = undefined
-	let getLogs: (() => Promise<void>) | undefined = undefined
+	let { id, blankLink = false, workspace }: Props = $props()
 
-	let result: any
+	let job: Job | undefined = $state(undefined)
+
+	let result: any = $state()
 
 	function onDone(event: { detail: Job }) {
 		job = event.detail
 		result = job['result']
 	}
 
-	let currentJob: Job | undefined = undefined
+	let currentJob: Job | undefined = $state(undefined)
 
-	$: if (currentJob?.id == id) {
-		job = currentJob
-	}
-
-	$: id && watchJob && watchJob(id)
-
-	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
-
-	let lastJobId: string | undefined = undefined
-	let concurrencyKey: string | undefined = undefined
-	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
+	let lastJobId: string | undefined = $state(undefined)
+	let concurrencyKey: string | undefined = $state(undefined)
 	async function getConcurrencyKey(job: Job) {
 		lastJobId = job.id
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
 	}
 
-	let viewTab = 'result'
+	let viewTab = $state('result')
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
 	const dispatch = createEventDispatcher()
+	$effect(() => {
+		if (currentJob?.id == id) {
+			job = currentJob
+		}
+	})
+	$effect(() => {
+		id && testJobLoader && untrack(() => testJobLoader?.watchJob(id))
+	})
+	$effect(() => {
+		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => testJobLoader?.getLogs())
+	})
+	$effect(() => {
+		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
+	})
+
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 </script>
 
 <TestJobLoader
 	lazyLogs
 	workspaceOverride={workspace}
 	bind:job={currentJob}
-	bind:getLogs
-	bind:watchJob
+	bind:this={testJobLoader}
 	on:done={onDone}
 />
 
@@ -105,7 +120,7 @@
 			{/if}
 			{#if concurrencyKey}
 				<Popover notClickable>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						This job has concurrency limits enabled with the key:
 						<Button
 							class="inline-text"
@@ -118,13 +133,13 @@
 							{concurrencyKey}
 							<ListFilter class="inline-block" size={10} />
 						</Button>
-					</svelte:fragment>
+					{/snippet}
 					<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</Popover>
 			{/if}
 			{#if job?.worker}
 				<Popover notClickable>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						This job was run on worker:
 						<Button
 							class="inline-text"
@@ -134,10 +149,10 @@
 								dispatch('filterByWorker', job?.worker)
 							}}
 						>
-							{job.worker}
+							{job?.worker}
 							<ListFilter class="inline-block" size={10} />
 						</Button>
-					</svelte:fragment>
+					{/snippet}
 					<Badge large>Worker: {truncateRev(job.worker, 20)}</Badge>
 				</Popover>
 			{/if}
@@ -184,6 +199,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>
+					<Tab size="xs" value="assets">Assets</Tab>
 					{#if isScriptPreview(job?.job_kind)}
 						<Tab size="xs" value="code">Code</Tab>
 					{/if}
@@ -197,6 +213,8 @@
 								<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
 							</div>
 						</div>
+					{:else if viewTab == 'assets'}
+						<JobAssetsViewer {job} />
 					{:else}
 						<div class="flex flex-col border rounded-md p-2 mt-2 h-full overflow-auto">
 							{#if viewTab == 'logs'}
@@ -255,3 +273,8 @@
 		</div>
 	{/if}
 </div>
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

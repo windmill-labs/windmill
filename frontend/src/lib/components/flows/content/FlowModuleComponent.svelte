@@ -11,7 +11,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
-	import type { FlowModule, RawScript } from '$lib/gen'
+	import type { FlowModule, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -51,9 +51,9 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 
 	const {
 		selectedId,
@@ -97,7 +97,8 @@
 		highlightArg = undefined
 	}: Props = $props()
 
-	let tag: string | undefined = $state(undefined)
+	let workspaceScriptTag: string | undefined = $state(undefined)
+	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let editor: Editor | undefined = $state()
@@ -120,6 +121,8 @@
 	let testJob: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
+
+	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -245,11 +248,13 @@
 				)
 	)
 
-	$effect(() => {
+	$effect.pre(() => {
 		$selectedId && untrack(() => onSelectedIdChange())
 	})
 	$effect(() => {
-		if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
 			untrack(() => getLastJob())
 		}
 	})
@@ -294,6 +299,10 @@
 			}, 100)
 		}
 	})
+
+	let rawScriptLang = $derived(
+		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -316,7 +325,7 @@
 		>
 			{#snippet header()}
 				<FlowModuleHeader
-					{tag}
+					tag={workspaceScriptTag ?? rawScriptLang ?? workspaceScriptLang}
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
@@ -400,14 +409,12 @@
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
+										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+											{#if assets?.length}
+												<AssetsDropdownButton {assets} />
+											{/if}
+										</div>
 										<Editor
-											on:addSelectedLinesToAiChat={(e) => {
-												const { lines, startLine, endLine } = e.detail
-												aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-											}}
-											on:toggleAiPanel={() => {
-												aiChatManager.toggleOpen()
-											}}
 											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}
@@ -466,7 +473,8 @@
 									<div class="border-t">
 										{#key forceReload}
 											<FlowModuleScript
-												bind:tag
+												bind:tag={workspaceScriptTag}
+												bind:language={workspaceScriptLang}
 												showAllCode={false}
 												path={flowModule.value.path}
 												hash={flowModule.value.hash}
@@ -858,7 +866,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
-											loadingHistory={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 										/>
 									</Pane>
 								{/if}

@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
+use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -608,6 +609,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             &created_by,
             email,
             permissioned_as.to_string(),
+            Some("trigger.dependents.to.recompute.dependencies"),
             None,
             None,
             None,
@@ -691,6 +693,16 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
+    let raw_deps = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("raw_deps")
+                .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
+                .flatten()
+        })
+        .flatten();
+
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
@@ -717,6 +729,8 @@ pub async fn handle_flow_dependency_job(
         .execute(&mut *tx)
         .await?;
     }
+    clear_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
+
     let modified_ids;
     let errors;
     (flow.modules, tx, modified_ids, errors) = lock_modules(
@@ -735,6 +749,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
+        raw_deps,
     )
     .await?;
     if !errors.is_empty() {
@@ -904,6 +919,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
+    raw_deps: Option<HashMap<String, String>>,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -928,6 +944,7 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            assets,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -956,6 +973,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -991,6 +1009,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1018,6 +1037,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1050,6 +1070,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1075,6 +1096,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1115,6 +1137,17 @@ async fn lock_modules<'c>(
             continue;
         };
 
+        for asset in assets.iter().flatten() {
+            insert_asset_usage(
+                &mut *tx,
+                &job.workspace_id,
+                asset,
+                job_path,
+                AssetUsageKind::Flow,
+            )
+            .await?;
+        }
+
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
                 new_flow_modules.push(e);
@@ -1138,6 +1171,14 @@ async fn lock_modules<'c>(
         create_dir_all(job_dir).map_err(|e| {
             Error::ExecutionErr(format!("Error creating job dir for flow step lock: {e}"))
         })?;
+
+        // If we have local lockfiles (and they are enabled) we will replace script content with lockfile and tell hander that it is raw_deps job
+        let (content, raw_deps) = raw_deps
+            .as_ref()
+            .and_then(|llfs| llfs.get(language.as_str()))
+            .map(|lock| (lock.to_owned(), true))
+            .unwrap_or((content, false));
+
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
@@ -1155,7 +1196,7 @@ async fn lock_modules<'c>(
                 "{}/flow",
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
-            false,
+            raw_deps,
             None,
             occupancy_metrics,
         )
@@ -1210,6 +1251,7 @@ async fn lock_modules<'c>(
                 None
             }
         };
+
         e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
             lock,
             path,
@@ -1221,8 +1263,10 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            assets,
         });
         new_flow_modules.push(e);
+
         continue;
     }
 
@@ -1371,6 +1415,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1389,6 +1434,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                 };
             }
             ForloopFlow { modules, modules_node, .. }

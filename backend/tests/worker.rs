@@ -322,7 +322,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -427,7 +427,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
@@ -935,6 +935,7 @@ impl RunJob {
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
+            /* token_prefix */ None,
             /* scheduled_for_o */ None,
             /* schedule_path */ None,
             /* parent_job */ None,
@@ -1146,6 +1147,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        assets: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1161,6 +1163,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1188,6 +1191,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 concurrent_limit: None,
                                 concurrency_time_window_s: None,
                                 is_trigger: None,
+                                assets: None,
                             }
                             .into(),
                             stop_after_if: Default::default(),
@@ -1203,6 +1207,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             delete_after_use: None,
                             continue_on_error: None,
                             skip_if: None,
+                            apply_preprocessor: None,
                         }],
                         modules_node: None,
                     }
@@ -1220,6 +1225,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
             ],
             same_worker: false,
@@ -1315,6 +1321,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        assets: None,
 
                     }.into(),
                     stop_after_if: Default::default(),
@@ -1330,6 +1337,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1368,6 +1376,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
+                                    assets: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
                                 stop_after_all_iters_if: Default::default(),
@@ -1382,6 +1391,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 delete_after_use: None,
                                 continue_on_error: None,
                                 skip_if: None,
+                                apply_preprocessor: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -1406,6 +1416,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
+                                    assets: None,
 
                                 }.into(),
                                 stop_after_if: Default::default(),
@@ -1421,6 +1432,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 delete_after_use: None,
                                 continue_on_error: None,
                                 skip_if: None,
+                                apply_preprocessor: None,
                             },
                         ],
                         modules_node: None,
@@ -1438,6 +1450,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1469,6 +1482,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        assets: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),
@@ -1483,6 +1497,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
             ],
             same_worker: true,
@@ -2087,6 +2102,89 @@ def main():
         .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_global_site_packages(db: Pool<Postgres>) {
+    use windmill_common::{cache::concatcp, worker::ROOT_CACHE_DIR};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    // Shared for all 3.12.*
+    let path = concatcp!(ROOT_CACHE_DIR, "python_3_12/global-site-packages").to_owned();
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(path + "/my_global_site_package_3_12_any.py", "").unwrap();
+
+    // 3.12
+    {
+        let content = r#"# py: ==3.12
+#requirements:
+#
+
+import my_global_site_package_3_12_any
+
+def main():
+    return "hello world"
+                "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            language: ScriptLang::Python3,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        });
+
+        let result = run_job_in_new_worker_until_complete(&db, job, port)
+            .await
+            .json_result()
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    // 3.12.1
+    {
+        let content = r#"# py: ==3.12.1
+#requirements:
+#
+
+import my_global_site_package_3_12_any
+
+def main():
+    return "hello world"
+                "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            language: ScriptLang::Python3,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        });
+
+        let result = run_job_in_new_worker_until_complete(&db, job, port)
+            .await
+            .json_result()
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
 }
 
 #[cfg(feature = "python")]
@@ -4125,6 +4223,7 @@ async fn test_result_format(db: Pool<Postgres>) {
         100,
         "",
         &Uuid::nil(),
+        None,
         None,
     )
     .await

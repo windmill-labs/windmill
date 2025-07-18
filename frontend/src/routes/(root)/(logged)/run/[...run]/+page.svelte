@@ -90,8 +90,12 @@
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import { untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
+	import FlowAssetsHandler, {
+		initFlowGraphAssetsCtx
+	} from '$lib/components/flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 
 	let job: Job | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -99,7 +103,7 @@
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' = $state('result')
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
 	let branchOrIterationN: number = $state(0)
 
@@ -111,7 +115,6 @@
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
-	let getLogs: (() => Promise<void>) | undefined = $state(undefined)
 
 	let showExplicitProgressTip: boolean = $state(
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
@@ -119,6 +122,12 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
+
 	async function getConcurrencyKey(job: Job | undefined) {
 		if (!job) return
 		lastJobId = job.id
@@ -352,7 +361,11 @@
 		}
 	}
 	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
+		job?.logs == undefined &&
+			job &&
+			viewTab == 'logs' &&
+			isNotFlow(job?.job_kind) &&
+			testJobLoader?.getLogs()
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -415,7 +428,6 @@
 		bind:scriptProgress
 		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 		bind:this={testJobLoader}
-		bind:getLogs
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch
@@ -923,6 +935,7 @@
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
+						<Tab value="assets">Assets</Tab>
 						{#if isScriptPreview(job?.job_kind)}
 							<Tab value="code">Code</Tab>
 						{/if}
@@ -941,6 +954,10 @@
 										content={job?.logs}
 										tag={job?.tag}
 									/>
+								</div>
+							{:else if viewTab == 'assets'}
+								<div class="w-full">
+									<JobAssetsViewer {job} />
 								</div>
 							{:else if viewTab == 'code'}
 								{#if job && 'raw_code' in job && job.raw_code}
@@ -999,3 +1016,9 @@
 		{/if}
 	</div>
 {/if}
+
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

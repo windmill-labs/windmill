@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler, stopPropagation } from 'svelte/legacy'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import {
@@ -14,9 +14,16 @@
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
+	import { HelpersService, SettingService } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		displayDate,
+		displaySize,
+		emptyString,
+		parseS3Object,
+		sendUserToast,
+		type S3Object
+	} from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
@@ -25,8 +32,9 @@
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
-	import PdfViewer from './display/PdfViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import Select from './select/Select.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let deletionModalOpen = $state(false)
 	let fileDeletionInProgress = $state(false)
@@ -65,6 +73,7 @@
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
+		selectAndClose: { s3: string; storage: string | undefined }
 	}>()
 
 	let drawer: Drawer | undefined = $state()
@@ -117,6 +126,17 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let firstLoad = true
+
+	let secondaryStorageNames = usePromise(
+		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
+		{ loadInit: false }
+	)
+
+	let wasOpen = $state(false)
+
+	$effect(() => {
+		wasOpen && $workspaceStore && untrack(() => secondaryStorageNames.refresh())
+	})
 
 	function onFilterChange() {
 		if (!firstLoad) {
@@ -377,9 +397,9 @@
 	}
 
 	let storage: string | undefined = $state(undefined)
-	export async function open(
-		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
-	) {
+	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
+		wasOpen = true
+		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
@@ -417,6 +437,9 @@
 	}
 
 	async function selectAndClose() {
+		if (selectedFileKey?.s3) {
+			dispatch('selectAndClose', { s3: selectedFileKey.s3, storage })
+		}
 		drawer?.closeDrawer?.()
 	}
 
@@ -475,7 +498,7 @@
 			loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 		}
 	}
-	run(() => {
+	$effect.pre(() => {
 		filter != undefined && untrack(() => onFilterChange())
 	})
 </script>
@@ -722,11 +745,15 @@
 								</div>
 							{:else if fileMetadata?.fileKey.endsWith('.pdf')}
 								<div class="w-full h-[950px] border">
-									<PdfViewer
-										source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-											fileMetadata.fileKey
-										)}` + (storage ? `&storage=${storage}` : '')}
-									/>
+									{#await import('$lib/components/display/PdfViewer.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+												fileMetadata.fileKey
+											)}` + (storage ? `&storage=${storage}` : '')}
+										/>
+									{/await}
 								</div>
 							{:else if filePreviewLoading}
 								<div class="flex h-6 items-center text-tertiary mb-4">
@@ -790,6 +817,24 @@
 
 		{#snippet actions()}
 			<div class="flex gap-1">
+				{#if secondaryStorageNames.value?.length}
+					<Select
+						inputClass="h-10 min-w-44 !placeholder-primary"
+						items={[
+							{ value: undefined, label: 'Default storage' },
+							...secondaryStorageNames.value.map((value) => ({ value }))
+						]}
+						placeholder="Default storage"
+						bind:value={
+							() => storage,
+							(v) => {
+								if (v === storage) return
+								storage = v
+								reloadContent()
+							}
+						}
+					/>
+				{/if}
 				{#if !readOnlyMode}
 					<Button
 						variant="border"

@@ -88,7 +88,7 @@
 		},
 		// flow apply/reject
 		getPreviewFlow: () => {
-			return previewFlow
+			return $state.snapshot(previewFlow)
 		},
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
@@ -115,6 +115,19 @@
 			if (snapshot) {
 				flowStore.val = snapshot
 				refreshStateStore(flowStore)
+
+				if ($currentEditor) {
+					const module = getModule($currentEditor.stepId, snapshot)
+					if (module) {
+						if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
+							$currentEditor.editor.setCode(module.value.content)
+						} else if ($currentEditor.type === 'iterator' && module.value.type === 'forloopflow') {
+							$currentEditor.editor.setCode(
+								module.value.iterator.type === 'javascript' ? module.value.iterator.expr : ''
+							)
+						}
+					}
+				}
 			}
 		},
 		showModuleDiff(id: string) {

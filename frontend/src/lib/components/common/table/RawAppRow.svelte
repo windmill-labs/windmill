@@ -18,17 +18,31 @@
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
-	export let app: ListableRawApp & { canWrite: boolean }
-	export let marked: string | undefined
-	export let starred: boolean
-	export let shareModal: ShareModal
-	export let moveDrawer: MoveDrawer
-	export let deleteConfirmedCallback: (() => void) | undefined
-	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let depth: number = 0
-	export let menuOpen: boolean = false
+	interface Props {
+		app: ListableRawApp & { canWrite: boolean }
+		marked: string | undefined
+		starred: boolean
+		shareModal: ShareModal
+		moveDrawer: MoveDrawer
+		deleteConfirmedCallback: (() => void) | undefined
+		deploymentDrawer: DeployWorkspaceDrawer
+		depth?: number
+		menuOpen?: boolean
+	}
 
-	let updateAppDrawer: Drawer
+	let {
+		app,
+		marked,
+		starred,
+		shareModal,
+		moveDrawer,
+		deleteConfirmedCallback = $bindable(),
+		deploymentDrawer,
+		depth = 0,
+		menuOpen = $bindable(false)
+	}: Props = $props()
+
+	let updateAppDrawer: Drawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -66,10 +80,10 @@
 	canFavorite={true}
 	{depth}
 >
-	<svelte:fragment slot="badges">
+	{#snippet badges()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-	</svelte:fragment>
-	<svelte:fragment slot="actions">
+	{/snippet}
+	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
 				{#if app.canWrite}
@@ -143,5 +157,5 @@
 				menuOpen = true
 			}}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Row>

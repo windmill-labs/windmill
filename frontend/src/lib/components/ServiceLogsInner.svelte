@@ -24,9 +24,10 @@
 	interface Props {
 		searchTerm: string
 		queryParseErrors?: string[]
+		tagLabel?: string
 	}
 
-	let { searchTerm, queryParseErrors = $bindable() }: Props = $props()
+	let { searchTerm, queryParseErrors = $bindable(), tagLabel }: Props = $props()
 
 	let minTs: undefined | string = $state(undefined)
 	let maxTs: undefined | string = $state(undefined)
@@ -771,6 +772,7 @@
 												noMaxH
 												isLoading={false}
 												tag={undefined}
+												{tagLabel}
 												content={processLogWithJsonFmt(
 													logsContent[file.file_path].content,
 													file.json_fmt

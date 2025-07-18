@@ -75,6 +75,7 @@ windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }
@@ -83,7 +84,7 @@ strum_macros.workspace = true
 url.workspace = true
 
 semver.workspace = true
-croner = "2.0.6"
+croner = "2.2.0"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
@@ -101,3 +102,6 @@ tonic = { workspace = true, optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+sysinfo.workspace = true

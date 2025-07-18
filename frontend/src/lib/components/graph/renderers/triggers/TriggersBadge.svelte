@@ -295,7 +295,7 @@
 	<MenuItem
 		{item}
 		class={itemClass}
-		on:click={() => {
+		onClick={() => {
 			onSelect?.(triggerIndex)
 		}}
 	>

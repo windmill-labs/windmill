@@ -10,19 +10,23 @@
 		callback: () => void
 	}
 
-	export let actions: ActionType[] = []
+	interface Props {
+		actions?: ActionType[]
+	}
+
+	let { actions = [] }: Props = $props()
 </script>
 
 <div class="flex flex-row gap-1 justify-end">
 	{#each actions as action, index (index)}
 		<Popover notClickable disappearTimeout={0}>
-			<svelte:fragment slot="text">
+			{#snippet text()}
 				{action.label}
-			</svelte:fragment>
+			{/snippet}
 			<Button color={action.color} on:click={action.callback} size="xs2" variant="border">
 				<div class="flex flex-row gap-1 items-center">
 					{#if action.icon}
-						<svelte:component this={action.icon} size={12} />
+						<action.icon size={12} />
 					{/if}
 				</div>
 			</Button>
