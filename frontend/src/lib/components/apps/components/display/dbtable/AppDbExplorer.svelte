@@ -274,7 +274,7 @@
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
-				done: (items) => {
+				onDone: (items) => {
 					let lastRow = -1
 
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
@@ -306,10 +306,10 @@
 						params.failCallback()
 					}
 				},
-				cancel: () => {
+				onCancel: () => {
 					params.failCallback()
 				},
-				error: () => {
+				onError: (error) => {
 					params.failCallback()
 				}
 			})

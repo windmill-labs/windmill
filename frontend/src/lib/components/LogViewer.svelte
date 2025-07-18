@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	const s3LogPrefixes = [
 		'\n[windmill] Previous logs have been saved to object storage at logs/',
 		'\n[windmill] Previous logs have been saved to disk at logs/',
@@ -17,41 +17,56 @@
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 
-	export let content: string | undefined
-	export let isLoading: boolean
-	export let duration: number | undefined = undefined
-	export let mem: number | undefined = undefined
-	export let wrapperClass = ''
-	export let jobId: string | undefined = undefined
-	export let tag: string | undefined
-	export let small = false
-	export let drawerOpen = false
-	export let noMaxH = false
-	export let noAutoScroll = false
-	export let download = true
-	export let customEmptyMessage = 'No logs are available yet'
-	export let tagLabel: string | undefined = undefined
+	interface Props {
+		content: string | undefined
+		isLoading: boolean
+		duration?: number | undefined
+		mem?: number | undefined
+		wrapperClass?: string
+		jobId?: string | undefined
+		tag: string | undefined
+		small?: boolean
+		drawerOpen?: boolean
+		noMaxH?: boolean
+		noAutoScroll?: boolean
+		download?: boolean
+		customEmptyMessage?: string
+		tagLabel?: string
+	}
+
+	let {
+		content,
+		isLoading,
+		duration = undefined,
+		mem = undefined,
+		wrapperClass = '',
+		jobId = undefined,
+		tag,
+		small = false,
+		drawerOpen = $bindable(false),
+		noMaxH = false,
+		noAutoScroll = false,
+		download = true,
+		customEmptyMessage = 'No logs are available yet',
+		tagLabel = undefined
+	}: Props = $props()
+
 	// @ts-ignore
-	const ansi_up = new AnsiUp()
+	const ansi_up = $state(new AnsiUp())
 
 	ansi_up.use_classes = true
 
-	let scroll = true
-	let div: HTMLElement | null = null
+	let scroll = $state(true)
+	let div: HTMLElement | null = $state(null)
 
 	// let downloadStartUrl: string | undefined = undefined
 
 	let LOG_INC = 10000
-	let LOG_LIMIT = LOG_INC
+	let LOG_LIMIT = $state(LOG_INC)
 
-	let lastJobId = jobId
+	let lastJobId = $state(jobId)
 
-	let loadedFromObjectStore = ''
-	$: if (jobId !== lastJobId) {
-		lastJobId = jobId
-		loadedFromObjectStore = ''
-		LOG_LIMIT = LOG_INC
-	}
+	let loadedFromObjectStore = $state('')
 
 	function findPrefixIndex(truncateContent: string): number | undefined {
 		let index = s3LogPrefixes.findIndex((x) => truncateContent.startsWith(x))
@@ -85,11 +100,6 @@
 		}
 	}
 
-	$: truncatedContent = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
-
-	$: prefixIndex = findPrefixIndex(truncatedContent)
-	$: downloadStartUrl = findStartUrl(truncatedContent, prefixIndex)
-
 	function truncateContent(
 		jobContent: string | undefined,
 		loadedFromObjectStore: string,
@@ -102,21 +112,12 @@
 		return content
 	}
 
-	$: truncatedContent && scrollToBottom()
-
-	$: html = ansi_up.ansi_to_html(
-		downloadStartUrl && prefixIndex != undefined
-			? truncatedContent.substring(
-					truncatedContent.substring(1).indexOf('\n') + 2,
-					truncatedContent.length
-				)
-			: truncatedContent
-	)
 	export function scrollToBottom() {
+		// console.log('scrollToBottom', scroll, div)
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
-	let logViewer: Drawer
+	let logViewer: Drawer | undefined = $state()
 
 	async function getStoreLogs() {
 		if (downloadStartUrl) {
@@ -138,13 +139,35 @@
 	function showMoreTruncate(len: number) {
 		scroll = false
 		LOG_LIMIT += LOG_INC
-		console.log(LOG_INC, len, LOG_LIMIT)
 		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
 		let newlineIndex = newC.indexOf('\n') + 1
 		if (newlineIndex < LOG_INC / 2) {
 			LOG_LIMIT -= newlineIndex
 		}
 	}
+	$effect.pre(() => {
+		if (jobId !== lastJobId) {
+			lastJobId = jobId
+			loadedFromObjectStore = ''
+			LOG_LIMIT = LOG_INC
+		}
+	})
+	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
+	let prefixIndex = $derived(findPrefixIndex(truncatedContent))
+	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixIndex))
+	$effect.pre(() => {
+		truncatedContent && scrollToBottom()
+	})
+	let html = $derived(
+		ansi_up.ansi_to_html(
+			downloadStartUrl && prefixIndex != undefined
+				? truncatedContent.substring(
+						truncatedContent.substring(1).indexOf('\n') + 2,
+						truncatedContent.length
+					)
+				: truncatedContent
+		)
+	)
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
@@ -181,10 +204,10 @@
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
-							on:click={getStoreLogs}
+							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
 						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
-						/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br
+						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
 						/>{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
@@ -209,7 +232,7 @@
 						</a>
 					</div>
 				{/if}
-				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
+				<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
 				{#if !noAutoScroll}
 					<div
 						class="{small ? '' : 'py-2'} pr-2 {small
@@ -251,10 +274,10 @@
 		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
-					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
+					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button onclick={getStoreLogs}
 						>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
 					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
+					/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
 					>{@html html}</span
 				>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 		>

@@ -31,7 +31,7 @@
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
-	import JobLoader from '$lib/components/runs/JobLoader.svelte'
+	import JobsLoader from '$lib/components/runs/JobsLoader.svelte'
 	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -198,7 +198,7 @@
 	}
 
 	let innerWidth = $state(window.innerWidth)
-	let jobLoader: JobLoader | undefined = $state(undefined)
+	let jobsLoader: JobsLoader | undefined = $state(undefined)
 	let externalJobs: Job[] | undefined = $state(undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
@@ -342,7 +342,7 @@
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobLoader?.loadJobs(minTs, maxTs, true)
+				jobsLoader?.loadJobs(minTs, maxTs, true)
 			}, 2000)
 		}
 	}
@@ -359,7 +359,7 @@
 		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
-		jobLoader?.loadJobs(minTs, maxTs, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true)
 	}
 
 	async function loadUsernames(): Promise<void> {
@@ -548,7 +548,7 @@
 			requestBody: uuidsToCancel
 		})
 		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 		selectionMode = false
 	}
@@ -653,7 +653,7 @@
 
 		selectedIds = []
 		batchReRunOptions = { flow: {}, script: {} }
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true, true)
 		selectionMode = false
 	}
 
@@ -689,8 +689,8 @@
 	}
 
 	async function loadExtra() {
-		if (jobLoader) {
-			lastFetchWentToEnd = await jobLoader.loadExtraJobs()
+		if (jobsLoader) {
+			lastFetchWentToEnd = await jobsLoader.loadExtraJobs()
 			console.log(lastFetchWentToEnd)
 		}
 	}
@@ -772,7 +772,7 @@
 	})
 </script>
 
-<JobLoader
+<JobsLoader
 	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
@@ -804,7 +804,7 @@
 	{resultError}
 	{tag}
 	bind:loading
-	bind:this={jobLoader}
+	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
 />
 
@@ -982,7 +982,7 @@
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
 						runsTable?.scrollToRun(e.detail)
@@ -997,7 +997,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
 			{/if}
@@ -1071,14 +1071,14 @@
 								minTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								minTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 						/>
@@ -1100,14 +1100,14 @@
 								maxTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 						/>
@@ -1119,7 +1119,7 @@
 				<ManuelDatePicker
 					on:loadJobs={() => {
 						lastFetchWentToEnd = false
-						jobLoader?.loadJobs(minTs, maxTs, true, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true, true)
 					}}
 					bind:minTs
 					bind:maxTs
@@ -1311,7 +1311,7 @@
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
 						runsTable?.scrollToRun(e.detail)
@@ -1326,7 +1326,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
 			{/if}
@@ -1405,14 +1405,14 @@
 								minTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								minTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 						/>
@@ -1435,14 +1435,14 @@
 								maxTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
 						/>
@@ -1454,7 +1454,7 @@
 				<ManuelDatePicker
 					on:loadJobs={() => {
 						lastFetchWentToEnd = false
-						jobLoader?.loadJobs(minTs, maxTs, true, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true, true)
 					}}
 					bind:this={manualDatePicker}
 					bind:minTs

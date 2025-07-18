@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, untrack } from 'svelte'
 	import type { AppEditorContext } from '../types'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import RunnableJobPanelInner from './RunnableJobPanelInner.svelte'
 
@@ -25,7 +25,7 @@
 		getContext<AppEditorContext>('AppEditorContext')
 	let testIsLoading = $state(false)
 
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 
 	function updateSelectedJob() {
 		const selectedComponent = $selectedComponentInEditor
@@ -40,7 +40,7 @@
 					testJob = undefined
 				}
 				jobToWatch = { componentId: selectedComponent, job: backendJob }
-				testJobLoader?.watchJob(backendJob)
+				jobLoader?.watchJob(backendJob)
 			} else {
 				testJob = undefined
 				jobToWatch = undefined
@@ -60,7 +60,7 @@
 	})
 </script>
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<JobLoader bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 {#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen || !float}
 	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor ?? '']}

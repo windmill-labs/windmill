@@ -459,7 +459,6 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
-
             (do_write, write_result) = tokio::spawn(async move {
                 append_job_logs(
                     &job_id,

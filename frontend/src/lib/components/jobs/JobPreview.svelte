@@ -6,7 +6,7 @@
 	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { type Job } from '../../gen'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import { writable } from 'svelte/store'
@@ -29,7 +29,7 @@
 	let hovered = $state(false)
 	let timeout: NodeJS.Timeout | undefined
 	let result: any = $state()
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 	let loaded = false
 	let wrapper: HTMLElement | undefined = $state()
 	let popupOnTop = $state(true)
@@ -43,7 +43,11 @@
 			openStore.set(id)
 			if (!loaded) {
 				await tick()
-				testJobLoader?.watchJob(id)
+				jobLoader?.watchJob(id, {
+					done(job) {
+						onDone(job)
+					}
+				})
 			}
 		} else {
 			timeout && clearTimeout(timeout)
@@ -75,8 +79,8 @@
 		)
 	}
 
-	function onDone(event: { detail: Job }) {
-		job = event.detail
+	function onDone(njob: Job) {
+		job = njob
 		result = job['result']
 		loaded = true
 	}
@@ -88,7 +92,7 @@
 
 <svelte:window onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 {#if hovered}
-	<TestJobLoader bind:job bind:this={testJobLoader} on:done={onDone} />
+	<JobLoader bind:job bind:this={jobLoader} />
 {/if}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

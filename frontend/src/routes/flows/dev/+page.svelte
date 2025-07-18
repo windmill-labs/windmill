@@ -191,7 +191,7 @@
 			return
 		}
 		//@ts-ignore
-		testJobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
+		jobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
