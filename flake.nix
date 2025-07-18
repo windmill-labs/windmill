@@ -218,7 +218,9 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for related places search: ADD_NEW_LANG
+          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
+          # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
