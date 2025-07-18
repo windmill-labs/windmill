@@ -2070,6 +2070,10 @@ async fn do_nativets(
     .await?)
 }
 
+lazy_static::lazy_static! {
+    static ref LOG_TAG_NAME: String = std::env::var("LOG_TAG_NAME").unwrap_or("tag".to_string());
+}
+
 #[derive(Deserialize, Serialize, Default)]
 pub struct PreviousResult<'a> {
     #[serde(borrow)]
@@ -2265,8 +2269,8 @@ pub async fn handle_queued_job(
         // println!("handle queue {:?}",  SystemTime::now());
 
         logs.push_str(&format!(
-            "job={} tag={} worker={} hostname={}\n",
-            &job.id, &job.tag, &worker_name, &hostname
+            "job={} {}={} worker={} hostname={}\n",
+            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
         ));
 
         if *NO_LOGS_AT_ALL {
