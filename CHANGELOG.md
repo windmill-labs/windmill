@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.509.1](https://github.com/windmill-labs/windmill/compare/v1.509.0...v1.509.1) (2025-07-19)
+
+
+### Bug Fixes
+
+* add back asset kind variable ([a10509a](https://github.com/windmill-labs/windmill/commit/a10509a000f217c37b45e125fd6e0a70aaaeb260))
+
 ## [1.509.0](https://github.com/windmill-labs/windmill/compare/v1.508.0...v1.509.0) (2025-07-19)
 
 
