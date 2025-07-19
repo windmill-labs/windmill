@@ -97,6 +97,8 @@ pub struct QueuedJob {
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_as_code_status: Option<Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -179,6 +181,7 @@ impl Default for QueuedJob {
             job_kind: JobKind::Identity,
             schedule_path: None,
             permissioned_as: "".to_string(),
+            workflow_as_code_status: None,
             flow_status: None,
             is_flow_step: false,
             language: None,
@@ -236,6 +239,8 @@ pub struct CompletedJob {
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_as_code_status: Option<sqlx::types::Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,

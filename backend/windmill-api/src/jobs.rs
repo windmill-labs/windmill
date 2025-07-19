@@ -18,6 +18,7 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::time::Instant;
@@ -723,7 +724,7 @@ macro_rules! get_job_query {
                 CASE WHEN jsonb_typeof(args) = 'object' THEN args
                 ELSE jsonb_build_object('value', args)
                 END
-            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, COALESCE(flow_status, workflow_as_code_status) AS flow_status, \
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, flow_status, workflow_as_code_status, \
             {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
             CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
             {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
@@ -3003,6 +3004,7 @@ impl<'a> From<UnifiedJob> for Job {
                     result_columns: None,
                     logs: None,
                     flow_status: None,
+                    workflow_as_code_status: None,
                     deleted: uj.deleted,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
@@ -3039,6 +3041,7 @@ impl<'a> From<UnifiedJob> for Job {
                     scheduled_for: uj.scheduled_for.unwrap(),
                     logs: None,
                     flow_status: None,
+                    workflow_as_code_status: None,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
                     canceled_reason: None,
@@ -5686,25 +5689,31 @@ pub struct JobUpdate {
     pub mem_peak: Option<i32>,
     pub progress: Option<i32>,
     pub flow_status: Option<Box<serde_json::value::RawValue>>,
+    pub workflow_as_code_status: Option<Box<serde_json::value::RawValue>>,
     pub job: Option<Job>,
     pub only_result: Option<Box<serde_json::value::RawValue>>,
 }
 
-#[derive(PartialEq)]
-pub struct JobUpdateLastStatus {
-    pub running: Option<bool>,
-    pub completed: Option<bool>,
-    pub log_offset: Option<i32>,
-    pub mem_peak: Option<i32>,
+impl JobUpdate {
+    pub fn hash_str(&self) -> String {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
 }
 
-impl From<&JobUpdate> for JobUpdateLastStatus {
-    fn from(update: &JobUpdate) -> Self {
-        Self {
-            running: update.running,
-            completed: update.completed,
-            log_offset: update.log_offset,
-            mem_peak: update.mem_peak,
+impl Hash for JobUpdate {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.running.hash(state);
+        self.completed.hash(state);
+        self.log_offset.hash(state);
+        self.mem_peak.hash(state);
+        self.progress.hash(state);
+        if !self.completed.unwrap_or(false) {
+            self.flow_status.as_ref().map(|x| x.get().hash(state));
+            self.workflow_as_code_status
+                .as_ref()
+                .map(|x| x.get().hash(state));
         }
     }
 }
@@ -5852,7 +5861,7 @@ fn get_job_update_sse_stream(
 
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
-        let mut last_update: Option<JobUpdateLastStatus> = None;
+        let mut last_update_hash: Option<String> = None;
 
         // Send initial update immediately
         let mut running = running;
@@ -5872,7 +5881,7 @@ fn get_job_update_sse_stream(
         .await
         {
             Ok(update) => {
-                last_update = Some((&update).into());
+                last_update_hash = Some(update.hash_str());
                 let completion_sent = update.completed.unwrap_or(false);
                 if running.is_some() && update.running.is_some_and(|x| x) {
                     running = Some(true);
@@ -5951,9 +5960,9 @@ fn get_job_update_sse_stream(
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
                     // }
-                    let update_last_status = (&update).into();
+                    let update_last_status = update.hash_str();
                     // Only send if the update has changed
-                    if last_update.as_ref() != Some(&update_last_status) {
+                    if last_update_hash.as_ref() != Some(&update_last_status) {
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
                             log_offset = Some(new_offset);
@@ -5966,7 +5975,7 @@ fn get_job_update_sse_stream(
                             break;
                         }
 
-                        last_update = Some(update_last_status);
+                        last_update_hash = Some(update_last_status);
                     }
                 }
                 Err(_) => {
@@ -6068,6 +6077,7 @@ async fn get_job_update_data(
             progress: None,
             job: None,
             flow_status: None,
+            workflow_as_code_status: None,
             only_result: result.0,
         })
     } else {
@@ -6080,22 +6090,8 @@ async fn get_job_update_data(
                 END AS running,
                 SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
-                CASE
-                    -- flow step:
-                    WHEN flow_step_id IS NOT NULL THEN NULL
-                    -- completed:
-                    WHEN c.id IS NOT NULL THEN COALESCE(
-                        c.workflow_as_code_status || c.flow_status,
-                        c.workflow_as_code_status,
-                        c.flow_status
-                    )
-                    -- not completed:
-                    ELSE COALESCE(
-                        f.workflow_as_code_status || f.flow_status,
-                        f.workflow_as_code_status,
-                        f.flow_status
-                    )
-                END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
@@ -6140,6 +6136,9 @@ async fn get_job_update_data(
             new_logs: record.logs,
             mem_peak: record.mem_peak,
             progress: record.progress,
+            workflow_as_code_status: record
+                .workflow_as_code_status
+                .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             job,
             flow_status: record
                 .flow_status

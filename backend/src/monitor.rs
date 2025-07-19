@@ -1835,12 +1835,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             );
         }
 
-        let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&timeouts[..])
-            .fetch_all(db)
-            .await
-            .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-            .unwrap_or_default();
+        let jobs = sqlx::query_as::<_, QueuedJob>(
+            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+        )
+        .bind(&timeouts[..])
+        .fetch_all(db)
+        .await
+        .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
+        .unwrap_or_default();
 
         jobs
     };
@@ -1848,7 +1850,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
+        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
@@ -1873,13 +1875,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let zombie_jobs_restart_limit_reached =
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&zombie_jobs_uuid_restart_limit_reached[..])
-            .fetch_all(db)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+    let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
+        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+    )
+    .bind(&zombie_jobs_uuid_restart_limit_reached[..])
+    .fetch_all(db)
+    .await
+    .ok()
+    .unwrap_or_else(|| vec![]);
 
     let timeouts = non_restartable_jobs
         .into_iter()

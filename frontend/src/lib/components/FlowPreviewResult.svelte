@@ -7,7 +7,7 @@
 	import { emptyString } from '$lib/utils'
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
-	import Badge from './Badge.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		job: Job
@@ -84,9 +84,14 @@
 
 				<div>
 					<span class="inline-flex gap-1">
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge>{mod.id}</Badge>
-						</div>
+						<Badge
+							color="indigo"
+							wrapperClass="max-w-full"
+							baseClass="max-w-full truncate !px-1"
+							title={mod.id}
+						>
+							<span class="max-w-full text-2xs truncate">{mod.id}</span></Badge
+						>
 						<span class="font-medium text-primary mt-0.5">
 							{#if !emptyString(rawMod?.summary)}
 								{rawMod?.summary ?? ''}

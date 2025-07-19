@@ -189,9 +189,9 @@
 		{/if}
 
 		<div class=" w-full rounded-md min-h-full">
-			{#if job?.is_flow_step == false && job?.flow_status && (isScriptPreview(job?.job_kind) || job?.job_kind == 'script') && !(typeof job.flow_status == 'object' && '_metadata' in job.flow_status)}
+			{#if job?.workflow_as_code_status}
 				<WorkflowTimeline
-					flow_status={asWorkflowStatus(job.flow_status)}
+					flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 					flowDone={job.type == 'CompletedJob'}
 				/>
 			{/if}
