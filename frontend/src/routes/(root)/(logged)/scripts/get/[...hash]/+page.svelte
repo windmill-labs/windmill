@@ -179,17 +179,23 @@
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash,
-				withStarredInfo: true
+				withStarredInfo: true,
+				authed: true
 			})
 			starred = script.starred
 		} catch {
-			script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: hash,
-				withStarredInfo: true
-			})
-			starred = script.starred
-			hash = script.hash
+			try {
+				script = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore!,
+					path: hash,
+					withStarredInfo: true
+				})
+				starred = script.starred
+				hash = script.hash
+			} catch (e) {
+				sendUserToast('Could not load script: ' + e.body, true)
+				return
+			}
 		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
