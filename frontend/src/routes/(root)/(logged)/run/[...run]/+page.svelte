@@ -921,10 +921,10 @@
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
-				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
+				{#if job?.workflow_as_code_status}
 					<div class="mt-10"></div>
 					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.flow_status)}
+						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}

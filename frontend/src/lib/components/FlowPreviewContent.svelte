@@ -559,7 +559,7 @@
 					wideResults
 					{flowStateStore}
 					{jobId}
-					on:done={() => {
+					on:done={(x) => {
 						isRunning = false
 						$executionCount = $executionCount + 1
 						onJobDone?.()

@@ -380,7 +380,7 @@
 		}
 		let newGraph = graph
 		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
-		console.log('compute')
+		// console.log('compute')
 		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)

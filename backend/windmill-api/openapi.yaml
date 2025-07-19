@@ -7664,7 +7664,9 @@ paths:
                   progress:
                     type: integer
                   flow_status:
-                    $ref: "#/components/schemas/WorkflowStatusRecord"
+                    $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+                  workflow_as_code_status:
+                    $ref: "#/components/schemas/WorkflowStatus"
 
   /w/{workspace}/jobs_u/getupdate_sse/{id}:
     get:
@@ -14056,6 +14058,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14163,6 +14167,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:

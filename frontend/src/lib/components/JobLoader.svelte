@@ -4,7 +4,8 @@
 		JobService,
 		type FlowStatus,
 		type Preview,
-		type GetJobUpdatesResponse
+		type GetJobUpdatesResponse,
+		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick, untrack } from 'svelte'
@@ -18,6 +19,7 @@
 		done?: (x: Job & { result?: any }) => void
 		doneResult?: ({ id, result }: { id: string; result: any }) => void
 		doneError?: ({ id, error }: { id?: string; error: Error }) => void
+		change?: (x: Job) => void
 		cancel?: ({ id }: { id: string }) => void
 		started?: ({ id }: { id: string }) => void
 		running?: ({ id }: { id: string }) => void
@@ -27,6 +29,7 @@
 		isLoading?: boolean
 		job?: Job | undefined
 		noCode?: boolean
+		noLogs?: boolean
 		workspaceOverride?: string | undefined
 		notfound?: boolean
 		allowConcurentRequests?: boolean
@@ -52,6 +55,7 @@
 		lazyLogs = false,
 		onlyResult = false,
 		scriptProgress = $bindable(undefined),
+		noLogs = false,
 		children
 	}: Props = $props()
 
@@ -346,8 +350,22 @@
 		if (previewJobUpdates.flow_status) {
 			job.flow_status = previewJobUpdates.flow_status as FlowStatus
 		}
+		if (previewJobUpdates.workflow_as_code_status) {
+			job.workflow_as_code_status = previewJobUpdates.workflow_as_code_status as WorkflowStatus
+		}
 		if (previewJobUpdates.mem_peak && job) {
 			job.mem_peak = previewJobUpdates.mem_peak
+		}
+
+		if (
+			job &&
+			(previewJobUpdates.running ||
+				previewJobUpdates.progress ||
+				previewJobUpdates.new_logs ||
+				previewJobUpdates.flow_status ||
+				previewJobUpdates.mem_peak)
+		) {
+			callbacks?.change?.(job)
 		}
 	}
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
@@ -369,7 +387,13 @@
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({ workspace: workspace!, id, noCode, noLogs: onlyResult })
+						job = await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noCode,
+							noLogs: onlyResult || noLogs
+						})
+						callbacks?.change?.(job)
 					}
 
 					updateJobFromProgress(previewJobUpdates, job, callbacks)
@@ -377,7 +401,7 @@
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
-						noLogs: lazyLogs || onlyResult,
+						noLogs: lazyLogs || onlyResult || noLogs,
 						noCode
 					})
 				}
@@ -434,6 +458,7 @@
 			} else {
 				callbacks?.done?.(job)
 			}
+			callbacks?.change?.(job)
 
 			if (!allowConcurentRequests) {
 				currentId = undefined
@@ -467,7 +492,12 @@
 			try {
 				// First load the job to get initial state
 				if (!job && !onlyResult) {
-					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
+					job = await JobService.getJob({
+						workspace: workspace!,
+						id,
+						noLogs: lazyLogs || noLogs,
+						noCode
+					})
 				}
 
 				// If job is already completed, don't start SSE
