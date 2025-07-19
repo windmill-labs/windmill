@@ -214,17 +214,20 @@
 
 		if (
 			lastJobId == $flowStateStore[flowModule.id]?.previewJobId ||
-			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId
+			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId ||
+			$flowStateStore[flowModule.id]?.previewSuccess == undefined
 		) {
 			return
 		}
 		lastJobId = $flowStateStore[flowModule.id]?.previewJobId
+
 		const job = await JobService.getJob({
 			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
 			id: $flowStateStore[flowModule.id]?.previewJobId ?? '',
 			noCode: true
 		})
 		if (job && job.type === 'CompletedJob') {
+			lastJobId = $flowStateStore[flowModule.id]?.previewJobId
 			lastJob = job
 		}
 	}
