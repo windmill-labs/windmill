@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.510.0](https://github.com/windmill-labs/windmill/compare/v1.509.2...v1.510.0) (2025-07-19)
+
+
+### Features
+
+* use sse for flow status updates ([dec72e2](https://github.com/windmill-labs/windmill/commit/dec72e201bcc8242eb269826505d6338c9751f14))
+
 ## [1.509.2](https://github.com/windmill-labs/windmill/compare/v1.509.1...v1.509.2) (2025-07-19)
 
 
