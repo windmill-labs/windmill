@@ -64,7 +64,7 @@ await build({
       "nu",
       "ts",
       "regex",
-      "python",
+      "py",
       "go",
       "php",
       "rust",

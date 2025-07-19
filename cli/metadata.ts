@@ -523,7 +523,7 @@ export async function inferSchema(
   let inferedSchema: any;
   if (language === "python3") {
     const { parse_python } = await import(
-      "./wasm/python/windmill_parser_wasm.js"
+      "./wasm/py/windmill_parser_wasm.js"
     );
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
