@@ -264,12 +264,14 @@
 		return typeof EventSource !== 'undefined'
 	}
 
+	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
 		job = undefined
+		startedWatchingJob = Date.now()
 
 		// Clean up any existing SSE connection
 		currentEventSource?.close()
@@ -504,7 +506,7 @@
 						params.set('only_result', 'true')
 					}
 
-					if (lastStartedAt > Date.now() - 5000) {
+					if (startedWatchingJob && startedWatchingJob > Date.now() - 5000) {
 						params.set('fast', 'true')
 					}
 
