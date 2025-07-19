@@ -215,7 +215,7 @@
 				},
 				doneError({ error }) {
 					console.error(error)
-					sendUserToast('Error running test', true)
+					// sendUserToast('Error running test', true)
 				}
 			}
 		)
