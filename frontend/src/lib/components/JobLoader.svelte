@@ -265,7 +265,11 @@
 	}
 
 	function supportsSSE() {
-		return typeof EventSource !== 'undefined'
+		const sseSupported = typeof EventSource !== 'undefined'
+		if (!sseSupported) {
+			console.error('SSE not supported, falling back to polling')
+		}
+		return sseSupported
 	}
 
 	let startedWatchingJob: number | undefined = undefined
