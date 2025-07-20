@@ -6092,7 +6092,7 @@ async fn get_job_update_data(
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
-                job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
+                COALESCE(job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1, 0) AS log_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
