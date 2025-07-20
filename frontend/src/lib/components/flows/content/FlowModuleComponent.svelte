@@ -192,10 +192,13 @@
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
+	let lastJobId: string | undefined = undefined
+
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
+		lastJobId = undefined
 	}
 
 	async function getLastJob() {
@@ -208,11 +211,23 @@
 		) {
 			return
 		}
+
+		if (
+			lastJobId == $flowStateStore[flowModule.id]?.previewJobId ||
+			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId ||
+			$flowStateStore[flowModule.id]?.previewSuccess == undefined
+		) {
+			return
+		}
+		lastJobId = $flowStateStore[flowModule.id]?.previewJobId
+
 		const job = await JobService.getJob({
 			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
-			id: $flowStateStore[flowModule.id]?.previewJobId ?? ''
+			id: $flowStateStore[flowModule.id]?.previewJobId ?? '',
+			noCode: true
 		})
-		if (job) {
+		if (job && job.type === 'CompletedJob') {
+			lastJobId = $flowStateStore[flowModule.id]?.previewJobId
 			lastJob = job
 		}
 	}

@@ -36,6 +36,7 @@
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
+	import JobLoader from './JobLoader.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -406,7 +407,8 @@
 					JobService.getJob({
 						workspace: workspaceId ?? $workspaceStore ?? '',
 						id: mod.job ?? '',
-						noLogs: true
+						noLogs: true,
+						noCode: true
 					})
 						.then((job) => {
 							const newState = {
@@ -456,6 +458,12 @@
 						true
 					)
 				}
+				if (mod.flow_jobs_success) {
+					setModuleState(mod.id ?? '', {
+						flow_jobs_success: mod.flow_jobs_success
+					})
+				}
+				// console.log('updateInnerModules', mod.id, mod)
 
 				/**
 				 * else if (mod.type === 'Failure' || mod.type === 'WaitingForPriorSteps') {
@@ -470,23 +478,6 @@
 				}
 				*/
 			})
-		}
-	}
-
-	async function getNewJob(jobId: string, initialJob: Job | undefined) {
-		if (
-			jobId == initialJob?.id &&
-			initialJob?.id != undefined &&
-			initialJob?.type === 'CompletedJob'
-		) {
-			return initialJob
-		} else {
-			let r = await JobService.getJob({
-				workspace: workspaceId ?? $workspaceStore ?? '',
-				id: jobId ?? '',
-				noLogs: true
-			})
-			return r
 		}
 	}
 
@@ -509,9 +500,21 @@
 		}, pollingRate)
 	}
 
-	let errorCount = 0
 	let notAnonynmous = $state(false)
 	let started = false
+	let jobLoader: JobLoader | undefined = undefined
+
+	function setJob(newJob: Job, force: boolean) {
+		if (!deepEqual(job, newJob) || isForloopSelected || force) {
+			job = newJob
+			job?.flow_status && updateStatus(job?.flow_status)
+			dispatch('jobsLoaded', { job, force: false })
+			notAnonynmous = false
+			if (job?.type == 'CompletedJob' && !destroyed) {
+				dispatch('done', job)
+			}
+		}
+	}
 	async function loadJobInProgress() {
 		if (!started) {
 			started = true
@@ -519,29 +522,28 @@
 		}
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				const newJob = await getNewJob(jobId, initialJob)
-				if (!deepEqual(job, newJob) || isForloopSelected) {
-					job = newJob
-					job?.flow_status && updateStatus(job?.flow_status)
-					dispatch('jobsLoaded', { job, force: false })
+				if (
+					jobId == initialJob?.id &&
+					initialJob?.id != undefined &&
+					initialJob?.type === 'CompletedJob'
+				) {
+					setJob(initialJob, false)
+				} else {
+					jobLoader?.watchJob(jobId, {
+						change(newJob) {
+							setJob(newJob, true)
+						}
+					})
 				}
-				errorCount = 0
-				notAnonynmous = false
 			} catch (e) {
 				if (
 					e?.body?.includes('As a non logged in user, you can only see jobs ran by anonymous users')
 				) {
 					notAnonynmous = true
 				} else {
-					errorCount += 1
 					console.error(e)
 				}
 			}
-		}
-		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
-			debounceLoadJobInProgress()
-		} else {
-			dispatch('done', job)
 		}
 	}
 
@@ -930,6 +932,7 @@
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
 </script>
 
+<JobLoader noCode noLogs bind:this={jobLoader} />
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you
@@ -1030,7 +1033,8 @@
 										storedJob = await JobService.getJob({
 											workspace: workspaceId ?? $workspaceStore ?? '',
 											id: loopJobId,
-											noLogs: true
+											noLogs: true,
+											noCode: true
 										})
 										storedListJobs[j] = storedJob
 									}
