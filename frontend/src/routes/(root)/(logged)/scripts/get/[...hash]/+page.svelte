@@ -539,9 +539,9 @@
 <PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 <ShareModal bind:this={shareModal} />
 
-{#if script}
-	<Drawer bind:open={versionsDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
+<Drawer bind:open={versionsDrawerOpen} size="1200px">
+	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
+		{#if script}
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
@@ -552,325 +552,323 @@
 					versionsDrawerOpen = false
 				}}
 			/>
-		</DrawerContent>
-	</Drawer>
-	{#key script.hash}
-		<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
-			{#snippet header()}
-				{#if script}
-					<DetailPageHeader
-						{mainButtons}
-						menuItems={getMenuItems(script, deployUiSettings)}
-						title={defaultIfEmptyString(script.summary, script.path)}
-						bind:errorHandlerMuted={script.ws_error_handler_muted}
-						errorHandlerKind="script"
-						scriptOrFlowPath={script.path}
-						tag={script.tag}
-						on:seeTriggers={() => {
-							rightPaneSelected = 'triggers'
-						}}
-					>
-						{#snippet trigger_badges()}
-							<TriggersBadge
-								showOnlyWithCount={true}
-								showDraft={false}
-								path={script?.path ?? ''}
-								newItem={false}
-								isFlow={false}
-								selected={rightPaneSelected === 'triggers'}
-								onSelect={async (triggerIndex: number) => {
-									if (rightPaneSelected !== 'triggers') {
-										rightPaneSelected = 'triggers'
-									}
-									await tick()
-									triggersState.selectedTriggerIndex = triggerIndex
-								}}
-							/>
-						{/snippet}
-						{#if $workspaceStore}
-							<Star
-								kind="script"
-								path={script.path}
-								{starred}
-								workspace_id={$workspaceStore}
-								on:starred={() => {
-									starred = !starred
-								}}
-							/>
-						{/if}
-						{#if script.codebase}
-							<Badge
-								>bundle<Tooltip
-									>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
-								></Badge
-							>
-						{/if}
-						{#if script?.priority != undefined}
-							<div class="hidden md:block">
-								<Badge color="blue" variant="outlined" size="xs">
-									{`Priority: ${script.priority}`}
-								</Badge>
-							</div>
-						{/if}
-						{#if script?.restart_unless_cancelled ?? false}
-							<button onclick={() => persistentScriptDrawer?.open?.(script)}>
-								<div class="hidden md:block">
-									<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
-								</div>
-							</button>
-						{/if}
-						{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
-							<div class="hidden md:block">
-								<Badge color="gray" variant="outlined" size="xs">
-									{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
-								</Badge>
-							</div>
-						{/if}
-					</DetailPageHeader>
-				{/if}
-			{/snippet}
-			{#snippet form()}
-				{#if script}
-					<div class="p-8 w-full max-w-3xl mx-auto">
-						<div class="flex flex-col gap-0.5 mb-1">
-							{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-								<div class="flex flex-col gap-2 my-2">
-									{#if script.lock_error_logs}
-										<div
-											class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
-											role="alert"
-										>
-											<p class="font-bold">Error deploying this script</p>
-											<p>
-												This script has not been deployed successfully because of the following
-												errors:
-											</p>
-											<LogViewer
-												content={script.lock_error_logs}
-												isLoading={false}
-												tag={undefined}
-											/>
-										</div>
-									{/if}
-									{#if topHash}
-										<div class="mt-2"></div>
-										<Alert type="warning" title="Not HEAD">
-											This hash is not HEAD (latest non-archived version at this path) :
-											<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
-												>Go to the HEAD of this path</a
-											>
-										</Alert>
-									{/if}
-									{#if script.archived && !topHash}
-										<Alert type="error" title="Archived">This path was archived</Alert>
-									{/if}
-									{#if script.deleted}
-										<div
-											class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4"
-											role="alert"
-										>
-											<p class="font-bold">Deleted</p>
-											<p>The content of this script was deleted (by an admin, no less)</p>
-										</div>
-									{/if}
-								</div>
-							{/if}
-
-							{#if !emptyString(script.description)}
-								<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
-							{/if}
-						</div>
-
-						{#if deploymentInProgress}
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-							</Badge>
-						{/if}
-
-						<div class="flex flex-col align-left">
-							<div class="flex flex-row justify-between">
-								<InputSelectedBadge
-									onReject={() => {
-										savedInputsV2?.resetSelected()
-									}}
-									{inputSelected}
-								/>
-								<Toggle
-									bind:checked={jsonView}
-									label="JSON View"
-									size="xs"
-									options={{
-										right: 'JSON',
-										rightTooltip: 'Fill args from JSON'
-									}}
-									lightMode
-									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-									}}
-								/>
-							</div>
-
-							{#if script?.schema?.prompt_for_ai !== undefined}
-								<AIFormAssistant
-									instructions={script.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										goto(`/scripts/edit/${script?.path}?metadata_open=true`)
-									}}
-									runnableType="script"
-								/>
-							{/if}
-
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								viewKeybinding
-								loading={runLoading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={script}
-								runAction={runScript}
-								bind:args
-								schedulable={true}
-								bind:this={runForm}
-								{jsonView}
-							/>
-						</div>
-
-						<div class="py-10"></div>
-						{#if !emptyString(script.summary)}
-							<div class="mb-2">
-								<span class="!text-tertiary">{script.path}</span>
-							</div>
-						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							<span class="text-sm text-tertiary">
-								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
-									'unknown'}
-							</span>
-							<Badge small color="gray">
-								{truncateHash(script?.hash ?? '')}
-							</Badge>
-							{#if script?.is_template}
-								<Badge color="blue">Template</Badge>
-							{/if}
-							{#if script && script.kind !== 'script'}
-								<Badge color="blue">
-									{script?.kind}
-								</Badge>
-							{/if}
-
-							<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-						</div>
-					</div>
-				{/if}
-			{/snippet}
-			{#snippet save_inputs()}
-				{#if args}
-					<SavedInputsV2
-						schema={script?.schema}
-						bind:this={savedInputsV2}
-						scriptPath={script?.path}
-						scriptHash={topHash}
-						{isValid}
-						{jsonView}
-						{args}
-						bind:inputSelected
-						on:selected_args={(e) => {
-							const nargs = JSON.parse(JSON.stringify(e.detail))
-							args = nargs
-						}}
-					/>
-				{/if}
-			{/snippet}
-			{#snippet triggers()}
-				{#if script}
-					<TriggersEditor
-						initialPath={script.path}
-						currentPath={script.path}
-						noEditor={true}
+		{/if}
+	</DrawerContent>
+</Drawer>
+{#key script?.hash}
+	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
+		{#snippet header()}
+			<DetailPageHeader
+				{mainButtons}
+				menuItems={getMenuItems(script, deployUiSettings)}
+				title={defaultIfEmptyString(script?.summary, script?.path ?? '')}
+				bind:errorHandlerMuted={
+					() => script?.ws_error_handler_muted ?? false,
+					(v) => {
+						if (script?.ws_error_handler_muted) {
+							script.ws_error_handler_muted = v
+						}
+					}
+				}
+				errorHandlerKind="script"
+				scriptOrFlowPath={script?.path ?? ''}
+				tag={script?.tag ?? ''}
+				on:seeTriggers={() => {
+					rightPaneSelected = 'triggers'
+				}}
+			>
+				{#snippet trigger_badges()}
+					<TriggersBadge
+						showOnlyWithCount={true}
+						showDraft={false}
+						path={script?.path ?? ''}
 						newItem={false}
 						isFlow={false}
-						schema={script.schema}
-						isDeployed={true}
-						noCapture={true}
-						isEditor={false}
+						selected={rightPaneSelected === 'triggers'}
+						onSelect={async (triggerIndex: number) => {
+							if (rightPaneSelected !== 'triggers') {
+								rightPaneSelected = 'triggers'
+							}
+							await tick()
+							triggersState.selectedTriggerIndex = triggerIndex
+						}}
+					/>
+				{/snippet}
+				{#if $workspaceStore && script}
+					<Star
+						kind="script"
+						path={script.path}
+						{starred}
+						workspace_id={$workspaceStore}
+						on:starred={() => {
+							starred = !starred
+						}}
 					/>
 				{/if}
-			{/snippet}
-			{#snippet scriptRender()}
-				{#if script}
-					<div class="h-full">
-						<Skeleton {loading} layout={[[20]]} />
-
-						<Tabs selected="code">
-							<Tab value="code" size="xs">Code</Tab>
-							<Tab value="dependencies" size="xs">Lockfile</Tab>
-							<Tab value="schema" size="xs">Schema</Tab>
-							{#snippet content()}
-								{#if script}
-									<TabContent value="code">
-										<div class="p-2 w-full">
-											<HighlightCode
-												language={script.language}
-												code={script.content}
-												class="whitespace-pre-wrap"
-											/>
-										</div>
-									</TabContent>
-									<TabContent value="dependencies">
-										<div>
-											{#if script?.lock}
-												<div class="relative overflow-x-auto w-full">
-													<Button
-														wrapperClasses="absolute top-2 right-2 z-20"
-														on:click={() => copyToClipboard(script?.lock)}
-														color="light"
-														size="xs2"
-														startIcon={{
-															icon: ClipboardCopy
-														}}
-														iconOnly
-													/>
-													<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
-														>{script.lock}</pre
-													>
-												</div>
-											{:else}
-												<p class="bg-surface-secondary text-sm p-2">
-													There is no lock file for this script
-												</p>
-											{/if}
-										</div>
-									</TabContent>
-									<TabContent value="schema">
-										<div class="p-1 relative h-full">
-											<button
-												onclick={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
-												class="absolute top-2 right-2"
-											>
-												<ClipboardCopy size={14} />
-											</button>
-											<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
-										</div>
-									</TabContent>
+				{#if script?.codebase}
+					<Badge
+						>bundle<Tooltip
+							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+						></Badge
+					>
+				{/if}
+				{#if script?.priority != undefined}
+					<div class="hidden md:block">
+						<Badge color="blue" variant="outlined" size="xs">
+							{`Priority: ${script.priority}`}
+						</Badge>
+					</div>
+				{/if}
+				{#if script?.restart_unless_cancelled ?? false}
+					<button onclick={() => persistentScriptDrawer?.open?.(script)}>
+						<div class="hidden md:block">
+							<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
+						</div>
+					</button>
+				{/if}
+				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<Badge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
+						</Badge>
+					</div>
+				{/if}
+			</DetailPageHeader>
+		{/snippet}
+		{#snippet form()}
+			{#if script}
+				<div class="p-8 w-full max-w-3xl mx-auto">
+					<div class="flex flex-col gap-0.5 mb-1">
+						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
+							<div class="flex flex-col gap-2 my-2">
+								{#if script.lock_error_logs}
+									<div
+										class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
+										role="alert"
+									>
+										<p class="font-bold">Error deploying this script</p>
+										<p>
+											This script has not been deployed successfully because of the following
+											errors:
+										</p>
+										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
+									</div>
 								{/if}
-							{/snippet}
-						</Tabs>
+								{#if topHash}
+									<div class="mt-2"></div>
+									<Alert type="warning" title="Not HEAD">
+										This hash is not HEAD (latest non-archived version at this path) :
+										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
+											>Go to the HEAD of this path</a
+										>
+									</Alert>
+								{/if}
+								{#if script.archived && !topHash}
+									<Alert type="error" title="Archived">This path was archived</Alert>
+								{/if}
+								{#if script.deleted}
+									<div
+										class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4"
+										role="alert"
+									>
+										<p class="font-bold">Deleted</p>
+										<p>The content of this script was deleted (by an admin, no less)</p>
+									</div>
+								{/if}
+							</div>
+						{/if}
+
+						{#if !emptyString(script.description)}
+							<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
+						{/if}
 					</div>
 
-					{#if script.envs && script.envs.length > 0}
-						<h3>Static Env Variables</h3>
-						<ul>
-							{#each script.envs as e}
-								<li>{e}</li>
-							{/each}
-						</ul>
+					{#if deploymentInProgress}
+						<Badge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</Badge>
 					{/if}
-				{/if}
-			{/snippet}
-		</DetailPageLayout>
-	{/key}
-{/if}
+
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge
+								onReject={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
+
+						{#if script?.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={script.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+								}}
+								runnableType="script"
+							/>
+						{/if}
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							loading={runLoading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={script}
+							runAction={runScript}
+							bind:args
+							schedulable={true}
+							bind:this={runForm}
+							{jsonView}
+						/>
+					</div>
+
+					<div class="py-10"></div>
+					{#if !emptyString(script.summary)}
+						<div class="mb-2">
+							<span class="!text-tertiary">{script.path}</span>
+						</div>
+					{/if}
+					<div class="flex flex-row gap-x-2 flex-wrap items-center">
+						<span class="text-sm text-tertiary">
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+						</span>
+						<Badge small color="gray">
+							{truncateHash(script?.hash ?? '')}
+						</Badge>
+						{#if script?.is_template}
+							<Badge color="blue">Template</Badge>
+						{/if}
+						{#if script && script.kind !== 'script'}
+							<Badge color="blue">
+								{script?.kind}
+							</Badge>
+						{/if}
+
+						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+					</div>
+				</div>
+			{/if}
+		{/snippet}
+		{#snippet save_inputs()}
+			{#if args}
+				<SavedInputsV2
+					schema={script?.schema}
+					bind:this={savedInputsV2}
+					scriptPath={script?.path}
+					scriptHash={topHash}
+					{isValid}
+					{jsonView}
+					{args}
+					bind:inputSelected
+					on:selected_args={(e) => {
+						const nargs = JSON.parse(JSON.stringify(e.detail))
+						args = nargs
+					}}
+				/>
+			{/if}
+		{/snippet}
+		{#snippet triggers()}
+			{#if script}
+				<TriggersEditor
+					initialPath={script.path}
+					currentPath={script.path}
+					noEditor={true}
+					newItem={false}
+					isFlow={false}
+					schema={script.schema}
+					isDeployed={true}
+					noCapture={true}
+					isEditor={false}
+				/>
+			{/if}
+		{/snippet}
+		{#snippet scriptRender()}
+			<div class="h-full">
+				<Skeleton {loading} layout={[[20]]} />
+
+				<Tabs selected="code">
+					<Tab value="code" size="xs">Code</Tab>
+					<Tab value="dependencies" size="xs">Lockfile</Tab>
+					<Tab value="schema" size="xs">Schema</Tab>
+					{#snippet content()}
+						{#if script}
+							<TabContent value="code">
+								<div class="p-2 w-full">
+									<HighlightCode
+										language={script.language}
+										code={script.content}
+										class="whitespace-pre-wrap"
+									/>
+								</div>
+							</TabContent>
+							<TabContent value="dependencies">
+								<div>
+									{#if script?.lock}
+										<div class="relative overflow-x-auto w-full">
+											<Button
+												wrapperClasses="absolute top-2 right-2 z-20"
+												on:click={() => copyToClipboard(script?.lock)}
+												color="light"
+												size="xs2"
+												startIcon={{
+													icon: ClipboardCopy
+												}}
+												iconOnly
+											/>
+											<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+												>{script.lock}</pre
+											>
+										</div>
+									{:else}
+										<p class="bg-surface-secondary text-sm p-2">
+											There is no lock file for this script
+										</p>
+									{/if}
+								</div>
+							</TabContent>
+							<TabContent value="schema">
+								<div class="p-1 relative h-full">
+									<button
+										onclick={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
+										class="absolute top-2 right-2"
+									>
+										<ClipboardCopy size={14} />
+									</button>
+									<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
+								</div>
+							</TabContent>
+						{/if}
+					{/snippet}
+				</Tabs>
+			</div>
+
+			{#if script?.envs && script.envs.length > 0}
+				<h3>Static Env Variables</h3>
+				<ul>
+					{#each script?.envs as e}
+						<li>{e}</li>
+					{/each}
+				</ul>
+			{/if}
+		{/snippet}
+	</DetailPageLayout>
+{/key}
