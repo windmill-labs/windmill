@@ -557,7 +557,7 @@
 					Current runs
 				</Button>
 			{/if}
-			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
+			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
 						color="red"
