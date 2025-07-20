@@ -5685,7 +5685,7 @@ pub struct JobUpdate {
     pub running: Option<bool>,
     pub completed: Option<bool>,
     pub new_logs: Option<String>,
-    pub stream_output: Option<String>,
+    pub stream: Option<String>,
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
     pub progress: Option<i32>,
@@ -5992,7 +5992,7 @@ fn get_job_update_sse_stream(
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
 
-fn extract_stream_output_from_logs(logs: Option<String>) -> (Option<String>, Option<String>) {
+fn extract_stream_from_logs(logs: Option<String>) -> (Option<String>, Option<String>) {
     match logs {
         Some(log_content) => {
             let mut regular_logs = Vec::new();
@@ -6016,13 +6016,13 @@ fn extract_stream_output_from_logs(logs: Option<String>) -> (Option<String>, Opt
                 Some(regular_logs.join("\n"))
             };
             
-            let stream_output = if stream_lines.is_empty() {
+            let stream = if stream_lines.is_empty() {
                 None
             } else {
-                Some(stream_lines.join("\n"))
+                Some(stream_lines.join("\\n"))
             };
             
-            (filtered_logs, stream_output)
+            (filtered_logs, stream)
         }
         None => (None, None),
     }
@@ -6110,7 +6110,7 @@ async fn get_job_update_data(
             completed: if result.0.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
-            stream_output: None,
+            stream: None,
             mem_peak: None,
             progress: None,
             job: None,
@@ -6167,14 +6167,14 @@ async fn get_job_update_data(
             None
         };
 
-        let (filtered_logs, stream_output) = extract_stream_output_from_logs(record.logs);
+        let (filtered_logs, stream) = extract_stream_from_logs(record.logs);
         
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
             log_offset: record.log_offset,
             new_logs: filtered_logs,
-            stream_output,
+            stream,
             mem_peak: record.mem_peak,
             progress: record.progress,
             workflow_as_code_status: record
