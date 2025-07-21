@@ -109,6 +109,10 @@ pub fn workspaced_service() -> Router {
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/edit_error_handler", post(edit_error_handler))
         .route(
+            "/edit_trigger_failure_email_notifications",
+            post(edit_trigger_failure_email_notifications),
+        )
+        .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
@@ -240,6 +244,8 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_failure_email_recipients: Option<Vec<String>>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -368,6 +374,11 @@ pub struct EditErrorHandler {
     pub error_handler_muted_on_cancel: Option<bool>,
 }
 
+#[derive(Deserialize)]
+pub struct EditTriggerFailureEmailNotifications {
+    pub trigger_failure_email_recipients: Vec<String>,
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -444,7 +455,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations, trigger_failure_email_recipients FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_optional(&mut *tx)
@@ -1257,6 +1268,51 @@ async fn edit_error_handler(
     .await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
+}
+
+async fn edit_trigger_failure_email_notifications(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(req): Json<EditTriggerFailureEmailNotifications>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET trigger_failure_email_recipients = $1 WHERE workspace_id = $2",
+        &req.trigger_failure_email_recipients,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_trigger_failure_email",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("trigger_failure_email_recipients", &format!("{:?}", req.trigger_failure_email_recipients)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "trigger_failure_email".to_string() },
+        Some("Trigger failure email notifications configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
+    Ok(format!("Edit trigger_failure_email_notifications for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]

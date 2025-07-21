@@ -67,8 +67,6 @@ use windmill_common::{
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
-#[cfg(feature = "enterprise")]
-use windmill_common::BASE_URL;
 
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
@@ -1421,12 +1419,13 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     Ok(())
 }
 
-
-async fn send_trigger_failure_email_notification<'a, 'c, T: Serialize + Send + Sync>(
+#[cfg(feature = "smtp")]
+async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>(
     queued_job: &MiniPulledJob,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
 ) -> Result<(), Error> {
+
     if queued_job.parent_job.is_some() {
         return Ok(());
     }
@@ -1434,18 +1433,23 @@ async fn send_trigger_failure_email_notification<'a, 'c, T: Serialize + Send + S
     let smtp_config = match load_smtp_config(db).await? {
         Some(config) => config,
         None => {
-            tracing::debug!("SMTP not configured, skipping trigger failure email notification");
+            tracing::info!("SMTP not configured, skipping trigger failure email notification");
             return Ok(());
         }
     };
 
-    let (trigger_kind, trigger_path) = sqlx::query_as::<_, (Option<JobTriggerKind>, Option<String>)>(
-        "SELECT trigger_kind, trigger FROM v2_job WHERE id = $1",
+    let trigger_kind:Option<JobTriggerKind> = sqlx::query_scalar!(
+        r#"SELECT 
+            trigger_kind AS "trigger_kind: _"
+        FROM 
+            v2_job 
+        WHERE 
+            id = $1"#,
+            queued_job.id
     )
-    .bind(queued_job.id)
     .fetch_optional(db)
     .await?
-    .unwrap_or((None, None));
+    .unwrap_or(None);
 
     let trigger_kind = match trigger_kind {
         Some(trigger_kind) => {
@@ -1457,21 +1461,16 @@ async fn send_trigger_failure_email_notification<'a, 'c, T: Serialize + Send + S
         }
     };
 
-    let trigger_path = match trigger_path {
-        Some(path) => path,
-        None => {
-            tracing::debug!("Trigger job {} has no trigger path", queued_job.id);
-            return Ok(());
-        }
-    };
-
-    
     let base_url = BASE_URL.read().await;
 
     let job_url = format!("{}/run/{}?workspace={}", base_url, queued_job.id, queued_job.workspace_id);
     
+
+    let trigger_kind = trigger_kind.to_string().to_uppercase();
+
     let subject = format!(
-        "Windmill Trigger Job Failed: {} in workspace {}",
+        "Windmill {} Trigger Job Failed: {} in workspace {}",
+        &trigger_kind,
         queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
         queued_job.workspace_id
     );
@@ -1484,7 +1483,6 @@ async fn send_trigger_failure_email_notification<'a, 'c, T: Serialize + Send + S
 A trigger job has failed in your Windmill workspace.
 
 Trigger Type: {}
-Trigger Path: {}
 Script/Flow: {}
 Workspace: {}
 Job ID: {}
@@ -1496,8 +1494,7 @@ Error Details:
 This email was automatically sent by Windmill because SMTP is configured for your workspace and the triggered job failed.
 You can disable these notifications by configuring a workspace error handler or removing SMTP configuration.
 "#,
-        trigger_kind.to_string().to_uppercase(),
-        trigger_path,
+        &trigger_kind,
         queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
         queued_job.workspace_id,
         queued_job.id,
@@ -1505,8 +1502,36 @@ You can disable these notifications by configuring a workspace error handler or 
         error_details
     );
 
-  // Send the email notification
-    //if let Err(e) = smtp_config.send_email();
+    // Check if workspace has custom email recipients configured
+    let custom_recipients = sqlx::query_scalar!(
+        "SELECT trigger_failure_email_recipients FROM workspace_settings WHERE workspace_id = $1",
+        &queued_job.workspace_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(None);
+
+    let Some(recipients) = custom_recipients else  {
+        tracing::info!(
+            "No custom trigger failure email recipients configured for workspace {}. Skipping email notification.",
+            queued_job.workspace_id
+        );
+        return  Ok(());
+    } ;
+
+    if let Err(e) = send_email(&subject, &content, recipients.clone(), smtp_config, None).await {
+        tracing::error!(
+            "Failed to send trigger failure email notification for job {}: {}",
+            queued_job.id,
+            e
+        );
+    } else {
+        tracing::info!(
+            "Sent trigger failure email notification for job {} to {:?}",
+            queued_job.id,
+            recipients
+        );
+    }
     Ok(())
 }
 

@@ -65,6 +65,7 @@
 	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
 	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { untrack } from 'svelte'
 
 	// Shared defaults for new Git-Sync repositories
@@ -101,6 +102,7 @@
 
 	// Import the generated backend type
 	import type { GitRepositorySettings as BackendGitRepositorySettings } from '$lib/gen'
+	import Label from '$lib/components/Label.svelte'
 
 	// Frontend repository format extends backend with guaranteed settings and additional UI state
 	type GitSyncRepository = BackendGitRepositorySettings & {
@@ -131,6 +133,8 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let triggerFailureEmailRecipients: string[] = $state([])
+	let initialTriggerFailureEmailRecipients: string[] = $state([])
 
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
@@ -596,6 +600,10 @@
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
+		triggerFailureEmailRecipients = settings.trigger_failure_email_recipients
+			? settings.trigger_failure_email_recipients
+			: []
+		initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -731,6 +739,22 @@
 			sendUserToast(`workspace error handler removed`)
 		}
 	}
+
+	async function editTriggerFailureEmailSettings() {
+		try {
+			await WorkspaceService.editTriggerFailureEmailNotifications({
+				workspace: $workspaceStore!,
+				requestBody: {
+					trigger_failure_email_recipients: triggerFailureEmailRecipients
+				}
+			})
+			sendUserToast(`Trigger failure email recipients updated`)
+			initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
+		} catch (err) {
+			sendUserToast(`Failed to update trigger failure email recipients: ${err}`, true)
+		}
+	}
+
 
 	async function runGitSyncTestJob(settingsIdx: number) {
 		let gitSyncRepository = gitSyncSettings.repositories[settingsIdx]
@@ -1213,6 +1237,50 @@
 				>
 					Save
 				</Button>
+			</div>
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
+					<Description>
+						Configure email addresses to receive notifications when trigger jobs fail. This feature requires SMTP to be configured.
+					</Description>
+				</div>
+			</div>
+			<div class="flex flex-col gap-2 my-4">
+				<Label for="trigger-failure-emails">Email Recipients</Label>
+				<MultiSelect
+					items={[] as { label: string; value: string }[]}
+					bind:value={triggerFailureEmailRecipients}
+					placeholder="Enter email addresses..."
+					onCreateItem={(email) => {
+						const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+						if (!emailRegex.test(email)) {
+							sendUserToast('Invalid email format', true);
+							return;
+						}
+						if (triggerFailureEmailRecipients.includes(email)) {
+							sendUserToast('Email already added', true);
+							return;
+						}
+						triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email];
+					}}
+					createText="Add email: "
+					class="w-full"
+				/>
+				<div class="flex gap-2 items-center mt-2">
+					<Button
+						disabled={!$enterpriseLicense || deepEqual(triggerFailureEmailRecipients, initialTriggerFailureEmailRecipients)}
+						size="sm"
+						on:click={editTriggerFailureEmailSettings}
+					>
+						Save Email Settings
+					</Button>
+					{#if triggerFailureEmailRecipients.length > 0}
+						<span class="text-sm text-tertiary">
+							{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1 ? '' : 's'} configured
+						</span>
+					{/if}
+				</div>
 			</div>
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
