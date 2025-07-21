@@ -8,6 +8,12 @@ import { setGlobalCSS } from '../shared'
 import { get } from 'svelte/store'
 import { copilotInfo } from '$lib/stores'
 
+// max ratio of type script completions to context window
+const TYPE_SCRIPT_COMPLETIONS_MAX_RATIO = 0.1
+
+// hard limit to max number of type script completions to fetch details for, to avoid performance overhead
+const TYPE_SCRIPT_COMPLETIONS_DETAILS_MAX = 100
+
 type CacheCompletion = {
 	linePrefix: string
 	completion: string
@@ -304,9 +310,11 @@ export class Autocompletor {
 					afterDot ? e?.name?.startsWith(afterDot) : true
 				)
 				const detailedEntries = await Promise.all(
-					filteredEntries.map((e: { name: string }) =>
-						worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
-					)
+					filteredEntries
+						.slice(0, TYPE_SCRIPT_COMPLETIONS_DETAILS_MAX)
+						.map((e: { name: string }) =>
+							worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
+						)
 				)
 				entries.push(...detailedEntries.map((e) => this.#formatCompletionEntry(e)))
 			}
@@ -329,7 +337,6 @@ export class Autocompletor {
 		model: meditor.ITextModel,
 		position: Position
 	): Promise<{ completion: string; suffix: string } | undefined> {
-		const TYPE_SCRIPT_COMPLETIONS_MAX_RATIO = 0.1
 		const thisTs = Date.now()
 		this.#lastTs = thisTs
 
