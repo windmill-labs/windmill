@@ -1454,9 +1454,7 @@
 				scriptPath: path,
 				logger: console,
 				delegate: {
-					receivedFile: (code, path) => {
-						addLibraryToRuntime(code, path)
-					},
+					receivedFile: addLibraryToRuntime,
 					localFile: addLocalFile,
 					progress: (downloaded: number, total: number) => {
 						// console.log({ dl, ttl })

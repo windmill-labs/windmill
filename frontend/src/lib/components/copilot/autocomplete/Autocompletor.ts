@@ -68,7 +68,6 @@ export class Autocompletor {
 			{ pattern: '**' },
 			{
 				provideInlineCompletions: async (model, position, context, token) => {
-					const start = performance.now()
 					if (
 						token.isCancellationRequested ||
 						model.uri.toString() !== editor.getModel()?.uri.toString()
@@ -137,9 +136,6 @@ export class Autocompletor {
 							range.endColumn = model.getLineMaxColumn(position.lineNumber)
 						}
 
-						const end = performance.now()
-						console.log('autocomplete time', end - start)
-
 						return {
 							items: [
 								{
@@ -173,9 +169,9 @@ export class Autocompletor {
 
 		this.#cursorDisposable = editor.onDidChangeCursorPosition(async (e) => {
 			deletionsCues.clear()
-			const model = editor.getModel()
-			if (model) {
-				if (e.source === 'mouse') {
+			if (e.source === 'mouse') {
+				const model = editor.getModel()
+				if (model) {
 					this.#autocomplete(model, e.position)
 				}
 			}
@@ -241,6 +237,7 @@ export class Autocompletor {
 		// check if current word has a dot
 		const line = model.getLineContent(position.lineNumber)
 		const word = line.substring(0, position.column)
+		let hasDot = false
 		let afterDot = ''
 		let entries: string[] = []
 		for (let i = word.length - 1; i >= 0; i--) {
@@ -248,16 +245,16 @@ export class Autocompletor {
 				break
 			}
 			if (word[i] === '.') {
+				hasDot = true
 				afterDot = word.substring(i + 1)
 				break
 			}
 		}
-		if (afterDot) {
-			console.log('afterDot', afterDot)
-			console.log('info', info?.entries)
-			for (const e of info?.entries.filter((e) => e?.name?.startsWith(afterDot)) ?? []) {
+		if (hasDot) {
+			for (const e of (info?.entries ?? []).filter((e: { name: string }) =>
+				afterDot ? e?.name?.startsWith(afterDot) : true
+			)) {
 				const details = await worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
-				console.log('details', details)
 				entries.push(this.#formatCompletionEntry(details))
 			}
 		}
@@ -347,8 +344,6 @@ export class Autocompletor {
 			},
 			this.#abortController
 		)
-
-		console.log('completion', completion)
 
 		if (!completion) {
 			return
