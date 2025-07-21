@@ -35,9 +35,9 @@ function filterCompletion(
 	if (!shouldReturnMultiline) {
 		if (completion.startsWith('\n')) {
 			// TODO improve cache for this case so that we can use cache when accepting the first line of a multiline completion which starts with \n
-			return completion.split('\n').slice(0, 2).join('\n')
-		} else {
-			return completion.split('\n').slice(0, 1).join('\n')
+			return completion.split('\n').slice(0, 2) + '\n'
+		} else if (completion.includes('\n')) {
+			return completion.split('\n').slice(0, 1) + '\n'
 		}
 	}
 
@@ -90,88 +90,72 @@ export class Autocompletor {
 
 					const result = await this.#autocomplete(model, position)
 
-					if (result) {
-						const completion = filterCompletion(
-							result.completion,
-							result.suffix,
-							shouldReturnMultiline
-						)
+					if (!result) {
+						return { items: [] }
+					}
 
-						if (!completion) {
-							return { items: [] }
+					const range = {
+						startLineNumber: position.lineNumber,
+						startColumn: position.column,
+						endLineNumber: position.lineNumber,
+						endColumn: position.column
+					}
+
+					const toEol = {
+						...range,
+						endColumn: model.getLineMaxColumn(position.lineNumber)
+					}
+
+					// if shouldReturnMultiline is false, only keep first line of a multiline completion (keeps final new line)
+					let completion = filterCompletion(result.completion, result.suffix, shouldReturnMultiline)
+
+					if (!completion) {
+						return { items: [] }
+					}
+
+					// if completion ends with new line, we want the suggestion to replace the end of the current line
+					const endsWithNewLine = completion.endsWith('\n')
+					if (endsWithNewLine) {
+						// remove new line
+						completion = completion.slice(0, -1)
+						// if suggestion === code to be replaced, do nothing
+						const code = model.getValueInRange(toEol)
+						if (completion === code) {
+							return {
+								items: []
+							}
 						}
 
-						let range = {
-							startLineNumber: position.lineNumber,
-							startColumn: position.column,
-							endLineNumber: position.lineNumber,
-							endColumn: position.column
-						}
-
-						// if completion takes whole line, delete the rest of the line after the suggestion
-						const isWholeLine = result.completion.indexOf('\n') !== -1
-						if (isWholeLine) {
-							// if code between position.column and the end of the line is the same as the completion, return empty items
-							const code = model.getValueInRange({
-								startLineNumber: position.lineNumber,
-								startColumn: position.column,
-								endLineNumber: position.lineNumber,
-								endColumn: model.getLineMaxColumn(position.lineNumber)
-							})
-							if (completion === code) {
-								return {
-									items: []
+						// set deletion cue for content that will be replaced by the suggestion
+						deletionsCues.set([
+							{
+								range: toEol,
+								options: {
+									className: 'ai-completion-diff'
 								}
 							}
+						])
+					}
 
-							const toEol = new Range(
-								position.lineNumber,
-								position.column,
-								position.lineNumber,
-								model.getLineMaxColumn(position.lineNumber)
-							)
-
-							deletionsCues.set([
-								{
-									range: toEol,
-									options: {
-										className: 'ai-completion-diff'
-									}
-								}
-							])
-						}
-
-						const multiline = completion.indexOf('\n') !== -1
-						if (multiline) {
-							// if multiline the range should span until the end of the line
-							range.endColumn = model.getLineMaxColumn(position.lineNumber)
-						}
-
-						return {
-							items: [
-								{
-									insertText: completion,
-									range,
-									additionalTextEdits: isWholeLine
+					const multiline = completion.indexOf('\n') !== -1
+					return {
+						items: [
+							{
+								insertText: completion,
+								range: multiline ? toEol : range,
+								filterText: completion,
+								// if completion ends with new line, after applying the suggestion, delete the rest of the line
+								additionalTextEdits:
+									endsWithNewLine && !multiline
 										? [
 												{
-													range: {
-														startLineNumber: position.lineNumber,
-														startColumn: position.column,
-														endLineNumber: position.lineNumber,
-														endColumn: model.getLineMaxColumn(position.lineNumber)
-													},
+													range: toEol,
 													text: ''
 												}
 											]
 										: []
-								}
-							]
-						}
-					} else {
-						return {
-							items: []
-						}
+							}
+						]
 					}
 				},
 				freeInlineCompletions: () => {}
