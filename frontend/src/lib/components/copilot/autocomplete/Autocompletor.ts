@@ -3,8 +3,10 @@ import { sleep } from '$lib/utils'
 import { editor as meditor, Position, languages, type IDisposable, Range } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
-import { FIM_MAX_TOKENS } from '../lib'
+import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
 import { setGlobalCSS } from '../shared'
+import { get } from 'svelte/store'
+import { copilotInfo } from '$lib/stores'
 
 type CacheCompletion = {
 	linePrefix: string
@@ -100,6 +102,19 @@ export class Autocompletor {
 						// if completion takes whole line, delete the rest of the line after the suggestion
 						const isWholeLine = result.completion.indexOf('\n') !== -1
 						if (isWholeLine) {
+							// if code between position.column and the end of the line is the same as the completion, return empty items
+							const code = model.getValueInRange({
+								startLineNumber: position.lineNumber,
+								startColumn: position.column,
+								endLineNumber: position.lineNumber,
+								endColumn: model.getLineMaxColumn(position.lineNumber)
+							})
+							if (completion === code) {
+								return {
+									items: []
+								}
+							}
+
 							const toEol = new Range(
 								position.lineNumber,
 								position.column,
@@ -128,7 +143,6 @@ export class Autocompletor {
 								{
 									insertText: completion,
 									range,
-									// filterText: completion,
 									additionalTextEdits: isWholeLine
 										? [
 												{
@@ -151,9 +165,7 @@ export class Autocompletor {
 						}
 					}
 				},
-				freeInlineCompletions: () => {
-					// deletionsCues.clear()
-				}
+				freeInlineCompletions: () => {}
 			}
 		)
 
@@ -272,6 +284,8 @@ export class Autocompletor {
 			endColumn: position.column
 		})
 
+		const completitionModel = get(copilotInfo).codeCompletionModel
+		const contextWindow = getModelContextWindow(completitionModel?.model ?? '')
 		const librariesLimitedCode: string = this.#libraries
 			.filter(
 				(l) =>
@@ -281,7 +295,7 @@ export class Autocompletor {
 			)
 			.map((l) => l.code)
 			.join('\n')
-			.slice(0, 1500)
+			.slice(0, Math.floor(contextWindow * 0.1))
 
 		const completion = await autocompleteRequest(
 			{

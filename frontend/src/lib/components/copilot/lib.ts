@@ -113,6 +113,8 @@ export function getModelContextWindow(model: string) {
 		return 128000
 	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
 		return 200000
+	} else if (model.startsWith('codestral')) {
+		return 32000
 	} else {
 		return 128000
 	}
