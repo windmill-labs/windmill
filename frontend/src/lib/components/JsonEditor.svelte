@@ -23,7 +23,7 @@
 	let {
 		code = $bindable(),
 		value = $bindable(undefined),
-		error = $bindable(''),
+		error = $bindable(),
 		editor = $bindable(undefined),
 		small = false,
 		loadAsync = false,
