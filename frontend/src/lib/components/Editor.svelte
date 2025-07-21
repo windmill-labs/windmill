@@ -190,13 +190,7 @@
 		cmdEnterAction = undefined,
 		formatAction = undefined,
 		automaticLayout = true,
-		websocketAlive = $bindable({
-			pyright: false,
-			ruff: false,
-			deno: false,
-			go: false,
-			shellcheck: false
-		}),
+		websocketAlive = $bindable(),
 		shouldBindKey = true,
 		fixedOverflowWidgets = true,
 		path = undefined,
@@ -216,6 +210,18 @@
 		key = undefined,
 		class: clazz = undefined
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (websocketAlive == undefined) {
+			websocketAlive = {
+				pyright: false,
+				ruff: false,
+				deno: false,
+				go: false,
+				shellcheck: false
+			}
+		}
+	})
 
 	let lang = $state(scriptLangToEditorLang(scriptLang))
 
