@@ -6,18 +6,22 @@
 	import type { FlowModule } from '$lib/gen'
 	import { Alert, SecondsInput } from '../../common'
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	$: istimeoutEnabled = Boolean(flowModule.timeout)
+	let { flowModule = $bindable() }: Props = $props()
+
+	let istimeoutEnabled = $derived(Boolean(flowModule.timeout))
 </script>
 
 <Section label="Timeout">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip>
 			If defined, the custom timeout will be used instead of the instance timeout for the step. The
 			step's timeout cannot be greater than the instance timeout.
 		</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
 	<Toggle
 		checked={istimeoutEnabled}

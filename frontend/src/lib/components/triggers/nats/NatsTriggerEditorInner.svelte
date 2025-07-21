@@ -288,14 +288,14 @@
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'NATS trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render actionsSnippet()}
-		</svelte:fragment>
+		{/snippet}
 		{@render config()}
 	</Section>
 {/if}

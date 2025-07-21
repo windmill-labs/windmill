@@ -2,15 +2,36 @@
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
 
-	export let label: string | undefined = undefined
-	export let primary = false
-	export let disabled = false
-	export let headless = false
-	export let required = false
-	export let headerClass = ''
+	interface Props {
+		label?: string | undefined
+		primary?: boolean
+		disabled?: boolean
+		headless?: boolean
+		required?: boolean
+		headerClass?: string
+		class?: string | undefined
+		header?: import('svelte').Snippet
+		error?: import('svelte').Snippet
+		action?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		label = undefined,
+		primary = false,
+		disabled = false,
+		headless = false,
+		required = false,
+		headerClass = '',
+		class: clazz = undefined,
+		header,
+		error,
+		action,
+		children
+	}: Props = $props()
 </script>
 
-<div class={twMerge(disabled ? 'opacity-60 pointer-events-none' : '', $$props.class)}>
+<div class={twMerge(disabled ? 'opacity-60 pointer-events-none' : '', clazz)}>
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
 			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
@@ -21,11 +42,11 @@
 						<Required required={true} />
 					{/if}
 				</span>
-				<slot name="header" />
+				{@render header?.()}
 			</div>
 		{/if}
-		<slot name="error" />
-		<slot name="action" />
+		{@render error?.()}
+		{@render action?.()}
 	</div>
-	<slot />
+	{@render children?.()}
 </div>

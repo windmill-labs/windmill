@@ -152,7 +152,6 @@
 			<Module.default
 				bind:this={editor}
 				bind:code
-				lang="sql"
 				scriptLang="mysql"
 				class="w-full h-full"
 				cmdEnterAction={run}
