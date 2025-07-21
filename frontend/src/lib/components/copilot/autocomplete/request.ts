@@ -38,11 +38,13 @@ export async function autocompleteRequest(
 		if (context.libraries) {
 			commentedContext =
 				commentedContext +
-				comment(commentSymbol, '\nLIBRARIES:\n') +
+				comment(commentSymbol, '\nLIBRARY AVAILABLE COMPLETIONS:\n') +
 				comment(commentSymbol, context.libraries)
 		}
 		context.prefix = commentedContext + '\n' + context.prefix
 	}
+
+	console.log('context.prefix', context.prefix)
 
 	const providerModel = get(copilotInfo).codeCompletionModel
 

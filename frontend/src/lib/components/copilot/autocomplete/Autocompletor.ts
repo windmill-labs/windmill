@@ -48,7 +48,7 @@ export class Autocompletor {
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
 	#markers: meditor.IMarker[] = []
-	#libraries: { code: string; path: string }[] = []
+	#tsCompletions: string[] = []
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -174,8 +174,11 @@ export class Autocompletor {
 			const model = editor.getModel()
 			if (model) {
 				const markers = meditor.getModelMarkers({ resource: model.uri })
-				const hits = this.#markersAtCursor(e.position, markers)
-				this.#markers = hits
+				this.#markers = this.#markersAtCursor(e.position, markers)
+				if (this.#scriptLang === 'bun') {
+					this.#tsCompletions = await this.#getTsCompletions(model, e.position)
+					console.log('tsCompletions', this.#tsCompletions)
+				}
 				if (e.source === 'mouse') {
 					this.#autocomplete(model, e.position)
 				}
@@ -190,10 +193,6 @@ export class Autocompletor {
 			providerModel.model.startsWith('codestral-') &&
 			!providerModel.model.startsWith('codestral-embed')
 		)
-	}
-
-	addLibrary(code: string, path: string) {
-		this.#libraries.push({ code, path })
 	}
 
 	dispose() {
@@ -220,6 +219,29 @@ export class Autocompletor {
 			(m) =>
 				m.startLineNumber >= pos.lineNumber - lineBeforeCount && m.endLineNumber <= pos.lineNumber
 		)
+	}
+
+	async #getTsCompletions(model: meditor.ITextModel, position: Position) {
+		const offs = model.getOffsetAt(position)
+
+		const workerFactory = await languages.typescript.getTypeScriptWorker()
+		const worker = await workerFactory(model.uri)
+		const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
+
+		// check if current word has a dot
+		const line = model.getLineContent(position.lineNumber)
+		const word = line.substring(0, position.column)
+		let wordHasDot = false
+		for (let i = word.length - 1; i >= 0; i--) {
+			if (word[i] === ' ' || word[i] === ')' || word[i] === '(') {
+				break
+			}
+			if (word[i] === '.') {
+				wordHasDot = true
+				break
+			}
+		}
+		return wordHasDot ? (info?.entries.map((e: { name: string }) => e.name) ?? []) : []
 	}
 
 	async #autocomplete(
@@ -286,14 +308,7 @@ export class Autocompletor {
 
 		const completionModel = get(copilotInfo).codeCompletionModel
 		const contextWindow = getModelContextWindow(completionModel?.model ?? '')
-		const librariesLimitedCode: string = this.#libraries
-			.filter(
-				(l) =>
-					!l.path.includes('windmill') &&
-					!l.path.includes('package.json') &&
-					!l.path.includes('bun-types')
-			)
-			.map((l) => l.code)
+		const librariesCompletions: string = this.#tsCompletions
 			.join('\n')
 			.slice(0, Math.floor(contextWindow * 0.1))
 
@@ -303,10 +318,12 @@ export class Autocompletor {
 				suffix,
 				scriptLang: this.#scriptLang,
 				markers: this.#markers,
-				libraries: librariesLimitedCode
+				libraries: librariesCompletions
 			},
 			this.#abortController
 		)
+
+		console.log('completion', completion)
 
 		if (!completion) {
 			return
