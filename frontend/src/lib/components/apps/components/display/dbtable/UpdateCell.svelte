@@ -58,13 +58,13 @@
 				undefined,
 				{ value_to_update: valueToUpdate, ...ndata },
 				{
-					done: (x) => {
+					onDone: (x) => {
 						sendUserToast('Value updated', false)
 					},
-					cancel: () => {
+					onCancel: () => {
 						sendUserToast('Error updating value', true)
 					},
-					error: () => {
+					onError: () => {
 						sendUserToast('Error updating value', true)
 					}
 				}

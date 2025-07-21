@@ -100,13 +100,15 @@
 			placement: 'bottom',
 			gutter: 0,
 			offset: { mainAxis: 3, crossAxis: 69 * zoom },
-			overflowPadding: historyOpen ? 250 : 8
+			overflowPadding: historyOpen ? 250 : 8,
+			flip: false
 		})
 		popover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
 			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
-			overflowPadding: historyOpen ? 250 : 8
+			overflowPadding: historyOpen ? 250 : 8,
+			flip: false
 		})
 	}
 
@@ -160,7 +162,8 @@
 						placement: 'bottom',
 						gutter: 0,
 						offset: { mainAxis: 3, crossAxis: 69 },
-						overflowPadding: historyOpen ? 250 : 8
+						overflowPadding: historyOpen ? 250 : 8,
+						flip: false
 					}}
 					usePointerDownOutside
 					closeOnOutsideClick={false}
@@ -195,12 +198,14 @@
 					{/snippet}
 				</Popover>
 			{/if}
+
 			<Popover
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
 					offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
-					overflowPadding: historyOpen ? 250 : 8
+					overflowPadding: historyOpen ? 250 : 8,
+					flip: false
 				}}
 				usePointerDownOutside
 				closeOnOutsideClick={false}
