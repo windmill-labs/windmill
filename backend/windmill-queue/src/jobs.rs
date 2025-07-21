@@ -2366,7 +2366,17 @@ pub async fn pull(
     query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
+    let mut pull_loop_count = 0;
     loop {
+        pull_loop_count += 1;
+        if pull_loop_count % 10 == 0 {
+            tracing::warn!("Pull job loop count: {}", pull_loop_count);
+            tokio::task::yield_now().await;
+        }
+        if pull_loop_count > 1000 {
+            tracing::error!("Pull job loop count exceeded 1000, breaking");
+            return Ok(PulledJobResult { job: None, suspended: false });
+        }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2568,6 +2578,14 @@ pub async fn pull(
             } else {
                 i += 1;
                 estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
+            }
+            if i % 50 == 0 {
+                tracing::warn!("Window finding for job {} loop count: {}", job_uuid, pull_loop_count);
+                tokio::task::yield_now().await;
+            }
+            if i > 1000000000 {
+                tracing::error!("Window finding job loop count exceeded 1000000000, breaking");
+                break;
             }
         }
 
@@ -3183,7 +3201,7 @@ async fn get_queued_job_tx<'c>(
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -3195,7 +3213,7 @@ async fn get_queued_job_tx<'c>(
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -3729,7 +3747,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value } => (
+        JobPayload::RawFlowDependencies { path, flow_value } => {
+            (
             None,
             Some(path),
             None,
@@ -3743,7 +3762,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-        ),
+        )},
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.

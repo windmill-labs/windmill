@@ -129,10 +129,10 @@
 				{#if selectedTab === 'logs'}
 					<SplitPanesWrapper>
 						<Splitpanes horizontal>
-							{#if previewJob?.is_flow_step == false && previewJob?.flow_status && !(typeof previewJob.flow_status == 'object' && '_metadata' in previewJob.flow_status)}
+							{#if previewJob?.workflow_as_code_status}
 								<Pane class="relative">
 									<WorkflowTimeline
-										flow_status={asWorkflowStatus(previewJob.flow_status)}
+										flow_status={asWorkflowStatus(previewJob.workflow_as_code_status)}
 										flowDone={previewJob.type == 'CompletedJob'}
 									/>
 								</Pane>
@@ -146,6 +146,7 @@
 									isLoading={previewJob?.['running'] == false && previewIsLoading}
 									tag={previewJob?.tag}
 									download={customUi?.disableDownload !== true}
+									tagLabel={customUi?.tagLabel}
 								/>
 							</Pane>
 							<Pane>

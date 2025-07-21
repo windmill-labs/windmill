@@ -2,14 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import {
-		AssetService,
-		type CompletedJob,
-		type Job,
-		JobService,
-		type Preview,
-		type ScriptLang
-	} from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -18,7 +11,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
-	import TestJobLoader from './TestJobLoader.svelte'
+	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 	import { Button } from './common'
@@ -54,8 +47,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { assetEq, type AssetWithAccessType } from './assets/lib'
+	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -86,8 +78,8 @@
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
+		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
-		fallbackAccessTypes?: AssetWithAccessType[]
 	}
 
 	let {
@@ -117,8 +109,8 @@
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
 		disableAi = false,
-		editor_bar_right,
-		fallbackAccessTypes = $bindable()
+		assets = $bindable(),
+		editor_bar_right
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -147,32 +139,22 @@
 			dispatch('change', { code, schema })
 	})
 
-	let parsedAssets = usePromise(() => inferAssets(lang, code), { clearValueOnRefresh: false })
 	$effect(() => {
-		untrack(() => parsedAssets.refresh()), [lang, code]
-	})
-
-	// Load initial fallbackAccessTypes
-	if (edit && path) {
-		AssetService.listAssetsByUsage({
-			workspace: $workspaceStore!,
-			requestBody: { usages: [{ path, kind: 'script' }] }
-		}).then((arr) => {
-			const v = arr[0]
-			setTimeout(() => {
-				for (const a of parsedAssets.value ?? []) {
-					const fallback = v.find((a2) => assetEq(a2, a))?.access_type
-					if (!a.access_type && fallback) {
-						fallbackAccessTypes = [...(fallbackAccessTypes ?? []), { ...a, access_type: fallback }]
-					}
+		;[lang, code]
+		untrack(() => {
+			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
+				for (const asset of newAssets) {
+					const old = assets?.find((a) => assetEq(a, asset))
+					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 				}
-			}, 200)
+				assets = newAssets
+			})
 		})
-	}
+	})
 
 	let width = $state(1200)
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let isValid: boolean = $state(true)
 	let scriptProgress = $state(undefined)
@@ -217,14 +199,25 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
-		let job = await testJobLoader.runPreview(
+		let job = await jobLoader.runPreview(
 			path,
 			code,
 			lang,
 			selectedTab === 'preprocessor' || kind === 'preprocessor'
 				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 				: (args ?? {}),
-			tag
+			tag,
+			undefined,
+			undefined,
+			{
+				done(_x) {
+					loadPastTests()
+				},
+				doneError({ error }) {
+					console.error(error)
+					// sendUserToast('Error running test', true)
+				}
+			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -444,10 +437,10 @@
 	})
 </script>
 
-<TestJobLoader
-	on:done={loadPastTests}
+<JobLoader
+	noCode={true}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
@@ -541,8 +534,8 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if parsedAssets.value?.length}
-						<AssetsDropdownButton assets={parsedAssets.value} bind:fallbackAccessTypes />
+					{#if assets?.length}
+						<AssetsDropdownButton {assets} />
 					{/if}
 					{#if testPanelSize === 0}
 						<HideButton
@@ -675,7 +668,7 @@
 						/>
 					</div>
 					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+						<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
 								white={true}
 								class="mr-2 text-white"

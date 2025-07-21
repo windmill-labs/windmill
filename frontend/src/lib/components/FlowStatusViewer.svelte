@@ -2,32 +2,55 @@
 	import { writable, type Writable } from 'svelte/store'
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 	import type { FlowState } from './flows/flowState'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { Job } from '$lib/gen'
 
-	export let jobId: string
-	export let initialJob: Job | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let flowStateStore: Writable<FlowState> = writable({})
-	export let selectedJobStep: string | undefined = undefined
-	export let hideFlowResult = false
-	export let hideTimeline = false
-	export let hideDownloadInGraph = false
-	export let hideNodeDefinition = false
-	export let hideJobId = false
-	export let hideDownloadLogs = false
-	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
-		'timeline'
-	export let isOwner = false
-	export let wideResults = false
-	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
-	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
-	export let job: Job | undefined = undefined
-	export let render = true
-	export let suspendStatus = writable({})
+	interface Props {
+		jobId: string
+		initialJob?: Job | undefined
+		workspaceId?: string | undefined
+		flowStateStore?: Writable<FlowState>
+		selectedJobStep?: string | undefined
+		hideFlowResult?: boolean
+		hideTimeline?: boolean
+		hideDownloadInGraph?: boolean
+		hideNodeDefinition?: boolean
+		hideJobId?: boolean
+		hideDownloadLogs?: boolean
+		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
+		isOwner?: boolean
+		wideResults?: boolean
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		job?: Job | undefined
+		render?: boolean
+		suspendStatus?: any
+	}
+
+	let {
+		jobId,
+		initialJob = undefined,
+		workspaceId = undefined,
+		flowStateStore = writable({}),
+		selectedJobStep = $bindable(undefined),
+		hideFlowResult = false,
+		hideTimeline = false,
+		hideDownloadInGraph = false,
+		hideNodeDefinition = false,
+		hideJobId = false,
+		hideDownloadLogs = false,
+		rightColumnSelect = $bindable('timeline'),
+		isOwner = $bindable(false),
+		wideResults = false,
+		localModuleStates = $bindable(writable({})),
+		localDurationStatuses = $bindable(writable({})),
+		job = $bindable(undefined),
+		render = true,
+		suspendStatus = $bindable(writable({}))
+	}: Props = $props()
 
 	let lastJobId: string = jobId
 
@@ -57,9 +80,14 @@
 
 	const dispatch = createEventDispatcher()
 
-	let lastScriptPath: string | undefined = undefined
+	let lastScriptPath: string | undefined = $state(undefined)
 
-	$: jobId && updateJobId()
+	$effect.pre(() => {
+		jobId
+		untrack(() => {
+			jobId && updateJobId()
+		})
+	})
 </script>
 
 <FlowStatusViewerInner
@@ -74,8 +102,8 @@
 	}}
 	globalModuleStates={[]}
 	globalDurationStatuses={[]}
-	bind:localModuleStates
-	bind:localDurationStatuses
+	{localModuleStates}
+	{localDurationStatuses}
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done

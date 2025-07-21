@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
-use windmill_parser::asset_parser::ParseAssetsResult;
 
-use crate::{error, scripts::ScriptLang};
+use crate::error;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
@@ -10,7 +9,8 @@ use crate::{error, scripts::ScriptLang};
 pub enum AssetKind {
     S3Object,
     Resource,
-    Variable,
+    // Avoid unnexpected crashes when deserializing old assets
+    Variable, // Deprecated
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -41,85 +41,28 @@ pub struct AssetUsage {
     pub access_type: AssetUsageAccessType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
-pub struct AssetWithAccessType {
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, sqlx::Type)]
+pub struct AssetWithAltAccessType {
     pub path: String,
     pub kind: AssetKind,
-    pub access_type: AssetUsageAccessType,
-}
-
-pub fn parse_assets(
-    input: &str,
-    lang: ScriptLang,
-) -> anyhow::Result<Option<Vec<ParseAssetsResult<String>>>> {
-    let r = match lang {
-        ScriptLang::Python3 => windmill_parser_py::parse_assets(input),
-        ScriptLang::DuckDb => windmill_parser_sql::parse_assets(input).map(|a| {
-            a.iter()
-                .map(|a| ParseAssetsResult {
-                    path: a.path.to_string(),
-                    access_type: a.access_type,
-                    kind: a.kind,
-                })
-                .collect()
-        }),
-        ScriptLang::Deno | ScriptLang::Bun | ScriptLang::Nativets => {
-            windmill_parser_ts::parse_assets(input)
-        }
-        _ => return Ok(None),
-    };
-    return r.map(Some);
-}
-
-impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
-    fn from(kind: windmill_parser::asset_parser::AssetKind) -> Self {
-        match kind {
-            windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
-            windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
-            windmill_parser::asset_parser::AssetKind::Variable => AssetKind::Variable,
-        }
-    }
-}
-impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAccessType {
-    fn from(access_type: windmill_parser::asset_parser::AssetUsageAccessType) -> Self {
-        match access_type {
-            windmill_parser::asset_parser::AssetUsageAccessType::R => AssetUsageAccessType::R,
-            windmill_parser::asset_parser::AssetUsageAccessType::W => AssetUsageAccessType::W,
-            windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
-        }
-    }
+    pub access_type: Option<AssetUsageAccessType>,
+    pub alt_access_type: Option<AssetUsageAccessType>,
 }
 
 pub async fn insert_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
-    parsed_asset: &ParseAssetsResult<String>,
-    fallback_access_types: Option<&[AssetWithAccessType]>,
+    asset: &AssetWithAltAccessType,
     usage_path: &str,
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
-    let kind: AssetKind = parsed_asset.kind.into();
-    let asset_alternative_access_type = || {
-        fallback_access_types
-            .as_ref()
-            .and_then(|v| {
-                v.iter()
-                    .find(|a| a.kind == kind && a.path == parsed_asset.path)
-            })
-            .map(|a| a.access_type)
-    };
-    let access_type: Option<AssetUsageAccessType> = parsed_asset
-        .access_type
-        .map(Into::into)
-        .or_else(asset_alternative_access_type);
-
     sqlx::query!(
         r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
         workspace_id,
-        parsed_asset.path,
-        kind as AssetKind,
-        access_type as Option<AssetUsageAccessType>,
+        asset.path,
+        asset.kind as AssetKind,
+        (asset.access_type.or(asset.alt_access_type)) as Option<AssetUsageAccessType>,
         usage_path,
         usage_kind as AssetUsageKind
     )

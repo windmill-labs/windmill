@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { run, stopPropagation } from 'svelte/legacy'
+	import { stopPropagation } from 'svelte/legacy'
 
 	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -122,7 +122,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		if (stepHistoryLoader?.flowJobInitial) {
+		if (stepHistoryLoader?.flowJobInitial !== false) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
 		try {
@@ -207,9 +207,12 @@
 		renderCount++
 	}
 
-	let scrollableDiv: HTMLDivElement | undefined = undefined
+	let scrollableDiv: HTMLDivElement | undefined = $state(undefined)
 	function handleScroll() {
-		scrollTop = scrollableDiv?.scrollTop ?? 0
+		let newScroll = scrollableDiv?.scrollTop ?? 0
+		if (newScroll != 0 && render) {
+			scrollTop = newScroll
+		}
 	}
 
 	function onScrollableDivChange() {
@@ -217,11 +220,11 @@
 			scrollableDiv.scrollTop = scrollTop
 		}
 	}
-	run(() => {
-		selectedJobStep !== undefined && onSelectedJobStepChange()
+	$effect.pre(() => {
+		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
 	})
-	run(() => {
-		scrollableDiv && onScrollableDivChange()
+	$effect(() => {
+		scrollableDiv && render && untrack(() => onScrollableDivChange())
 	})
 
 	export async function cancelTest() {
@@ -556,7 +559,7 @@
 					wideResults
 					{flowStateStore}
 					{jobId}
-					on:done={() => {
+					on:done={(x) => {
 						isRunning = false
 						$executionCount = $executionCount + 1
 						onJobDone?.()

@@ -4,7 +4,7 @@ export const NODE = {
 	width: 275,
 	height: 34,
 	gap: {
-		horizontal: 40,
+		horizontal: 50,
 		vertical: 50
 	}
 }

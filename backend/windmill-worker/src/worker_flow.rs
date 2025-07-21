@@ -15,7 +15,8 @@ use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow, KEEP_JOB_DIR
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
+    KEEP_JOB_DIR,
 };
 
 use anyhow::Context;
@@ -770,7 +771,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .and_then(|x| x.retry.clone())
                             .unwrap_or_default();
 
-                        tracing::info!("update flow status on rety: {retry:#?} ");
+                        tracing::info!("update flow status on retry: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -1111,7 +1112,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             .flow_innermost_root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
-        tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
         let should_continue_flow = match success {
             _ if stop_early => false,
@@ -1160,7 +1160,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false => false,
         };
 
-        tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, "flow should continue: {should_continue_flow}");
 
         (
             should_continue_flow,
@@ -1191,7 +1191,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             append_logs(&flow_job.id, w_id, logs, &db.into()).await;
         }
         #[cfg(feature = "enterprise")]
-        if flow_job.parent_job.is_none() {
+        if let Some(parent_job) = flow_job.parent_job {
+            // if has parent job, append flow cleanup modules to parent job
+            if !_cleanup_module.flow_jobs_to_clean.is_empty() {
+                let uuids_json = serde_json::to_value(&_cleanup_module.flow_jobs_to_clean)
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Unable to serialize uuids: {e:#}"))
+                    })?;
+                sqlx::query!(
+                    "UPDATE v2_job_status
+                    SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
+                    WHERE id = $2",
+                    uuids_json,
+                    parent_job
+                )
+                .execute(db)
+                .warn_after_seconds(3)
+                .await?;
+            }
+        } else {
             // run the cleanup step only when the root job is complete
             if !_cleanup_module.flow_jobs_to_clean.is_empty() {
                 tracing::debug!(
@@ -1794,6 +1812,14 @@ async fn push_next_flow_job(
             success: true,
             result: if flow.modules.is_empty() {
                 to_raw_value(arc_flow_job_args.as_ref())
+            } else if matches!(
+                status_module,
+                FlowStatusModule::Success { branch_chosen: Some(_), .. }
+            ) {
+                last_job_result
+                    .as_ref()
+                    .map(|x| x.as_ref().clone())
+                    .unwrap_or_else(|| to_raw_value(&json!("{}")))
             } else {
                 // it has to be an empty for loop event
                 serde_json::from_str("[]").unwrap()
@@ -2531,8 +2557,16 @@ async fn push_next_flow_job(
                 json!(FlowStatusModule::Success {
                     id: status_module.id(),
                     job: Uuid::nil(),
-                    flow_jobs: Some(vec![]),
-                    flow_jobs_success: Some(vec![]),
+                    flow_jobs: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
+                    flow_jobs_success: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
                     branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],

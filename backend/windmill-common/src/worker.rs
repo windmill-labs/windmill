@@ -19,6 +19,8 @@ use std::{
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
+#[cfg(windows)]
+use sysinfo::System;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_macros::annotations;
@@ -762,6 +764,7 @@ fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn get_cgroupv2_path() -> Option<String> {
     let cgroup_path: String = parse_file("/proc/self/cgroup")?;
 
@@ -770,6 +773,7 @@ fn get_cgroupv2_path() -> Option<String> {
         .map(|x| format!("/sys/fs/cgroup{}", x.get(1).unwrap().as_str()))
 }
 
+#[cfg(not(windows))]
 pub fn get_vcpus() -> Option<i64> {
     if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").exists() {
         // cgroup v1
@@ -795,6 +799,14 @@ pub fn get_vcpus() -> Option<i64> {
     }
 }
 
+#[cfg(windows)]
+pub fn get_vcpus() -> Option<i64> {
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    (sys.cpus().len() * 100000).try_into().ok()
+}
+
+#[cfg(not(windows))]
 fn get_memory_from_meminfo() -> Option<i64> {
     let memory_info = parse_file::<String>("/proc/meminfo")?;
     if memory_info.contains("MemTotal") {
@@ -811,6 +823,7 @@ fn get_memory_from_meminfo() -> Option<i64> {
     None
 }
 
+#[cfg(not(windows))]
 pub fn get_memory() -> Option<i64> {
     let memory_limit: Option<i64> =
         if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
@@ -835,6 +848,14 @@ pub fn get_memory() -> Option<i64> {
     }
 }
 
+#[cfg(windows)]
+pub fn get_memory() -> Option<i64> {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    Some(sys.total_memory() as i64)
+}
+
+#[cfg(not(windows))]
 pub fn get_worker_memory_usage() -> Option<i64> {
     if Path::new("/sys/fs/cgroup/memory/memory.usage_in_bytes").exists() {
         // cgroup v1
@@ -870,6 +891,13 @@ pub fn get_worker_memory_usage() -> Option<i64> {
 
         Some(total_memory_usage - inactive_file)
     }
+}
+
+#[cfg(windows)]
+pub fn get_worker_memory_usage() -> Option<i64> {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    Some(sys.used_memory() as i64)
 }
 
 pub fn get_windmill_memory_usage() -> Option<i64> {

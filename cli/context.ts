@@ -30,7 +30,7 @@ async function tryResolveWorkspace(
   if (cache) return { isError: false, value: cache };
 
   if (opts.workspace) {
-    const e = await getWorkspaceByName(opts.workspace);
+    const e = await getWorkspaceByName(opts.workspace, opts.configDir);
     if (!e) {
       return {
         isError: true,
@@ -57,8 +57,48 @@ export async function resolveWorkspace(
 ): Promise<Workspace> {
   if (opts.baseUrl) {
     if (opts.workspace && opts.token) {
+      const normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
+
+      // Try to find existing workspace profile by name, then by workspaceId + remote
+      if (opts.workspace) {
+        // Try by workspace name first
+        let existingWorkspace = await getWorkspaceByName(opts.workspace, opts.configDir);
+
+        // If not found by name, try to find by workspaceId + remote match
+        if (!existingWorkspace) {
+          const { allWorkspaces } = await import("./workspace.ts");
+          const workspaces = await allWorkspaces(opts.configDir);
+          const matchingWorkspaces = workspaces.filter(
+            w => w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
+          );
+
+          // Due to uniqueness constraint, there can only be 0 or 1 match
+          if (matchingWorkspaces.length === 1) {
+            existingWorkspace = matchingWorkspaces[0];
+          }
+        }
+
+        if (existingWorkspace) {
+          // Validate that the base URL matches the profile's remote
+          if (existingWorkspace.remote !== normalizedBaseUrl) {
+            log.info(
+              colors.red(
+                `Base URL mismatch: --base-url is ${normalizedBaseUrl} but workspace profile "${opts.workspace}" uses ${existingWorkspace.remote}`
+              )
+            );
+            return Deno.exit(-1);
+          }
+          // Use the existing workspace profile (preserves workspace name)
+          return {
+            ...existingWorkspace,
+            token: opts.token, // Use the provided token
+          };
+        }
+      }
+
+      // No existing profile found, create temporary workspace
       return {
-        remote: new URL(opts.baseUrl).toString(), // add trailing slash if not present
+        remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
@@ -81,39 +121,6 @@ export async function resolveWorkspace(
   }
 }
 
-export async function requireLogin(
-  opts: GlobalOptions
-): Promise<GlobalUserInfo> {
-  const workspace = await resolveWorkspace(opts);
-  let token = await tryGetLoginInfo(opts);
-
-  if (!token) {
-    token = workspace.token;
-  }
-
-  setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
-
-  try {
-    return await wmill.globalWhoami();
-  } catch {
-    log.info(
-      "! Could not reach API given existing credentials. Attempting to reauth..."
-    );
-    const newToken = await loginInteractive(workspace.remote);
-    if (!newToken) {
-      throw new Error("Could not reauth");
-    }
-    removeWorkspace(workspace.name, false, opts);
-    workspace.token = newToken;
-    addWorkspace(workspace, opts);
-
-    setClient(
-      token,
-      workspace.remote.substring(0, workspace.remote.length - 1)
-    );
-    return await wmill.globalWhoami();
-  }
-}
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
   const requestHeaders = new Headers();
@@ -130,6 +137,13 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
     new URL(new URL(baseUrl).origin + "/api/version"),
     { headers: requestHeaders, method: "GET" }
   );
+
+  if (!response.ok) {
+    // Consume response body even on error to avoid resource leak
+    await response.text();
+    throw new Error(`Failed to fetch version: ${response.status} ${response.statusText}`);
+  }
+
   return await response.text();
 }
 export async function tryResolveVersion(

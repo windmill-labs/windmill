@@ -106,6 +106,18 @@ function getModelMaxTokens(model: string) {
 	return 8192
 }
 
+export function getModelContextWindow(model: string) {
+	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+		return 1000000
+	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+		return 128000
+	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+		return 200000
+	} else {
+		return 128000
+	}
+}
+
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
@@ -539,6 +551,7 @@ const mistralFimResponseSchema = z.object({
 })
 
 export const FIM_MAX_TOKENS = 256
+const FIM_MAX_LINES = 8
 export async function getFimCompletion(
 	prompt: string,
 	suffix: string,
@@ -578,15 +591,21 @@ export async function getFimCompletion(
 
 	const choice = parsedBody.choices[0]
 
-	if (choice) {
-		if (choice.finish_reason === 'length' && choice.message.content) {
-			// take all the lines before the last
-			const lines = choice.message.content.split('\n')
-			const joined = lines.slice(0, -1).join('\n')
-			return joined
-		} else {
-			return choice.message.content || ''
+	if (choice && choice.message.content !== undefined) {
+		let lines = choice.message.content.split('\n')
+
+		// If finish_reason is 'length', remove the last line
+		if (choice.finish_reason === 'length') {
+			if (lines.length > 1) {
+				lines = lines.slice(0, -1)
+			} else {
+				lines = []
+			}
 		}
+
+		lines = lines.slice(0, FIM_MAX_LINES)
+
+		return lines.join('\n')
 	} else {
 		return undefined
 	}

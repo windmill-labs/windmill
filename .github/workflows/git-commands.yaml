@@ -15,7 +15,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -76,6 +76,10 @@ jobs:
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git config pull.rebase true
+          git pull origin $BRANCH_NAME
           mkdir frontend/build
           cd backend
           cargo install sqlx-cli --version 0.8.5
@@ -86,8 +90,6 @@ jobs:
 
       - name: Commit changes if any
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
           git add backend/.sqlx
           git commit -m "Update SQLx metadata"
           git push origin ${{ env.BRANCH_NAME }}
@@ -149,15 +151,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Checking out PR branch: $BRANCH_NAME"
+          git checkout $BRANCH_NAME
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git config pull.rebase true
+          git pull origin $BRANCH_NAME
           echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
           echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
           # commit and push the changes
           PR_NUMBER=${{ github.event.issue.number }}
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
-          echo "Checking out PR branch: $BRANCH_NAME"
-          git checkout $BRANCH_NAME
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
           git add backend/ee-repo-ref.txt
           git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
           git push origin $BRANCH_NAME

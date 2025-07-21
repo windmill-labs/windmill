@@ -5,9 +5,10 @@
 	import { onDestroy } from 'svelte'
 	interface Props {
 		tag: string
+		tagLabel?: string
 	}
 
-	let { tag }: Props = $props()
+	let { tag, tagLabel = undefined }: Props = $props()
 
 	let noWorkerWithTag = $state(false)
 
@@ -44,7 +45,7 @@
 	<Popover notClickable placement="top">
 		<AlertTriangle size={16} class="text-yellow-500" />
 		{#snippet text()}
-			No worker with tag <b>{tag}</b> is currently running.
+			No worker with {tagLabel ?? 'tag'} <b>{tag}</b> is currently running.
 		{/snippet}
 	</Popover>
 {/if}

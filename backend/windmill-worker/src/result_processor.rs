@@ -35,7 +35,7 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue, Value};
 
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -45,7 +45,7 @@ use crate::{
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
-    UpdateFlow, SAME_WORKER_REQUIREMENTS,
+    UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -123,6 +123,7 @@ async fn process_jc(
 enum JobCompletedRx {
     JobCompleted(SendResult),
     Killpill,
+    WakeUp,
 }
 
 pub fn start_background_processor(
@@ -130,6 +131,7 @@ pub fn start_background_processor(
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
+    wake_up_notify: Arc<Notify>,
     last_processing_duration: Arc<AtomicU16>,
     base_internal_url: String,
     db: DB,
@@ -166,7 +168,11 @@ pub fn start_background_processor(
                     }
                     result = bounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
-                    }
+                    },
+                    _ = wake_up_notify.notified() => {
+                        tracing::info!("bg processor received wake up signal, checking if same worker queue is empty");
+                        Some(JobCompletedRx::WakeUp)
+                    },
                     _ = killpill_rx.recv() => {
                         tracing::info!("bg processor received killpill signal, queuing killpill job");
                         Some(JobCompletedRx::Killpill)
@@ -241,7 +247,7 @@ pub fn start_background_processor(
                     time,
                 }) => {
                     // let r;
-                    tracing::info!(parent_flow = %flow, "updating flow status");
+                    tracing::info!(parent_flow = %flow, "updating flow status after job completion");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
                         &AuthedClient::new(
@@ -275,6 +281,7 @@ pub fn start_background_processor(
                     tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
                 }
+                JobCompletedRx::WakeUp => {}
             }
         }
 

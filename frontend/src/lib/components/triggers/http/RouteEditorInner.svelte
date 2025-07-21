@@ -502,7 +502,6 @@
 										disabled={!can_write}
 									/>
 								{/if}
-								{s3FileUploadRawMode}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
