@@ -15,7 +15,6 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -593,56 +592,41 @@ async fn transform_attach_ducklake(
     job_id: &Uuid,
     client: &AuthedClient,
 ) -> Result<Option<Vec<String>>> {
+    use windmill_common::workspaces::DucklakeCatalogResourceType as RT;
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+):?([^']*)'").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+)' AS (\S+)").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
     };
-    let db_type = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-    let resource_path = cap.get(2).map(|m| m.as_str());
-    let attach_str = if db_type == "windmill" {
-        let o = parse_postgres_url(&get_database_url().await?)?;
+    let ducklake_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+    let ducklake_config = client.get_ducklake(ducklake_name).await?;
+    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
-        let attach_str = format!(
-            "ATTACH 'ducklake:postgres:dbname=ducklake_catalog user={} host={} password={} port={} {}'",
-            o.username.as_ref().map(String::as_str).unwrap_or("NO_USER"),
-            o.host,
-            o.password.as_ref().map(String::as_str).unwrap_or("NO_PWD"),
-            o.port.unwrap_or(5432),
-            o.query_params.as_ref().map(String::as_str).unwrap_or("")
-        );
+    let db_type = match ducklake_config.catalog.resource_type {
+        RT::Postgresql => "postgres",
+        RT::Mysql => "mysql",
+    };
 
-        query.replacen("ATTACH 'ducklake:windmill'", &attach_str, 1)
-    } else if let Some(resource_path) = resource_path {
-        if !resource_path.starts_with("$res:") {
-            return Err(Error::ExecutionErr(
-                "DuckDB ATTACH resource path must start with $res:".to_string(),
-            ));
-        }
-        let resource_path = &resource_path[5..]; // Remove $res:
+    let attach_str = {
         let conn_str = get_attach_db_conn_str(
-            &ParsedAttachDbResource { resource_path, name: "", db_type, extra_args: None },
+            &ParsedAttachDbResource {
+                resource_path: &ducklake_config.catalog.resource_path,
+                name: "",
+                db_type,
+                extra_args: None,
+            },
             &job_id,
             &client,
         )
         .await?;
-        let attach_str = format!("ATTACH 'ducklake:{}:{}'", db_type, conn_str);
-        query.replacen(
-            &format!("ATTACH 'ducklake:{}:$res:{}'", db_type, resource_path),
-            &attach_str,
-            1,
+        format!(
+            "ATTACH '{}' AS {} (TYPE {});",
+            conn_str, alias_name, db_type
         )
-    } else {
-        return Err(Error::ExecutionErr(
-            "Unsupported ducklake catalog db".to_string(),
-        ));
     };
 
-    let install_db_ext_str = get_attach_db_install_str(match db_type {
-        "windmill" => "postgres",
-        _ => db_type,
-    })?;
+    let install_db_ext_str = get_attach_db_install_str(db_type)?;
     Ok(Some(vec![
         "INSTALL ducklake;".to_string(),
         install_db_ext_str.to_string(),

@@ -89,3 +89,29 @@ pub async fn is_premium_workspace(_db: &crate::DB, _w_id: &str) -> bool {
     IS_PREMIUM_CACHE.insert(_w_id.to_string(), premium);
     premium
 }
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Ducklake {
+    pub catalog: DucklakeCatalog,
+    pub storage: DucklakeStorage,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeCatalog {
+    pub resource_type: DucklakeCatalogResourceType,
+    pub resource_path: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeStorage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    pub path: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum DucklakeCatalogResourceType {
+    Postgresql,
+    Mysql,
+}

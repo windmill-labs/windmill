@@ -37,6 +37,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::workspaces::Ducklake;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
@@ -113,6 +114,7 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
+        .route("/get_ducklake/:name", get(get_ducklake))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
@@ -307,32 +309,6 @@ struct LargeFileStorageWithSecondary {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DucklakeSettings {
     pub ducklakes: HashMap<String, Ducklake>,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct Ducklake {
-    pub catalog: DucklakeCatalog,
-    pub storage: DucklakeStorage,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct DucklakeCatalog {
-    pub resource_type: ResourceType,
-    pub resource_path: String,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct DucklakeStorage {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
-    pub path: String,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum ResourceType {
-    Postgresql,
-    Mysql,
 }
 
 #[derive(Deserialize, Debug)]
@@ -909,6 +885,26 @@ async fn edit_large_file_storage_config(
         "Edit large file storage config for workspace {}",
         &w_id
     ))
+}
+
+async fn get_ducklake(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let ducklake = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?;
+    Ok(Json(ducklake))
 }
 
 async fn edit_ducklake_config(
