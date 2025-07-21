@@ -96,7 +96,12 @@ export async function pushFlow(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
+
+  if (!localPath.endsWith("yaml") || !localPath.endsWith("yml")) {
+    localPath += "flow.yaml";
+  }
+
+  const localFlow = (await yamlParseFile(localPath)) as FlowFile;
 
   replaceInlineScripts(localFlow.value.modules, localPath, undefined);
 
