@@ -13,6 +13,7 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -779,7 +780,8 @@ pub fn start_interactive_worker_shell(
             } else {
                 let pulled_job = match &conn {
                     Connection::Sql(db) => {
-                        let query = ("".to_string(), make_pull_query(&[hostname.to_owned()]));
+                        let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
+                        let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -1221,10 +1223,9 @@ pub async fn run_worker(
         )),
         _ => None,
     };
+
     // If we're the first worker to run, we start another background process that listens for a specific tag.
-    // This tag is associated only with jobs using Bash as the script language.
-    // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
-    // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
+    // The tag itself is simply the worker’s common name (for example, wk-{worker_group}-{instance_name}).
     let interactive_shell = if i_worker == 1 {
         let it_shell = start_interactive_worker_shell(
             conn.clone(),
