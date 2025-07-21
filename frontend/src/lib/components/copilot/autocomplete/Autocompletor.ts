@@ -47,6 +47,7 @@ export class Autocompletor {
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
+	#lastTsCompletions: string[] = []
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -344,9 +345,20 @@ export class Autocompletor {
 			endColumn: model.getLineMaxColumn(model.getLineCount())
 		})
 
+		// get ts completions
+		const tsCompletions =
+			this.#scriptLang === 'bun' ? await this.#getTsCompletions(model, position) : []
+		// reset cache for this line if new ts completions are available
+		if (
+			tsCompletions.length > 0 &&
+			tsCompletions.some((c) => !this.#lastTsCompletions.includes(c))
+		) {
+			this.#cache.delete(position.lineNumber)
+		}
+		this.#lastTsCompletions = tsCompletions
+
 		const cachedCompletion = this.#cache.get(position.lineNumber)
 		if (cachedCompletion) {
-			console.log('cachedCompletion', cachedCompletion)
 			if (
 				position.column > cachedCompletion.column &&
 				linePrefix.length < cachedCompletion.linePrefix.length + cachedCompletion.completion.length
@@ -378,8 +390,6 @@ export class Autocompletor {
 
 		const markers = meditor.getModelMarkers({ resource: model.uri })
 		const markersAtCursor = this.#markersAtCursor(position, markers)
-		const tsCompletions =
-			this.#scriptLang === 'bun' ? await this.#getTsCompletions(model, position) : []
 
 		const completionModel = get(copilotInfo).codeCompletionModel
 		const contextWindow = getModelContextWindow(completionModel?.model ?? '')
