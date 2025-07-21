@@ -284,8 +284,8 @@ export class Autocompletor {
 			endColumn: position.column
 		})
 
-		const completitionModel = get(copilotInfo).codeCompletionModel
-		const contextWindow = getModelContextWindow(completitionModel?.model ?? '')
+		const completionModel = get(copilotInfo).codeCompletionModel
+		const contextWindow = getModelContextWindow(completionModel?.model ?? '')
 		const librariesLimitedCode: string = this.#libraries
 			.filter(
 				(l) =>

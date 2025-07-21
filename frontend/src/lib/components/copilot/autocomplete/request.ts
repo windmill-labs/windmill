@@ -29,17 +29,13 @@ export async function autocompleteRequest(
 	const commentSymbol = getCommentSymbol(context.scriptLang)
 
 	if (langContext) {
-		const contextLines = langContext.split('\n')
-		const markersLines = context.markers.map((m) => m.message)
-		let commentedContext = contextLines.map((line) => comment(commentSymbol, line)).join('\n')
-		if (markersLines.length > 0) {
+		let commentedContext = comment(commentSymbol, langContext)
+		if (context.markers.length > 0) {
+			const markersLines = comment(commentSymbol, context.markers.map((m) => m.message).join('\n'))
 			commentedContext =
-				commentedContext +
-				comment(commentSymbol, '\nDIAGNOSTICS:\n') +
-				markersLines.map((line) => comment(commentSymbol, line)).join('\n')
+				commentedContext + comment(commentSymbol, '\nDIAGNOSTICS:\n') + markersLines
 		}
 		if (context.libraries) {
-			console.log('libraries', context.libraries)
 			commentedContext =
 				commentedContext +
 				comment(commentSymbol, '\nLIBRARIES:\n') +
@@ -61,8 +57,6 @@ export async function autocompleteRequest(
 			providerModel,
 			abortController
 		)
-
-		console.log('completion', completion)
 
 		return completion
 	} catch (err) {

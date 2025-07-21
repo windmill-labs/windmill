@@ -589,7 +589,6 @@ export async function getFimCompletion(
 	)
 
 	const body = await response.json()
-	console.log('response', body)
 	const parsedBody = mistralFimResponseSchema.parse(body)
 
 	const choice = parsedBody.choices[0]
