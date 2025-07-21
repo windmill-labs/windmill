@@ -92,6 +92,7 @@
 
 	let scopes: string[] = $state([])
 	let extra_params: [string, string][] = []
+	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
 
@@ -280,6 +281,7 @@
 			resourceType = data.resource_type
 			value = data.res.access_token!
 			valueToken = data.res
+			responseExtra = data.extra ?? {}
 			step = 4
 			if (express) {
 				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
@@ -420,6 +422,8 @@
 				if (account_identifier) {
 					args['account_identifier'] = account_identifier[1]
 				}
+			} else if (resourceType === 'quickbooks' && responseExtra['realmId']) {
+				args['realmId'] = responseExtra['realmId']
 			}
 
 			let account: number | undefined = undefined

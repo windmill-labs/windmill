@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.508.0
+  version: 1.510.1
   title: Windmill API
 
   contact:
@@ -5096,6 +5096,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: authed
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -7565,6 +7569,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: no_code
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
@@ -7666,7 +7674,43 @@ paths:
                   progress:
                     type: integer
                   flow_status:
-                    $ref: "#/components/schemas/WorkflowStatusRecord"
+                    $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+                  workflow_as_code_status:
+                    $ref: "#/components/schemas/WorkflowStatus"
+
+  /w/{workspace}/jobs_u/getupdate_sse/{id}:
+    get:
+      summary: get job updates via server-sent events
+      operationId: getJobUpdatesSSE
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: running
+          in: query
+          schema:
+            type: boolean
+        - name: log_offset
+          in: query
+          schema:
+            type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
+        - name: only_result
+          in: query
+          schema:
+            type: boolean
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs_u/get_log_file/{path}:
     get:
@@ -14024,6 +14068,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14131,6 +14177,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -16798,7 +16846,6 @@ components:
       required:
         - name
         - scopes
-
 
     ListableRawApp:
       type: object

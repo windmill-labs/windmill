@@ -5,7 +5,7 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -50,7 +50,7 @@
 
 	let css = $state(initCss($app.css?.jobidlogcomponent, customCss))
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testIsLoading: boolean = $state(false)
 	let testJob: Job | undefined = $state(undefined)
 
@@ -60,7 +60,14 @@
 				outputs.loading.set(true)
 				const jobId = resolvedConfig?.['jobId']
 				if (jobId) {
-					testJobLoader?.watchJob(jobId)
+					let callbacks = {
+						done(x) {
+							outputs.loading.set(false)
+							outputs.jobId.set(x.id)
+							outputs.result.set(x.result)
+						}
+					}
+					jobLoader?.watchJob(jobId, callbacks)
 				}
 			})
 		}
@@ -86,16 +93,12 @@
 	/>
 {/each}
 
-<TestJobLoader
+<JobLoader
+	noCode={true}
 	workspaceOverride={workspace}
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
-	on:done={(e) => {
-		outputs.loading.set(false)
-		outputs.jobId.set(e.detail.id)
-		outputs.result.set(e.detail.result)
-	}}
 />
 
 <InitializeComponent {id} />
