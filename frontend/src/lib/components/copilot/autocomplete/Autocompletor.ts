@@ -1,9 +1,10 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen'
 import { sleep } from '$lib/utils'
-import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
+import { editor as meditor, Position, languages, type IDisposable, Range } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
+import { setGlobalCSS } from '../shared'
 
 type CacheCompletion = {
 	linePrefix: string
@@ -51,7 +52,17 @@ export class Autocompletor {
 		editor: meditor.IStandaloneCodeEditor,
 		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 	) {
+		setGlobalCSS(
+			'ai-chat-autocomplete',
+			`
+			.ai-completion-diff {
+				background: var(--vscode-diffEditor-removedTextBackground);
+			}
+		`
+		)
 		this.#scriptLang = scriptLang
+
+		const deletionsCues = editor.createDecorationsCollection()
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },
@@ -86,7 +97,26 @@ export class Autocompletor {
 							endColumn: position.column
 						}
 
+						// if completion takes whole line, delete the rest of the line after the suggestion
 						const isWholeLine = result.completion.indexOf('\n') !== -1
+						if (isWholeLine) {
+							const toEol = new Range(
+								position.lineNumber,
+								position.column,
+								position.lineNumber,
+								model.getLineMaxColumn(position.lineNumber)
+							)
+
+							deletionsCues.set([
+								{
+									range: toEol,
+									options: {
+										className: 'ai-completion-diff'
+									}
+								}
+							])
+						}
+
 						const multiline = completion.indexOf('\n') !== -1
 						if (multiline) {
 							// if multiline the range should span until the end of the line
@@ -120,11 +150,14 @@ export class Autocompletor {
 						}
 					}
 				},
-				freeInlineCompletions: () => {}
+				freeInlineCompletions: () => {
+					deletionsCues.clear()
+				}
 			}
 		)
 
 		this.#cursorDisposable = editor.onDidChangeCursorPosition(async (e) => {
+			deletionsCues.clear()
 			const model = editor.getModel()
 			if (model) {
 				const markers = meditor.getModelMarkers({ resource: model.uri })
