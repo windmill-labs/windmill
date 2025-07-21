@@ -16,7 +16,7 @@ export async function autocompleteRequest(
 	abortController: AbortController
 ) {
 	let contextLines =
-		'You are a code completion assistant. You are given three important contexts (<LANGUAGE CONTEXT>, <DIAGNOSTICS>, <LIBRARY METHODS>) to help you complete the code. IMPORTANT: Make sure to use the correct signature from the <LIBRARY METHODS> when given.\n'
+		'You are a code completion assistant. You are given three important contexts (<LANGUAGE CONTEXT>, <DIAGNOSTICS>, <LIBRARY METHODS>) to help you complete the code.\n'
 	contextLines += '<LANGUAGE CONTEXT>\n'
 	contextLines += getLangContext(context.scriptLang) + '\n'
 	contextLines += '</LANGUAGE CONTEXT>\n'
@@ -32,7 +32,6 @@ export async function autocompleteRequest(
 	}
 
 	context.prefix = contextLines + '\n' + context.prefix
-	console.log('context.prefix', context.prefix)
 
 	const providerModel = get(copilotInfo).codeCompletionModel
 
