@@ -14733,7 +14733,8 @@ components:
           csharp,
           nu,
           java,
-          duckdb,
+          ruby,
+          duckdb
           # for related places search: ADD_NEW_LANG
         ]
 

@@ -71,8 +71,9 @@
 		ansible: 'Ansible',
 		csharp: 'C#',
 		nu: 'Nu',
-		java: 'Java'
-		// for related places search: ADD_NEW_LANG
+		java: 'Java',
+		ruby: 'Ruby'
+		// for related places search: ADD_NEW_LANG 
 	}
 
 	const langToComponent: Record<
@@ -105,6 +106,7 @@
 		csharp: CSharpIcon,
 		nu: NuIcon,
 		java: JavaIcon,
+		ruby: JavaIcon,
 		duckdb: DuckDbIcon
 		// for related places search: ADD_NEW_LANG
 	}

@@ -13,6 +13,9 @@ mod bash_executor;
 #[cfg(feature = "java")]
 mod java_executor;
 
+#[cfg(feature = "ruby")]
+mod ruby_executor;
+
 mod bun_executor;
 pub mod common;
 mod config;

@@ -41,8 +41,6 @@ export function editorConfig(
 	}
 }
 
-
-
 export const updateOptions = { tabSize: 2, insertSpaces: true }
 
 export function convertKind(kind: string): any {
