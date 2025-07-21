@@ -38,7 +38,7 @@ export async function autocompleteRequest(
 		if (context.libraries) {
 			commentedContext =
 				commentedContext +
-				comment(commentSymbol, '\nLIBRARY AVAILABLE COMPLETIONS:\n') +
+				comment(commentSymbol, '\nLIBRARY AVAILABLE METHODS:\n') +
 				comment(commentSymbol, context.libraries)
 		}
 		context.prefix = commentedContext + '\n' + context.prefix

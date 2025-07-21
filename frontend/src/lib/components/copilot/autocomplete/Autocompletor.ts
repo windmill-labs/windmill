@@ -47,8 +47,6 @@ export class Autocompletor {
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
-	#markers: meditor.IMarker[] = []
-	#tsCompletions: string[] = []
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -70,6 +68,7 @@ export class Autocompletor {
 			{ pattern: '**' },
 			{
 				provideInlineCompletions: async (model, position, context, token) => {
+					const start = performance.now()
 					if (
 						token.isCancellationRequested ||
 						model.uri.toString() !== editor.getModel()?.uri.toString()
@@ -138,6 +137,9 @@ export class Autocompletor {
 							range.endColumn = model.getLineMaxColumn(position.lineNumber)
 						}
 
+						const end = performance.now()
+						console.log('autocomplete time', end - start)
+
 						return {
 							items: [
 								{
@@ -173,12 +175,6 @@ export class Autocompletor {
 			deletionsCues.clear()
 			const model = editor.getModel()
 			if (model) {
-				const markers = meditor.getModelMarkers({ resource: model.uri })
-				this.#markers = this.#markersAtCursor(e.position, markers)
-				if (this.#scriptLang === 'bun') {
-					this.#tsCompletions = await this.#getTsCompletions(model, e.position)
-					console.log('tsCompletions', this.#tsCompletions)
-				}
 				if (e.source === 'mouse') {
 					this.#autocomplete(model, e.position)
 				}
@@ -221,6 +217,20 @@ export class Autocompletor {
 		)
 	}
 
+	#formatCompletionEntry(details: {
+		name: string
+		displayParts: { text: string; kind: string }[]
+		documentation: { kind: string; text: string }[]
+		tags: { name: string; text: { kind: string; text: string }[] }[]
+	}) {
+		let ret = 'SIGNATURE: ' + details.displayParts.map((p) => p.text).join('') + '\n'
+		for (const doc of details.documentation) {
+			ret += 'DOC: ' + doc.text + '\n'
+		}
+		ret += 'TAGS: ' + JSON.stringify(details.tags)
+		return ret
+	}
+
 	async #getTsCompletions(model: meditor.ITextModel, position: Position) {
 		const offs = model.getOffsetAt(position)
 
@@ -231,17 +241,27 @@ export class Autocompletor {
 		// check if current word has a dot
 		const line = model.getLineContent(position.lineNumber)
 		const word = line.substring(0, position.column)
-		let wordHasDot = false
+		let afterDot = ''
+		let entries: string[] = []
 		for (let i = word.length - 1; i >= 0; i--) {
 			if (word[i] === ' ' || word[i] === ')' || word[i] === '(') {
 				break
 			}
 			if (word[i] === '.') {
-				wordHasDot = true
+				afterDot = word.substring(i + 1)
 				break
 			}
 		}
-		return wordHasDot ? (info?.entries.map((e: { name: string }) => e.name) ?? []) : []
+		if (afterDot) {
+			console.log('afterDot', afterDot)
+			console.log('info', info?.entries)
+			for (const e of info?.entries.filter((e) => e?.name?.startsWith(afterDot)) ?? []) {
+				const details = await worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
+				console.log('details', details)
+				entries.push(this.#formatCompletionEntry(details))
+			}
+		}
+		return entries
 	}
 
 	async #autocomplete(
@@ -306,9 +326,14 @@ export class Autocompletor {
 			endColumn: position.column
 		})
 
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const markersAtCursor = this.#markersAtCursor(position, markers)
+		const tsCompletions =
+			this.#scriptLang === 'bun' ? await this.#getTsCompletions(model, position) : []
+
 		const completionModel = get(copilotInfo).codeCompletionModel
 		const contextWindow = getModelContextWindow(completionModel?.model ?? '')
-		const librariesCompletions: string = this.#tsCompletions
+		const librariesCompletions: string = tsCompletions
 			.join('\n')
 			.slice(0, Math.floor(contextWindow * 0.1))
 
@@ -317,7 +342,7 @@ export class Autocompletor {
 				prefix,
 				suffix,
 				scriptLang: this.#scriptLang,
-				markers: this.#markers,
+				markers: markersAtCursor,
 				libraries: librariesCompletions
 			},
 			this.#abortController
