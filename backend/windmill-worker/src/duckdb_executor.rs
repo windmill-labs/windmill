@@ -168,7 +168,10 @@ pub async fn do_duckdb(
                         transform_attach_db_resource_query(&parsed, &job.id, client).await?,
                     ),
                     None => match transform_attach_ducklake(&query_block, &job.id, client).await? {
-                        Some(ducklake_query) => v.extend(ducklake_query),
+                        Some((ducklake_query, used_storage)) => {
+                            v.extend(ducklake_query);
+                            used_storages.insert(used_storage.0, used_storage.1);
+                        }
                         None => v.push(query_block.to_string()),
                     },
                 };
@@ -587,14 +590,20 @@ async fn transform_attach_db_resource_query(
     ])
 }
 
+// TODO : client.get_ducklake could return the resource and storage data all at once to avoid making multiple queries
 async fn transform_attach_ducklake(
     query: &str,
     job_id: &Uuid,
     client: &AuthedClient,
-) -> Result<Option<Vec<String>>> {
+) -> Result<
+    Option<(
+        Vec<String>,
+        (Option<String>, DuckdbConnectionSettingsResponse), // (storage_name, storage_settings)
+    )>,
+> {
     use windmill_common::workspaces::DucklakeCatalogResourceType as RT;
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+)' AS (\S+)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+)' AS ([^ ;]+)").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
@@ -620,18 +629,34 @@ async fn transform_attach_ducklake(
             &client,
         )
         .await?;
+        let storage = &ducklake_config.storage;
         format!(
-            "ATTACH '{}' AS {} (TYPE {});",
-            conn_str, alias_name, db_type
+            "ATTACH 'ducklake:{}:{}' AS {} (DATA_PATH 's3://{}/{}');",
+            db_type,
+            conn_str,
+            alias_name,
+            storage.storage.as_ref().map(String::as_str).unwrap_or(""),
+            storage.path
         )
     };
+    let (Some(attach_str), mut used_storage) = transform_s3_uris(&attach_str, client).await? else {
+        return Err(Error::ExecutionErr(
+            "transform_s3_uris should never fail".to_string(),
+        ));
+    };
+    let used_storage = used_storage
+        .remove(&ducklake_config.storage.storage)
+        .ok_or_else(|| Error::ExecutionErr("used_storage.get undefined".to_string()))?;
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some(vec![
-        "INSTALL ducklake;".to_string(),
-        install_db_ext_str.to_string(),
-        attach_str,
-    ]))
+    Ok(Some((
+        vec![
+            "INSTALL ducklake;".to_string(),
+            install_db_ext_str.to_string(),
+            attach_str,
+        ],
+        (ducklake_config.storage.storage, used_storage),
+    )))
 }
 
 // Returns the transformed query and the set of storages used
