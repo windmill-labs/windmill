@@ -624,6 +624,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             None,
             None,
             None,
+            None
         )
         .await?;
         tracing::info!(

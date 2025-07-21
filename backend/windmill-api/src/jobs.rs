@@ -86,8 +86,7 @@ use windmill_common::{
     get_script_info_for_hash, FlowVersionInfo, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
-    PushArgsOwned, PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, JobTriggerKind, PushArgs, PushArgsOwned, PushIsolationLevel
 };
 
 pub fn workspaced_service() -> Router {
@@ -2020,7 +2019,7 @@ pub async fn resume_suspended_flow_as_owner(
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
-    
+
     let value = value.unwrap_or(serde_json::Value::Null);
 
     insert_resume_job(
@@ -3418,6 +3417,7 @@ async fn batch_rerun_handle_job(
                 StripPath(job.script_path.clone()),
                 RunJobQuery { ..Default::default() },
                 PushArgsOwned { extra: None, args },
+                None,
             )
             .await;
             if let Ok(uuid) = result {
@@ -3434,6 +3434,7 @@ async fn batch_rerun_handle_job(
                     StripPath(job.script_path.clone()),
                     RunJobQuery { ..Default::default() },
                     PushArgsOwned { extra: None, args },
+                    None,
                 )
                 .await
             } else {
@@ -3478,7 +3479,7 @@ pub async fn run_flow_by_path(
         .await?;
 
     let uuid =
-        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
+        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -3491,6 +3492,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<Uuid> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3564,6 +3566,7 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        trigger_kind,
     )
     .await?;
     tx.commit().await?;
@@ -3658,6 +3661,7 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
+        None
     )
     .await?;
     tx.commit().await?;
@@ -3682,8 +3686,17 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    let (uuid, _) =
-        run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
+    let (uuid, _) = run_script_by_path_inner(
+        authed,
+        db,
+        user_db,
+        w_id,
+        script_path,
+        run_query,
+        args,
+        None,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -3696,6 +3709,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3753,6 +3767,7 @@ pub async fn run_script_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        trigger_kind,
     )
     .await?;
     tx.commit().await?;
@@ -3901,6 +3916,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         push_authed.as_ref(),
+        None,
     )
     .await?;
 
@@ -4431,6 +4447,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         push_authed.as_ref(),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4573,6 +4590,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4687,6 +4705,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         push_authed.as_ref(),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4802,6 +4821,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4871,6 +4891,7 @@ async fn run_preview_script(
         None,
         None,
         Some(&authed.clone().into()),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4959,6 +4980,7 @@ async fn run_bundle_preview_script(
                 None,
                 None,
                 Some(&authed.clone().into()),
+                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5124,6 +5146,7 @@ async fn run_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5189,6 +5212,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        None
     )
     .await?;
     tx.commit().await?;
@@ -5529,6 +5553,7 @@ async fn run_preview_flow_job(
         None,
         None,
         Some(&authed.clone().into()),
+        None
     )
     .await?;
     tx.commit().await?;
@@ -5654,6 +5679,7 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         push_authed.as_ref(),
+        None
     )
     .await?;
     tx.commit().await?;

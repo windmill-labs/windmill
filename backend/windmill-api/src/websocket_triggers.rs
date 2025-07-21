@@ -29,7 +29,7 @@ use windmill_common::{
     INSTANCE_NAME,
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_queue::PushArgsOwned;
+use windmill_queue::{PushArgsOwned, JobTriggerKind};
 
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},
@@ -1430,6 +1430,7 @@ async fn run_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("websocket_trigger/{}", trigger.path),
+            JobTriggerKind::Websocket,
         )
         .await?;
     }

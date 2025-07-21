@@ -35,10 +35,12 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
     db::{Authed, UserDB},
+    email_oss::send_email,
     error::{self, to_anyhow, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
@@ -51,6 +53,7 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    server::load_smtp_config,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
@@ -443,6 +446,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None, // trigger_kind
     )
     .await?;
     inner_tx.commit().await?;
@@ -1122,6 +1126,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 "Sending error of job {} to error handlers (if any)",
                 queued_job.id
             );
+            
             if let Err(e) = send_error_to_global_handler(&queued_job, db, Json(&result)).await {
                 tracing::error!(
                     "Could not run global error handler for job {}: {}",
@@ -1151,6 +1156,21 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .await;
                     }
                 }
+            }
+
+           
+            if let Err(e) = send_trigger_failure_email_notification(
+                &queued_job,
+                db,
+                Json(&result),
+            )
+            .await
+            {
+                tracing::error!(
+                    "Could not send trigger failure email notification for job {}: {}",
+                    queued_job.id,
+                    e
+                );
             }
         }
     }
@@ -1228,6 +1248,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     None,
                     queued_job.priority,
                     None,
+                    None
                 )
                 .await?;
                 if let Err(e) = tx.commit().await {
@@ -1397,6 +1418,95 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         }
     }
 
+    Ok(())
+}
+
+
+async fn send_trigger_failure_email_notification<'a, 'c, T: Serialize + Send + Sync>(
+    queued_job: &MiniPulledJob,
+    db: &Pool<Postgres>,
+    result: Json<&'a T>,
+) -> Result<(), Error> {
+    if queued_job.parent_job.is_some() {
+        return Ok(());
+    }
+
+    let smtp_config = match load_smtp_config(db).await? {
+        Some(config) => config,
+        None => {
+            tracing::debug!("SMTP not configured, skipping trigger failure email notification");
+            return Ok(());
+        }
+    };
+
+    let (trigger_kind, trigger_path) = sqlx::query_as::<_, (Option<JobTriggerKind>, Option<String>)>(
+        "SELECT trigger_kind, trigger FROM v2_job WHERE id = $1",
+    )
+    .bind(queued_job.id)
+    .fetch_optional(db)
+    .await?
+    .unwrap_or((None, None));
+
+    let trigger_kind = match trigger_kind {
+        Some(trigger_kind) => {
+            tracing::debug!("Trigger job {} is a {:?} trigger", queued_job.id, trigger_kind);
+            trigger_kind
+        }
+        _ => {
+            return Ok(());
+        }
+    };
+
+    let trigger_path = match trigger_path {
+        Some(path) => path,
+        None => {
+            tracing::debug!("Trigger job {} has no trigger path", queued_job.id);
+            return Ok(());
+        }
+    };
+
+    
+    let base_url = BASE_URL.read().await;
+
+    let job_url = format!("{}/run/{}?workspace={}", base_url, queued_job.id, queued_job.workspace_id);
+    
+    let subject = format!(
+        "Windmill Trigger Job Failed: {} in workspace {}",
+        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
+        queued_job.workspace_id
+    );
+
+    let error_details = serde_json::to_string_pretty(result.0)
+        .unwrap_or_else(|_| "Unable to serialize error details".to_string());
+
+    let content = format!(
+        r#"
+A trigger job has failed in your Windmill workspace.
+
+Trigger Type: {}
+Trigger Path: {}
+Script/Flow: {}
+Workspace: {}
+Job ID: {}
+Job URL: {}
+
+Error Details:
+{}
+
+This email was automatically sent by Windmill because SMTP is configured for your workspace and the triggered job failed.
+You can disable these notifications by configuring a workspace error handler or removing SMTP configuration.
+"#,
+        trigger_kind.to_string().to_uppercase(),
+        trigger_path,
+        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
+        queued_job.workspace_id,
+        queued_job.id,
+        job_url,
+        error_details
+    );
+
+  // Send the email notification
+    //if let Err(e) = smtp_config.send_email();
     Ok(())
 }
 
@@ -1752,6 +1862,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         priority,
         None,
+        None
     )
     .await?;
     tx.commit().await?;
@@ -1860,6 +1971,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        None, // trigger_kind
     )
     .await?;
     tracing::info!(
@@ -1949,6 +2061,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        None, // trigger_kind
     )
     .await?;
     tracing::info!(
@@ -1977,6 +2090,25 @@ pub enum JobTriggerKind {
     Gcp
 }
 
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            JobTriggerKind::Webhook =>  "webhook",
+            JobTriggerKind::Http =>  "http",
+            JobTriggerKind::Websocket =>  "websocket",
+            JobTriggerKind::Kafka =>  "kafka",
+            JobTriggerKind::Email =>  "email",
+            JobTriggerKind::Nats =>  "nats",
+            JobTriggerKind::Mqtt =>  "mqtt",
+            JobTriggerKind::Sqs =>  "sqs",
+            JobTriggerKind::Postgres =>  "postgres",
+            JobTriggerKind::Schedule =>  "schedule",
+            JobTriggerKind::Gcp =>  "gcp",
+        };
+        write!(f, "{}", kind)
+    }
+}
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
@@ -3307,6 +3439,7 @@ pub async fn push<'c, 'd>(
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4300,7 +4433,10 @@ pub async fn push<'c, 'd>(
             cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26,
-            CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END,
+            CASE 
+                WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind
+                WHEN $39::job_trigger_kind IS NOT NULL THEN $39::job_trigger_kind
+            END,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
         inserted_runtime AS (
@@ -4355,7 +4491,8 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        root_job.or(parent_job)
+        root_job.or(parent_job),
+        trigger_kind as Option<JobTriggerKind>,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
