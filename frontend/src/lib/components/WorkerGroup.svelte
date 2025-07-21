@@ -737,18 +737,25 @@
 			{/if}
 
 			<div class="space-y-6">
-				<Subsection label="Init script">
+				<Subsection label="Init script" collapsable openInitially={nconfig.init_bash !== undefined}>
+					{#snippet header()}
+						<div class="ml-4 flex flex-row gap-2 items-center">
+							{#if nconfig.init_bash !== undefined}
+								<Badge color="green">Enabled</Badge>
+							{/if}
+						</div>
+					{/snippet}
 					<p class="text-xs text-gray-500 mb-2"
 						>Run at start of the workers. More lightweight than requiring custom worker images.</p
 					>
 					<div class="border w-full h-40">
 						<Editor
+							fixedOverflowWidgets={true}
 							disabled={!($superadmin || $devopsRole)}
 							class="flex flex-1 grow h-full w-full"
 							automaticLayout
 							scriptLang={'bash'}
 							useWebsockets={false}
-							fixedOverflowWidgets={false}
 							code={config?.init_bash ?? ''}
 							on:change={(e) => {
 								if (config) {
@@ -765,7 +772,18 @@
 					</div>
 				</Subsection>
 
-				<Subsection label="Periodic script">
+				<Subsection
+					label="Periodic script"
+					collapsable
+					openInitially={nconfig.periodic_script_bash !== undefined}
+				>
+					{#snippet header()}
+						<div class="ml-4 flex flex-row gap-2 items-center">
+							{#if nconfig.periodic_script_bash !== undefined}
+								<Badge color="green">Enabled</Badge>
+							{/if}
+						</div>
+					{/snippet}
 					<p class="text-xs text-gray-500 mb-3"
 						>Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
 						disk space.</p

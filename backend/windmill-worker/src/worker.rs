@@ -14,6 +14,7 @@ use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::utils::report_critical_error;
+use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -22,8 +23,8 @@ use windmill_common::{
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
-        ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
+        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
+        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
     KillpillSender,
 };
@@ -779,7 +780,8 @@ pub fn start_interactive_worker_shell(
             } else {
                 let pulled_job = match &conn {
                     Connection::Sql(db) => {
-                        let query = ("".to_string(), make_pull_query(&[hostname.to_owned()]));
+                        let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
+                        let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -1221,10 +1223,9 @@ pub async fn run_worker(
         )),
         _ => None,
     };
+
     // If we're the first worker to run, we start another background process that listens for a specific tag.
-    // This tag is associated only with jobs using Bash as the script language.
-    // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
-    // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
+    // The tag itself is simply the worker’s common name (for example, wk-{worker_group}-{instance_name}).
     let interactive_shell = if i_worker == 1 {
         let it_shell = start_interactive_worker_shell(
             conn.clone(),
@@ -1534,8 +1535,10 @@ pub async fn run_worker(
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
                             )
-                        .warn_after_seconds(2))
-                        .await {
+                            .warn_after_seconds(2),
+                        )
+                        .await
+                        {
                             Ok(job) => job,
                             Err(e) => {
                                 tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
@@ -1842,8 +1845,11 @@ pub async fn run_worker(
                             break;
                         }
                         Ok(false) if is_periodic_bash_script => {
-                            tracing::error!("periodic script job failed. Check logs for job ID {} for details.", job_id);
-                            
+                            tracing::error!(
+                                "periodic script job failed. Check logs for job ID {} for details.",
+                                job_id
+                            );
+
                             if let Connection::Sql(db) = conn {
                                 report_critical_error(
                                     format!(
@@ -2061,7 +2067,10 @@ fn spawn_periodic_script_task(
     tokio::spawn(async move {
         let config = WORKER_CONFIG.read().await;
 
-        match (&config.periodic_script_bash, &config.periodic_script_interval_seconds) {
+        match (
+            &config.periodic_script_bash,
+            &config.periodic_script_interval_seconds,
+        ) {
             (Some(_), None) => {
                 tracing::error!(
                     worker = %worker_name,
@@ -2077,63 +2086,63 @@ fn spawn_periodic_script_task(
                 return;
             }
             (Some(content), Some(interval_seconds)) => {
-            let interval_seconds = *interval_seconds;
-            if interval_seconds < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
-                tracing::error!(
-                    worker = %worker_name,
-                    "Periodic script interval {} seconds is below minimum of {} seconds. Periodic script task will not start.",
-                    interval_seconds,
-                    MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS
-                );
-                return;
-            }
+                let interval_seconds = *interval_seconds;
+                if interval_seconds < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                    tracing::error!(
+                        worker = %worker_name,
+                        "Periodic script interval {} seconds is below minimum of {} seconds. Periodic script task will not start.",
+                        interval_seconds,
+                        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS
+                    );
+                    return;
+                }
 
-            let content = content.clone();
-            let interval_duration = Duration::from_secs(interval_seconds);
+                let content = content.clone();
+                let interval_duration = Duration::from_secs(interval_seconds);
 
-            tracing::info!(
-                worker = %worker_name,
-                "Starting periodic script task (interval: {}s)",
-                interval_seconds
-            );
-
-            loop {
                 tracing::info!(
                     worker = %worker_name,
-                    "Triggering periodic script execution"
+                    "Starting periodic script task (interval: {}s)",
+                    interval_seconds
                 );
 
-                match queue_periodic_script_bash_maybe(
-                    &conn,
-                    same_worker_tx.clone(),
-                    &worker_name,
-                    &content,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        tracing::debug!(
-                            worker = %worker_name,
-                            "Successfully queued periodic script"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            worker = %worker_name,
-                            "Error queuing periodic script: {e:#}"
-                        );
-                    }
-                }
+                loop {
+                    tracing::info!(
+                        worker = %worker_name,
+                        "Triggering periodic script execution"
+                    );
 
-                tokio::select! {
-                    _ = killpill_rx.recv() => {
-                        tracing::info!("Periodic init script task shutting down for worker {}", worker_name);
-                        break;
+                    match queue_periodic_script_bash_maybe(
+                        &conn,
+                        same_worker_tx.clone(),
+                        &worker_name,
+                        &content,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            tracing::debug!(
+                                worker = %worker_name,
+                                "Successfully queued periodic script"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                worker = %worker_name,
+                                "Error queuing periodic script: {e:#}"
+                            );
+                        }
                     }
-                    _ = tokio::time::sleep(interval_duration) => {
+
+                    tokio::select! {
+                        _ = killpill_rx.recv() => {
+                            tracing::info!("Periodic init script task shutting down for worker {}", worker_name);
+                            break;
+                        }
+                        _ = tokio::time::sleep(interval_duration) => {
+                        }
                     }
                 }
-            }
             }
             (None, None) => {
                 tracing::debug!(
@@ -2163,7 +2172,6 @@ async fn queue_periodic_script_bash_maybe<'c>(
     tracing::info!("Creating periodic script job {uuid} from periodic script: {content}");
     Ok(())
 }
-
 
 pub struct SendResult {
     pub result: SendResultPayload,

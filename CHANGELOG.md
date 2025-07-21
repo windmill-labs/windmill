@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.510.1](https://github.com/windmill-labs/windmill/compare/v1.510.0...v1.510.1) (2025-07-21)
+
+
+### Bug Fixes
+
+* empty branches in branch one now return the previous_result ([8323707](https://github.com/windmill-labs/windmill/commit/8323707b07933eca81f0c30df2434c6409c26789))
+* improve ssh agent worker naming ([#6211](https://github.com/windmill-labs/windmill/issues/6211)) ([dd1f520](https://github.com/windmill-labs/windmill/commit/dd1f520d83d618dbf1d03855890011031da838b5))
+* in home, archived and include without main not taken into account ([f4dbc97](https://github.com/windmill-labs/windmill/commit/f4dbc97a58ea8742dc356bdad4c03bbaa7b369b7))
+* quickbooks oauth realmId ([#6232](https://github.com/windmill-labs/windmill/issues/6232)) ([be8c4ed](https://github.com/windmill-labs/windmill/commit/be8c4ed86d81013e575441f30e5a444cb4067db7))
+* update parsers to prevent assets var bug ([#6246](https://github.com/windmill-labs/windmill/issues/6246)) ([d2328e3](https://github.com/windmill-labs/windmill/commit/d2328e3670c73a5c4ce7b677339f9293604fd583))
+
 ## [1.510.0](https://github.com/windmill-labs/windmill/compare/v1.509.2...v1.510.0) (2025-07-20)
 
 

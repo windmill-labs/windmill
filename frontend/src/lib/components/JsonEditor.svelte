@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -6,15 +8,32 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import Button from './common/button/Button.svelte'
 
-	export let code: string | undefined
-	export let value: any = undefined
-	export let error = ''
-	export let editor: SimpleEditor | undefined = undefined
-	export let small = false
-	export let loadAsync = false
+	interface Props {
+		code: string | undefined
+		value?: any
+		error?: string
+		editor?: SimpleEditor | undefined
+		small?: boolean
+		loadAsync?: boolean
+		class?: string | undefined
+		disabled?: boolean
+		fixedOverflowWidgets?: boolean
+	}
 
-	$: tooBig = code && code?.length > 1000000
-	let loadTooBigAnyway = false
+	let {
+		code = $bindable(),
+		value = $bindable(undefined),
+		error = $bindable(''),
+		editor = $bindable(undefined),
+		small = false,
+		loadAsync = false,
+		class: clazz = undefined,
+		disabled = false,
+		fixedOverflowWidgets = true
+	}: Props = $props()
+
+	let tooBig = $derived(code && code?.length > 1000000)
+	let loadTooBigAnyway = $state(false)
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -33,7 +52,9 @@
 			error = e.message
 		}
 	}
-	$: code != undefined && parseJson()
+	run(() => {
+		code != undefined && parseJson()
+	})
 </script>
 
 {#if tooBig && !loadTooBigAnyway}
@@ -56,7 +77,9 @@
 				autoHeight
 				lang="json"
 				bind:code
-				class={$$props.class}
+				class={clazz}
+				{disabled}
+				{fixedOverflowWidgets}
 			/>
 		</div>
 		{#if error != ''}

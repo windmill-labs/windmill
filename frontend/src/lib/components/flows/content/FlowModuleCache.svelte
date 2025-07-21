@@ -7,19 +7,23 @@
 	import type { FlowModule } from '$lib/gen'
 	import { SecondsInput } from '../../common'
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	$: isCacheEnabled = Boolean(flowModule.cache_ttl)
+	let { flowModule = $bindable() }: Props = $props()
+
+	let isCacheEnabled = $derived(Boolean(flowModule.cache_ttl))
 </script>
 
 <Section label="Cache" class="flex flex-col gap-4">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/cache">
 			If defined, the result of the step will be cached for the number of seconds defined such that
 			if this step were to be re-triggered with the same input it would retrieve and return its
 			cached value instead of recomputing it.
 		</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
 	{#if flowModule.value.type != 'rawscript'}
 		<p
