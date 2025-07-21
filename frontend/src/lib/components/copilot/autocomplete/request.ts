@@ -1,18 +1,9 @@
 import { copilotInfo } from '$lib/stores'
 import { get } from 'svelte/store'
-
 import { getFimCompletion } from '../lib'
 import { getLangContext } from '../chat/script/core'
 import { type ScriptLang } from '$lib/gen/types.gen'
-import { getCommentSymbol } from '../utils'
 import type { editor } from 'monaco-editor'
-
-function comment(commentSymbol: string, text: string) {
-	return text
-		.split('\n')
-		.map((line) => `${commentSymbol} ${line}`)
-		.join('\n')
-}
 
 export async function autocompleteRequest(
 	context: {
@@ -24,25 +15,24 @@ export async function autocompleteRequest(
 	},
 	abortController: AbortController
 ) {
-	const langContext = getLangContext(context.scriptLang)
-
-	const commentSymbol = getCommentSymbol(context.scriptLang)
-
-	if (langContext) {
-		let commentedContext = comment(commentSymbol, langContext)
-		if (context.markers.length > 0) {
-			const markersLines = comment(commentSymbol, context.markers.map((m) => m.message).join('\n'))
-			commentedContext =
-				commentedContext + comment(commentSymbol, '\nDIAGNOSTICS:\n') + markersLines
-		}
-		if (context.libraries) {
-			commentedContext =
-				commentedContext +
-				comment(commentSymbol, '\nLIBRARY AVAILABLE METHODS:\n') +
-				comment(commentSymbol, context.libraries)
-		}
-		context.prefix = commentedContext + '\n' + context.prefix
+	let contextLines =
+		'You are a code completion assistant. You are given three important contexts (<LANGUAGE CONTEXT>, <DIAGNOSTICS>, <LIBRARY METHODS>) to help you complete the code. IMPORTANT: Make sure to use the correct signature from the <LIBRARY METHODS> when given.\n'
+	contextLines += '<LANGUAGE CONTEXT>\n'
+	contextLines += getLangContext(context.scriptLang) + '\n'
+	contextLines += '</LANGUAGE CONTEXT>\n'
+	if (context.markers.length > 0) {
+		contextLines += '<DIAGNOSTICS>\n'
+		contextLines += context.markers.map((m) => m.message).join('\n') + '\n'
+		contextLines += '</DIAGNOSTICS>\n'
 	}
+	if (context.libraries.length > 0) {
+		contextLines += '<LIBRARY METHODS>\n'
+		contextLines += context.libraries + '\n'
+		contextLines += '</LIBRARY METHODS>\n'
+	}
+
+	context.prefix = contextLines + '\n' + context.prefix
+	console.log('context.prefix', context.prefix)
 
 	const providerModel = get(copilotInfo).codeCompletionModel
 

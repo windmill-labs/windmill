@@ -201,10 +201,10 @@ export class Autocompletor {
 	}
 
 	#markersAtCursor(pos: Position, all: meditor.IMarker[]) {
-		const lineBeforeCount = 1
+		const padding = 1
 		return all.filter(
 			(m) =>
-				m.startLineNumber >= pos.lineNumber - lineBeforeCount && m.endLineNumber <= pos.lineNumber
+				m.startLineNumber >= pos.lineNumber - padding && m.endLineNumber <= pos.lineNumber + padding
 		)
 	}
 
