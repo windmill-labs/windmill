@@ -90,6 +90,25 @@ export function parse_python(code, main_override) {
     }
 }
 
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_assets_py(code) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.parse_assets_py(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
 const imports = {
     __wbindgen_placeholder__: {
         __wbindgen_init_externref_table: function() {
