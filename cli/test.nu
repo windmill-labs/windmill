@@ -22,7 +22,7 @@ const languages = [
   "graphql",
   "bash",
   "powershell",
-  # "php",
+  "php",
   "rust",
   "csharp",
   "nu",
@@ -37,29 +37,36 @@ def main [] {
 
 def 'main test deno' [] {
   main clean;
+  print $"Testing Deno"
   $languages | each { |l|
     print $"+ ($l)"
     deno run -A ../cli/main.ts script bootstrap $"f/tests/(random uuid)" $l
   }
   deno run -A ../cli/main.ts script generate-metadata
+  print $"\nDeno has passed!\n"
 }
 
 def 'main test node' [] {
-  # TODO: Use node
   main clean;
+  print $"Testing Node"
   $languages | each { |l|
     print $"+ ($l)"
     node ../cli/npm/esm/main.js script bootstrap $"f/tests/(random uuid)" $l
   }
   node ../cli/npm/esm/main.js script generate-metadata
+  print $"\nNode has passed!\n"
 }
 
 def 'main clean' [] {
+  print $"Cleaning"
   rm -rf f/tests/*
+  mkdir f/tests
 }
 
 def 'main build' [] {
-  ../cli/build.sh
+  print $"Building..."
+  cd ../cli; ./build.sh
+  cd ../local
 }
 
 # def main [] {
