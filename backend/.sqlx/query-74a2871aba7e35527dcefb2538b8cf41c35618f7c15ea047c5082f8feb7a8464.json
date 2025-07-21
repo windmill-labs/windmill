@@ -13,8 +13,7 @@
             "kind": {
               "Enum": [
                 "s3object",
-                "resource",
-                "variable"
+                "resource"
               ]
             }
           }
