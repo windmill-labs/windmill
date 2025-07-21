@@ -48,6 +48,7 @@ export class Autocompletor {
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
 	#lastTsCompletions: string[] = []
+	#contextWindow: number = 0
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -64,6 +65,9 @@ export class Autocompletor {
 		this.#scriptLang = scriptLang
 
 		const deletionsCues = editor.createDecorationsCollection()
+
+		const completionModel = get(copilotInfo).codeCompletionModel
+		this.#contextWindow = getModelContextWindow(completionModel?.model ?? '')
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },
@@ -270,54 +274,62 @@ export class Autocompletor {
 		return ret
 	}
 
+	// get ts completitions when current word has a dot
 	async #getTsCompletions(model: meditor.ITextModel, position: Position) {
-		const offs = model.getOffsetAt(position)
+		try {
+			const offs = model.getOffsetAt(position)
 
-		const workerFactory = await languages.typescript.getTypeScriptWorker()
-		const worker = await workerFactory(model.uri)
-		const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
+			const workerFactory = await languages.typescript.getTypeScriptWorker()
+			const worker = await workerFactory(model.uri)
+			const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
 
-		// check if current word has a dot
-		const line = model.getLineContent(position.lineNumber)
-		const word = line.substring(0, position.column)
-		let hasDot = false
-		let afterDot = ''
+			const line = model.getLineContent(position.lineNumber)
+			const word = line.substring(0, position.column)
+			let hasDot = false
+			let afterDot = ''
 
-		// get completitions entries
-		let entries: string[] = []
-		for (let i = word.length - 1; i >= 0; i--) {
-			if (word[i] === ' ') {
-				break
+			let entries: string[] = []
+			for (let i = word.length - 1; i >= 0; i--) {
+				if (word[i] === ' ') {
+					break
+				}
+				if (word[i] === '.') {
+					hasDot = true
+					afterDot = word.substring(i + 1).split('(')[0]
+					break
+				}
 			}
-			if (word[i] === '.') {
-				hasDot = true
-				afterDot = word.substring(i + 1).split('(')[0]
-				break
+			if (hasDot) {
+				const filteredEntries = (info?.entries ?? []).filter((e: { name: string }) =>
+					afterDot ? e?.name?.startsWith(afterDot) : true
+				)
+				const detailedEntries = await Promise.all(
+					filteredEntries.map((e: { name: string }) =>
+						worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
+					)
+				)
+				entries.push(...detailedEntries.map((e) => this.#formatCompletionEntry(e)))
 			}
-		}
-		if (hasDot) {
-			for (const e of (info?.entries ?? []).filter((e: { name: string }) =>
-				afterDot ? e?.name?.startsWith(afterDot) : true
-			)) {
-				const details = await worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
-				entries.push(this.#formatCompletionEntry(details))
-			}
-		}
 
-		// get signature of open parenthesis
-		const help = await worker.getSignatureHelpItems(model.uri.toString(), offs, {
-			triggerReason: { kind: 'invoked' }
-		})
-		if (help && help.items?.length > 0) {
-			entries.push(this.#formatHelp(help.items[0]))
+			// get signature of open parenthesis
+			const help = await worker.getSignatureHelpItems(model.uri.toString(), offs, {
+				triggerReason: { kind: 'invoked' }
+			})
+			if (help && help.items?.length > 0) {
+				entries.push(this.#formatHelp(help.items[0]))
+			}
+			return entries
+		} catch (e) {
+			console.error('Error getting ts completions', e)
+			return []
 		}
-		return entries
 	}
 
 	async #autocomplete(
 		model: meditor.ITextModel,
 		position: Position
 	): Promise<{ completion: string; suffix: string } | undefined> {
+		const TYPE_SCRIPT_COMPLETIONS_MAX_RATIO = 0.1
 		const thisTs = Date.now()
 		this.#lastTs = thisTs
 
@@ -391,11 +403,9 @@ export class Autocompletor {
 		const markers = meditor.getModelMarkers({ resource: model.uri })
 		const markersAtCursor = this.#markersAtCursor(position, markers)
 
-		const completionModel = get(copilotInfo).codeCompletionModel
-		const contextWindow = getModelContextWindow(completionModel?.model ?? '')
 		const librariesCompletions: string = tsCompletions
 			.join('\n')
-			.slice(0, Math.floor(contextWindow * 0.1))
+			.slice(0, Math.floor(this.#contextWindow * TYPE_SCRIPT_COMPLETIONS_MAX_RATIO))
 
 		const completion = await autocompleteRequest(
 			{
