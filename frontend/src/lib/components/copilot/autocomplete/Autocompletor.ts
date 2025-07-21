@@ -128,6 +128,7 @@ export class Autocompletor {
 								{
 									insertText: completion,
 									range,
+									// filterText: completion,
 									additionalTextEdits: isWholeLine
 										? [
 												{
@@ -151,7 +152,7 @@ export class Autocompletor {
 					}
 				},
 				freeInlineCompletions: () => {
-					deletionsCues.clear()
+					// deletionsCues.clear()
 				}
 			}
 		)
