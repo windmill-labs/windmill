@@ -568,9 +568,6 @@ export async function getFimCompletion(
 		}
 	}
 
-	console.log('prompt', prompt)
-	// console.log('suffix', suffix)
-
 	const workspace = get(workspaceStore)
 
 	const response = await fetch(

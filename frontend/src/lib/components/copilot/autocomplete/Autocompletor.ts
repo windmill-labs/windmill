@@ -1,6 +1,6 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen'
 import { sleep } from '$lib/utils'
-import { editor as meditor, Position, languages, type IDisposable, Range } from 'monaco-editor'
+import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
@@ -86,6 +86,7 @@ export class Autocompletor {
 							endColumn: position.column
 						}
 
+						const isWholeLine = result.completion.indexOf('\n') !== -1
 						const multiline = completion.indexOf('\n') !== -1
 						if (multiline) {
 							// if multiline the range should span until the end of the line
@@ -96,7 +97,20 @@ export class Autocompletor {
 							items: [
 								{
 									insertText: completion,
-									range
+									range,
+									additionalTextEdits: isWholeLine
+										? [
+												{
+													range: {
+														startLineNumber: position.lineNumber,
+														startColumn: position.column,
+														endLineNumber: position.lineNumber,
+														endColumn: model.getLineMaxColumn(position.lineNumber)
+													},
+													text: ''
+												}
+											]
+										: []
 								}
 							]
 						}
@@ -116,7 +130,6 @@ export class Autocompletor {
 				const markers = meditor.getModelMarkers({ resource: model.uri })
 				const hits = this.#markersAtCursor(e.position, markers)
 				this.#markers = hits
-				console.log('hits', hits)
 				if (e.source === 'mouse') {
 					this.#autocomplete(model, e.position)
 				}
@@ -226,7 +239,12 @@ export class Autocompletor {
 		})
 
 		const librariesLimitedCode: string = this.#libraries
-			.filter((l) => !l.path.includes('windmill') && !l.path.includes('package.json'))
+			.filter(
+				(l) =>
+					!l.path.includes('windmill') &&
+					!l.path.includes('package.json') &&
+					!l.path.includes('bun-types')
+			)
 			.map((l) => l.code)
 			.join('\n')
 			.slice(0, 1500)
