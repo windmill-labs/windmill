@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.508.0
+  version: 1.510.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -376,7 +376,7 @@ components:
         type:
           type: string
           enum:
-            - forloopflow
+            - whileloopflow
         parallel:
           type: boolean
         parallelism:
