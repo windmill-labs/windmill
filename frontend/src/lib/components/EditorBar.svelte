@@ -596,10 +596,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
 			if (!t) {
 				sendUserToast(`Resource type ${resType} is not supported in DuckDB`, true)
-				editor.insertAtCursor(`'$res:${path}'`)
+				editor.insertAtCursor(`'res://${path}'`)
 				return
 			} else {
-				editor.insertAtCursor(`ATTACH '$res:${path}' AS db (TYPE ${t});`)
+				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
 			}
 		}
 

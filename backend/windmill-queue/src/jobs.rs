@@ -3145,7 +3145,7 @@ async fn get_queued_job_tx<'c>(
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -3157,7 +3157,7 @@ async fn get_queued_job_tx<'c>(
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -3691,7 +3691,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value } => (
+        JobPayload::RawFlowDependencies { path, flow_value } => {
+            (
             None,
             Some(path),
             None,
@@ -3705,7 +3706,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-        ),
+        )},
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.

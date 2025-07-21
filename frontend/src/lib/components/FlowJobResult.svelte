@@ -9,25 +9,44 @@
 	import AllFlowLogs from './AllFlowLogs.svelte'
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
+	import { untrack } from 'svelte'
 
-	export let waitingForExecutor: boolean = false
-	export let result: any
-	export let logs: string | undefined
-	export let col: boolean = false
-	export let noBorder = false
-	export let loading: boolean
-	export let filename: string | undefined = undefined
-	export let jobId: string | undefined = undefined
-	export let tag: string | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let refreshLog: boolean = false
-	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
-	export let downloadLogs = true
+	interface Props {
+		waitingForExecutor?: boolean
+		result: any
+		logs: string | undefined
+		col?: boolean
+		noBorder?: boolean
+		loading: boolean
+		filename?: string | undefined
+		jobId?: string | undefined
+		tag?: string | undefined
+		workspaceId?: string | undefined
+		refreshLog?: boolean
+		durationStates: Writable<Record<string, DurationStatus>> | undefined
+		downloadLogs?: boolean
+		tagLabel?: string | undefined
+	}
 
-	let lastJobId: string | undefined = undefined
-	let drawer: Drawer | undefined = undefined
+	let {
+		waitingForExecutor = false,
+		result,
+		logs = $bindable(),
+		col = false,
+		noBorder = false,
+		loading,
+		filename = undefined,
+		jobId = undefined,
+		tag = undefined,
+		workspaceId = undefined,
+		refreshLog = false,
+		durationStates,
+		downloadLogs = true,
+		tagLabel = undefined
+	}: Props = $props()
 
-	$: jobId != lastJobId && diffJobId()
+	let lastJobId: string | undefined = $state(undefined)
+	let drawer: Drawer | undefined = $state(undefined)
 
 	let iteration = 0
 	let logOffset = 0
@@ -65,6 +84,12 @@
 			)
 		}
 	}
+	$effect(() => {
+		jobId
+		untrack(() => {
+			jobId != lastJobId && diffJobId()
+		})
+	})
 </script>
 
 <Drawer bind:this={drawer}>
@@ -90,9 +115,10 @@
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
 		<div class="absolute z-40 text-xs top-0 left-1"
-			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
+			><button class="" onclick={drawer.openDrawer}>explore all steps' logs</button></div
 		>
 		<LogViewer
+			{tagLabel}
 			download={downloadLogs}
 			content={logs ?? ''}
 			{jobId}

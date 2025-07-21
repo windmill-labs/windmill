@@ -36,6 +36,7 @@ use crate::{
     db::{ApiAuthed, DB},
     trigger_helpers::{trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
     users::fetch_api_authed,
+    utils::check_scopes,
 };
 
 use std::borrow::Cow;
@@ -183,8 +184,9 @@ async fn get_websocket_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<WebsocketTrigger> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("websocket_triggers:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
     let trigger = sqlx::query_as::<_, WebsocketTrigger>(
         r#"SELECT *
           FROM websocket_trigger
@@ -208,6 +210,8 @@ async fn create_websocket_trigger(
     Path(w_id): Path<String>,
     Json(ct): Json<NewWebsocketTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("websocket_triggers:write:{}", ct.path))?;
+
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "WebSocket triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
@@ -300,6 +304,7 @@ async fn update_websocket_trigger(
     Json(ct): Json<EditWebsocketTrigger>,
 ) -> error::Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("websocket_triggers:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let filters = ct.filters.into_iter().map(SqlxJson).collect_vec();
@@ -371,8 +376,9 @@ pub async fn set_enabled(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> error::Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("websocket_triggers:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     // important to set server_id, last_server_ping and error to NULL to stop current websocket listener
     let one_o = sqlx::query_scalar!(
@@ -424,6 +430,8 @@ async fn delete_websocket_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("websocket_triggers:write:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         "DELETE FROM websocket_trigger WHERE workspace_id = $1 AND path = $2",

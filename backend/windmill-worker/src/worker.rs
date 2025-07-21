@@ -500,7 +500,10 @@ impl JobCompletedSender {
                 } else {
                     unbounded_sender
                 }
-                .send_async(SendResult { result: SendResultPayload::JobCompleted(jc), time: Instant::now() })
+                .send_async(SendResult {
+                    result: SendResultPayload::JobCompleted(jc),
+                    time: Instant::now(),
+                })
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -527,9 +530,13 @@ impl JobCompletedSender {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
-                    sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
+                    sender
+                        .send_async(SendResult { result: send_result, time: Instant::now() })
+                        .await
                 } else {
-                    unbounded_sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
+                    unbounded_sender
+                        .send_async(SendResult { result: send_result, time: Instant::now() })
+                        .await
                 }
             }
             Self::Http(_) => {
@@ -862,13 +869,9 @@ pub fn start_interactive_worker_shell(
                                 if now.duration_since(last).as_secs()
                                     > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
                             {
-                                Duration::from_secs(
-                                    WORKER_SHELL_NAP_TIME_DURATION,
-                                )
+                                Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
                             }
-                            _ => {
-                                Duration::from_millis(*SLEEP_QUEUE * 10)
-                            }
+                            _ => Duration::from_millis(*SLEEP_QUEUE * 10),
                         };
                         tokio::select! {
                             _ = tokio::time::sleep(nap_time) => {
@@ -876,7 +879,7 @@ pub fn start_interactive_worker_shell(
                             _ = killpill_rx.recv() => {
                                 break;
                             }
-                        }   
+                        }
                     }
 
                     Err(err) => {
@@ -1336,11 +1339,15 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
-    
+
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
-            let sleep_duration = if last_processing_duration_secs > 10 { 10 } else { 5 };
+            let sleep_duration = if last_processing_duration_secs > 10 {
+                10
+            } else {
+                5
+            };
             tracing::warn!(worker = %worker_name, hostname = %hostname, "last bg processor processing duration > {sleep_duration}s: {last_processing_duration_secs}s, throttling next job pull by {sleep_duration}s");
             last_processing_duration.store(0, Ordering::SeqCst);
             tokio::time::sleep(Duration::from_secs(sleep_duration)).await;
@@ -1517,16 +1524,20 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
-                        let job = match timeout(Duration::from_secs(10), pull(
-                            &db,
-                            suspend_first,
-                            &worker_name,
-                            None,
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
+                        let job = match timeout(
+                            Duration::from_secs(10),
+                            pull(
+                                &db,
+                                suspend_first,
+                                &worker_name,
+                                None,
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .warn_after_seconds(2),
                         )
-                        .warn_after_seconds(2))
-                        .await {
+                        .await
+                        {
                             Ok(job) => job,
                             Err(e) => {
                                 tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
@@ -1750,7 +1761,9 @@ pub async fn run_worker(
 
                                 match symlink_dir(&windows_parent, &windows_target).await {
                                     Ok(_) => {
-                                        tracing::info!("Successfully created directory symlink on Windows");
+                                        tracing::info!(
+                                            "Successfully created directory symlink on Windows"
+                                        );
                                     }
                                     Err(e) => {
                                         tracing::warn!("Failed to create symlink_dir on Windows (likely needs admin privileges or Developer Mode): {}", e);
@@ -2063,6 +2076,10 @@ async fn do_nativets(
     .await?)
 }
 
+lazy_static::lazy_static! {
+    static ref LOG_TAG_NAME: String = std::env::var("LOG_TAG_NAME").unwrap_or("tag".to_string());
+}
+
 #[derive(Deserialize, Serialize, Default)]
 pub struct PreviousResult<'a> {
     #[serde(borrow)]
@@ -2258,8 +2275,8 @@ pub async fn handle_queued_job(
         // println!("handle queue {:?}",  SystemTime::now());
 
         logs.push_str(&format!(
-            "job={} tag={} worker={} hostname={}\n",
-            &job.id, &job.tag, &worker_name, &hostname
+            "job={} {}={} worker={} hostname={}\n",
+            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
         ));
 
         if *NO_LOGS_AT_ALL {

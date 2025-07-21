@@ -126,7 +126,7 @@
 					}
 				}
 			}}
-			defaultValue={defaultValue?.s3}
+			defaultValue={multiple ? defaultValue?.map((v) => v.s3) : defaultValue?.s3}
 			initialValue={value}
 		/>
 	{/if}

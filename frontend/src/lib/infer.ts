@@ -90,17 +90,22 @@ export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
 ): Promise<AssetWithAccessType[]> {
-	if (language === 'duckdb') {
-		await initWasmRegex()
-		return JSON.parse(parse_assets_sql(code))
-	}
-	if (language === 'deno' || language === 'nativets' || language === 'bun') {
-		await initWasmTs()
-		return JSON.parse(parse_assets_ts(code))
-	}
-	if (language === 'python3') {
-		await initWasmPython()
-		return JSON.parse(parse_assets_py(code))
+	try {
+		if (language === 'duckdb') {
+			await initWasmRegex()
+			return JSON.parse(parse_assets_sql(code))
+		}
+		if (language === 'deno' || language === 'nativets' || language === 'bun') {
+			await initWasmTs()
+			return JSON.parse(parse_assets_ts(code))
+		}
+		if (language === 'python3') {
+			await initWasmPython()
+			return JSON.parse(parse_assets_py(code))
+		}
+	} catch (e) {
+		console.error('error parsing assets', e)
+		return []
 	}
 	return []
 }

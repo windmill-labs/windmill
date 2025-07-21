@@ -4,6 +4,7 @@ use crate::{
     resources::try_get_resource_from_db_as,
     trigger_helpers::{trigger_runnable, TriggerJobArgs},
     users::fetch_api_authed,
+    utils::check_scopes,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -519,6 +520,9 @@ pub async fn create_mqtt_trigger(
     Path(w_id): Path<String>,
     Json(new_mqtt_trigger): Json<NewMqttTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || {
+        format!("mqtt_triggers:write:{}", &new_mqtt_trigger.path)
+    })?;
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "MQTT triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
@@ -701,8 +705,10 @@ pub async fn get_mqtt_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<MqttTrigger> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("mqtt_triggers:read:{}", path))?;
+
+    let mut tx = user_db.begin(&authed).await?;
     let trigger = sqlx::query_as!(
         MqttTrigger,
         r#"
@@ -754,6 +760,8 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
+    check_scopes(&authed, || format!("mqtt_triggers:write:{}", workspace_path))?;
+
     let EditMqttTrigger {
         mqtt_resource_path,
         subscribe_topics,
@@ -856,6 +864,8 @@ pub async fn delete_mqtt_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("mqtt_triggers:write:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         r#"
@@ -931,8 +941,9 @@ pub async fn set_enabled(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> error::Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("mqtt_triggers:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     // important to set server_id, last_server_ping and error to NULL to stop current mqtt listener
     let one_o = sqlx::query_scalar!(

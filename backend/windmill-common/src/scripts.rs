@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    assets::AssetWithAccessType,
+    assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
@@ -253,6 +253,9 @@ pub struct Script {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(json(nullable))]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -352,7 +355,8 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
-    pub fallback_access_types: Option<Vec<AssetWithAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
