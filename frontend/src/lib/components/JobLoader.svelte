@@ -93,6 +93,16 @@
 		})
 	})
 
+	function clearCurrentId() {
+		if (currentId) {
+			if (allowConcurentRequests) {
+				finished.push(currentId)
+			} else {
+				currentId = undefined
+			}
+		}
+	}
+
 	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
@@ -110,7 +120,7 @@
 						await watchJob(testId, callbacks)
 					} catch {
 						if (currentId === testId) {
-							currentId = undefined
+							clearCurrentId()
 						}
 					}
 				}
@@ -239,7 +249,7 @@
 		if (id) {
 			lastCallbacks?.cancel?.({ id })
 			lastCallbacks = undefined
-			currentId = undefined
+			clearCurrentId()
 			// Clean up SSE connection
 			currentEventSource?.close()
 			currentEventSource = undefined
@@ -256,7 +266,7 @@
 	}
 
 	export async function clearCurrentJob() {
-		if (currentId && !allowConcurentRequests && !finished.includes(currentId)) {
+		if (currentId && !allowConcurentRequests) {
 			job = undefined
 			lastCallbacks?.cancel?.({ id: currentId })
 			lastCallbacks = undefined
@@ -374,7 +384,7 @@
 	}
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
-		if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
+		if (isCurrentJob(id)) {
 			try {
 				if (job && `running` in job) {
 					callbacks?.running?.({ id })
@@ -419,7 +429,7 @@
 							id,
 							result: job?.result
 						})
-						currentId = undefined
+						clearCurrentId()
 					} else {
 						onJobCompleted(id, job, callbacks)
 					}
@@ -430,7 +440,7 @@
 				if (errorIteration == 5) {
 					notfound = true
 					job = undefined
-					currentId = undefined
+					clearCurrentId()
 				}
 				callbacks?.doneError?.({ error: err, id })
 				console.warn(err)
@@ -448,7 +458,7 @@
 		job: Job & { result?: any; success?: boolean },
 		callbacks?: Callbacks
 	) {
-		if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
+		if (isCurrentJob(id)) {
 			await tick()
 			if (
 				callbacks?.doneError &&
@@ -465,11 +475,7 @@
 			}
 			callbacks?.change?.(job)
 
-			if (!allowConcurentRequests) {
-				currentId = undefined
-			} else {
-				finished.push(id)
-			}
+			clearCurrentId()
 		}
 	}
 
@@ -477,9 +483,9 @@
 		if (noPingTimeout) {
 			clearTimeout(noPingTimeout)
 		}
-		if (id === currentId || (allowConcurentRequests && !finished.includes(id))) {
+		if (isCurrentJob(id)) {
 			noPingTimeout = setTimeout(() => {
-				if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
+				if (isCurrentJob(id)) {
 					currentEventSource?.close()
 					currentEventSource = undefined
 					loadTestJobWithSSE(id, attempt + 1, callbacks)
@@ -487,13 +493,18 @@
 			}, 10000)
 		}
 	}
+
+	function isCurrentJob(id: string) {
+		return currentId === id || (allowConcurentRequests && !finished.includes(id))
+	}
+
 	async function loadTestJobWithSSE(
 		id: string,
 		attempt: number,
 		callbacks?: Callbacks
 	): Promise<boolean> {
 		let isCompleted = false
-		if (currentId === id) {
+		if (isCurrentJob(id)) {
 			try {
 				// First load the job to get initial state
 				if (!job && !onlyResult) {
@@ -508,7 +519,7 @@
 				// If job is already completed, don't start SSE
 				if (job?.type === 'CompletedJob') {
 					isCompleted = true
-					if (currentId === id) {
+					if (isCurrentJob(id)) {
 						onJobCompleted(id, job, callbacks)
 					}
 					return isCompleted
@@ -551,7 +562,7 @@
 
 					setNoPingTimeout(id, attempt, callbacks)
 					currentEventSource.onmessage = async (event) => {
-						if (currentId !== id) {
+						if (!isCurrentJob(id)) {
 							currentEventSource?.close()
 							currentEventSource = undefined
 							return
@@ -598,7 +609,7 @@
 										id,
 										result: previewJobUpdates?.only_result
 									})
-									currentId = undefined
+									clearCurrentId()
 								} else {
 									const njob = previewJobUpdates.job as Job
 									njob.logs = job?.logs ?? ''
@@ -660,7 +671,7 @@
 	}
 
 	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
-		if ((currentId != id && !allowConcurentRequests) || finished.includes(id)) {
+		if (!isCurrentJob(id)) {
 			callbacks?.cancel?.({ id })
 			return
 		}
@@ -678,7 +689,7 @@
 	}
 
 	onDestroy(async () => {
-		currentId = undefined
+		clearCurrentId()
 		currentEventSource?.close()
 		currentEventSource = undefined
 	})
