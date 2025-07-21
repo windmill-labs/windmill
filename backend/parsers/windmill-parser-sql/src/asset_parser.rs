@@ -52,6 +52,11 @@ fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
             kind: AssetKind::Resource,
             access_type: None,
         }),
+        parse_ducklake_lit.map(|path| ParseAssetsResult {
+            path,
+            kind: AssetKind::Ducklake,
+            access_type: None,
+        }),
     ))
     .parse(input)
 }
@@ -109,6 +114,14 @@ fn quote(input: &str) -> IResult<&str, char> {
 fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     let (input, _) = alt((tag("$res:"), tag("res://"))).parse(input)?;
+    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
+    let (input, _) = quote(input)?;
+    Ok((input, path))
+}
+
+fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
+    let (input, _) = quote(input)?;
+    let (input, _) = tag("ducklake://").parse(input)?;
     let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
     let (input, _) = quote(input)?;
     Ok((input, path))

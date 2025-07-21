@@ -603,7 +603,7 @@ async fn transform_attach_ducklake(
 > {
     use windmill_common::workspaces::DucklakeCatalogResourceType as RT;
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+)' AS ([^ ;]+)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake://([^':]+)' AS ([^ ;]+)").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);

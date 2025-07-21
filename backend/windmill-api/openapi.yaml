@@ -13915,10 +13915,7 @@ components:
               path:
                 type: string
               kind:
-                type: string
-                enum:
-                  - s3object
-                  - resource
+                $ref: "#/components/schemas/AssetKind"
               access_type:
                 type: string
                 enum: [r, w, rw]
@@ -17714,6 +17711,7 @@ components:
       enum:
         - s3object
         - resource
+        - ducklake
     Asset:
       type: object
       properties:

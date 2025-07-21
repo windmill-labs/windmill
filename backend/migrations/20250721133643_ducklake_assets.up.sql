@@ -1,0 +1,1 @@
+ALTER TYPE ASSET_KIND ADD VALUE 'ducklake';
