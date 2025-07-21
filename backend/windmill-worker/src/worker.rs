@@ -1223,9 +1223,9 @@ pub async fn run_worker(
         )),
         _ => None,
     };
+
     // If we're the first worker to run, we start another background process that listens for a specific tag.
-    // This tag is associated only with jobs using Bash as the script language.
-    // the tag is simply the machine's hostname and if not found the randomly generated hostname.
+    // The tag itself is simply the worker’s common name (for example, wk-{worker_group}-{instance_name}).
     let interactive_shell = if i_worker == 1 {
         let it_shell = start_interactive_worker_shell(
             conn.clone(),
