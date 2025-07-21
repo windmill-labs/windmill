@@ -248,6 +248,7 @@
 	)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
+			;[archived, includeWithoutMain]
 			untrack(() => {
 				loadScripts(includeWithoutMain)
 				loadFlows()
