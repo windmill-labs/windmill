@@ -213,17 +213,59 @@ export class Autocompletor {
 		)
 	}
 
+	#partsToText(parts: { text: string; kind: string }[]) {
+		return parts.map((p) => p.text).join('')
+	}
+
 	#formatCompletionEntry(details: {
 		name: string
 		displayParts: { text: string; kind: string }[]
 		documentation: { kind: string; text: string }[]
 		tags: { name: string; text: { kind: string; text: string }[] }[]
 	}) {
-		let ret = 'SIGNATURE: ' + details.displayParts.map((p) => p.text).join('') + '\n'
+		let ret = 'SIGNATURE: ' + this.#partsToText(details.displayParts) + '\n'
 		for (const doc of details.documentation) {
 			ret += 'DOC: ' + doc.text + '\n'
 		}
 		ret += 'TAGS: ' + JSON.stringify(details.tags)
+		return ret
+	}
+
+	#formatHelp(help: {
+		prefixDisplayParts: {
+			text: string
+			kind: string
+		}[]
+		suffixDisplayParts: {
+			text: string
+			kind: string
+		}[]
+		separatorDisplayParts: {
+			text: string
+			kind: string
+		}[]
+		documentation: {
+			kind: string
+			text: string
+		}[]
+		parameters: {
+			displayParts: {
+				text: string
+				kind: string
+			}[]
+		}[]
+	}) {
+		const signature =
+			this.#partsToText(help.prefixDisplayParts) +
+			help.parameters
+				.map((p) => this.#partsToText(p.displayParts))
+				.join(this.#partsToText(help.separatorDisplayParts)) +
+			this.#partsToText(help.suffixDisplayParts)
+
+		const doc = this.#partsToText(help.documentation)
+
+		let ret = 'SIGNATURE: ' + signature + '\n'
+		ret += 'DOC: ' + doc + '\n'
 		return ret
 	}
 
@@ -239,14 +281,16 @@ export class Autocompletor {
 		const word = line.substring(0, position.column)
 		let hasDot = false
 		let afterDot = ''
+
+		// get completitions entries
 		let entries: string[] = []
 		for (let i = word.length - 1; i >= 0; i--) {
-			if (word[i] === ' ' || word[i] === ')' || word[i] === '(') {
+			if (word[i] === ' ') {
 				break
 			}
 			if (word[i] === '.') {
 				hasDot = true
-				afterDot = word.substring(i + 1)
+				afterDot = word.substring(i + 1).split('(')[0]
 				break
 			}
 		}
@@ -257,6 +301,14 @@ export class Autocompletor {
 				const details = await worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
 				entries.push(this.#formatCompletionEntry(details))
 			}
+		}
+
+		// get signature of open parenthesis
+		const help = await worker.getSignatureHelpItems(model.uri.toString(), offs, {
+			triggerReason: { kind: 'invoked' }
+		})
+		if (help && help.items?.length > 0) {
+			entries.push(this.#formatHelp(help.items[0]))
 		}
 		return entries
 	}
@@ -294,6 +346,7 @@ export class Autocompletor {
 
 		const cachedCompletion = this.#cache.get(position.lineNumber)
 		if (cachedCompletion) {
+			console.log('cachedCompletion', cachedCompletion)
 			if (
 				position.column > cachedCompletion.column &&
 				linePrefix.length < cachedCompletion.linePrefix.length + cachedCompletion.completion.length
