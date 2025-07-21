@@ -186,7 +186,7 @@
 	}
 
 	let {
-		code = $bindable(''),
+		code = $bindable(),
 		cmdEnterAction = undefined,
 		formatAction = undefined,
 		automaticLayout = true,
@@ -1196,7 +1196,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang == 'nu' ? 'python' : lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang == 'nu' ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1211,7 +1211,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1455,7 +1455,7 @@
 			})
 			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
-				ata?.(code)
+				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
 		}
