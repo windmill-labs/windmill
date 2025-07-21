@@ -22,6 +22,7 @@
 	import Select from './select/Select.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import Subsection from './Subsection.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -45,6 +46,8 @@
 		priority_tags?: Map<string, number>
 		cache_clear?: number
 		init_bash?: string
+		periodic_script_bash?: string
+		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
 		additional_python_paths?: string[]
@@ -66,6 +69,7 @@
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
+
 		customEnvVars = []
 		if (nconfig.env_vars_allowlist === undefined) {
 			nconfig.env_vars_allowlist = []
@@ -120,6 +124,8 @@
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
 					autoscaling?: AutoscalingConfig
+					periodic_script_bash?: string
+					periodic_script_interval_seconds?: number
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -148,7 +154,6 @@
 		dispatch('reload')
 	}
 	let dirty = $state(false)
-	let dirtyCode = $state(false)
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
@@ -156,7 +161,7 @@
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
 	$effect(() => {
-		($superadmin || $devopsRole) && listWorkspaces()
+		;($superadmin || $devopsRole) && listWorkspaces()
 	})
 </script>
 
@@ -210,7 +215,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
-		title={($superadmin || $devopsRole) ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
@@ -412,31 +417,34 @@
 				</Section>
 			{/if}
 		{:else if selected == 'dedicated'}
-			{#if nconfig?.dedicated_worker != undefined}
-				<input
-					disabled={!($superadmin || $devopsRole)}
-					placeholder="<workspace>:<script path>"
-					type="text"
-					onchange={() => {
-						dirtyCode = true
-						dirty = true
-					}}
-					bind:value={nconfig.dedicated_worker}
-				/>
+			<div class="flex flex-col gap-2">
 				{#if $superadmin || $devopsRole}
-					<div class="py-2"
-						><Alert
+					<div class="py-2">
+						<Alert
+							size="xs"
 							type="info"
 							title="Script's runtime setting 'dedicated worker' must be toggled on as well"
+						/>
+					</div>
+				{/if}
+				{#if nconfig?.dedicated_worker != undefined}
+					<div
+						><p class="text-xs mb-2"
+							>Workers will get killed upon detecting changes. It is assumed they are in an
+							environment where the supervisor will restart them.</p
+						>
+						<input
+							disabled={!($superadmin || $devopsRole)}
+							placeholder="<workspace>:<script path>"
+							type="text"
+							onchange={() => {
+								dirty = true
+							}}
+							bind:value={nconfig.dedicated_worker}
 						/></div
 					>
-					<p class="text-2xs text-tertiary mt-2"
-						>Workers will get killed upon detecting this setting change. It is assumed they are in
-						an environment where the supervisor will restart them. Upon restart, they will pick the
-						new dedicated worker config.</p
-					>
 				{/if}
-			{/if}
+			</div>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -715,38 +723,111 @@
 		<div class="mt-8"></div>
 
 		<Section
-			label="Init script"
-			tooltip="Bash scripts run at start of the workers. More lightweight than having to require the worker images at the cost of being run on every start."
+			label="Worker scripts"
+			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
 		>
-			<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
-				<div class="border w-full h-40">
-					{#if dirtyCode}
-						<div class="text-red-600 text-sm"
-							>Init script has changed, once applied, the workers will restart to apply it.</div
-						>
-					{/if}
-					<Editor
-						disabled={!($superadmin || $devopsRole)}
-						class="flex flex-1 grow h-full w-full"
-						automaticLayout
-						scriptLang={'bash'}
-						useWebsockets={false}
-						fixedOverflowWidgets={false}
-						code={config?.init_bash ?? ''}
-						on:change={(e) => {
-							if (config) {
-								dirty = true
-								dirtyCode = true
-								const code = e.detail
-								if (code != '') {
-									nconfig.init_bash = code?.replace(/\r\n/g, '\n')
-								} else {
-									nconfig.init_bash = undefined
-								}
-							}
-						}}
-					/>
+			{#if $superadmin || $devopsRole}
+				<div class="mb-4">
+					<Alert size="xs" type="info" title="Worker Restart Required">
+						Workers will get killed upon detecting any changes in this section (scripts or
+						interval). It is assumed they are in an environment where the supervisor will restart
+						them.
+					</Alert>
 				</div>
+			{/if}
+
+			<div class="space-y-6">
+				<Subsection label="Init script" collapsable openInitially={nconfig.init_bash !== undefined}>
+					{#snippet header()}
+						<div class="ml-4 flex flex-row gap-2 items-center">
+							{#if nconfig.init_bash !== undefined}
+								<Badge color="green">Enabled</Badge>
+							{/if}
+						</div>
+					{/snippet}
+					<p class="text-xs text-gray-500 mb-2"
+						>Run at start of the workers. More lightweight than requiring custom worker images.</p
+					>
+					<div class="border w-full h-40">
+						<Editor
+							fixedOverflowWidgets={true}
+							disabled={!($superadmin || $devopsRole)}
+							class="flex flex-1 grow h-full w-full"
+							automaticLayout
+							scriptLang={'bash'}
+							useWebsockets={false}
+							code={config?.init_bash ?? ''}
+							on:change={(e) => {
+								if (config) {
+									dirty = true
+									const code = e.detail
+									if (code != '') {
+										nconfig.init_bash = code?.replace(/\r\n/g, '\n')
+									} else {
+										nconfig.init_bash = undefined
+									}
+								}
+							}}
+						/>
+					</div>
+				</Subsection>
+
+				<Subsection
+					label="Periodic script"
+					collapsable
+					openInitially={nconfig.periodic_script_bash !== undefined}
+				>
+					{#snippet header()}
+						<div class="ml-4 flex flex-row gap-2 items-center">
+							{#if nconfig.periodic_script_bash !== undefined}
+								<Badge color="green">Enabled</Badge>
+							{/if}
+						</div>
+					{/snippet}
+					<p class="text-xs text-gray-500 mb-3"
+						>Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
+						disk space.</p
+					>
+
+					<div class="flex gap-4 items-center mb-4">
+						<Label class="text-sm">Execution interval (seconds):</Label>
+						<input
+							disabled={!($superadmin || $devopsRole)}
+							type="number"
+							min="60"
+							placeholder="3600"
+							class="!w-24 text-center"
+							bind:value={nconfig.periodic_script_interval_seconds}
+							onchange={() => {
+								dirty = true
+							}}
+						/>
+						<span class="text-xs text-gray-500">Minimum: 60 seconds</span>
+					</div>
+
+					<div class="border w-full h-40">
+						<Editor
+							disabled={!($superadmin || $devopsRole)}
+							class="flex flex-1 grow h-full w-full"
+							automaticLayout
+							scriptLang={'bash'}
+							useWebsockets={false}
+							fixedOverflowWidgets={false}
+							code={config?.periodic_script_bash ?? ''}
+							on:change={(e) => {
+								if (config) {
+									dirty = true
+									const code = e.detail
+									if (code != '') {
+										nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
+									} else {
+										nconfig.periodic_script_bash = undefined
+									}
+								}
+							}}
+						/>
+					</div>
+				</Subsection>
 			</div>
 		</Section>
 		{#snippet actions()}
@@ -764,6 +845,14 @@
 								nconfig?.min_alive_workers_alert_threshold < 1
 							) {
 								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+								return
+							}
+							if (
+								nconfig?.periodic_script_bash &&
+								(!nconfig?.periodic_script_interval_seconds ||
+									nconfig?.periodic_script_interval_seconds < 60)
+							) {
+								sendUserToast('Periodic script interval must be at least 60 seconds', true)
 								return
 							}
 							// Remove duplicate env vars by keeping only the last occurrence of each key
@@ -801,7 +890,6 @@
 							sendUserToast('Configuration set')
 							dispatch('reload')
 							dirty = false
-							dirtyCode = false
 						}}
 						disabled={(!dirty && nconfig?.dedicated_worker == undefined) ||
 							!$enterpriseLicense ||

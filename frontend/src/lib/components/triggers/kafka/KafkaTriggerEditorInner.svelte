@@ -284,14 +284,14 @@
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Kafka trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render actionsButtons('xs')}
-		</svelte:fragment>
+		{/snippet}
 		{@render config()}
 	</Section>
 {/if}
