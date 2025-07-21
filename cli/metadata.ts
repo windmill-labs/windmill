@@ -523,7 +523,7 @@ export async function inferSchema(
   let inferedSchema: any;
   if (language === "python3") {
     const { parse_python } = await import(
-      "./wasm/python/windmill_parser_wasm.js"
+      "./wasm/py/windmill_parser_wasm.js"
     );
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
@@ -592,8 +592,8 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_sql } = await import("./wasm/regex/windmill_parser_wasm.js");
-    inferedSchema = JSON.parse(parse_sql(content));
+    const { parse_duckdb } = await import("./wasm/regex/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
     const { parse_graphql } = await import(
       "./wasm/regex/windmill_parser_wasm.js"

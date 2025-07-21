@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.508.0",
+	"version": "1.510.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -146,10 +146,10 @@
 		"windmill-parser-wasm-java": "^1.478.1",
 		"windmill-parser-wasm-nu": "^1.474.1",
 		"windmill-parser-wasm-php": "^1.429.0",
-		"windmill-parser-wasm-py": "^1.504.0",
-		"windmill-parser-wasm-regex": "^1.504.0",
+		"windmill-parser-wasm-py": "^1.510.0",
+		"windmill-parser-wasm-regex": "^1.510.0",
 		"windmill-parser-wasm-rust": "^1.429.0",
-		"windmill-parser-wasm-ts": "^1.504.0",
+		"windmill-parser-wasm-ts": "^1.510.0",
 		"windmill-parser-wasm-yaml": "^1.429.0",
 		"windmill-sql-datatype-parser-wasm": "^1.318.0",
 		"xterm": "^5.3.0",
@@ -180,10 +180,10 @@
 			"types": "./package/components/scriptBuilder.d.ts",
 			"default": "./package/components/scriptBuilder.js"
 		},
-		"./components/TestJobLoader.svelte": {
-			"types": "./package/components/TestJobLoader.svelte.d.ts",
-			"svelte": "./package/components/TestJobLoader.svelte",
-			"default": "./package/components/TestJobLoader.svelte"
+		"./components/JobLoader.svelte": {
+			"types": "./package/components/JobLoader.svelte.d.ts",
+			"svelte": "./package/components/JobLoader.svelte",
+			"default": "./package/components/JobLoader.svelte"
 		},
 		"./components/common/kbd/Kbd.svelte": {
 			"types": "./package/components/common/kbd/Kbd.svelte.d.ts",
@@ -404,8 +404,8 @@
 			"components/IconedResourceType.svelte": [
 				"./package/components/IconedResourceType.svelte.d.ts"
 			],
-			"components/TestJobLoader.svelte": [
-				"./package/components/TestJobLoader.svelte.d.ts"
+			"components/JobLoader.svelte": [
+				"./package/components/JobLoader.svelte.d.ts"
 			],
 			"components/SchemaForm.svelte": [
 				"./package/components/SchemaForm.svelte.d.ts"

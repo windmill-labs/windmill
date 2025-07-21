@@ -1,13 +1,10 @@
 import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
-	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import YAML from 'yaml'
 import { z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
-import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptySchema, emptyString } from '$lib/utils'
 import {
@@ -15,7 +12,7 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import type { Tool } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -61,12 +58,6 @@ const searchScriptsToolDef = createToolDef(
 	searchScriptsSchema,
 	'search_scripts',
 	'Search for scripts in the workspace'
-)
-
-const searchHubScriptsToolDef = createToolDef(
-	searchScriptsSchema,
-	'search_hub_scripts',
-	'Search for scripts in the hub'
 )
 
 const langSchema = z.enum(
@@ -348,42 +339,6 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
-export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
-	def: searchHubScriptsToolDef,
-	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(
-			toolId,
-			'Searching for hub scripts related to "' + args.query + '"...'
-		)
-		const parsedArgs = searchScriptsSchema.parse(args)
-		const scripts = await ScriptService.queryHubScripts({
-			text: parsedArgs.query,
-			kind: 'script'
-		})
-		toolCallbacks.setToolStatus(
-			toolId,
-			'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
-		)
-		// if withContent, fetch scripts with their content, limit to 3 results
-		const results = await Promise.all(
-			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {
-				let content = ''
-				if (withContent) {
-					content = await ScriptService.getHubScriptContentByPath({
-						path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-					})
-				}
-				return {
-					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-					summary: s.summary,
-					...(withContent ? { content } : {})
-				}
-			})
-		)
-		return JSON.stringify(results)
-	}
-})
-
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
 	{
@@ -578,32 +533,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	}
 ]
-
-function createToolDef(
-	zodSchema: z.ZodSchema,
-	name: string,
-	description: string
-): ChatCompletionTool {
-	const schema = zodToJsonSchema(zodSchema, {
-		name,
-		target: 'openAi'
-	})
-	let parameters = schema.definitions![name] as FunctionParameters
-	parameters = {
-		...parameters,
-		required: parameters.required ?? []
-	}
-
-	return {
-		type: 'function',
-		function: {
-			strict: true,
-			name,
-			description,
-			parameters
-		}
-	}
-}
 
 export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 	const content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
