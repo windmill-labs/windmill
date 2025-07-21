@@ -1,6 +1,6 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen'
 import { sleep } from '$lib/utils'
-import { editor as meditor, Position, languages, type IDisposable, Range } from 'monaco-editor'
+import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
@@ -35,9 +35,9 @@ function filterCompletion(
 	if (!shouldReturnMultiline) {
 		if (completion.startsWith('\n')) {
 			// TODO improve cache for this case so that we can use cache when accepting the first line of a multiline completion which starts with \n
-			return completion.split('\n').slice(0, 2) + '\n'
+			return completion.split('\n').slice(0, 2).join('\n') + '\n'
 		} else if (completion.includes('\n')) {
-			return completion.split('\n').slice(0, 1) + '\n'
+			return completion.split('\n').slice(0, 1).join('\n') + '\n'
 		}
 	}
 
