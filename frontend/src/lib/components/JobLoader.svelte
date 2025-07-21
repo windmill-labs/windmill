@@ -256,7 +256,7 @@
 	}
 
 	export async function clearCurrentJob() {
-		if (currentId && !allowConcurentRequests) {
+		if (currentId && !allowConcurentRequests && !finished.includes(currentId)) {
 			job = undefined
 			lastCallbacks?.cancel?.({ id: currentId })
 			lastCallbacks = undefined
@@ -374,7 +374,7 @@
 	}
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
-		if (currentId === id || allowConcurentRequests) {
+		if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
 			try {
 				if (job && `running` in job) {
 					callbacks?.running?.({ id })
@@ -419,6 +419,7 @@
 							id,
 							result: job?.result
 						})
+						currentId = undefined
 					} else {
 						onJobCompleted(id, job, callbacks)
 					}
@@ -447,7 +448,7 @@
 		job: Job & { result?: any; success?: boolean },
 		callbacks?: Callbacks
 	) {
-		if (currentId === id || allowConcurentRequests) {
+		if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
 			await tick()
 			if (
 				callbacks?.doneError &&
@@ -476,9 +477,9 @@
 		if (noPingTimeout) {
 			clearTimeout(noPingTimeout)
 		}
-		if (id === currentId || allowConcurentRequests) {
+		if (id === currentId || (allowConcurentRequests && !finished.includes(id))) {
 			noPingTimeout = setTimeout(() => {
-				if (currentId === id || allowConcurentRequests) {
+				if (currentId === id || (allowConcurentRequests && !finished.includes(id))) {
 					currentEventSource?.close()
 					currentEventSource = undefined
 					loadTestJobWithSSE(id, attempt + 1, callbacks)
@@ -591,16 +592,17 @@
 								currentEventSource?.close()
 								currentEventSource = undefined
 								noPingTimeout = undefined
+								isCompleted = true
 								if (onlyResult) {
 									callbacks?.doneResult?.({
 										id,
 										result: previewJobUpdates?.only_result
 									})
+									currentId = undefined
 								} else {
 									const njob = previewJobUpdates.job as Job
 									njob.logs = job?.logs ?? ''
 									job = njob
-									isCompleted = true
 									onJobCompleted(id, job, callbacks)
 								}
 							}
