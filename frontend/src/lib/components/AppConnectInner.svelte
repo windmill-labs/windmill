@@ -413,10 +413,8 @@
 				if (account_identifier) {
 					args['account_identifier'] = account_identifier[1]
 				}
-			} else if (resourceType === 'quickbooks') {
-				if ('realmId' in extraParams) {
-					args['realmId'] = extraParams['realmId']
-				}
+			} else if (resourceType === 'quickbooks' && extraParams['realmId']) {
+				args['realmId'] = extraParams['realmId']
 			}
 
 			let account: number | undefined = undefined
