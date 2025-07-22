@@ -5,11 +5,6 @@ import { GlobalUserInfo } from "./gen/types.gen.ts";
 
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
-import {
-  addWorkspace,
-  removeWorkspace,
-  Workspace
-} from "./workspace.ts";
 
 /**
  * Main authentication function - moved from context.ts to break circular dependencies
@@ -48,6 +43,7 @@ export async function requireLogin(
     }
 
     // Update workspace token
+    const { removeWorkspace, addWorkspace } = await import("./workspace.ts");
     removeWorkspace(workspace.name, false, opts);
     workspace.token = newToken;
     addWorkspace(workspace, opts);

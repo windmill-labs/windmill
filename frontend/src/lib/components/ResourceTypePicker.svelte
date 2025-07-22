@@ -10,12 +10,16 @@
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import { untrack } from 'svelte'
+	interface Props {
+		value: string | undefined
+		notPickable?: boolean
+		nonePickable?: boolean
+	}
 
-	export let value: string | undefined
-	export let notPickable = false
-	export let nonePickable = false
+	let { value = $bindable(), notPickable = false, nonePickable = false }: Props = $props()
 
-	let resources: string[] = []
+	let resources: string[] = $state([])
 
 	async function loadResources() {
 		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
@@ -28,20 +32,26 @@
 		dispatch('click', resource)
 	}
 
-	$: if ($workspaceStore) {
-		loadResources()
-	}
-	let search: string = ''
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				loadResources()
+			})
+		}
+	})
+	let search: string = $state('')
 
-	$: filteredResources = resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
+	let filteredResources = $derived(
+		resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
+	)
 </script>
 
 <Label label="Resource type" class="w-full col-span-2">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip light small>Select a resource type to narrow down the object type.</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<Button
 				size="xs"
@@ -59,10 +69,10 @@
 				}}
 				contentClasses="flex flex-col gap-2 h-full p-4 max-h-[40vh] w-[500px]"
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button nonCaptureEvent size="xs" color="dark">Select resource type</Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+				{/snippet}
+				{#snippet content({ close })}
 					<ClearableInput bind:value={search} placeholder="Search resource..." />
 
 					<div class="overflow-y-scroll h-full">
@@ -107,10 +117,10 @@
 							{/if}
 						</div>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<div class="flex flex-row items-center w-full justify-between">
 		<Badge color={!value ? 'gray' : 'blue'}>
 			{value ?? 'None'}
