@@ -447,8 +447,6 @@ class AIChatManager {
 					}
 				}
 			}
-
-			this.cleanUpMessages()
 		} catch (err) {
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
@@ -665,6 +663,8 @@ class AIChatManager {
 			await this.chatRequest({
 				...params
 			})
+
+			this.cleanUpMessages()
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
