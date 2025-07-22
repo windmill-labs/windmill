@@ -32,6 +32,19 @@ struct ImportsFinder {
     skip_type_only: bool,
 }
 
+impl ImportsFinder {
+    fn process_raw(&mut self, raw: Option<String>) {
+        if let Some(ref s) = raw {
+            let s = s.to_string();
+            if s.starts_with("'") && s.ends_with("'") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            } else if s.starts_with("\"") && s.ends_with("\"") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            }
+        }
+    }
+}
+
 impl Visit for ImportsFinder {
     noop_visit_type!();
 
@@ -59,14 +72,47 @@ impl Visit for ImportsFinder {
                 }
             }
         }
-        if let Some(ref s) = n.src.raw {
-            let s = s.to_string();
-            if s.starts_with("'") && s.ends_with("'") {
-                self.imports.insert(s[1..s.len() - 1].to_string());
-            } else if s.starts_with("\"") && s.ends_with("\"") {
-                self.imports.insert(s[1..s.len() - 1].to_string());
+        self.process_raw(n.src.raw.as_ref().map(|x| x.to_string()));
+    }
+
+    fn visit_export_all(&mut self, node: &swc_ecma_ast::ExportAll) {
+        if !self.skip_type_only || node.type_only {
+            return;
+        }
+
+        self.process_raw(node.src.raw.as_ref().map(|x| x.to_string()));
+    }
+    fn visit_named_export(&mut self, node: &swc_ecma_ast::NamedExport) {
+        if node.src.is_none() || !self.skip_type_only || node.type_only {
+            return;
+        }
+        if node.specifiers.len() > 0 {
+            let mut is_type_only = true;
+            for specifier in node.specifiers.iter() {
+                match specifier {
+                    swc_ecma_ast::ExportSpecifier::Named(swc_ecma_ast::ExportNamedSpecifier {
+                        is_type_only,
+                        ..
+                    }) if *is_type_only => (),
+                    _ => {
+                        is_type_only = false;
+                        break;
+                    }
+                }
+            }
+            if is_type_only {
+                return;
             }
         }
+
+        self.process_raw(
+            node.src
+                .as_ref()
+                .unwrap()
+                .raw
+                .as_ref()
+                .map(|x| x.to_string()),
+        );
     }
 }
 
