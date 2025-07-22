@@ -108,19 +108,35 @@ class AIChatManager {
 
 	estimateTokenUsage = () => {
 		return this.messages.reduce((acc, message) => {
+			// Handle content field - can be string or array
 			if (message.content) {
-				// 1 token is ~ 4 characters
-				acc += message.content.length / 4
+				if (typeof message.content === 'string') {
+					acc += message.content.length / 4
+				} else if (Array.isArray(message.content)) {
+					// Handle array of content parts
+					acc += JSON.stringify(message.content).length / 4
+				}
+			}
+			// Handle tool calls
+			if ('tool_calls' in message && message.tool_calls) {
+				acc += JSON.stringify(message.tool_calls).length / 4
+			}
+			// Handle function calls in tool messages
+			if (message.role === 'function') {
+				acc += (message.name?.length || 0) / 4
 			}
 			return acc
 		}, 0)
 	}
 
-	deleteOldestMessage = () => {
+	deleteOldestMessage = (maxDepth: number = 10) => {
+		if (maxDepth <= 0 || this.messages.length === 0) {
+			return
+		}
 		const removed = this.messages.shift()
 		// if the removed message is an assistant with tool calls or a user message, we need to delete the following message too
 		if ((removed?.role === 'assistant' && removed.tool_calls) || removed?.role === 'user') {
-			this.deleteOldestMessage()
+			this.deleteOldestMessage(maxDepth - 1)
 		}
 	}
 
