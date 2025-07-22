@@ -26,18 +26,21 @@ import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getCompletion } from '../lib'
+import { getCompletion, getModelContextWindow } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import type { DBSchemas } from '$lib/stores'
+import { copilotSessionModel, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
+import { get } from 'svelte/store'
+
+const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -88,6 +91,35 @@ class AIChatManager {
 	})
 
 	open = $derived(chatState.size > 0)
+
+	cleanUpMessages = () => {
+		const estimatedTokens = this.estimateTokenUsage()
+		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		if (
+			estimatedTokens >
+			modelContextWindow - modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE
+		) {
+			this.deleteOldestMessage()
+		}
+	}
+
+	estimateTokenUsage = () => {
+		return this.messages.reduce((acc, message) => {
+			if (message.content) {
+				// 1 token is ~ 4 characters
+				acc += message.content.length / 4
+			}
+			return acc
+		}, 0)
+	}
+
+	deleteOldestMessage = () => {
+		const removed = this.messages.shift()
+		// if the removed message is an assistant with tool calls or a user message, we need to delete the following message too
+		if ((removed?.role === 'assistant' && removed.tool_calls) || removed?.role === 'user') {
+			this.deleteOldestMessage()
+		}
+	}
 
 	loadApiTools = async () => {
 		try {
@@ -396,6 +428,8 @@ class AIChatManager {
 					}
 				}
 			}
+
+			this.cleanUpMessages()
 		} catch (err) {
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
