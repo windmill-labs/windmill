@@ -149,7 +149,6 @@ pub async fn do_duckdb(
                             .clone()
                             .unwrap_or_else(|| "text".to_string())
                             .as_str(),
-                        client,
                     )?;
                     m.insert(sig_arg.name, duckdb_value);
                 }
@@ -321,7 +320,6 @@ fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>>
 fn json_value_to_duckdb_value(
     json_value: &serde_json::Value,
     arg_type: &str,
-    client: &AuthedClient,
 ) -> Result<duckdb::types::Value> {
     let arg_type = arg_type.to_lowercase();
     let duckdb_value = match json_value {
@@ -379,22 +377,12 @@ fn json_value_to_duckdb_value(
             }
         }
 
-        serde_json::Value::Array(arr) => duckdb::types::Value::Array(
-            arr.iter()
-                .map(|val| json_value_to_duckdb_value(val, arg_type.as_str(), client))
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        serde_json::Value::Object(map) => duckdb::types::Value::Struct(
-            map.iter()
-                .map(|(k, v)| {
-                    Ok::<_, Error>((
-                        k.clone(),
-                        json_value_to_duckdb_value(v, arg_type.as_str(), client)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?
-                .into(),
-        ),
+        serde_json::Value::Array(arr) => {
+            duckdb::types::Value::Text(serde_json::to_string(arr).map_err(to_anyhow)?)
+        }
+        serde_json::Value::Object(map) => {
+            duckdb::types::Value::Text(serde_json::to_string(map).map_err(to_anyhow)?)
+        }
 
         value @ _ => {
             return Err(Error::ExecutionErr(format!(
