@@ -435,6 +435,7 @@ pub fn check_route_access(
                     required_domain,
                     required_action,
                     required_kind.as_deref(),
+                    route_path,
                 )? {
                     return Ok(());
                 }
@@ -559,11 +560,31 @@ fn extract_domain_from_route(route_path: &str) -> Result<(ScopeDomain, Option<St
     )))
 }
 
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 16] = [
+    "/get_flow/",
+    "/get_root_job_id/",
+    "/get/",
+    "/get_logs/",
+    "/get_args/",
+    "/get_flow_debug_info/",
+    "/completed/get/",
+    "/completed/get_result/",
+    "/completed/get_result_maybe/",
+    "/getupdate/",
+    "/getupdate_sse/",
+    "/get_log_file/",
+    "/result_by_id/",
+    "/resume_urls/",
+    "/flow/user_states/",
+    "/job_signature/",
+];
+
 fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
     required_action: ScopeAction,
     required_kind: Option<&str>,
+    route_path: &str,
 ) -> Result<bool> {
     // Check domain match
     let scope_domain = ScopeDomain::from_str(&scope.domain)
@@ -577,11 +598,17 @@ fn scope_grants_access(
     let scope_action = ScopeAction::from_str(&scope.action)
         .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
 
-    if !scope_action.includes(&required_action) {
+    if !scope_action.includes(&required_action)
+        && !(scope_domain == ScopeDomain::Jobs
+            && required_action == ScopeAction::Read
+            && RUN_WHITELISTED_GET_PATHS
+                .iter()
+                .any(|p| route_path.contains(p)))
+    {
         return Ok(false);
     }
 
-    if required_domain == ScopeDomain::Jobs && required_action == ScopeAction::Run {
+    if scope_domain == ScopeDomain::Jobs && required_action == ScopeAction::Run {
         match (&scope.kind, required_kind) {
             (Some(scope_kind), Some(req_kind)) => {
                 if scope_kind != req_kind {
