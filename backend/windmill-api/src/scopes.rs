@@ -603,7 +603,7 @@ fn scope_grants_access(
             && required_action == ScopeAction::Read
             && RUN_WHITELISTED_GET_PATHS
                 .iter()
-                .any(|p| route_path.contains(p)))
+                .any(|p| route_path.starts_with(p)))
     {
         return Ok(false);
     }
