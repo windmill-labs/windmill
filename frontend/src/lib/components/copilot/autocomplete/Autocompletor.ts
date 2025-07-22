@@ -128,14 +128,17 @@ export class Autocompletor {
 
 						// set deletion cue for content that will be replaced by the suggestion
 						if (!completion.includes('\n')) {
-							deletionsCues.set([
-								{
-									range: toEol,
-									options: {
-										className: 'ai-completion-diff'
+							// set timeout to avoid race condition with freeInlineCompletions
+							setTimeout(() => {
+								deletionsCues.set([
+									{
+										range: toEol,
+										options: {
+											className: 'ai-completion-diff'
+										}
 									}
-								}
-							])
+								])
+							}, 100)
 						}
 					}
 
