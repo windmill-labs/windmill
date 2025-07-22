@@ -34,6 +34,9 @@
 			disableRuntime: true,
 			disableGeneratedUi: true,
 			disableTriggers: true
+		},
+		previewPanel: {
+			tagLabel: 'agent'
 		}
 	}
 </script>

@@ -21,8 +21,8 @@
 	}: Props = $props()
 
 	loadWorkerTags()
-	async function loadWorkerTags() {
-		if (!$workerTags) {
+	async function loadWorkerTags(force = false) {
+		if (!$workerTags || force) {
 			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
@@ -58,7 +58,7 @@
 		color="light"
 		on:click={() => {
 			$workerTags = undefined
-			loadWorkerTags()
+			loadWorkerTags(true)
 		}}
 		startIcon={{ icon: RotateCw }}
 		{disabled}

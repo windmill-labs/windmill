@@ -33,10 +33,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function loadWorkerGroups() {
+	async function loadWorkerGroups(force = false) {
 		loading = true
 		try {
-			if (!$workerTags) {
+			if (!$workerTags || force) {
 				$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 			}
 		} catch (e) {
@@ -77,7 +77,7 @@
 				size="xs"
 				startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
 				on:click={async () => {
-					loadWorkerGroups()
+					loadWorkerGroups(true)
 					open = true
 				}}
 			></Button>
