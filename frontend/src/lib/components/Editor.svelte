@@ -823,6 +823,10 @@
 					try {
 						console.log('starting client')
 						await languageClient.start()
+						// for python we want to use the pyright client for signature help, not ruff
+						if (lang !== 'python' || (lang === 'python' && name == 'pyright')) {
+							autocompletor?.setLanguageClient(languageClient)
+						}
 						console.log('started client')
 					} catch (err) {
 						console.log('err at client')

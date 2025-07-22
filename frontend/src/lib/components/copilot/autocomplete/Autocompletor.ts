@@ -7,17 +7,31 @@ import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
 import { setGlobalCSS } from '../shared'
 import { get } from 'svelte/store'
 import { copilotInfo } from '$lib/stores'
+import type { MonacoLanguageClient } from 'monaco-languageclient'
 
-// max ratio of type script completions to context window
-const TYPE_SCRIPT_COMPLETIONS_MAX_RATIO = 0.1
+// max ratio of completions to context window
+const COMPLETIONS_MAX_RATIO = 0.1
 
-// hard limit to max number of type script completions to fetch details for, to avoid performance overhead
-const TYPE_SCRIPT_COMPLETIONS_DETAILS_MAX = 100
+// hard limit to max number of completions to fetch details for, to avoid performance overhead
+const MAX_COMPLETIONS_DETAILS = 50
 
 type CacheCompletion = {
 	linePrefix: string
 	completion: string
 	column: number
+}
+
+type LanguageClientHelp = {
+	signatures: {
+		label: string
+		documentation: { kind: string; value: string }
+	}[]
+}
+
+type LanguageClientCompletion = {
+	items: {
+		label: string
+	}[]
 }
 
 function filterCompletion(
@@ -53,9 +67,10 @@ export class Autocompletor {
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
-	#lastTsCompletions: string[] = []
+	#lastCompletions: string[] = []
 	#contextWindow: number = 0
 	#shouldShowDeletionCue = false
+	#languageClient: MonacoLanguageClient | undefined = undefined
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -199,6 +214,10 @@ export class Autocompletor {
 		this.#cursorDisposable.dispose()
 	}
 
+	setLanguageClient(client: MonacoLanguageClient) {
+		this.#languageClient = client
+	}
+
 	#shouldReturnMultiline(model: meditor.ITextModel, position: Position) {
 		if (position.column === model.getLineMaxColumn(position.lineNumber)) {
 			const cachedCompletion = this.#cache.get(position.lineNumber)
@@ -238,7 +257,7 @@ export class Autocompletor {
 		return ret
 	}
 
-	#formatHelp(help: {
+	#formatTsHelp(help: {
 		prefixDisplayParts: {
 			text: string
 			kind: string
@@ -276,21 +295,19 @@ export class Autocompletor {
 		return ret
 	}
 
-	// get ts completitions when current word has a dot
-	async #getTsCompletions(model: meditor.ITextModel, position: Position) {
+	#formatLanguageClientHelp(help: LanguageClientHelp) {
+		return help.signatures
+			.map((s) => 'SIGNATURE: ' + s.label + '\n' + 'DOC: ' + s.documentation.value)
+			.join('\n')
+	}
+
+	async #getCompletions(model: meditor.ITextModel, position: Position): Promise<string[]> {
 		try {
-			const offs = model.getOffsetAt(position)
-
-			const workerFactory = await languages.typescript.getTypeScriptWorker()
-			const worker = await workerFactory(model.uri)
-			const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
-
 			const line = model.getLineContent(position.lineNumber)
 			const word = line.substring(0, position.column)
 			let hasDot = false
 			let afterDot = ''
 
-			let entries: string[] = []
 			for (let i = word.length - 1; i >= 0; i--) {
 				if (word[i] === ' ') {
 					break
@@ -302,29 +319,123 @@ export class Autocompletor {
 				}
 			}
 			if (hasDot) {
-				const filteredEntries = (info?.entries ?? []).filter((e: { name: string }) =>
-					afterDot ? e?.name?.startsWith(afterDot) : true
-				)
-				const detailedEntries = await Promise.all(
-					filteredEntries
-						.slice(0, TYPE_SCRIPT_COMPLETIONS_DETAILS_MAX)
-						.map((e: { name: string }) =>
-							worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
-						)
-				)
-				entries.push(...detailedEntries.map((e) => this.#formatCompletionEntry(e)))
+				if (this.#scriptLang === 'bun') {
+					return await this.#getTsCompletions(model, position, afterDot)
+				} else {
+					return await this.#getLanguageClientCompletions(model, position, afterDot)
+				}
 			}
+			return []
+		} catch (e) {
+			console.error('Error getting completions', e)
+			return []
+		}
+	}
+
+	async #getTsCompletions(
+		model: meditor.ITextModel,
+		position: Position,
+		afterDot: string
+	): Promise<string[]> {
+		try {
+			const offs = model.getOffsetAt(position)
+
+			const workerFactory = await languages.typescript.getTypeScriptWorker()
+			const worker = await workerFactory(model.uri)
+			const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
+
+			let entries: string[] = []
+			const filteredEntries = (info?.entries ?? []).filter((e: { name: string }) =>
+				afterDot ? e?.name?.startsWith(afterDot) : true
+			)
+			const detailedEntries = await Promise.all(
+				filteredEntries
+					.slice(0, MAX_COMPLETIONS_DETAILS)
+					.map((e: { name: string }) =>
+						worker.getCompletionEntryDetails(model.uri.toString(), offs, e.name)
+					)
+			)
+			entries.push(...detailedEntries.map((e) => this.#formatCompletionEntry(e)))
 
 			// get signature of open parenthesis
 			const help = await worker.getSignatureHelpItems(model.uri.toString(), offs, {
 				triggerReason: { kind: 'invoked' }
 			})
 			if (help && help.items?.length > 0) {
-				entries.push(this.#formatHelp(help.items[0]))
+				entries.push(this.#formatTsHelp(help.items[0]))
 			}
 			return entries
 		} catch (e) {
 			console.error('Error getting ts completions', e)
+			return []
+		}
+	}
+
+	async #getLanguageClientCompletions(
+		model: meditor.ITextModel,
+		position: Position,
+		afterDot: string
+	): Promise<string[]> {
+		try {
+			if (!this.#languageClient) {
+				return []
+			}
+			let entries: string[] = []
+			const completions: LanguageClientCompletion = await this.#languageClient.sendRequest(
+				'textDocument/completion',
+				{
+					textDocument: { uri: model.uri.toString() },
+					position: {
+						line: position.lineNumber - 1,
+						character: position.column - 1
+					}
+				}
+			)
+
+			// if we failed to resolve a completion, don't try to resolve any more
+			let failedToResolve = false
+			const detailedEntries = await Promise.all(
+				completions.items
+					.filter((item) => (afterDot ? item.label.startsWith(afterDot) : true))
+					.slice(0, MAX_COMPLETIONS_DETAILS)
+					.map(async (item) => {
+						try {
+							if (failedToResolve) {
+								return ''
+							}
+							const resolvedItem = await this.#languageClient!.sendRequest(
+								'completionItem/resolve',
+								item
+							)
+							return this.#formatLanguageClientHelp({
+								signatures: [resolvedItem]
+							} as LanguageClientHelp)
+						} catch (e) {
+							console.error('Failed to resolve completion item:', e)
+							failedToResolve = true
+							return ''
+						}
+					})
+			)
+
+			entries.push(...detailedEntries.filter((e) => e !== ''))
+
+			const help: LanguageClientHelp = await this.#languageClient.sendRequest(
+				'textDocument/signatureHelp',
+				{
+					textDocument: { uri: model.uri.toString() },
+					position: {
+						line: position.lineNumber - 1, // LSP uses 0-based line numbers
+						character: position.column - 1 // LSP uses 0-based character positions
+					}
+				}
+			)
+			if (help && help.signatures.length > 0) {
+				entries.push(this.#formatLanguageClientHelp(help))
+			}
+			return entries
+		} catch (e) {
+			console.error('Error getting language client completions', e)
 			return []
 		}
 	}
@@ -360,17 +471,12 @@ export class Autocompletor {
 			endColumn: model.getLineMaxColumn(model.getLineCount())
 		})
 
-		// get ts completions
-		const tsCompletions =
-			this.#scriptLang === 'bun' ? await this.#getTsCompletions(model, position) : []
-		// reset cache for this line if new ts completions are available
-		if (
-			tsCompletions.length > 0 &&
-			tsCompletions.some((c) => !this.#lastTsCompletions.includes(c))
-		) {
+		const completions = await this.#getCompletions(model, position)
+		// reset cache for this line if new completions are available
+		if (completions.length > 0 && completions.some((c) => !this.#lastCompletions.includes(c))) {
 			this.#cache.delete(position.lineNumber)
 		}
-		this.#lastTsCompletions = tsCompletions
+		this.#lastCompletions = completions
 
 		const cachedCompletion = this.#cache.get(position.lineNumber)
 		if (cachedCompletion) {
@@ -406,9 +512,9 @@ export class Autocompletor {
 		const markers = meditor.getModelMarkers({ resource: model.uri })
 		const markersAtCursor = this.#markersAtCursor(position, markers)
 
-		const librariesCompletions: string = tsCompletions
+		const librariesCompletions: string = completions
 			.join('\n')
-			.slice(0, Math.floor(this.#contextWindow * TYPE_SCRIPT_COMPLETIONS_MAX_RATIO))
+			.slice(0, Math.floor(this.#contextWindow * COMPLETIONS_MAX_RATIO))
 
 		const completion = await autocompleteRequest(
 			{
