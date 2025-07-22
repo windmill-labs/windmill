@@ -20,16 +20,12 @@ export async function autocompleteRequest(
 	contextLines += '<LANGUAGE CONTEXT>\n'
 	contextLines += getLangContext(context.scriptLang) + '\n'
 	contextLines += '</LANGUAGE CONTEXT>\n'
-	if (context.markers.length > 0) {
-		contextLines += '<DIAGNOSTICS>\n'
-		contextLines += context.markers.map((m) => m.message).join('\n') + '\n'
-		contextLines += '</DIAGNOSTICS>\n'
-	}
-	if (context.libraries.length > 0) {
-		contextLines += '<LIBRARY METHODS>\n'
-		contextLines += context.libraries + '\n'
-		contextLines += '</LIBRARY METHODS>\n'
-	}
+	contextLines += '<DIAGNOSTICS>\n'
+	contextLines += context.markers.map((m) => m.message).join('\n') + '\n'
+	contextLines += '</DIAGNOSTICS>\n'
+	contextLines += '<LIBRARY METHODS>\n'
+	contextLines += context.libraries + '\n'
+	contextLines += '</LIBRARY METHODS>\n'
 
 	context.prefix = contextLines + '\n' + context.prefix
 
