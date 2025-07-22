@@ -6458,7 +6458,7 @@ async fn get_completed_job<'a>(
     Ok(response)
 }
 
-#[derive(FromRow)]
+#[derive(Debug, FromRow)]
 pub struct RawResult {
     pub result: Option<sqlx::types::Json<Box<RawValue>>>,
     pub result_columns: Option<Vec<String>>,
@@ -6648,6 +6648,7 @@ async fn get_completed_job_result_maybe(
 
     if let Some(mut res) = result_o {
         format_result(res.result_columns.as_ref(), res.result.as_mut());
+        println!("res: {:?}, authed: {:?}", &res, &opt_authed);
         if opt_authed.is_none() && res.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),

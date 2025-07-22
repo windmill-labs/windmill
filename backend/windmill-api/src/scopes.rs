@@ -119,7 +119,7 @@ impl ScopeDefinition {
         }
 
         match (self.action.as_str(), other.action.as_str()) {
-            (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            (a, b) if ((a == "write" || a == "run") && b == "read") || (a == b) => {}
             _ => return false,
         }
 
@@ -409,7 +409,7 @@ impl ScopeAction {
     /// Write includes Read
     pub fn includes(&self, other: &ScopeAction) -> bool {
         match (self, other) {
-            (ScopeAction::Write, ScopeAction::Read) => true,
+            (ScopeAction::Write | ScopeAction::Run, ScopeAction::Read) => true,
             (a, b) => a == b,
         }
     }

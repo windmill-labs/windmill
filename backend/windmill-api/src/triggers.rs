@@ -200,13 +200,13 @@ pub async fn list_tokens_internal(
     let tokens = if is_flow {
         sqlx::query_as!(
         TruncatedTokenWithEmail,
-        "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
+        "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['jobs:run:flows:' || $2]::text[]",
         w_id, path).fetch_all(db)
         .await?
     } else {
         sqlx::query_as!(
             TruncatedTokenWithEmail,
-            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['run:script/' || $2]::text[]",
+            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['jobs:run:scripts:' || $2]::text[]",
             w_id, path)
         .fetch_all(db)
         .await?
