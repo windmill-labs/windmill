@@ -13,7 +13,7 @@ import type { MonacoLanguageClient } from 'monaco-languageclient'
 const COMPLETIONS_MAX_RATIO = 0.1
 
 // hard limit to max number of completions to fetch details for, to avoid performance overhead
-const MAX_COMPLETIONS_DETAILS = 100
+const MAX_COMPLETIONS_DETAILS = 50
 
 type CacheCompletion = {
 	linePrefix: string
@@ -392,12 +392,17 @@ export class Autocompletor {
 				}
 			)
 
+			// if we failed to resolve a completion, don't try to resolve any more
+			let failedToResolve = false
 			const detailedEntries = await Promise.all(
 				completions.items
 					.filter((item) => (afterDot ? item.label.startsWith(afterDot) : true))
 					.slice(0, MAX_COMPLETIONS_DETAILS)
 					.map(async (item) => {
 						try {
+							if (failedToResolve) {
+								return ''
+							}
 							const resolvedItem = await this.#languageClient!.sendRequest(
 								'completionItem/resolve',
 								item
@@ -407,6 +412,7 @@ export class Autocompletor {
 							} as LanguageClientHelp)
 						} catch (e) {
 							console.error('Failed to resolve completion item:', e)
+							failedToResolve = true
 							return ''
 						}
 					})

@@ -37,8 +37,6 @@ export async function autocompleteRequest(
 
 	context.prefix = contextLines + '\n' + context.prefix
 
-	console.log('context', context.prefix)
-
 	const providerModel = get(copilotInfo).codeCompletionModel
 
 	if (!providerModel) {
