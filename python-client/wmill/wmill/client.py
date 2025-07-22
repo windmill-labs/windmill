@@ -124,11 +124,8 @@ class Windmill:
         
         .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
         """
-        import warnings
-        warnings.warn(
+        logging.warning(
             "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
-            DeprecationWarning,
-            stacklevel=2
         )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
@@ -213,11 +210,8 @@ class Windmill:
         
         .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
         """
-        import warnings
-        warnings.warn(
+        logging.warning(
             "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
-            DeprecationWarning,
-            stacklevel=2
         )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         return self._run_script_internal(
@@ -1389,12 +1383,6 @@ def run_script(
     
     .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
     """
-    import warnings
-    warnings.warn(
-        "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
     return _client.run_script(
         path=path,
         hash_=hash_,
