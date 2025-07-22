@@ -162,6 +162,7 @@ pub async fn do_duckdb(
         let query_block_list = {
             let mut v = vec![];
             for query_block in query_block_list.iter() {
+                let query_block = remove_comments(&query_block);
                 match parse_attach_db_resource(query_block) {
                     Some(parsed) => v.extend(
                         transform_attach_db_resource_query(&parsed, &job.id, client).await?,
@@ -657,7 +658,7 @@ async fn transform_s3_uris(
 )> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']+)'").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']*)'").unwrap();
     }
     let mut used_storages = HashMap::new();
     for cap in RE.captures_iter(query) {
@@ -734,4 +735,68 @@ fn trunc_sig(query: &str) -> &str {
     // find next \n starting from idx and return everything after it
     let idx = query[idx..].find('\n').map(|i| i + idx).unwrap_or(0);
     &query[idx..]
+}
+
+// input should contain a single statement. remove all comments before and after it
+fn remove_comments(stmt: &str) -> &str {
+    let mut in_stmt = false;
+    let mut in_comment = false;
+    let mut start = None;
+    let mut end = stmt.len();
+
+    let mut c = ' ';
+    for (next_i, next_char) in stmt.char_indices() {
+        if next_i > 0 {
+            let i = next_i - 1;
+            if !in_comment && in_stmt && c == ';' {
+                end = i + 1;
+                break;
+            } else if in_comment && c == '\n' {
+                in_comment = false;
+            } else if c == '-' && next_char == '-' {
+                in_comment = true;
+            } else if !in_comment && !c.is_whitespace() && start == None {
+                start = Some(i);
+                in_stmt = true;
+            }
+        }
+        c = next_char;
+    }
+
+    return &stmt[start.unwrap_or(0)..end];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_remove_comments_single_line() {
+        let sql = "-- This is a comment\nSELECT * FROM table;";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_multi_line() {
+        let sql = "-- This is a comment\nSELECT * FROM table;\n-- Another comment";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_inline_comment() {
+        let sql = "   SELECT * FROM table;    -- This is an inline comment  ";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_no_comments() {
+        let sql = "SELECT * FROM table;";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_empty_string() {
+        let sql = "";
+        assert_eq!(remove_comments(sql), "");
+    }
+    #[test]
+    fn test_remove_comments_with_whitespace() {
+        let sql = "   -- Comment\n  -- Comment2\n  -- Comment3\n   SELECT\n\n * FROM\n table\n;\n\n -- end comment   ";
+        assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
+    }
 }
