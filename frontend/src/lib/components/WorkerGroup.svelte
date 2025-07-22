@@ -448,121 +448,6 @@
 		{/if}
 
 		<div class="mt-8"></div>
-		<Section
-			label="Python runtime settings"
-			collapsable={true}
-			tooltip="Add Python runtime specific settings like additional python paths and PIP local dependencies"
-		>
-			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
-				<span class="text-sm text-primary">Additional Python Paths</span>
-				{#if nconfig.additional_python_paths}
-					{#each nconfig.additional_python_paths as _, i}
-						<div class="flex gap-1 items-center">
-							<input
-								type="text"
-								disabled={!($superadmin || $devopsRole)}
-								placeholder="/path/to/python3.X/site-packages"
-								bind:value={nconfig.additional_python_paths![i]}
-							/>
-							{#if $superadmin || $devopsRole}
-								<button
-									class="rounded-full bg-surface/60 hover:bg-gray-200"
-									aria-label="Clear"
-									onclick={() => {
-										if (
-											nconfig.additional_python_paths === undefined ||
-											nconfig.additional_python_paths.length == 0
-										) {
-											return
-										}
-										nconfig.additional_python_paths.splice(i, 1)
-										nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-										dirty = true
-									}}
-								>
-									<X size={14} />
-								</button>
-							{/if}
-						</div>
-					{/each}
-				{/if}
-				{#if $superadmin || $devopsRole}
-					<div class="flex">
-						<Button
-							variant="contained"
-							color="blue"
-							size="xs"
-							startIcon={{ icon: Plus }}
-							on:click={() => {
-								if (nconfig.additional_python_paths === undefined) {
-									nconfig.additional_python_paths = []
-								}
-								nconfig.additional_python_paths.push('')
-								nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-								dirty = true
-							}}
-						>
-							Add additional Python path
-						</Button>
-					</div>
-				{/if}
-
-				<span class="text-sm text-primary">PIP local dependencies</span>
-				{#if nconfig.pip_local_dependencies}
-					{#each nconfig.pip_local_dependencies as _, i}
-						<div class="flex gap-1 items-center">
-							<input
-								disabled={!($superadmin || $devopsRole)}
-								type="text"
-								placeholder="httpx"
-								bind:value={nconfig.pip_local_dependencies[i]}
-							/>
-							{#if $superadmin || $devopsRole}
-								<button
-									class="rounded-full bg-surface/60 hover:bg-gray-200"
-									aria-label="Clear"
-									onclick={() => {
-										if (
-											nconfig.pip_local_dependencies === undefined ||
-											nconfig.pip_local_dependencies.length == 0
-										) {
-											return
-										}
-										nconfig.pip_local_dependencies.splice(i, 1)
-										nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-										dirty = true
-									}}
-								>
-									<X size={14} />
-								</button>
-							{/if}
-						</div>
-					{/each}
-				{/if}
-				{#if $superadmin || $devopsRole}
-					<div class="flex">
-						<Button
-							variant="contained"
-							color="blue"
-							size="xs"
-							startIcon={{ icon: Plus }}
-							on:click={() => {
-								if (nconfig.pip_local_dependencies === undefined) {
-									nconfig.pip_local_dependencies = []
-								}
-								nconfig.pip_local_dependencies.push('')
-								nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-								dirty = true
-							}}
-						>
-							Add PIP local dependency
-						</Button>
-					</div>
-				{/if}
-			</div>
-		</Section>
-
-		<div class="mt-8"></div>
 
 		<Section
 			label="Environment variables passed to jobs"
@@ -720,6 +605,125 @@
 				bind:config={nconfig.autoscaling}
 			/>
 		</Section>
+
+		<div class="mt-8"></div>
+		<Section label="Python dependencies overrides" collapsable={true}>
+			<div class="flex flex-col gap-3 gap-y-6 pb-2 max-w">
+				<Subsection
+					label="Additional Python Paths"
+					tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
+				>
+					{#if nconfig.additional_python_paths}
+						{#each nconfig.additional_python_paths as _, i}
+							<div class="flex gap-1 items-center">
+								<input
+									type="text"
+									disabled={!($superadmin || $devopsRole)}
+									placeholder="/path/to/python3.X/site-packages"
+									bind:value={nconfig.additional_python_paths![i]}
+								/>
+								{#if $superadmin || $devopsRole}
+									<button
+										class="rounded-full bg-surface/60 hover:bg-gray-200"
+										aria-label="Clear"
+										onclick={() => {
+											if (
+												nconfig.additional_python_paths === undefined ||
+												nconfig.additional_python_paths.length == 0
+											) {
+												return
+											}
+											nconfig.additional_python_paths.splice(i, 1)
+											nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+											dirty = true
+										}}
+									>
+										<X size={14} />
+									</button>
+								{/if}
+							</div>
+						{/each}
+					{/if}
+					{#if $superadmin || $devopsRole}
+						<div class="flex">
+							<Button
+								variant="contained"
+								color="blue"
+								size="xs"
+								startIcon={{ icon: Plus }}
+								on:click={() => {
+									if (nconfig.additional_python_paths === undefined) {
+										nconfig.additional_python_paths = []
+									}
+									nconfig.additional_python_paths.push('')
+									nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+									dirty = true
+								}}
+							>
+								Add additional Python path
+							</Button>
+						</div>
+					{/if}
+				</Subsection>
+				<Subsection
+					label="Local dependencies import names to skip during resolution"
+					tooltip="uv will not try to resolve dependencies for these packages, useful if you have packages pre-installed on the workers at a given path."
+				>
+					{#if nconfig.pip_local_dependencies}
+						{#each nconfig.pip_local_dependencies as _, i}
+							<div class="flex gap-1 items-center">
+								<input
+									disabled={!($superadmin || $devopsRole)}
+									type="text"
+									placeholder="httpx"
+									bind:value={nconfig.pip_local_dependencies[i]}
+								/>
+								{#if $superadmin || $devopsRole}
+									<button
+										class="rounded-full bg-surface/60 hover:bg-gray-200"
+										aria-label="Clear"
+										onclick={() => {
+											if (
+												nconfig.pip_local_dependencies === undefined ||
+												nconfig.pip_local_dependencies.length == 0
+											) {
+												return
+											}
+											nconfig.pip_local_dependencies.splice(i, 1)
+											nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+											dirty = true
+										}}
+									>
+										<X size={14} />
+									</button>
+								{/if}
+							</div>
+						{/each}
+					{/if}
+					{#if $superadmin || $devopsRole}
+						<div class="flex">
+							<Button
+								variant="contained"
+								color="blue"
+								size="xs"
+								startIcon={{ icon: Plus }}
+								on:click={() => {
+									if (nconfig.pip_local_dependencies === undefined) {
+										nconfig.pip_local_dependencies = []
+									}
+									nconfig.pip_local_dependencies.push('')
+									nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+									dirty = true
+								}}
+							>
+								Add PIP local dependency
+							</Button>
+						</div>
+					{/if}
+				</Subsection>
+			</div></Section
+		>
+
 		<div class="mt-8"></div>
 
 		<Section
@@ -737,97 +741,104 @@
 			{/if}
 
 			<div class="space-y-6">
-				<Subsection label="Init script" collapsable openInitially={nconfig.init_bash !== undefined}>
-					{#snippet header()}
-						<div class="ml-4 flex flex-row gap-2 items-center">
-							{#if nconfig.init_bash !== undefined}
-								<Badge color="green">Enabled</Badge>
-							{/if}
-						</div>
-					{/snippet}
-					<p class="text-xs text-gray-500 mb-2"
-						>Run at start of the workers. More lightweight than requiring custom worker images.</p
+				<div>
+					<div class="text-sm text-secondary mb-1">
+						Run at start of the workers. More lightweight than requiring custom worker images.
+					</div>
+					<Subsection
+						label="Init script"
+						collapsable
+						openInitially={nconfig.init_bash !== undefined}
 					>
-					<div class="border w-full h-40">
-						<Editor
-							fixedOverflowWidgets={true}
-							disabled={!($superadmin || $devopsRole)}
-							class="flex flex-1 grow h-full w-full"
-							automaticLayout
-							scriptLang={'bash'}
-							useWebsockets={false}
-							code={config?.init_bash ?? ''}
-							on:change={(e) => {
-								if (config) {
-									dirty = true
-									const code = e.detail
-									if (code != '') {
-										nconfig.init_bash = code?.replace(/\r\n/g, '\n')
-									} else {
-										nconfig.init_bash = undefined
+						{#snippet header()}
+							<div class="ml-4 flex flex-row gap-2 items-center">
+								{#if nconfig.init_bash !== undefined}
+									<Badge color="green">Enabled</Badge>
+								{/if}
+							</div>
+						{/snippet}
+						<div class="border w-full h-40">
+							<Editor
+								fixedOverflowWidgets={true}
+								disabled={!($superadmin || $devopsRole)}
+								class="flex flex-1 grow h-full w-full"
+								automaticLayout
+								scriptLang={'bash'}
+								useWebsockets={false}
+								code={config?.init_bash ?? ''}
+								on:change={(e) => {
+									if (config) {
+										dirty = true
+										const code = e.detail
+										if (code != '') {
+											nconfig.init_bash = code?.replace(/\r\n/g, '\n')
+										} else {
+											nconfig.init_bash = undefined
+										}
 									}
-								}
-							}}
-						/>
-					</div>
-				</Subsection>
-
-				<Subsection
-					label="Periodic script"
-					collapsable
-					openInitially={nconfig.periodic_script_bash !== undefined}
-				>
-					{#snippet header()}
-						<div class="ml-4 flex flex-row gap-2 items-center">
-							{#if nconfig.periodic_script_bash !== undefined}
-								<Badge color="green">Enabled</Badge>
-							{/if}
+								}}
+							/>
 						</div>
-					{/snippet}
-					<p class="text-xs text-gray-500 mb-3"
-						>Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
-						disk space.</p
+					</Subsection>
+				</div>
+				<div>
+					<div class="text-sm mb-1 text-secondary">
+						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
+						disk space.
+					</div>
+					<Subsection
+						label="Periodic script"
+						collapsable
+						openInitially={nconfig.periodic_script_bash !== undefined}
 					>
+						{#snippet header()}
+							<div class="ml-4 flex flex-row gap-2 items-center">
+								{#if nconfig.periodic_script_bash !== undefined}
+									<Badge color="green">Enabled</Badge>
+								{/if}
+							</div>
+						{/snippet}
 
-					<div class="flex gap-4 items-center mb-4">
-						<Label class="text-sm">Execution interval (seconds):</Label>
-						<input
-							disabled={!($superadmin || $devopsRole)}
-							type="number"
-							min="60"
-							placeholder="3600"
-							class="!w-24 text-center"
-							bind:value={nconfig.periodic_script_interval_seconds}
-							onchange={() => {
-								dirty = true
-							}}
-						/>
-						<span class="text-xs text-gray-500">Minimum: 60 seconds</span>
-					</div>
-
-					<div class="border w-full h-40">
-						<Editor
-							disabled={!($superadmin || $devopsRole)}
-							class="flex flex-1 grow h-full w-full"
-							automaticLayout
-							scriptLang={'bash'}
-							useWebsockets={false}
-							fixedOverflowWidgets={false}
-							code={config?.periodic_script_bash ?? ''}
-							on:change={(e) => {
-								if (config) {
+						<div class="flex gap-4 items-center mb-4">
+							<Label class="text-sm">Execution interval (seconds):</Label>
+							<input
+								disabled={!($superadmin || $devopsRole)}
+								type="number"
+								min="60"
+								placeholder="3600"
+								class="!w-24 text-center"
+								bind:value={nconfig.periodic_script_interval_seconds}
+								onchange={() => {
 									dirty = true
-									const code = e.detail
-									if (code != '') {
-										nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
-									} else {
-										nconfig.periodic_script_bash = undefined
+								}}
+							/>
+							<span class="text-xs text-gray-500">Minimum: 60 seconds</span>
+						</div>
+
+						<div class="border w-full h-40">
+							<Editor
+								disabled={!($superadmin || $devopsRole)}
+								class="flex flex-1 grow h-full w-full"
+								automaticLayout
+								scriptLang={'bash'}
+								useWebsockets={false}
+								fixedOverflowWidgets={false}
+								code={config?.periodic_script_bash ?? ''}
+								on:change={(e) => {
+									if (config) {
+										dirty = true
+										const code = e.detail
+										if (code != '') {
+											nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
+										} else {
+											nconfig.periodic_script_bash = undefined
+										}
 									}
-								}
-							}}
-						/>
-					</div>
-				</Subsection>
+								}}
+							/>
+						</div>
+					</Subsection>
+				</div>
 			</div>
 		</Section>
 		{#snippet actions()}
