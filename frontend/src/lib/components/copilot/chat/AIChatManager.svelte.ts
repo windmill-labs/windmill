@@ -40,7 +40,9 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { get } from 'svelte/store'
 
+// If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
+const MAX_TOKENS_HARD_LIMIT = 5000
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -97,7 +99,8 @@ class AIChatManager {
 		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
 		if (
 			estimatedTokens >
-			modelContextWindow - modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE
+			modelContextWindow -
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		) {
 			this.deleteOldestMessage()
 		}
