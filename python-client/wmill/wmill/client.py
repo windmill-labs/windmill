@@ -131,18 +131,30 @@ class Windmill:
             stacklevel=2
         )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+
+    def _run_script_async_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
             params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
         elif hash_:
             endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         else:
             raise Exception("path or hash_ must be provided")
+        
         return self.post(endpoint, json=args, params=params).text
 
     def run_script_by_path_async(
@@ -152,14 +164,7 @@ class Windmill:
         scheduled_in_secs: int = None,
     ) -> str:
         """Create a script job by path and return its job id."""
-        args = args or {}
-        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
-        if os.environ.get("WM_JOB_ID"):
-            params["parent_job"] = os.environ.get("WM_JOB_ID")
-        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
-            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
-        endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
-        return self.post(endpoint, json=args, params=params).text
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs)
 
     def run_script_by_hash_async(
         self,
@@ -168,14 +173,7 @@ class Windmill:
         scheduled_in_secs: int = None,
     ) -> str:
         """Create a script job by hash and return its job id."""
-        args = args or {}
-        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
-        if os.environ.get("WM_JOB_ID"):
-            params["parent_job"] = os.environ.get("WM_JOB_ID")
-        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
-            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
-        endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
-        return self.post(endpoint, json=args, params=params).text
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
 
     def run_flow_async(
         self,
@@ -221,15 +219,35 @@ class Windmill:
             DeprecationWarning,
             stacklevel=2
         )
+        assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_internal(
+            path=path, hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def _run_script_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Internal helper for running scripts synchronously."""
         args = args or {}
 
         if verbose:
-            logger.info(f"running `{path}` synchronously with {args = }")
+            if path:
+                logger.info(f"running `{path}` synchronously with {args = }")
+            elif hash_:
+                logger.info(f"running script with hash `{hash_}` synchronously with {args = }")
 
         if isinstance(timeout, dt.timedelta):
             timeout = timeout.total_seconds()
 
-        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
+        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args)
         return self.wait_job(
             job_id, timeout, verbose, cleanup, assert_result_is_not_none
         )
@@ -244,17 +262,9 @@ class Windmill:
         assert_result_is_not_none: bool = False,
     ) -> Any:
         """Run script by path synchronously and return its result."""
-        args = args or {}
-
-        if verbose:
-            logger.info(f"running `{path}` synchronously with {args = }")
-
-        if isinstance(timeout, dt.timedelta):
-            timeout = timeout.total_seconds()
-
-        job_id = self.run_script_by_path_async(path=path, args=args)
-        return self.wait_job(
-            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        return self._run_script_internal(
+            path=path, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
     def run_script_by_hash(
@@ -267,17 +277,9 @@ class Windmill:
         assert_result_is_not_none: bool = False,
     ) -> Any:
         """Run script by hash synchronously and return its result."""
-        args = args or {}
-
-        if verbose:
-            logger.info(f"running script with hash `{hash_}` synchronously with {args = }")
-
-        if isinstance(timeout, dt.timedelta):
-            timeout = timeout.total_seconds()
-
-        job_id = self.run_script_by_hash_async(hash_=hash_, args=args)
-        return self.wait_job(
-            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        return self._run_script_internal(
+            hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
     def wait_job(
@@ -1060,8 +1062,21 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.run_script_async(
+    return _client.run_script_by_path_async(
         path=path,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
+
+
+@init_global_client
+def run_script_by_hash_async(
+    hash_: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: Union[None, int] = None,
+) -> str:
+    return _client.run_script_by_hash_async(
+        hash_=hash_,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
     )
