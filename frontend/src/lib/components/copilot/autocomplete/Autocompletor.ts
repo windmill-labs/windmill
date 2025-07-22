@@ -144,8 +144,7 @@ export class Autocompletor {
 						items: [
 							{
 								insertText: completion,
-								range: multiline ? toEol : range,
-								filterText: completion,
+								range: !endsWithNewLine && multiline ? toEol : range,
 								// if completion ends with new line, after applying the suggestion, delete the rest of the line
 								additionalTextEdits:
 									endsWithNewLine && !multiline
@@ -160,7 +159,9 @@ export class Autocompletor {
 						]
 					}
 				},
-				freeInlineCompletions: () => {}
+				freeInlineCompletions: () => {
+					deletionsCues.clear()
+				}
 			}
 		)
 
