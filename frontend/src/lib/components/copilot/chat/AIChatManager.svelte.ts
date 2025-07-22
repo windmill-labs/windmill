@@ -94,20 +94,8 @@ class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	cleanUpMessages = () => {
-		const estimatedTokens = this.estimateTokenUsage()
-		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
-		if (
-			estimatedTokens >
-			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
-		) {
-			this.deleteOldestMessage()
-		}
-	}
-
-	estimateTokenUsage = () => {
-		return this.messages.reduce((acc, message) => {
+	checkTokenUsageOverLimit = () => {
+		const estimatedTokens = this.messages.reduce((acc, message) => {
 			// Handle content field - can be string or array
 			if (message.content) {
 				if (typeof message.content === 'string') {
@@ -127,6 +115,12 @@ class AIChatManager {
 			}
 			return acc
 		}, 0)
+		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		return (
+			estimatedTokens >
+			modelContextWindow -
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+		)
 	}
 
 	deleteOldestMessage = (maxDepth: number = 10) => {
@@ -134,8 +128,16 @@ class AIChatManager {
 			return
 		}
 		const removed = this.messages.shift()
-		// if the removed message is an assistant with tool calls or a user message, we need to delete the following message too
-		if ((removed?.role === 'assistant' && removed.tool_calls) || removed?.role === 'user') {
+
+		// if the removed message is an assistant with tool calls, we need to delete correspding tool response.
+		if (removed?.role === 'assistant' && removed.tool_calls) {
+			if (this.messages.length > 0 && this.messages[0]?.role === 'tool') {
+				this.messages.shift()
+			}
+		}
+
+		// keep deleting messages until we are under the limit
+		if (this.checkTokenUsageOverLimit()) {
 			this.deleteOldestMessage(maxDepth - 1)
 		}
 	}
@@ -664,7 +666,10 @@ class AIChatManager {
 				...params
 			})
 
-			this.cleanUpMessages()
+			if (this.checkTokenUsageOverLimit()) {
+				this.deleteOldestMessage()
+			}
+
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
