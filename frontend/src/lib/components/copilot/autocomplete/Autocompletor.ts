@@ -127,14 +127,16 @@ export class Autocompletor {
 						}
 
 						// set deletion cue for content that will be replaced by the suggestion
-						deletionsCues.set([
-							{
-								range: toEol,
-								options: {
-									className: 'ai-completion-diff'
+						if (!completion.includes('\n')) {
+							deletionsCues.set([
+								{
+									range: toEol,
+									options: {
+										className: 'ai-completion-diff'
+									}
 								}
-							}
-						])
+							])
+						}
 					}
 
 					const multiline = completion.indexOf('\n') !== -1
