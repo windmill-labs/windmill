@@ -55,6 +55,7 @@ export class Autocompletor {
 	#cursorDisposable: IDisposable
 	#lastTsCompletions: string[] = []
 	#contextWindow: number = 0
+	#shouldShowDeletionCue = false
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -78,6 +79,28 @@ export class Autocompletor {
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },
 			{
+				handleItemDidShow: (items) => {
+					const item = items.items[0]
+					const model = editor.getModel()
+					if (!item || !item.range || !model) {
+						return
+					}
+					const toEol = {
+						...item.range,
+						endColumn: model.getLineMaxColumn(item.range.startLineNumber)
+					}
+					if (this.#shouldShowDeletionCue) {
+						deletionsCues.set([
+							{
+								range: toEol,
+								options: {
+									className: 'ai-completion-diff'
+								}
+							}
+						])
+						this.#shouldShowDeletionCue = false
+					}
+				},
 				provideInlineCompletions: async (model, position, context, token) => {
 					if (
 						token.isCancellationRequested ||
@@ -85,6 +108,7 @@ export class Autocompletor {
 					) {
 						return { items: [] }
 					}
+					this.#shouldShowDeletionCue = false
 
 					const shouldReturnMultiline = this.#shouldReturnMultiline(model, position)
 
@@ -118,27 +142,10 @@ export class Autocompletor {
 					if (endsWithNewLine) {
 						// remove new line
 						completion = completion.slice(0, -1)
-						// if suggestion === code to be replaced, do nothing
-						const code = model.getValueInRange(toEol)
-						if (completion === code) {
-							return {
-								items: []
-							}
-						}
 
 						// set deletion cue for content that will be replaced by the suggestion
 						if (!completion.includes('\n')) {
-							// set timeout to avoid race condition with freeInlineCompletions
-							setTimeout(() => {
-								deletionsCues.set([
-									{
-										range: toEol,
-										options: {
-											className: 'ai-completion-diff'
-										}
-									}
-								])
-							}, 100)
+							this.#shouldShowDeletionCue = true
 						}
 					}
 
@@ -162,14 +169,13 @@ export class Autocompletor {
 						]
 					}
 				},
-				freeInlineCompletions: () => {
-					deletionsCues.clear()
-				}
+				freeInlineCompletions: () => {}
 			}
 		)
 
 		this.#cursorDisposable = editor.onDidChangeCursorPosition(async (e) => {
 			deletionsCues.clear()
+			this.#shouldShowDeletionCue = false
 			if (e.source === 'mouse') {
 				const model = editor.getModel()
 				if (model) {
