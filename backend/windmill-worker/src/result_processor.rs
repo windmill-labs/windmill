@@ -1,7 +1,7 @@
 #[cfg(feature = "otel")]
 use opentelemetry::trace::FutureExt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
@@ -49,6 +49,12 @@ use crate::{
 };
 use windmill_common::client::AuthedClient;
 
+#[derive(Debug, Deserialize)]
+struct ErrorMessage {
+    message: String,
+    name: String,
+}
+
 async fn process_jc(
     jc: JobCompleted,
     worker_name: &str,
@@ -61,17 +67,35 @@ async fn process_jc(
 ) {
     let success: bool = jc.success;
 
-    let span = tracing::span!(
-        tracing::Level::INFO,
-        "job_postprocessing",
-        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
-        // hostname = %hostname,
-        language = field::Empty,
-        script_path = field::Empty,
-        flow_step_id = field::Empty,
-        parent_job = field::Empty,
-        otel.name = field::Empty
-    );
+    let span = if success {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+        )
+    } else {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            error.message = field::Empty,
+            error.name = field::Empty,
+        )
+    };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
         root_job
     } else {
@@ -99,6 +123,12 @@ async fn process_jc(
     }
     if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
+    }
+    if !success {
+        if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
+            span.record("error.message", result_error.message.as_str());
+            span.record("error.name", result_error.name.as_str());
+        }
     }
 
     let root_job = handle_receive_completed_job(
