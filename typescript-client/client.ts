@@ -129,9 +129,28 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
 export async function runScript(
   path: string | null = null,
   hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running \`${path}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runScriptAsync(path, hash_, args);
+  return await waitJob(jobId, verbose);
+}
+
+export async function runScriptByPath(
+  path: string,
   args: Record<string, any> | null = null,
   verbose: boolean = false
 ): Promise<any> {
@@ -141,7 +160,22 @@ export async function runScript(
     console.info(`running \`${path}\` synchronously with args:`, args);
   }
 
-  const jobId = await runScriptAsync(path, hash_, args);
+  const jobId = await runScriptByPathAsync(path, args);
+  return await waitJob(jobId, verbose);
+}
+
+export async function runScriptByHash(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runScriptByHashAsync(hash_, args);
   return await waitJob(jobId, verbose);
 }
 
@@ -243,12 +277,16 @@ export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
   };
 }
 
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
 export async function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
+  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
@@ -278,6 +316,80 @@ export async function runScriptAsync(
   } else {
     throw new Error("path or hash_ must be provided");
   }
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  }).then((res) => res.text());
+}
+
+export async function runScriptByPathAsync(
+  path: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  let parentJobId = getEnv("WM_JOB_ID");
+  if (parentJobId !== undefined) {
+    params["parent_job"] = parentJobId;
+  }
+
+  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+  if (rootJobId != undefined && rootJobId != "") {
+    params["root_job"] = rootJobId;
+  }
+
+  let endpoint = `/w/${getWorkspace()}/jobs/run/p/${path}`;
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  }).then((res) => res.text());
+}
+
+export async function runScriptByHashAsync(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  let parentJobId = getEnv("WM_JOB_ID");
+  if (parentJobId !== undefined) {
+    params["parent_job"] = parentJobId;
+  }
+
+  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+  if (rootJobId != undefined && rootJobId != "") {
+    params["root_job"] = rootJobId;
+  }
+
+  let endpoint = `/w/${getWorkspace()}/jobs/run/h/${hash_}`;
   let url = new URL(OpenAPI.BASE + endpoint);
   url.search = new URLSearchParams(params).toString();
 

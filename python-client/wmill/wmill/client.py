@@ -120,7 +120,16 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
     ) -> str:
-        """Create a script job and return its job id."""
+        """Create a script job and return its job id.
+        
+        .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
+        """
+        import warnings
+        warnings.warn(
+            "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
@@ -134,6 +143,38 @@ class Windmill:
             endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         else:
             raise Exception("path or hash_ must be provided")
+        return self.post(endpoint, json=args, params=params).text
+
+    def run_script_by_path_async(
+        self,
+        path: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by path and return its job id."""
+        args = args or {}
+        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if os.environ.get("WM_JOB_ID"):
+            params["parent_job"] = os.environ.get("WM_JOB_ID")
+        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
+        return self.post(endpoint, json=args, params=params).text
+
+    def run_script_by_hash_async(
+        self,
+        hash_: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by hash and return its job id."""
+        args = args or {}
+        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if os.environ.get("WM_JOB_ID"):
+            params["parent_job"] = os.environ.get("WM_JOB_ID")
+        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         return self.post(endpoint, json=args, params=params).text
 
     def run_flow_async(
@@ -170,7 +211,16 @@ class Windmill:
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
     ) -> Any:
-        """Run script synchronously and return its result."""
+        """Run script synchronously and return its result.
+        
+        .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+        """
+        import warnings
+        warnings.warn(
+            "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         args = args or {}
 
         if verbose:
@@ -180,6 +230,52 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         job_id = self.run_script_async(path=path, hash_=hash_, args=args)
+        return self.wait_job(
+            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
+
+    def run_script_by_path(
+        self,
+        path: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by path synchronously and return its result."""
+        args = args or {}
+
+        if verbose:
+            logger.info(f"running `{path}` synchronously with {args = }")
+
+        if isinstance(timeout, dt.timedelta):
+            timeout = timeout.total_seconds()
+
+        job_id = self.run_script_by_path_async(path=path, args=args)
+        return self.wait_job(
+            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
+
+    def run_script_by_hash(
+        self,
+        hash_: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by hash synchronously and return its result."""
+        args = args or {}
+
+        if verbose:
+            logger.info(f"running script with hash `{hash_}` synchronously with {args = }")
+
+        if isinstance(timeout, dt.timedelta):
+            timeout = timeout.total_seconds()
+
+        job_id = self.run_script_by_hash_async(hash_=hash_, args=args)
         return self.wait_job(
             job_id, timeout, verbose, cleanup, assert_result_is_not_none
         )
@@ -1274,9 +1370,58 @@ def run_script(
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
 ) -> Any:
-    """Run script synchronously and return its result."""
+    """Run script synchronously and return its result.
+    
+    .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+    """
+    import warnings
+    warnings.warn(
+        "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     return _client.run_script(
         path=path,
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+def run_script_by_path(
+    path: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by path synchronously and return its result."""
+    return _client.run_script_by_path(
+        path=path,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+def run_script_by_hash(
+    hash_: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by hash synchronously and return its result."""
+    return _client.run_script_by_hash(
         hash_=hash_,
         args=args,
         verbose=verbose,
