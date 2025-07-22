@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['run:script/' || $2]::text[]",
+  "query": "\n        SELECT label,\n               concat(substring(token for 10)) AS token_prefix,\n               expiration,\n               created_at,\n               last_used_at,\n               scopes,\n               email\n        FROM token\n        WHERE workspace_id = $1\n          AND (\n               scopes @> ARRAY['jobs:run:flows:' || $2]::text[]\n               OR scopes @> ARRAY['run:flows/' || $2]::text[]\n              )\n        ",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       true
     ]
   },
-  "hash": "c7ee7ce64686cef41cebd99ad7ef31572fc1bf12e6ae473fd58fafb025989965"
+  "hash": "334c9a6d770471ac53099eb5227778899a5c680b899bc6a6d1a3f89fdbf8c730"
 }
