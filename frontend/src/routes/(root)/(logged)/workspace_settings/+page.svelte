@@ -172,14 +172,8 @@
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
-	let yamlText = $state('')
 	let initialGitSyncSettings = $state<GitSyncSettings | undefined>(undefined)
 	let loadedSettings = $state(false)
-
-	// Reactive trigger to ensure UI updates when repository data changes
-	let repoReactivityTrigger = $state(0)
-
-
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
@@ -188,11 +182,7 @@
 
 	// Track changes in repositories
 	const repoChanges = $derived(
-		(() => {
-			// Force reactivity check by accessing the trigger
-			repoReactivityTrigger;
-
-			return gitSyncSettings.repositories.map((repo, idx) => {
+		gitSyncSettings.repositories.map((repo, idx) => {
 				const repoValid = isRepoValid(idx)
 
 				// If there were no initial repos, treat each repo as changed only when valid
@@ -242,9 +232,9 @@
 					}
 				)
 
+
 				return isChanged && repoValid
 			})
-		})()
 	)
 
 	const hasAnyChanges = $derived(
@@ -1278,7 +1268,6 @@
 			{#if gitSyncSettings != undefined}
 				<div class="flex mt-5 mb-5 gap-8">
 					<Button
-						color="red"
 						startIcon={{ icon: Save }}
 						disabled={!$enterpriseLicense || !hasAnyChanges || gitSyncSettings.repositories.some((_,i)=>!isRepoValid(i))}
 						on:click={() => {
@@ -1313,27 +1302,28 @@
 								<div class="flex items-center gap-2">
 									{#if (repoChanges[idx] || repo.legacyImported) && isRepoValid(idx)}
 										<Button
-											color="red"
 											size="xs"
 											on:click={() => saveRepoSettings(idx)}
 											startIcon={{ icon: Save }}
 										>
 											Save changes
 										</Button>
-										<Button
-											color="light"
-											size="xs"
-											on:click={() => {
-												// Revert to initial repository settings
-												if (initialGitSyncSettings?.repositories[idx]) {
-													gitSyncSettings.repositories[idx] = JSON.parse(JSON.stringify(initialGitSyncSettings.repositories[idx]));
-													sendUserToast('Reverted repository settings');
-												}
-											}}
-											startIcon={{ icon: RotateCcw }}
-										>
-											Revert
-										</Button>
+										{#if initialGitSyncSettings?.repositories[idx] && !repo.legacyImported}
+											<Button
+												color="light"
+												size="xs"
+												on:click={() => {
+													// Revert to initial repository settings
+													if (initialGitSyncSettings?.repositories?.[idx]) {
+														gitSyncSettings.repositories[idx] = JSON.parse(JSON.stringify(initialGitSyncSettings.repositories[idx]));
+														sendUserToast('Reverted repository settings');
+													}
+												}}
+												startIcon={{ icon: RotateCcw }}
+											>
+												Revert
+											</Button>
+										{/if}
 									{/if}
 									<button
 										class="text-secondary hover:text-primary focus:outline-none"
@@ -1392,6 +1382,9 @@
 											<ResourcePicker
 												bind:value={repo.git_repo_resource_path}
 												resourceType={'git_repository'}
+												disabled={initialGitSyncSettings?.repositories?.find(
+													initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+												) !== undefined}
 											/>
 											{#if !emptyString(repo.git_repo_resource_path)}
 												<Button
@@ -1467,11 +1460,19 @@
 													isLegacyRepo={repo.legacyImported}
 													bind:excludes={repo.settings.exclude_path}
 													bind:extraIncludes={repo.settings.extra_include_path}
-													bind:yamlText
-													onSettingsChange={(settings) => {
-														yamlText = settings.yaml
-														// Force reactivity update
-														repoReactivityTrigger = repoReactivityTrigger + 1
+													isInitialSetup={!initialGitSyncSettings?.repositories?.find(
+														initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+													) && !emptyString(repo.git_repo_resource_path)}
+													requiresMigration={repo.legacyImported}
+													onSave={(settings) => {
+														// Apply the new settings to the repository
+														repo.settings.include_path = settings.include_path
+														repo.settings.exclude_path = settings.exclude_path
+														repo.settings.extra_include_path = settings.extra_include_path
+														repo.settings.include_type = settings.include_type
+
+														// Save the repository settings
+														saveRepoSettings(idx)
 													}}
 												/>
 												<div class="w-1/3 flex gap-2">
