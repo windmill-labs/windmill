@@ -12,30 +12,34 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 
-	export let flowModule: FlowModule
-	export let previousModuleId: string | undefined
+	interface Props {
+		flowModule: FlowModule
+		previousModuleId: string | undefined
+	}
+
+	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let schema = emptySchema()
+	let schema = $state(emptySchema())
 	schema.properties['sleep'] = {
 		type: 'number'
 	}
 
-	let editor: SimpleEditor | undefined = undefined
+	let editor: SimpleEditor | undefined = $state(undefined)
 
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
 
-	$: isSleepEnabled = Boolean(flowModule.sleep)
+	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>
 
 <Section label="Sleep" class="w-full">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/sleep">
 			If defined, at the end of the step, the flow will sleep for a number of seconds before
 			scheduling the next job (if any, no effect if the step is the last one).
 		</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
 	<Toggle
 		checked={isSleepEnabled}

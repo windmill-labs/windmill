@@ -120,7 +120,8 @@
 		tailwindClasses = [],
 		class: className = '',
 		loadAsync = false,
-		key
+		key,
+		disabled = false
 	}: {
 		lang: string
 		code?: string
@@ -145,6 +146,7 @@
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
+		disabled?: boolean
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -649,9 +651,9 @@
 
 <div
 	bind:this={divEl}
-	class="relative {className} {!editor ? 'hidden' : ''} editor simple-editor {!allowVim
-		? 'nonmain-editor'
-		: ''}"
+	class="relative {className} {!editor ? 'hidden' : ''} editor {disabled
+		? 'disabled'
+		: ''} simple-editor {!allowVim ? 'nonmain-editor' : ''}"
 	bind:clientWidth={width}
 >
 	{#if placeholder}

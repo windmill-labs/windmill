@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.510.0
+  version: 1.510.1
   title: Windmill API
 
   contact:
@@ -3413,6 +3413,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3455,6 +3458,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level authentication"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication"
               required:
                 - cc_client_id
                 - cc_client_secret
