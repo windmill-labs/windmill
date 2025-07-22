@@ -4,7 +4,7 @@
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import TestJobLoader from './TestJobLoader.svelte'
+	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 
 	interface Props {
@@ -26,7 +26,7 @@
 	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs, modulesTestStates } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -45,7 +45,7 @@
 
 		if (modulesTestStates.states[mod.id]) {
 			modulesTestStates.states[mod.id].cancel = async () => {
-				await testJobLoader?.cancelJob()
+				await jobLoader?.cancelJob()
 				modulesTestStates.states[mod.id].testJob = undefined
 			}
 			modulesTestStates.runTestCb?.(mod.id)
@@ -53,36 +53,45 @@
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
+		let callbacks: Callbacks = {
+			done: (x) => {
+				jobDone(x)
+			}
+		}
 		if (val.type == 'rawscript') {
-			await testJobLoader?.runPreview(
+			await jobLoader?.runPreview(
 				val.path ?? ($pathStore ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				flowStore?.val?.tag ?? val.tag
+				flowStore?.val?.tag ?? val.tag,
+				undefined,
+				undefined,
+				callbacks
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
 				: await getScriptByPath(val.path)
-			await testJobLoader?.runPreview(
+			await jobLoader?.runPreview(
 				val.path,
 				script.content,
 				script.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 				flowStore?.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
-				val.hash ?? script.hash
+				val.hash ?? script.hash,
+				callbacks
 			)
 		} else if (val.type == 'flow') {
-			await testJobLoader?.runFlowByPath(val.path, args)
+			await jobLoader?.runFlowByPath(val.path, args, callbacks)
 		} else {
 			throw Error('Not supported module type')
 		}
 	}
 
-	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
+	function jobDone(testJob: Job & { result?: any }) {
+		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
 			if ($flowStateStore[mod.id]) {
 				$flowStateStore[mod.id].previewResult = testJob.result
 				$flowStateStore[mod.id].previewSuccess = testJob.success
@@ -116,11 +125,11 @@
 	}
 </script>
 
-<TestJobLoader
+<JobLoader
+	noCode={true}
 	toastError={noEditor}
-	on:done={() => jobDone()}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={
 		() => modulesTestStates.states[mod.id]?.loading ?? false,
 		(v) => {

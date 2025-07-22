@@ -1218,16 +1218,16 @@
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			<div class="flex flex-row gap-2 items-center">
 				{@render saveButton()}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 		{#if docDescription}
 			{@render docDescription()}
 		{/if}

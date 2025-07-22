@@ -60,7 +60,7 @@
 	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -112,7 +112,7 @@
 	let restartBranchNames: [number, string][] = []
 
 	let testIsLoading = $state(false)
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
@@ -181,7 +181,13 @@
 	}
 
 	async function getJob() {
-		await testJobLoader?.watchJob($page.params.run)
+		await jobLoader?.watchJob($page.params.run, {
+			done(job) {
+				if (job?.['result'] != undefined) {
+					viewTab = 'result'
+				}
+			}
+		})
 		initView()
 	}
 
@@ -365,7 +371,7 @@
 			job &&
 			viewTab == 'logs' &&
 			isNotFlow(job?.job_kind) &&
-			testJobLoader?.getLogs()
+			jobLoader?.getLogs()
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -374,10 +380,7 @@
 		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
-		$workspaceStore &&
-			$page.params.run &&
-			testJobLoader &&
-			untrack(() => onRunsPageChangeWithLoader())
+		$workspaceStore && $page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
 	})
 	$effect(() => {
 		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
@@ -423,11 +426,10 @@
 	</Drawer>
 {/if}
 {#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
-	<TestJobLoader
+	<JobLoader
 		lazyLogs
 		bind:scriptProgress
-		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-		bind:this={testJobLoader}
+		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch
@@ -555,7 +557,7 @@
 					Current runs
 				</Button>
 			{/if}
-			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
+			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
 						color="red"
@@ -919,10 +921,10 @@
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
-				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
+				{#if job?.workflow_as_code_status}
 					<div class="mt-10"></div>
 					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.flow_status)}
+						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}

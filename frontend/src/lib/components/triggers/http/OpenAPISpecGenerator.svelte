@@ -203,7 +203,7 @@
 			</Label>
 
 			<Label label="Example cURL">
-				<svelte:fragment slot="header">
+				{#snippet header()}
 					<Tooltip>
 						Use this cURL command to call the OpenAPI generation endpoint.
 
@@ -219,7 +219,7 @@
 
 						<br />
 					</Tooltip>
-				</svelte:fragment>
+				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
 curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi/generate" \\

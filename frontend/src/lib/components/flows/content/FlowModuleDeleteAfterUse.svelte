@@ -5,12 +5,16 @@
 
 	import Section from '$lib/components/Section.svelte'
 
-	export let flowModule: FlowModule
-	export let disabled: boolean = false
+	interface Props {
+		flowModule: FlowModule
+		disabled?: boolean
+	}
+
+	let { flowModule = $bindable(), disabled = false }: Props = $props()
 </script>
 
 <Section label="Delete after use">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip>
 			The logs, arguments and results of this flow step will be completely deleted from Windmill
 			once the flow is complete. They might be temporarily visible in UI while the flow is running.
@@ -25,7 +29,7 @@
 				This option is only available on Windmill Enterprise Edition.
 			{/if}
 		</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
 	<Toggle
 		{disabled}
