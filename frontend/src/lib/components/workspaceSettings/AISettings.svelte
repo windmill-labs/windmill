@@ -196,9 +196,9 @@
 						}}
 					/>
 					{#if provider === 'anthropic'}
-						<div class="text-xs flex flex-row gap-1 items-center text-primary">
+						<div class="text-xs flex flex-row gap-1 items-center text-primary mb-1">
 							<StarIcon size={16} />
-							Recommended provider for better performance on AI chat.
+							Anthropic models are recommended for better performance on AI chat.
 						</div>
 					{/if}
 
