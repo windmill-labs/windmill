@@ -34,6 +34,7 @@
 	let flowStateStore = writable({})
 
 	let customUi: FlowBuilderWhitelabelCustomUi = {
+		tagLabel: 'agent',
 		// disableAi: true
 	}
 </script>

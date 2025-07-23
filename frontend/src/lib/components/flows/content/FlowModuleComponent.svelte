@@ -881,6 +881,7 @@
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
 											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											tagLabel={customUi?.tagLabel}
 										/>
 									</Pane>
 								{/if}

@@ -28,6 +28,9 @@
 		job?: Job | undefined
 		render?: boolean
 		suspendStatus?: any
+		customUi?: {
+			tagLabel?: string | undefined
+		}
 	}
 
 	let {
@@ -49,7 +52,8 @@
 		localDurationStatuses = $bindable(writable({})),
 		job = $bindable(undefined),
 		render = true,
-		suspendStatus = $bindable(writable({}))
+		suspendStatus = $bindable(writable({})),
+		customUi
 	}: Props = $props()
 
 	let lastJobId: string = jobId
@@ -115,4 +119,5 @@
 	{wideResults}
 	bind:rightColumnSelect
 	{render}
+	{customUi}
 />
