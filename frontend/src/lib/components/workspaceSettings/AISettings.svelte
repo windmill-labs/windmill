@@ -12,7 +12,7 @@
 	import Button from '../common/button/Button.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
-	import Alert from '../common/alert/Alert.svelte'
+	import { StarIcon } from 'lucide-svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -195,15 +195,15 @@
 							}
 						}}
 					/>
+					{#if provider === 'anthropic'}
+						<div class="text-xs flex flex-row gap-1 items-center text-primary">
+							<StarIcon size={16} />
+							Recommended provider for better performance on AI chat.
+						</div>
+					{/if}
+
 					{#if aiProviders[provider]}
 						<div class="mb-4 flex flex-col gap-2">
-							{#if provider === 'anthropic'}
-								<Alert type="info" title="Model Recommendation" class="mb-2">
-									{#snippet children()}
-										We recommend using Claude latest model for better reliability of the AI chat.
-									{/snippet}
-								</Alert>
-							{/if}
 							<div class="flex flex-row gap-1">
 								<ResourcePicker
 									selectFirst
