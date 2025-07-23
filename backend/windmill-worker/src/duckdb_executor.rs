@@ -451,37 +451,30 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_id: &Uuid) -
                 res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
             )
         }
+        #[cfg(feature = "mysql")]
         "mysql" => {
-            #[cfg(not(feature = "mysql"))]
-            return Err(Error::ExecutionErr(
-                "MySQL feature is not enabled".to_string(),
-            ));
-
-            #[cfg(feature = "mysql")]
-            {
-                let resource: MysqlDatabase = serde_json::from_value(db_resource)?;
-                format!(
-                    "database={} host={} ssl_mode={} {} {} {}",
-                    resource.database,
-                    resource.host,
-                    resource
-                        .ssl
-                        .map(|ssl| if ssl { "required" } else { "disabled" })
-                        .unwrap_or("preferred"),
-                    resource
-                        .password
-                        .map(|p| format!("password={}", p))
-                        .unwrap_or_default(),
-                    resource
-                        .port
-                        .map(|p| format!("port={}", p))
-                        .unwrap_or_default(),
-                    resource
-                        .user
-                        .map(|u| format!("user={}", u))
-                        .unwrap_or_default(),
-                )
-            }
+            let resource: MysqlDatabase = serde_json::from_value(db_resource)?;
+            format!(
+                "database={} host={} ssl_mode={} {} {} {}",
+                resource.database,
+                resource.host,
+                resource
+                    .ssl
+                    .map(|ssl| if ssl { "required" } else { "disabled" })
+                    .unwrap_or("preferred"),
+                resource
+                    .password
+                    .map(|p| format!("password={}", p))
+                    .unwrap_or_default(),
+                resource
+                    .port
+                    .map(|p| format!("port={}", p))
+                    .unwrap_or_default(),
+                resource
+                    .user
+                    .map(|u| format!("user={}", u))
+                    .unwrap_or_default(),
+            )
         }
         "bigquery" => {
             let resource: Value = serde_json::from_value(db_resource)?;
