@@ -969,7 +969,7 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct DuckdbConnectionSettingsResponse {
     pub connection_settings_str: String,
     #[serde(skip_serializing_if = "Option::is_none")]

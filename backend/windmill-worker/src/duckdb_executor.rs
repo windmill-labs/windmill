@@ -95,13 +95,16 @@ pub async fn do_duckdb(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let result_f = async {
+        let mut duckdb_connection_settings_cache =
+            HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
+
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
 
         let (_query_with_transformed_s3_uris, mut used_storages) =
-            transform_s3_uris(query, client).await?;
+            transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
         let query = _query_with_transformed_s3_uris.as_deref().unwrap_or(query);
 
         let job_args = {
@@ -116,11 +119,12 @@ pub async fn do_duckdb(
                     let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
                         Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
                     })?;
-                    let duckdb_conn_settings: windmill_common::s3_helpers::DuckdbConnectionSettingsResponse = client
-                        .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                            s3_resource_path: None,
-                            storage: s3_obj.storage.clone(),
-                        })
+                    let duckdb_conn_settings: DuckdbConnectionSettingsResponse =
+                        get_duckdb_connection_settings(
+                            &s3_obj.storage,
+                            &mut duckdb_connection_settings_cache,
+                            client,
+                        )
                         .await?;
 
                     let uri = match (
@@ -621,6 +625,7 @@ async fn transform_attach_ducklake(
 async fn transform_s3_uris(
     query: &str,
     client: &AuthedClient,
+    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
 ) -> Result<(
     Option<String>,
     HashMap<Option<String>, DuckdbConnectionSettingsResponse>,
@@ -639,12 +644,9 @@ async fn transform_s3_uris(
             };
             let original_str_lit =
                 format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
-            let duckdb_conn_settings = client
-                .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                    s3_resource_path: None,
-                    storage: storage.clone(),
-                })
-                .await?;
+            let duckdb_conn_settings =
+                get_duckdb_connection_settings(&storage, duckdb_connection_settings_cache, client)
+                    .await?;
             let url = duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, s3_path)?;
             let url = format!("'{url}'");
             transformed_query = Some(
@@ -736,6 +738,25 @@ fn remove_comments(stmt: &str) -> &str {
     return &stmt[start.unwrap_or(0)..end];
 }
 
+async fn get_duckdb_connection_settings(
+    storage: &Option<String>,
+    cache: &mut DuckDbConnectionSettingsCache,
+    client: &AuthedClient,
+) -> Result<DuckdbConnectionSettingsResponse> {
+    if let Some(settings) = cache.get(storage) {
+        return Ok(settings.clone());
+    } else {
+        let settings = client
+            .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
+                s3_resource_path: None,
+                storage: storage.clone(),
+            })
+            .await?;
+        cache.insert(storage.clone(), settings.clone());
+        return Ok(settings);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -770,3 +791,5 @@ mod tests {
         assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
     }
 }
+
+type DuckDbConnectionSettingsCache = HashMap<Option<String>, DuckdbConnectionSettingsResponse>;
