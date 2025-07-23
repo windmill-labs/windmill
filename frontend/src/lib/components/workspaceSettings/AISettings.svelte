@@ -199,7 +199,7 @@
 							}}
 						/>
 						{#if provider === 'anthropic'}
-							<Badge color="green">Recommended</Badge>
+							<Badge color="blue">Recommended</Badge>
 						{/if}
 					</div>
 
