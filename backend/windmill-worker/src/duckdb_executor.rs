@@ -7,7 +7,6 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use tokio::fs::remove_file;
 use tokio::task;
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -95,6 +94,7 @@ pub async fn do_duckdb(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let result_f = async {
+        let mut bigquery_credentials = None;
         let mut duckdb_connection_settings_cache =
             HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
 
@@ -150,12 +150,19 @@ pub async fn do_duckdb(
             for query_block in query_block_list.iter() {
                 let query_block = remove_comments(&query_block);
                 match parse_attach_db_resource(query_block) {
-                    Some(parsed) => v.extend(
-                        transform_attach_db_resource_query(&parsed, &job.id, client).await?,
-                    ),
+                    Some(parsed) => {
+                        v.extend(
+                            transform_attach_db_resource_query(&parsed, &job.id, client).await?,
+                        );
+                        if parsed.db_type == "bigquery" {
+                            bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
+                                job.id,
+                                parsed.resource_path,
+                            )?);
+                        }
+                    }
                     None => match transform_attach_ducklake(
                         &query_block,
-                        &job.id,
                         client,
                         &mut duckdb_connection_settings_cache,
                     )
@@ -202,14 +209,9 @@ pub async fn do_duckdb(
         .await
         .map_err(to_anyhow)??;
 
-        *column_order_ref = column_order;
+        drop(bigquery_credentials);
 
-        // BigQuery cleanup
-        let bq_credentials_path = make_bq_credentials_path(&job.id);
-        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
-        if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
-            remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
-        }
+        *column_order_ref = column_order;
         Ok(result)
     };
 
@@ -436,7 +438,7 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_id: &Uuid) -> Result<String> {
+fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String> {
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
@@ -477,19 +479,8 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_id: &Uuid) -
             )
         }
         "bigquery" => {
-            let resource: Value = serde_json::from_value(db_resource)?;
-            // duckdb's bigquery extension requires a json file as credentials
-            // TODO : make this cleaner
-            let bq_credentials_path = make_bq_credentials_path(job_id);
-            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
-            std::fs::write(&bq_credentials_path, resource.to_string()).map_err(|e| {
-                Error::ExecutionErr(format!(
-                    "Failed to write BigQuery credentials to {}: {}",
-                    &bq_credentials_path, e
-                ))
-            })?;
             let project_id: String = serde_json::from_value(
-                resource
+                db_resource
                     .get("project_id")
                     .ok_or_else(|| {
                         Error::ExecutionErr("BigQuery resource must contain project_id".to_string())
@@ -516,7 +507,7 @@ async fn fetch_attach_db_conn_str(
     let db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
-    format_attach_db_conn_str(db_resource, parsed.db_type, job_id)
+    format_attach_db_conn_str(db_resource, parsed.db_type)
 }
 
 fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
@@ -561,7 +552,6 @@ async fn transform_attach_db_resource_query(
 
 async fn transform_attach_ducklake(
     query: &str,
-    job_id: &Uuid,
     client: &AuthedClient,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
 ) -> Result<Option<Vec<String>>> {
@@ -577,8 +567,7 @@ async fn transform_attach_ducklake(
     let ducklake_config = client.get_ducklake(ducklake_name).await?;
     let db_type = ducklake_config.catalog.resource_type.as_ref();
 
-    let db_conn_str =
-        format_attach_db_conn_str(ducklake_config.catalog_resource, db_type, &job_id)?;
+    let db_conn_str = format_attach_db_conn_str(ducklake_config.catalog_resource, db_type)?;
 
     let storage_settings = ducklake_config.storage_settings;
     let storage = ducklake_config.storage.storage;
@@ -657,8 +646,25 @@ pub fn duckdb_conn_settings_to_s3_network_uri(
 // The file path is set as an env var by do_duckdb
 // It is created by transform_attach_db_resource_query (when bigquery is detected)
 // and deleted by do_duckdb after the query is executed
-fn make_bq_credentials_path(job_id: &Uuid) -> String {
-    format!("/tmp/service-account-credentials-{}.json", job_id)
+pub struct UseBigQueryCredentialsFile {
+    path: String,
+}
+impl UseBigQueryCredentialsFile {
+    fn new(job_id: Uuid, bigquery_resource: &str) -> Result<Self> {
+        let path = format!("/tmp/service-account-credentials-{}.json", job_id);
+        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        std::fs::write(&path, bigquery_resource)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write BigQuery creds: {e}")))?;
+        Ok(Self { path })
+    }
+}
+impl Drop for UseBigQueryCredentialsFile {
+    fn drop(&mut self) {
+        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        if matches!(std::fs::exists(&self.path), Ok(true)) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 // duckdb-rs does not support named parameters,
