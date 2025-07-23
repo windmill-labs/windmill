@@ -36,7 +36,7 @@
 	interface Props {
 		lang: Preview['language'] | undefined
 		previewIsLoading?: boolean
-		previewJob: Job | undefined
+		previewJob: Job & { result_stream?: string } | undefined
 		pastPreviews?: CompletedJob[]
 		editor?: Editor | undefined
 		diffEditor?: DiffEditor | undefined
@@ -60,7 +60,7 @@
 		showCaptures = false,
 		customUi = undefined,
 		children,
-		capturesTab
+		capturesTab,
 	}: Props = $props()
 
 	type DContent = {
@@ -102,6 +102,7 @@
 				result={drawerContent.content}
 				customUi={customUi?.displayResult}
 				language={lang}
+				result_stream={previewJob?.result_stream}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -113,7 +114,6 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
-
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
 		<Tab value="logs" size="xs">Logs & Result</Tab>
@@ -161,6 +161,7 @@
 												result={previewJob.result}
 												customUi={customUi?.displayResult}
 												language={lang}
+												result_stream={previewJob?.result_stream}
 											>
 												{#snippet copilot_fix()}
 													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}

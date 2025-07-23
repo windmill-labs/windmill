@@ -89,6 +89,7 @@
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		result_stream?: string | undefined
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 	}
@@ -110,6 +111,7 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		result_stream = undefined,
 		copilot_fix,
 		children
 	}: Props = $props()
@@ -485,6 +487,7 @@
 </script>
 
 <HighlightTheme />
+{result_stream}
 {#if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
