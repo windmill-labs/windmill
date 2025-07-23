@@ -709,7 +709,8 @@ export function getLanguageByResourceType(name: string): Preview['language'] {
 		ms_sql_server: 'mssql',
 		snowflake: 'snowflake',
 		snowflake_oauth: 'snowflake',
-		bigquery: 'bigquery'
+		bigquery: 'bigquery',
+		duckdb: 'duckdb'
 	}
 	return language[name]
 }
@@ -734,6 +735,8 @@ export function buildParameters(
 					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
 				case 'bigquery':
 					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+				case 'duckdb':
+					return `-- $${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')

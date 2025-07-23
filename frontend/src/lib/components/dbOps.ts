@@ -56,7 +56,8 @@ export function dbTableOpsWithPreviewScripts({
 	colDefs: ColumnDef[]
 	workspace: string
 }): IDbTableOps {
-	if (input.type !== 'database') throw new Error('Unimplemented')
+	const dbType = getDbType(input)
+	const language = getLanguageByResourceType(dbType)
 	return {
 		resourcePath: input.resourcePath,
 		resourceType: input.resourceType,
@@ -76,16 +77,22 @@ export function dbTableOpsWithPreviewScripts({
 			return count
 		},
 		getRows: async (params) => {
-			const query = makeSelectQuery(tableKey, colDefs, undefined, input.resourceType as DbType)
+			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType)
+			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			console.log('getRows query', query)
 			let items = (await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + input.resourcePath, ...params },
-					language: getLanguageByResourceType(input.resourceType),
+					args:
+						input.type === 'database'
+							? { database: '$res:' + input.resourcePath, ...params }
+							: params,
+					language,
 					content: query
 				}
 			})) as unknown[]
-			if (input.resourceType === 'ms_sql_server') items = items?.[0] as unknown[]
+			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
+				items = items?.[0] as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
@@ -162,7 +169,7 @@ export function dbDeleteTableActionWithPreviewScript({
 		successText: `Table '${tableKey}' deleted successfully`,
 		action: async () => {
 			const dbType = getDbType(input)
-			const language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(dbType)
+			const language = getLanguageByResourceType(dbType)
 			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			console.log('deleteQuery', deleteQuery)
@@ -221,12 +228,12 @@ SELECT json_group_object(table_name, table_data) AS result FROM (
 	GROUP BY c.table_name
 )`
 
-function getDbType(input: DbInput): DbType | 'ducklake' {
+function getDbType(input: DbInput): DbType {
 	switch (input.type) {
 		case 'database':
 			return input.resourceType
 		case 'ducklake':
-			return 'ducklake'
+			return 'duckdb'
 	}
 }
 
