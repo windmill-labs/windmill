@@ -68,8 +68,6 @@ const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are 
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
 
-const TS_RESOURCE_TYPE_INSTRUCTION = `When using resource types, you should use RT.ResourceType as parameter type.`
-
 const TS_WINDMILL_CLIENT_CONTEXT = `
 
 The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "windmill-client"\`. Key functions include:
@@ -213,9 +211,7 @@ export function getLangContext(
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
 					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) +
-		TS_RESOURCE_TYPE_INSTRUCTION +
-		TS_WINDMILL_CLIENT_CONTEXT
+					: '')) + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
