@@ -102,10 +102,7 @@ pub async fn do_duckdb(
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
-
-        let (_query_with_transformed_s3_uris, mut used_storages) =
-            transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
-        let query = _query_with_transformed_s3_uris.as_deref().unwrap_or(query);
+        let query = transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
 
         let job_args = {
             let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
@@ -130,7 +127,6 @@ pub async fn do_duckdb(
                     let uri =
                         duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, &s3_obj.s3)?;
                     m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
-                    used_storages.insert(s3_obj.storage, duckdb_conn_settings);
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
                         &json_value,
@@ -146,7 +142,7 @@ pub async fn do_duckdb(
             m
         };
 
-        let query_block_list = parse_sql_blocks(query);
+        let query_block_list = parse_sql_blocks(&query);
 
         // Replace windmill resource ATTACH statements with the real instructions
         let query_block_list = {
@@ -165,10 +161,7 @@ pub async fn do_duckdb(
                     )
                     .await?
                     {
-                        Some((ducklake_query, used_storage)) => {
-                            v.extend(ducklake_query);
-                            used_storages.insert(used_storage.0, used_storage.1);
-                        }
+                        Some(ducklake_query) => v.extend(ducklake_query),
                         None => v.push(query_block.to_string()),
                     },
                 };
@@ -176,13 +169,13 @@ pub async fn do_duckdb(
             v
         };
 
-        // duckdb::Connection is not Send so we do it in a single blocking task
+        // duckdb::Connection is not Send so we run the queries in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-            for (_, DuckdbConnectionSettingsResponse { connection_settings_str, .. }) in
-                used_storages.into_iter()
+            for DuckdbConnectionSettingsResponse { connection_settings_str, .. } in
+                duckdb_connection_settings_cache.values()
             {
                 conn.execute_batch(&connection_settings_str)
                     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
@@ -578,12 +571,7 @@ async fn transform_attach_ducklake(
     job_id: &Uuid,
     client: &AuthedClient,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
-) -> Result<
-    Option<(
-        Vec<String>,
-        (Option<String>, DuckdbConnectionSettingsResponse), // (storage_name, storage_settings)
-    )>,
-> {
+) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake://([^':]+)' AS ([^ ;]+)").unwrap();
     }
@@ -599,43 +587,36 @@ async fn transform_attach_ducklake(
     let db_conn_str =
         format_attach_db_conn_str(ducklake_config.catalog_resource, db_type, &job_id)?;
 
-    let used_storage = ducklake_config.storage_settings;
+    let storage_settings = ducklake_config.storage_settings;
     let storage = ducklake_config.storage.storage;
     if !duckdb_connection_settings_cache.contains_key(&storage) {
-        duckdb_connection_settings_cache.insert(storage.clone(), used_storage.clone());
+        duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
     };
     let s3_conn_str =
-        duckdb_conn_settings_to_s3_network_uri(&used_storage, &ducklake_config.storage.path)?;
+        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake_config.storage.path)?;
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}');",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some((
-        vec![
-            "INSTALL ducklake;".to_string(),
-            install_db_ext_str.to_string(),
-            attach_str,
-        ],
-        (storage, used_storage),
-    )))
+    Ok(Some(vec![
+        "INSTALL ducklake;".to_string(),
+        install_db_ext_str.to_string(),
+        attach_str,
+    ]))
 }
 
-// Returns the transformed query and the set of storages used
+// Replaces all s3 URIs in the windmill syntax with the actual S3 network URIs
 async fn transform_s3_uris(
     query: &str,
     client: &AuthedClient,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
-) -> Result<(
-    Option<String>,
-    HashMap<Option<String>, DuckdbConnectionSettingsResponse>,
-)> {
+) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']*)'").unwrap();
     }
-    let mut used_storages = HashMap::new();
     for cap in RE.captures_iter(query) {
         if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
             let s3_path = s3_path.as_str();
@@ -655,10 +636,9 @@ async fn transform_s3_uris(
                     .unwrap_or(query.to_string())
                     .replace(&original_str_lit, &url),
             );
-            used_storages.insert(storage, duckdb_conn_settings);
         }
     }
-    Ok((transformed_query, used_storages))
+    Ok(transformed_query.unwrap_or(query.to_string()))
 }
 
 pub fn duckdb_conn_settings_to_s3_network_uri(
