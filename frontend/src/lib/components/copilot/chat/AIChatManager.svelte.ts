@@ -96,22 +96,15 @@ class AIChatManager {
 
 	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
 		const estimatedTokens = messages.reduce((acc, message) => {
-			// Handle content field - can be string or array
+			// one token is ~ 4 characters
+			const tokenPerCharacter = 4
+			// handle content
 			if (message.content) {
-				if (typeof message.content === 'string') {
-					acc += message.content.length / 4
-				} else if (Array.isArray(message.content)) {
-					// Handle array of content parts
-					acc += JSON.stringify(message.content).length / 4
-				}
+				acc += message.content.length / tokenPerCharacter
 			}
 			// Handle tool calls
-			if ('tool_calls' in message && message.tool_calls) {
-				acc += JSON.stringify(message.tool_calls).length / 4
-			}
-			// Handle function calls in tool messages
-			if (message.role === 'function') {
-				acc += (message.name?.length || 0) / 4
+			if (message.role === 'assistant' && message.tool_calls) {
+				acc += JSON.stringify(message.tool_calls).length / tokenPerCharacter
 			}
 			return acc
 		}, 0)
@@ -138,7 +131,7 @@ class AIChatManager {
 
 		// keep deleting messages until we are under the limit
 		if (this.checkTokenUsageOverLimit(messages)) {
-			this.deleteOldestMessage(messages, maxDepth - 1)
+			return this.deleteOldestMessage(messages, maxDepth - 1)
 		}
 		return messages
 	}
@@ -626,7 +619,7 @@ class AIChatManager {
 
 			this.currentReply = ''
 
-			let trimmedMessages = structuredClone($state.snapshot(this.messages))
+			let trimmedMessages = [...this.messages]
 			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
 				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
 			}
