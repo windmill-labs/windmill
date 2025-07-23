@@ -1034,7 +1034,7 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 }
 
 #[derive(Clone)]
-pub struct RequiredDependency {
+pub struct RequiredDependency<T: Clone + Send + Sync> {
     /// Expected directory of dependency in cache
     /// For example:
     /// /tmp/windmill/cache/python_311/rich==0.0.0
@@ -1042,18 +1042,22 @@ pub struct RequiredDependency {
     pub path: String,
     /// Name to use for S3 tars
     /// If not specified will use top level directory of path.
-    pub custom_name: Option<String>,
+    pub s3_handle: Option<String>,
     /// Display name
     /// Name that will be used for console output and logging
     /// If not specified will either use custom_name or top level directory of path.
     pub short_name: Option<String>,
+    /// Custom payload can be used for passing information easily. If you wish not to use it just leave '()'
+    pub custom_payload: T,
 }
 
-pub enum InstallStrategy {
+pub enum InstallStrategy<T: Clone + Send + Sync> {
     /// Will invoke callback to install single dependency
-    Single(Arc<dyn Fn(RequiredDependency) -> Result<Command, error::Error> + Send + Sync>),
+    Single(Arc<dyn Fn(RequiredDependency<T>) -> Result<Command, error::Error> + Send + Sync>),
     /// Will try to pull S3 first and will invoke closure to install the rest
-    AllAtOnce(Arc<dyn Fn(Vec<RequiredDependency>) -> Result<Command, error::Error> + Send + Sync>),
+    AllAtOnce(
+        Arc<dyn Fn(Vec<RequiredDependency<T>>) -> Result<Command, error::Error> + Send + Sync>,
+    ),
 }
 /// # General
 ///
@@ -1083,19 +1087,22 @@ pub enum InstallStrategy {
 /// and if it does not work either, it will invoke `install_fn` closure.
 /// Closure arguments has dependency name as well as it`s expected path in cache.
 /// Closure should return Command that will install dependency to asked place.
-pub async fn par_install_language_dependencies<'a>(
-    deps: Vec<RequiredDependency>,
+pub async fn par_install_language_dependencies<
+    'a,
+    T: Clone + std::marker::Send + Sync + 'a + 'static,
+>(
+    deps: Vec<RequiredDependency<T>>,
     language_name: &'a str,
     installer_executable_name: &'a str,
     platform_agnostic: bool,
     concurrent_downloads: usize,
     stdout_on_err: bool,
-    install_fn: InstallStrategy,
-    postinstall_cb: impl AsyncFn(Vec<RequiredDependency>) -> Result<(), error::Error>,
+    install_fn: InstallStrategy<T>,
+    postinstall_cb: impl AsyncFn(Vec<RequiredDependency<T>>) -> Result<(), error::Error>,
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
-    conn: &Connection,
+    conn: &'a Connection,
 ) -> anyhow::Result<()> {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let _ = (platform_agnostic, language_name);
@@ -1163,18 +1170,20 @@ pub async fn par_install_language_dependencies<'a>(
     }
 
     let mut name_tl = 0;
-    struct NotInstalledDependency {
+    struct NotInstalledDependency<T> {
         path: String,
-        custom_name: Option<String>,
+        s3_handle: Option<String>,
         short_name: Option<String>,
         display_name: String,
+        custom_payload: T,
     }
     {
         let mut to_be_installed_is_used = false;
         for RequiredDependency {
             path, //
-            custom_name,
+            s3_handle,
             short_name,
+            custom_payload,
         } in deps.into_iter()
         {
             if path.ends_with("/") {
@@ -1182,7 +1191,7 @@ pub async fn par_install_language_dependencies<'a>(
             }
             let display_name = short_name
             .as_ref()
-            .or(custom_name.as_ref())
+            .or(s3_handle.as_ref())
             .or(path.split("/").last().map(|e| e.to_owned()).as_ref())
             .unwrap_or_else(|| {
                 tracing::warn!(
@@ -1219,9 +1228,10 @@ pub async fn par_install_language_dependencies<'a>(
                     .await;
                 not_installed.push(NotInstalledDependency {
                     path,
-                    custom_name,
+                    s3_handle,
                     short_name,
                     display_name,
+                    custom_payload,
                 });
             }
         }
@@ -1263,9 +1273,10 @@ pub async fn par_install_language_dependencies<'a>(
     for NotInstalledDependency {
         //
         path,
-        custom_name,
+        s3_handle,
         short_name,
         display_name,
+        custom_payload,
     } in not_installed
     {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
@@ -1300,8 +1311,9 @@ pub async fn par_install_language_dependencies<'a>(
             if let InstallStrategy::Single(ref callback, ..) = install_fn {
                 let cmd = callback(RequiredDependency {
                     path: path.clone(),
-                    custom_name: custom_name.clone(),
+                    s3_handle: s3_handle.clone(),
                     short_name: short_name.clone(),
+                    custom_payload: custom_payload.clone(),
                 })?;
                 tracing::debug!("{:?}", &cmd);
                 Some(start_child_process(cmd, &installer_executable_name).await?)
@@ -1314,7 +1326,8 @@ pub async fn par_install_language_dependencies<'a>(
             worker_name_2,
             path_2,
             display_name_2,
-            custom_name,
+            s3_handle,
+            custom_payload2,
             job_id_2,
             w_id_2,
             conn_2,
@@ -1326,7 +1339,8 @@ pub async fn par_install_language_dependencies<'a>(
             worker_name.to_owned(),
             path.clone(),
             display_name.clone(),
-            custom_name.clone(),
+            s3_handle.clone(),
+            custom_payload.clone(),
             job_id.clone(),
             w_id.to_owned(),
             conn.clone(),
@@ -1388,8 +1402,9 @@ pub async fn par_install_language_dependencies<'a>(
                 let mut lock = for_all_at_once.write().await;
                 lock.push(RequiredDependency {
                     path: path_2.clone(),
-                    custom_name: custom_name.clone(),
+                    s3_handle: s3_handle.clone(),
                     short_name: short_name.clone(),
+                    custom_payload: custom_payload2.clone(),
                 });
                 return;
             };
@@ -1471,7 +1486,7 @@ pub async fn par_install_language_dependencies<'a>(
                                 os,
                                 path_2,
                                 language_name,
-                                custom_name,
+                                s3_handle,
                                 platform_agnostic,
                             )
                             .await
@@ -1537,7 +1552,7 @@ pub async fn par_install_language_dependencies<'a>(
             {
                 postinstall_cb(for_all_at_once_copy.clone()).await?;
             }
-            for RequiredDependency { path, custom_name: _custom_name, .. } in
+            for RequiredDependency { path, s3_handle: _s3_handle, .. } in
                 for_all_at_once_copy.into_iter()
             {
                 // TODO: Refactor
@@ -1563,7 +1578,7 @@ pub async fn par_install_language_dependencies<'a>(
                                 os,
                                 path,
                                 language_name,
-                                _custom_name,
+                                _s3_handle,
                                 platform_agnostic,
                             )
                             .await
