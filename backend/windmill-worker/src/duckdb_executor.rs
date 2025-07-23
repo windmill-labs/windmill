@@ -157,7 +157,14 @@ pub async fn do_duckdb(
                     Some(parsed) => v.extend(
                         transform_attach_db_resource_query(&parsed, &job.id, client).await?,
                     ),
-                    None => match transform_attach_ducklake(&query_block, &job.id, client).await? {
+                    None => match transform_attach_ducklake(
+                        &query_block,
+                        &job.id,
+                        client,
+                        &mut duckdb_connection_settings_cache,
+                    )
+                    .await?
+                    {
                         Some((ducklake_query, used_storage)) => {
                             v.extend(ducklake_query);
                             used_storages.insert(used_storage.0, used_storage.1);
@@ -570,6 +577,7 @@ async fn transform_attach_ducklake(
     query: &str,
     job_id: &Uuid,
     client: &AuthedClient,
+    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
 ) -> Result<
     Option<(
         Vec<String>,
@@ -592,6 +600,10 @@ async fn transform_attach_ducklake(
         format_attach_db_conn_str(ducklake_config.catalog_resource, db_type, &job_id)?;
 
     let used_storage = ducklake_config.storage_settings;
+    let storage = ducklake_config.storage.storage;
+    if !duckdb_connection_settings_cache.contains_key(&storage) {
+        duckdb_connection_settings_cache.insert(storage.clone(), used_storage.clone());
+    };
     let s3_conn_str =
         duckdb_conn_settings_to_s3_network_uri(&used_storage, &ducklake_config.storage.path)?;
 
@@ -606,7 +618,7 @@ async fn transform_attach_ducklake(
             install_db_ext_str.to_string(),
             attach_str,
         ],
-        (ducklake_config.storage.storage, used_storage),
+        (storage, used_storage),
     )))
 }
 
