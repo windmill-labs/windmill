@@ -13,6 +13,7 @@
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import Badge from '../common/badge/Badge.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -199,7 +200,13 @@
 							}}
 						/>
 						{#if provider === 'anthropic'}
-							<Badge color="blue">Recommended</Badge>
+							<Badge color="blue">
+								Recommended
+								<Tooltip class="text-blue-800 dark:text-blue-800 mt-0.5">
+									Anthropic models handle tool calls better than other providers, which makes them a
+									better choice for AI chat.
+								</Tooltip>
+							</Badge>
 						{/if}
 					</div>
 
