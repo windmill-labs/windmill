@@ -154,7 +154,6 @@ export function dbDeleteTableActionWithPreviewScript({
 	workspace: string
 	input: DbInput
 }): DbTableActionFactory {
-	if (input.type !== 'database') throw new Error('Unimplemented')
 	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
 		displayName: 'Delete',
@@ -162,12 +161,16 @@ export function dbDeleteTableActionWithPreviewScript({
 		icon: Trash2,
 		successText: `Table '${tableKey}' deleted successfully`,
 		action: async () => {
-			const deleteQuery = makeDeleteTableQuery(tableKey, input.resourceType)
+			const dbType = getDbType(input)
+			const language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(dbType)
+			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
+			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			console.log('deleteQuery', deleteQuery)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + input.resourcePath },
-					language: getLanguageByResourceType(input.resourceType),
+					args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {},
+					language,
 					content: deleteQuery
 				}
 			})
@@ -194,7 +197,7 @@ export async function getDucklakeSchema({
 	const stringified = Array.isArray(result) && result.length && result?.[0]?.['result']
 	if (!stringified) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
 	let schema: Omit<SQLSchema, 'stringified'> = {
-		schema: { public: JSON.parse(stringified) },
+		schema: { main: JSON.parse(stringified) },
 		publicOnly: true,
 		lang: 'ducklake'
 	}
@@ -217,3 +220,16 @@ SELECT json_group_object(table_name, table_data) AS result FROM (
 	WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()
 	GROUP BY c.table_name
 )`
+
+function getDbType(input: DbInput): DbType | 'ducklake' {
+	switch (input.type) {
+		case 'database':
+			return input.resourceType
+		case 'ducklake':
+			return 'ducklake'
+	}
+}
+
+function wrapDucklakeQuery(query: string, ducklake: string): string {
+	return `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n${query}`
+}
