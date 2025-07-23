@@ -1,5 +1,8 @@
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
+use strum::AsRefStr;
+
+use crate::s3_helpers::DuckdbConnectionSettingsResponse;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
@@ -111,7 +114,18 @@ pub struct DucklakeStorage {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
+#[derive(AsRefStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum DucklakeCatalogResourceType {
+    #[strum(serialize = "postgres")]
     Postgresql,
     Mysql,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct DucklakeWithConnData {
+    pub catalog: DucklakeCatalog,
+    pub catalog_resource: serde_json::Value,
+    pub storage: DucklakeStorage,
+    pub storage_settings: DuckdbConnectionSettingsResponse,
 }

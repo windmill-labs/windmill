@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
+use crate::auth::Tokened;
 use crate::db::ApiAuthed;
+use crate::job_helpers_ee::duckdb_connection_settings_v2;
+use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
@@ -33,15 +36,15 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::s3_helpers::LargeFileStorage;
+use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, LargeFileStorage};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::workspaces::Ducklake;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{Ducklake, DucklakeWithConnData};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -888,10 +891,12 @@ async fn edit_large_file_storage_config(
 }
 
 async fn get_ducklake(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
     Path((w_id, name)): Path<(String, String)>,
-) -> JsonResult<Option<serde_json::Value>> {
+) -> JsonResult<DucklakeWithConnData> {
     let ducklake = sqlx::query_scalar!(
         r#"
             SELECT ws.ducklake->'ducklakes'->$2 AS config
@@ -903,7 +908,44 @@ async fn get_ducklake(
     )
     .fetch_one(&db)
     .await
-    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?;
+    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?
+    .ok_or_else(|| Error::internal_err(format!("ducklake {name} not found")))?;
+
+    let ducklake = serde_json::from_value::<Ducklake>(ducklake)
+        .map_err(|err| Error::internal_err(format!("parsing ducklake {name}: {err}")))?;
+
+    let catalog_resource = get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db.clone()),
+        &db,
+        &w_id,
+        &ducklake.catalog.resource_path,
+        None,
+        &token,
+    )
+    .await?
+    .ok_or_else(|| Error::internal_err(format!("Ducklake {name}: Catalog resource not found")))?;
+
+    let Json(storage_settings) = duckdb_connection_settings_v2(
+        authed.clone(),
+        Extension(db),
+        Extension(user_db),
+        Tokened { token },
+        Path(w_id.clone()),
+        Json(DuckdbConnectionSettingsQueryV2 {
+            storage: ducklake.storage.storage.clone(),
+            s3_resource_path: None,
+        }),
+    )
+    .await?;
+
+    let ducklake = DucklakeWithConnData {
+        catalog: ducklake.catalog,
+        storage: ducklake.storage,
+        catalog_resource,
+        storage_settings,
+    };
+
     Ok(Json(ducklake))
 }
 

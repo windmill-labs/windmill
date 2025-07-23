@@ -6,7 +6,7 @@ use crate::{
     error::{self, to_anyhow},
     s3_helpers::{DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse},
     utils::HTTP_CLIENT,
-    workspaces::Ducklake,
+    workspaces::DucklakeWithConnData,
 };
 
 #[derive(Clone)]
@@ -252,7 +252,7 @@ impl AuthedClient {
         }
     }
 
-    pub async fn get_ducklake(&self, name: &str) -> anyhow::Result<Ducklake> {
+    pub async fn get_ducklake(&self, name: &str) -> anyhow::Result<DucklakeWithConnData> {
         let url = format!(
             "{}/api/w/{}/workspaces/get_ducklake/{}",
             self.base_internal_url, self.workspace, name
@@ -260,7 +260,7 @@ impl AuthedClient {
         let response = self.get(&url, vec![]).await?;
         match response.status().as_u16() {
             200u16 => Ok(response
-                .json::<Ducklake>()
+                .json::<DucklakeWithConnData>()
                 .await
                 .context("getting ducklake config")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),

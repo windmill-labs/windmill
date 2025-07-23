@@ -446,17 +446,10 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-async fn get_attach_db_conn_str(
-    parsed: &ParsedAttachDbResource<'_>,
-    job_id: &Uuid,
-    client: &AuthedClient,
-) -> Result<String> {
-    let s = match parsed.db_type.to_lowercase().as_str() {
-        "postgres" => {
-            let res: PgDatabase = client
-                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                .await?;
-
+fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_id: &Uuid) -> Result<String> {
+    let s = match db_type.to_lowercase().as_str() {
+        "postgres" | "postgresql" => {
+            let res: PgDatabase = serde_json::from_value(db_resource)?;
             format!(
                 "dbname={} {} host={} {} {}",
                 res.dbname,
@@ -476,10 +469,7 @@ async fn get_attach_db_conn_str(
 
             #[cfg(feature = "mysql")]
             {
-                let resource: MysqlDatabase = client
-                    .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                    .await?;
-
+                let resource: MysqlDatabase = serde_json::from_value(db_resource)?;
                 format!(
                     "database={} host={} ssl_mode={} {} {} {}",
                     resource.database,
@@ -504,20 +494,17 @@ async fn get_attach_db_conn_str(
             }
         }
         "bigquery" => {
-            let resource: Value = client
-                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                .await?;
+            let resource: Value = serde_json::from_value(db_resource)?;
             // duckdb's bigquery extension requires a json file as credentials
+            // TODO : make this cleaner
             let bq_credentials_path = make_bq_credentials_path(job_id);
             env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
-            tokio::fs::write(&bq_credentials_path, resource.to_string())
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Failed to write BigQuery credentials to {}: {}",
-                        &bq_credentials_path, e
-                    ))
-                })?;
+            std::fs::write(&bq_credentials_path, resource.to_string()).map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to write BigQuery credentials to {}: {}",
+                    &bq_credentials_path, e
+                ))
+            })?;
             let project_id: String = serde_json::from_value(
                 resource
                     .get("project_id")
@@ -531,12 +518,22 @@ async fn get_attach_db_conn_str(
         }
         _ => {
             return Err(Error::ExecutionErr(format!(
-                "Unsupported db type in DuckDB ATTACH: {}",
-                parsed.db_type
+                "Unsupported db type in DuckDB ATTACH: {db_type}",
             )))
         }
     };
     Ok(s)
+}
+
+async fn fetch_attach_db_conn_str(
+    parsed: &ParsedAttachDbResource<'_>,
+    job_id: &Uuid,
+    client: &AuthedClient,
+) -> Result<String> {
+    let db_resource: Value = client
+        .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+        .await?;
+    format_attach_db_conn_str(db_resource, parsed.db_type, job_id)
 }
 
 fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
@@ -565,7 +562,7 @@ async fn transform_attach_db_resource_query(
 ) -> Result<Vec<String>> {
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        get_attach_db_conn_str(&parsed, &job_id, &client).await?,
+        fetch_attach_db_conn_str(&parsed, &job_id, &client).await?,
         parsed.name,
         parsed.db_type,
         parsed.extra_args.unwrap_or("")
@@ -579,7 +576,6 @@ async fn transform_attach_db_resource_query(
     ])
 }
 
-// TODO : client.get_ducklake could return the resource and storage data all at once to avoid making multiple queries
 async fn transform_attach_ducklake(
     query: &str,
     job_id: &Uuid,
@@ -590,7 +586,6 @@ async fn transform_attach_ducklake(
         (Option<String>, DuckdbConnectionSettingsResponse), // (storage_name, storage_settings)
     )>,
 > {
-    use windmill_common::workspaces::DucklakeCatalogResourceType as RT;
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake://([^':]+)' AS ([^ ;]+)").unwrap();
     }
@@ -598,44 +593,21 @@ async fn transform_attach_ducklake(
         return Ok(None);
     };
     let ducklake_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-    let ducklake_config = client.get_ducklake(ducklake_name).await?;
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
-    let db_type = match ducklake_config.catalog.resource_type {
-        RT::Postgresql => "postgres",
-        RT::Mysql => "mysql",
-    };
+    let ducklake_config = client.get_ducklake(ducklake_name).await?;
+    let db_type = ducklake_config.catalog.resource_type.as_ref();
 
-    let attach_str = {
-        let conn_str = get_attach_db_conn_str(
-            &ParsedAttachDbResource {
-                resource_path: &ducklake_config.catalog.resource_path,
-                name: "",
-                db_type,
-                extra_args: None,
-            },
-            &job_id,
-            &client,
-        )
-        .await?;
-        let storage = &ducklake_config.storage;
-        format!(
-            "ATTACH 'ducklake:{}:{}' AS {} (DATA_PATH 's3://{}/{}');",
-            db_type,
-            conn_str,
-            alias_name,
-            storage.storage.as_ref().map(String::as_str).unwrap_or(""),
-            storage.path
-        )
-    };
-    let (Some(attach_str), mut used_storage) = transform_s3_uris(&attach_str, client).await? else {
-        return Err(Error::ExecutionErr(
-            "transform_s3_uris should never fail".to_string(),
-        ));
-    };
-    let used_storage = used_storage
-        .remove(&ducklake_config.storage.storage)
-        .ok_or_else(|| Error::ExecutionErr("used_storage.get undefined".to_string()))?;
+    let db_conn_str =
+        format_attach_db_conn_str(ducklake_config.catalog_resource, db_type, &job_id)?;
+
+    let used_storage = ducklake_config.storage_settings;
+    let s3_conn_str =
+        duckdb_conn_settings_to_s3_network_uri(&used_storage, &ducklake_config.storage.path)?;
+
+    let attach_str = format!(
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}');",
+    );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
     Ok(Some((
@@ -676,19 +648,8 @@ async fn transform_s3_uris(
                     storage: storage.clone(),
                 })
                 .await?;
-            let url = match &duckdb_conn_settings {
-                DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
-                    format!("'s3://{bucket}/{s3_path}'")
-                }
-                DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
-                    format!("'{base}/{s3_path}'")
-                }
-                _ => {
-                    return Err(Error::ExecutionErr(
-                        "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
-                    ))?;
-                }
-            };
+            let url = duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, s3_path)?;
+            let url = format!("'{url}'");
             transformed_query = Some(
                 transformed_query
                     .unwrap_or(query.to_string())
@@ -698,6 +659,25 @@ async fn transform_s3_uris(
         }
     }
     Ok((transformed_query, used_storages))
+}
+
+pub fn duckdb_conn_settings_to_s3_network_uri(
+    s: &DuckdbConnectionSettingsResponse,
+    s3_path: &str,
+) -> Result<String> {
+    match &s {
+        DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
+            Ok(format!("s3://{bucket}/{s3_path}"))
+        }
+        DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
+            Ok(format!("{base}/{s3_path})"))
+        }
+        _ => {
+            Err(Error::ExecutionErr(
+                "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
+            ))
+        }
+    }
 }
 
 // BigQuery extension requires a json file as credentials
