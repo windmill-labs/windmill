@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.510.0
+  version: 1.512.0
   title: Windmill API
 
   contact:
@@ -3413,6 +3413,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3455,6 +3458,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level authentication"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication"
               required:
                 - cc_client_id
                 - cc_client_secret
@@ -14635,36 +14641,41 @@ components:
                   - type: object
                     properties:
                       object:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            key:
-                              type: string
-                            typ:
-                              oneOf:
-                                - type: string
-                                  enum:
-                                    [
-                                      "float",
-                                      "int",
-                                      "bool",
-                                      "email",
-                                      "unknown",
-                                      "bytes",
-                                      "dict",
-                                      "datetime",
-                                      "sql",
-                                    ]
-                                - type: object
-                                  properties:
-                                    str: {}
-                                  required: [str]
-                          required:
-                            - key
-                            - typ
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          props:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                typ:
+                                  oneOf:
+                                    - type: string
+                                      enum:
+                                        [
+                                          "float",
+                                          "int",
+                                          "bool",
+                                          "email",
+                                          "unknown",
+                                          "bytes",
+                                          "dict",
+                                          "datetime",
+                                          "sql",
+                                        ]
+                                    - type: object
+                                      properties:
+                                        str: {}
+                                      required: [str]
+                              required:
+                                - key
+                                - typ
                     required:
-                      - object
+                      - object 
                   - type: object
                     properties:
                       list:

@@ -87,6 +87,9 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		customUi?: {
+			tagLabel?: string | undefined
+		}
 	}
 
 	let {
@@ -115,7 +118,8 @@
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = writable({}),
-		localDurationStatuses = writable({})
+		localDurationStatuses = writable({}),
+		customUi
 	}: Props = $props()
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
@@ -426,14 +430,21 @@
 							console.error(`Could not load inner module for job ${mod.job}`, e)
 						})
 				} else if (
-					mod.flow_jobs &&
+					(mod.flow_jobs || mod.branch_chosen) &&
 					(mod.type == 'Success' || mod.type == 'Failure') &&
 					!['Success', 'Failure'].includes($localModuleStates?.[mod.id ?? '']?.type)
 				) {
+					let branchChosen = mod.branch_chosen
+						? {
+								branchChosen:
+									mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
+							}
+						: {}
 					setModuleState(
 						mod.id ?? '',
 						{
-							type: mod.type
+							type: mod.type,
+							...branchChosen
 						},
 						true
 					)
@@ -441,42 +452,11 @@
 					setModuleState(mod.id ?? '', {}, true)
 				}
 
-				// if (isForloopSelected && mod?.flow_jobs) {
-				// 	let states = getTopModuleStates()
-				// 	if (states) {
-				// 		states[mod.id ?? ''] = $localModuleStates[mod.id ?? '']
-				// 	}
-				// }
-
-				if (mod.branch_chosen) {
-					setModuleState(
-						mod.id ?? '',
-						{
-							branchChosen:
-								mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
-						},
-						true
-					)
-				}
 				if (mod.flow_jobs_success) {
 					setModuleState(mod.id ?? '', {
 						flow_jobs_success: mod.flow_jobs_success
 					})
 				}
-				// console.log('updateInnerModules', mod.id, mod)
-
-				/**
-				 * else if (mod.type === 'Failure' || mod.type === 'WaitingForPriorSteps') {
-					if (job?.type === 'CompletedJob') {
-						setModuleState('b', {
-							type: 'Failure',
-							args: job?.args,
-							job_id: job?.id,
-							result: job?.result
-						})
-					}
-				}
-				*/
 			})
 		}
 	}
@@ -1360,6 +1340,7 @@
 
 									{#if selectedNode == 'end'}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={job?.id}
 											filename={job.id}
@@ -1435,6 +1416,7 @@
 											</div>
 										{/if}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder

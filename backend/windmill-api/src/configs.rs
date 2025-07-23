@@ -18,10 +18,11 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
+    worker::MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::{require_devops_role}};
+use crate::{db::ApiAuthed, utils::require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -127,6 +128,42 @@ async fn update_config(
             "Worker groups configurable from UI available only in the enterprise version"
                 .to_string(),
         ));
+    }
+
+    if name.starts_with("worker__") {
+        let periodic_script_bash = config
+            .get("periodic_script_bash")
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let periodic_script_interval = config
+            .get("periodic_script_interval_seconds")
+            .filter(|v| !v.is_null());
+
+        match (periodic_script_bash, periodic_script_interval) {
+            (Some(_), Some(interval_value)) => {
+                if let Some(interval) = interval_value.as_u64() {
+                    if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                        return Err(error::Error::BadRequest(format!(
+                            "Periodic script interval must be at least {} seconds, got {} seconds",
+                            MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, interval
+                        )));
+                    }
+                } else {
+                    return Err(error::Error::BadRequest(
+                        "Periodic script interval must be a valid number".to_string(),
+                    ));
+                }
+            }
+            (Some(_), None) => {
+                return Err(error::Error::BadRequest(
+                    "Periodic script interval must be specified when periodic script is configured"
+                        .to_string(),
+                ));
+            }
+            _ => {}
+        }
     }
 
     let mut tx = db.begin().await?;

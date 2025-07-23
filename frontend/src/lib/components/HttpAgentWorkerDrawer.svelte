@@ -140,7 +140,7 @@
 						/>
 					</Section>
 
-					<Section label="Generated JWT token" primary>
+					<Section label="Generated JWT token">
 						{#if !$enterpriseLicense}
 							<div class="text-sm text-secondary mb-2 max-w-md">
 								Agent workers are only available in the enterprise edition. For evaluation purposes,

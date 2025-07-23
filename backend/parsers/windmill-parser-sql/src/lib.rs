@@ -14,7 +14,7 @@ use std::{
     iter::Peekable,
     str::CharIndices,
 };
-pub use windmill_parser::{Arg, MainArgSignature, Typ};
+pub use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
@@ -231,7 +231,7 @@ lazy_static::lazy_static! {
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $name (type) = default
-    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \(([A-Za-z0-9_\[\]]+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
@@ -737,7 +737,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             "bigint" => Typ::Int,
             "bool" | "boolean" => Typ::Bool,
             "char" | "character" => Typ::Str(None),
-            "json" | "jsonb" => Typ::Object(vec![]),
+            "json" | "jsonb" => Typ::Object(ObjectType::new(None, Some(vec![]))),
             "smallint" | "int2" => Typ::Int,
             "smallserial" | "serial2" => Typ::Int,
             "serial" | "serial4" => Typ::Int,
@@ -769,7 +769,7 @@ pub fn parse_bigquery_typ(typ: &str) -> Typ {
         match typ {
             "string" => Typ::Str(None),
             "bytes" => Typ::Bytes,
-            "json" => Typ::Object(vec![]),
+            "json" => Typ::Object(ObjectType::new(None, Some(vec![]))),
             "timestamp" | "date" | "time" | "datetime" => Typ::Datetime,
             "integer" | "int64" => Typ::Int,
             "float" | "float64" | "numeric" | "bignumeric" => Typ::Float,
