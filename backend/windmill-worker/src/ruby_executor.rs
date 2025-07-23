@@ -461,7 +461,9 @@ async fn install<'a>(
                 // Specify the one from lockfile
                 "--source",
                 match dependency.custom_payload.source {
-                    CurrentSource::GIT { remote, revision } => todo!(),
+                    CurrentSource::GIT { remote, revision } => {
+                        return Err(anyhow!("GIT is not supported").into())
+                    }
                     CurrentSource::GEM { remote } => remote.unwrap(),
                     CurrentSource::INIT => todo!(),
                 }
