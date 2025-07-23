@@ -1491,13 +1491,23 @@ async fn get_script_by_hash_internal<'c>(
     Ok(script)
 }
 
+#[derive(Deserialize)]
+struct GetScriptByHashQuery {
+    authed: Option<bool>,
+}
 async fn get_script_by_hash(
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
     Query(query): Query<WithStarredInfoQuery>,
+    Query(query_auth): Query<GetScriptByHashQuery>,
     Extension(authed): Extension<ApiAuthed>,
 ) -> JsonResult<ScriptWithStarred> {
-    let mut tx = db.begin().await?;
+    let mut tx = if query_auth.authed.is_some_and(|x| x) {
+        user_db.begin(&authed).await?
+    } else {
+        db.begin().await?
+    };
     let r = get_script_by_hash_internal(
         &mut tx,
         &w_id,

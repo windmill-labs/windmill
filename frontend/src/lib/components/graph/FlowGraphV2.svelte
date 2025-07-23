@@ -380,7 +380,7 @@
 		}
 		let newGraph = graph
 		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
-		console.log('compute')
+		// console.log('compute')
 		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -507,7 +507,11 @@
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={debouncedWidth}>
+<div
+	style={`height: ${height}px; max-height: ${maxHeight}px;`}
+	class="overflow-clip"
+	bind:clientWidth={debouncedWidth}
+>
 	{#if graph?.error}
 		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">

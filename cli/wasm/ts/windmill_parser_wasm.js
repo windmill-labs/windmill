@@ -160,10 +160,9 @@ function passStringToWasm0(arg, malloc, realloc) {
 /**
  * @param {string} code
  * @param {string | null} [main_override]
- * @param {boolean | null} [skip_params]
  * @returns {string}
  */
-export function parse_deno(code, main_override, skip_params) {
+export function parse_deno(code, main_override) {
     let deferred3_0;
     let deferred3_1;
     try {
@@ -171,7 +170,7 @@ export function parse_deno(code, main_override, skip_params) {
         const len0 = WASM_VECTOR_LEN;
         var ptr1 = isLikeNone(main_override) ? 0 : passStringToWasm0(main_override, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len1 = WASM_VECTOR_LEN;
-        const ret = wasm.parse_deno(ptr0, len0, ptr1, len1, isLikeNone(skip_params) ? 0xFFFFFF : skip_params ? 1 : 0);
+        const ret = wasm.parse_deno(ptr0, len0, ptr1, len1);
         deferred3_0 = ret[0];
         deferred3_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
@@ -218,6 +217,25 @@ export function parse_ts_imports(code) {
     }
 }
 
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_assets_ts(code) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.parse_assets_ts(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
 const imports = {
     __wbindgen_placeholder__: {
         __wbg_buffer_609cc3eee51ed158: function(arg0) {
@@ -236,7 +254,7 @@ const imports = {
             const ret = Object.entries(arg0);
             return ret;
         },
-        __wbg_eval_58d0b9f11db87ad1: function(arg0, arg1) {
+        __wbg_eval_5e26645562cd9430: function(arg0, arg1) {
             const ret = eval(getStringFromWasm0(arg0, arg1));
             return ret;
         },

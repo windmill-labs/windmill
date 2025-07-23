@@ -402,6 +402,13 @@ pub async fn append_logs(
     }
 }
 
+pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
+pub const INIT_SCRIPT_TAG: &str = "init_script";
+pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
+pub const PERIODIC_SCRIPT_PATH_PREFIX: &str = "periodic_script_";
+
+
+
 pub async fn push_init_job<'c>(
     db: &Pool<Postgres>,
     content: String,
@@ -416,7 +423,7 @@ pub async fn push_init_job<'c>(
         windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
             hash: None,
             content,
-            path: Some(format!("init_script_{worker_name}")),
+            path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
             custom_concurrency_key: None,
@@ -439,7 +446,56 @@ pub async fn push_init_job<'c>(
         true,
         None,
         true,
-        Some("init_script".to_string()),
+        Some(INIT_SCRIPT_TAG.to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    inner_tx.commit().await?;
+    Ok(uuid)
+}
+
+pub async fn push_periodic_bash_job<'c>(
+    db: &Pool<Postgres>,
+    content: String,
+    worker_name: &str,
+) -> error::Result<Uuid> {
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let ehm = HashMap::new();
+    let timestamp = chrono::Utc::now().timestamp();
+    let (uuid, inner_tx) = push(
+        &db,
+        tx,
+        "admins",
+        windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+            hash: None,
+            content,
+            path: Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{}_{}", worker_name, timestamp)),
+            language: ScriptLang::Bash,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        }),
+        PushArgs::from(&ehm),
+        worker_name,
+        "worker@windmill.dev",
+        SUPERADMIN_SECRET_EMAIL.to_string(),
+        Some("worker_periodic_script_job"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        true,
+        None,
+        true,
+        Some(PERIODIC_SCRIPT_TAG.to_string()),
         None,
         None,
         None,
@@ -3302,7 +3358,7 @@ async fn get_queued_job_tx<'c>(
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -3314,7 +3370,7 @@ async fn get_queued_job_tx<'c>(
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
+        "SELECT *, null as workflow_as_code_status
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -4856,7 +4912,7 @@ async fn restarted_flows_resolution(
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,

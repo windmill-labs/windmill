@@ -65,7 +65,8 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
+        load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
@@ -213,6 +214,8 @@ pub async fn initial_load(
                     priority_tags_sorted: vec![],
                     dedicated_worker: None,
                     init_bash: load_init_bash_from_env(),
+                    periodic_script_bash: load_periodic_bash_script_from_env(),
+                    periodic_script_interval_seconds: load_periodic_bash_script_interval_from_env(),
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
@@ -1574,6 +1577,17 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                         tracing::error!("Error cleaning the cache: {e:#}");
                     }
                 }
+
+                if (*wc).periodic_script_bash != config.periodic_script_bash {
+                    tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
+                {
+                    tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
             }
             drop(wc);
 
@@ -1835,12 +1849,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             );
         }
 
-        let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&timeouts[..])
-            .fetch_all(db)
-            .await
-            .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-            .unwrap_or_default();
+        let jobs = sqlx::query_as::<_, QueuedJob>(
+            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+        )
+        .bind(&timeouts[..])
+        .fetch_all(db)
+        .await
+        .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
+        .unwrap_or_default();
 
         jobs
     };
@@ -1848,7 +1864,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
+        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
@@ -1873,13 +1889,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let zombie_jobs_restart_limit_reached =
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&zombie_jobs_uuid_restart_limit_reached[..])
-            .fetch_all(db)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+    let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
+        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+    )
+    .bind(&zombie_jobs_uuid_restart_limit_reached[..])
+    .fetch_all(db)
+    .await
+    .ok()
+    .unwrap_or_else(|| vec![]);
 
     let timeouts = non_restartable_jobs
         .into_iter()

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.508.0"
+version = "1.512.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -28,11 +28,11 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
 ]
 
 [workspace.package]
-version = "1.508.0"
+version = "1.512.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 

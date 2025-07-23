@@ -771,7 +771,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .and_then(|x| x.retry.clone())
                             .unwrap_or_default();
 
-                        tracing::info!("update flow status on rety: {retry:#?} ");
+                        tracing::info!("update flow status on retry: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -1112,7 +1112,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             .flow_innermost_root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
-        tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
         let should_continue_flow = match success {
             _ if stop_early => false,
@@ -1161,7 +1160,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false => false,
         };
 
-        tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, "flow should continue: {should_continue_flow}");
 
         (
             should_continue_flow,
@@ -1813,6 +1812,14 @@ async fn push_next_flow_job(
             success: true,
             result: if flow.modules.is_empty() {
                 to_raw_value(arc_flow_job_args.as_ref())
+            } else if matches!(
+                status_module,
+                FlowStatusModule::Success { branch_chosen: Some(_), .. }
+            ) {
+                last_job_result
+                    .as_ref()
+                    .map(|x| x.as_ref().clone())
+                    .unwrap_or_else(|| to_raw_value(&json!("{}")))
             } else {
                 // it has to be an empty for loop event
                 serde_json::from_str("[]").unwrap()
@@ -2550,8 +2557,16 @@ async fn push_next_flow_job(
                 json!(FlowStatusModule::Success {
                     id: status_module.id(),
                     job: Uuid::nil(),
-                    flow_jobs: Some(vec![]),
-                    flow_jobs_success: Some(vec![]),
+                    flow_jobs: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
+                    flow_jobs_success: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
                     branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],

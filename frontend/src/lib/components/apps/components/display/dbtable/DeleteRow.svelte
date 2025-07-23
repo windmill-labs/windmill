@@ -55,14 +55,14 @@
 				undefined,
 				{ ...ndata },
 				{
-					done: (x) => {
+					onDone: (_x) => {
 						sendUserToast('Row deleted', false)
 						dispatch('deleted')
 					},
-					cancel: () => {
+					onCancel: () => {
 						sendUserToast('Error deleting row', true)
 					},
-					error: () => {
+					onError: () => {
 						sendUserToast('Error updating row', true)
 					}
 				}
