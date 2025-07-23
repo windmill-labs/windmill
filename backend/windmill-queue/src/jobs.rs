@@ -73,7 +73,7 @@ use backon::{BackoffBuilder, Retryable};
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 #[cfg(feature = "smtp")]
-use windmill_common::server::load_smtp_config;
+use windmill_common::{server::load_smtp_config, email_oss::send_email_html};
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
