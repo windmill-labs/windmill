@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 
 use serde_json::json;
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
+use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use rustpython_parser::{
     ast::{
@@ -226,7 +226,7 @@ fn parse_typ(id: &str) -> Typ {
         "float" => Typ::Float,
         "int" => Typ::Int,
         "bool" => Typ::Bool,
-        "dict" => Typ::Object(vec![]),
+        "dict" => Typ::Object(ObjectType::new(None, Some(vec![]))),
         "list" => Typ::List(Box::new(Typ::Unknown)),
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,

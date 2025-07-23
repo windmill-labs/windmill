@@ -30,3 +30,6 @@ popd
 
 pushd "pkg-nu" && npm publish ${args}
 popd
+
+pushd "pkg-java" && npm publish ${args}
+popd

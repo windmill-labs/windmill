@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use nu_parser::lex;
 
 use serde_json::{json, Value};
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     let (tokens, ..) = lex(code.as_bytes(), 0, &[], &[], true);
@@ -162,8 +162,8 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             "int" => Typ::Int,
             "float" => Typ::Float,
             "number" => Typ::Float,
-            "record" => Typ::Object(vec![]),
-            "table" => Typ::List(Box::new(Typ::Object(vec![]))),
+            "record" => Typ::Object(ObjectType::new(None, Some(vec![]))),
+            "table" => Typ::List(Box::new(Typ::Object(ObjectType::new(None, Some(vec![]))))),
             "nothing" => Typ::Unknown,
             // TODO: needs additional work on literal parsing
             // "binary" => Typ::Bytes,
