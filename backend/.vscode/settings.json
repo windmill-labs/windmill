@@ -12,6 +12,11 @@
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
   ],
-  "files.exclude": { "**/*ee.rs": false },
-  "search.exclude": { "**/*ee.rs": false }
+  "rust-analyzer.cargo.features": [
+    "enterprise",
+    "license",
+    "http_trigger",
+    "smtp",
+    "private"
+  ]
 }
