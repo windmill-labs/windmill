@@ -11,6 +11,8 @@ import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delet
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
 import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
+import type { DBSchema, SQLSchema } from '$lib/stores'
+import { stringifySchema } from './copilot/lib'
 
 export type DbInput =
 	| {
@@ -173,3 +175,45 @@ export function dbDeleteTableActionWithPreviewScript({
 		}
 	})
 }
+
+export async function getDucklakeSchema({
+	workspace,
+	ducklake
+}: {
+	workspace: string
+	ducklake: string
+}): Promise<DBSchema> {
+	let result = await runScriptAndPollResult({
+		workspace,
+		requestBody: {
+			language: 'duckdb',
+			content: `ATTACH 'ducklake://${ducklake}' AS __ducklake__; ${DUCKLAKE_GET_SCHEMA_QUERY}`,
+			args: {}
+		}
+	})
+	const stringified = Array.isArray(result) && result.length && result?.[0]?.['result']
+	if (!stringified) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	let schema: Omit<SQLSchema, 'stringified'> = {
+		schema: { public: JSON.parse(stringified) },
+		publicOnly: true,
+		lang: 'ducklake'
+	}
+	return { ...schema, stringified: stringifySchema(schema) }
+}
+
+const DUCKLAKE_GET_SCHEMA_QUERY = `
+SELECT json_group_object(table_name, table_data) AS result FROM (
+	SELECT
+		table_name,
+		json_group_object(
+			c.column_name,
+			json_object(
+				'type', c.data_type,
+				'default', c.column_default,
+				'required', c.is_nullable == 'NO'
+			)
+		) AS table_data
+	FROM information_schema.columns c
+	WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()
+	GROUP BY c.table_name
+)`

@@ -17,6 +17,7 @@
 	import {
 		dbDeleteTableActionWithPreviewScript,
 		dbTableOpsWithPreviewScripts,
+		getDucklakeSchema,
 		type DbInput
 	} from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
@@ -82,6 +83,11 @@
 					if (open) sendUserToast(message, true)
 				}
 			)
+		} else if (input.type == 'ducklake') {
+			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+				workspace: $workspaceStore!,
+				ducklake: input.ducklake
+			})
 		}
 
 		// avoid infinite loop on error due to the way getDbSchemas is implemented
