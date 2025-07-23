@@ -45,6 +45,9 @@
 		render?: boolean
 		onJobDone?: () => void
 		upToId?: string | undefined
+		customUi?: {
+			tagLabel?: string | undefined
+		}
 	}
 
 	let {
@@ -568,6 +571,7 @@
 					bind:rightColumnSelect
 					bind:isOwner
 					{render}
+					customUi={customUi}
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>

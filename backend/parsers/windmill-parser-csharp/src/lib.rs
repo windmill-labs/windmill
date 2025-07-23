@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use tree_sitter::Node;
 use windmill_parser::Arg;
 use windmill_parser::MainArgSignature;
-use windmill_parser::Typ;
+use windmill_parser::{ObjectType, Typ};
 
 #[derive(Debug)]
 pub struct CsharpMainSigMeta {
@@ -112,7 +112,7 @@ fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<Typ> {
                 Ok("double") | Ok("System.Double") => Ok(Typ::Float),
                 Ok("bool") | Ok("System.Boolean") => Ok(Typ::Bool),
                 Ok("decimal") | Ok("System.Decimal") => Ok(Typ::Float),
-                Ok("object") => Ok(Typ::Object(vec![])), // TODO: Complete the object type
+                Ok("object") => Ok(Typ::Object(ObjectType::new(None, Some(vec![])))), // TODO: Complete the object type
                 Ok(s) => Err(anyhow!("Unknown type `{s}`")),
                 Err(e) => Err(anyhow!("Error getting type name: {}", e)),
             }

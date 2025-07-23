@@ -87,6 +87,9 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		customUi?: {
+			tagLabel?: string | undefined
+		}
 	}
 
 	let {
@@ -115,7 +118,8 @@
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = writable({}),
-		localDurationStatuses = writable({})
+		localDurationStatuses = writable({}),
+		customUi
 	}: Props = $props()
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
@@ -1336,6 +1340,7 @@
 
 									{#if selectedNode == 'end'}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={job?.id}
 											filename={job.id}
@@ -1411,6 +1416,7 @@
 											</div>
 										{/if}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
