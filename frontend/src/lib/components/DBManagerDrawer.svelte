@@ -106,30 +106,21 @@
 	let cachedColDefs: Record<string, TableMetadata> = {}
 	let cachedLastRefreshCount = 0
 
-	async function getColDefs(tableKey: string) {
-		if (input?.type != 'database') return []
-
+	async function getColDefs(tableKey: string): Promise<TableMetadata> {
 		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
 		cachedLastRefreshCount = refreshCount
 
 		if (cachedColDefs[tableKey]) return cachedColDefs[tableKey]
+		if (!input) return []
 
 		try {
-			cachedColDefs =
-				(await loadAllTablesMetaData(
-					'$res:' + input.resourcePath,
-					$workspaceStore,
-					input.resourceType
-				)) ?? cachedColDefs
+			cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
 			return cachedColDefs[tableKey]
 		} catch (e) {
+			if (input?.type == 'ducklake')
+				throw 'Impossible that loadAllTablesMetaData fails for Ducklake'
 			// Query is not implemented for all dbs, need a fallback
-			const result = await loadTableMetaData(
-				'$res:' + input.resourcePath,
-				$workspaceStore,
-				tableKey,
-				input.resourceType
-			)
+			const result = await loadTableMetaData(input, $workspaceStore, tableKey)
 
 			if (result) cachedColDefs[tableKey] = result
 			return result ?? []

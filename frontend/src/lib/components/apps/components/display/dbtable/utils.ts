@@ -9,6 +9,7 @@ import {
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+import type { DbInput } from '$lib/components/dbOps'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -54,22 +55,21 @@ export type ColumnDef = {
 } & ColumnMetadata
 
 export async function loadTableMetaData(
-	resource: string,
+	input: DbInput,
 	workspace: string | undefined,
-	table: string | undefined,
-	resourceType: string
+	table: string | undefined
 ): Promise<TableMetadata | undefined> {
-	if (!resource || !table || !workspace) {
-		return undefined
-	}
+	if (!input || !table || !workspace) return undefined
+
+	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
+	let content = await makeLoadTableMetaDataQuery(input, workspace, table)
+
 	const job = await JobService.runScriptPreview({
 		workspace: workspace,
 		requestBody: {
-			language: getLanguageByResourceType(resourceType),
-			content: await makeLoadTableMetaDataQuery(resource, workspace, table, resourceType),
-			args: {
-				database: resource
-			}
+			language,
+			content,
+			args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
 		}
 	})
 
@@ -87,7 +87,7 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				if (resourceType === 'ms_sql_server') {
+				if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
 					return testResult.result[0].map(lowercaseKeys)
 				} else {
 					return testResult.result.map(lowercaseKeys)
@@ -105,26 +105,23 @@ export async function loadTableMetaData(
 }
 
 export async function loadAllTablesMetaData(
-	resource: string,
 	workspace: string | undefined,
-	resourceType: string
+	input: DbInput
 ): Promise<Record<string, TableMetadata> | undefined> {
-	if (!resource || !workspace) {
-		return undefined
-	}
+	if (!input || !workspace) return undefined
+
+	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
 
 	try {
 		let result = (await runScriptAndPollResult({
 			workspace: workspace,
 			requestBody: {
-				language: getLanguageByResourceType(resourceType),
-				content: await makeLoadTableMetaDataQuery(resource, workspace, undefined, resourceType),
-				args: {
-					database: resource
-				}
+				language,
+				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
+				args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
 			}
 		})) as ({ table_name: string; schema_name?: string } & object)[]
-		if (resourceType === 'ms_sql_server') {
+		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
 			result = (result as any)[0]
 		}
 		const map: Record<string, TableMetadata> = {}
@@ -144,15 +141,27 @@ export async function loadAllTablesMetaData(
 }
 
 async function makeLoadTableMetaDataQuery(
-	resource: string,
+	input: DbInput,
 	workspace: string,
-	table: string | undefined,
-	resourceType: string
+	table: string | undefined
 ): Promise<string> {
-	if (resourceType === 'mysql') {
+	if (input.type === 'ducklake') {
+		return `ATTACH 'ducklake://main' AS __ducklake__;
+		SELECT
+			COLUMN_NAME as field,
+			DATA_TYPE as DataType,
+			COLUMN_DEFAULT as DefaultValue,
+			false as IsPrimaryKey,
+			false as IsIdentity,
+			IS_NULLABLE as IsNullable,
+			false as IsEnum,
+			TABLE_NAME as table_name
+		FROM information_schema.columns c
+		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`
+	} else if (input.resourceType === 'mysql') {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
-			path: resource.split(':')[1]
+			path: input.resourcePath
 		})) as any
 		return `
 	SELECT 
@@ -184,7 +193,7 @@ async function makeLoadTableMetaDataQuery(
 			TABLE_NAME,
 			ORDINAL_POSITION;
 	`
-	} else if (resourceType === 'postgresql') {
+	} else if (input.resourceType === 'postgresql') {
 		return `
 	SELECT 
 		a.attname as field,
@@ -231,7 +240,7 @@ async function makeLoadTableMetaDataQuery(
 	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
 	
 	`
-	} else if (resourceType === 'ms_sql_server') {
+	} else if (input.resourceType === 'ms_sql_server') {
 		return `
 		SELECT 
     COLUMN_NAME as field,
@@ -257,7 +266,10 @@ WHERE
 ORDER BY
     ORDINAL_POSITION;
 	`
-	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
+	} else if (
+		input.resourceType === 'snowflake' ||
+		(input.resourceType as any) === 'snowflake_oauth'
+	) {
 		return `
 		select COLUMN_NAME as field,
 		DATA_TYPE as DataType,
@@ -282,7 +294,7 @@ ORDER BY
 	}
 	order by ORDINAL_POSITION;
 	`
-	} else if (resourceType === 'bigquery') {
+	} else if (input.resourceType === 'bigquery') {
 		// TODO: find a solution for this (query uses hardcoded dataset name)
 		if (!table) throw new Error('Table name is required for BigQuery')
 		return `SELECT 
@@ -302,7 +314,7 @@ WHERE
     c.TABLE_NAME = '${table.split('.')[1]}'
 order by c.ORDINAL_POSITION;`
 	} else {
-		throw new Error('Unsupported database type:' + resourceType)
+		throw new Error('Unsupported database type:' + input.resourceType)
 	}
 }
 
