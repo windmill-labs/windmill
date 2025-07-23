@@ -1,10 +1,11 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc};
+use std::{collections::HashMap, fs::read_to_string, process::Stdio, str::FromStr, sync::Arc};
 
+use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use tokio::{
     fs::{remove_dir_all, File},
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
 use uuid::Uuid;
@@ -24,12 +25,14 @@ use crate::{
         create_args_and_out_file, par_install_language_dependencies, read_result,
         start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    handle_child, DISABLE_NSJAIL, PATH_ENV, RUBY_CACHE_DIR,
+    handle_child::{self, handle_child},
+    DISABLE_NSJAIL, PATH_ENV, RUBY_CACHE_DIR,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref RUBY_PATH: String = std::env::var("RUBY_PATH").unwrap_or_else(|_| "/usr/bin/ruby".to_string());
     static ref BUNDLE_PATH: String = std::env::var("RUBY_BUNDLE_PATH").unwrap_or_else(|_| "/usr/bin/bundle".to_string());
+    static ref GEM_PATH: String = std::env::var("RUBY_GEM_PATH").unwrap_or_else(|_| "/usr/bin/gem".to_string());
 
     // static ref STOREPASS: String = std::env::var("JAVA_STOREPASS").unwrap_or("123456".into());
     // static ref TRUST_STORE_PATH: String = std::env::var("JAVA_TRUST_STORE_PATH").unwrap_or("/usr/local/share/ca-certificates/truststore.jks".into());
@@ -56,6 +59,7 @@ pub(crate) struct JobHandlerInput<'a> {
 pub async fn handle_ruby_job<'a>(
     mut args: JobHandlerInput<'a>,
 ) -> Result<Box<sqlx::types::JsonRawValue>, Error> {
+    // --- Prepare ---
     {
         create_args_and_out_file(&args.client, args.job, args.job_dir, args.conn).await?;
         File::create(format!("{}/main.rb", args.job_dir))
@@ -63,19 +67,16 @@ pub async fn handle_ruby_job<'a>(
             .write_all(&wrap(args.inner_content)?.into_bytes())
             .await?;
     }
-    let lockfile = resolve(
-        &args.job.id,
-        &args.inner_content,
-        &args.job_dir,
-        &args.conn,
-        &args.job.workspace_id,
-    )
-    .await?;
+    // --- Gen Lockfile ---
 
-    install(&mut args, lockfile).await?;
-    run(&mut args).await?;
-    // --- Prepare ---
-    // todo!()
+    let lockfile = resolve(&mut args).await?;
+
+    // --- Install ---
+    let rubylib = install(&mut args, lockfile).await?;
+    // --- Execute ---
+    {
+        run(&mut args, rubylib).await?;
+    }
     // --- Retrieve results ---
     {
         read_result(&args.job_dir).await
@@ -83,25 +84,39 @@ pub async fn handle_ruby_job<'a>(
     // Err(anyhow::anyhow!("todo").into())
 }
 pub async fn resolve<'a>(
-    job_id: &Uuid,
-    code: &str,
-    job_dir: &str,
-    conn: &Connection,
-    w_id: &str,
+    JobHandlerInput {
+        occupancy_metrics,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        job,
+        conn,
+        job_dir,
+        shared_mount,
+        client,
+        envs,
+        base_internal_url,
+        parent_runnable_path,
+        inner_content,
+        ..
+    }: &mut JobHandlerInput<'a>,
 ) -> Result<String, Error> {
-    let deps = "# frozen_string_literal: true
-source \"https://rubygems.org\"\n"
-        .to_owned()
-        + windmill_parser_ruby::parse_ruby_requirements(code)?
-            .into_iter()
-            .map(|im| format!("gem {im}"))
-            .join("\n")
-            .as_str();
+    //     let deps = "# frozen_string_literal: true
+    // source \"https://index.ruby-china.com\"\n"
+    //         .to_owned()
+    //         + windmill_parser_ruby::parse_ruby_requirements(&inner_content)?
+    //             .into_iter()
+    //             .map(|im| format!("gem {im}"))
+    //             .join("\n")
+    //             .as_str();
+    let gemfile = windmill_parser_ruby::parse_ruby_requirements(&inner_content)?;
+
+    dbg!(&gemfile);
 
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
-    file.write_all(&deps.as_bytes()).await?;
+    file.write_all(&gemfile.as_bytes()).await?;
 
-    let req_hash = format!("ruby-{}", calculate_hash(&deps));
+    let req_hash = format!("ruby-{}", calculate_hash(&gemfile));
     if let Some(db) = conn.as_sql() {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -115,8 +130,8 @@ source \"https://rubygems.org\"\n"
     }
     let lock = {
         append_logs(
-            job_id,
-            w_id,
+            &job.id,
+            &job.workspace_id,
             format!("\n--- RESOLVING LOCKFILE ---\n"),
             conn,
         )
@@ -127,7 +142,8 @@ source \"https://rubygems.org\"\n"
         } else {
             BUNDLE_PATH.as_str()
         });
-        cmd.env_clear()
+        cmd
+            // .env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
             // .envs(PROXY_ENVS.clone())
@@ -158,10 +174,12 @@ source \"https://rubygems.org\"\n"
         //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
         //     ]);
         // }
-        cmd.args(&["lock", "--print"])
-            // .args(&get_repos().await)
-            // .args(&deps.split("\n").collect_vec())
+        cmd.args(&["lock"])
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // .args(&get_repos().await)
+        // .args(&deps.split("\n").collect_vec())
+        // .stderr(Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -172,15 +190,34 @@ source \"https://rubygems.org\"\n"
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let output = cmd.output().await?;
-        // Check if the command was successful
-        if output.status.success() {
-            String::from_utf8(output.stdout).expect("Failed to convert output to String")
-        } else {
-            let stderr =
-                String::from_utf8(output.stderr).expect("Failed to convert error output to String");
-            return Err(error::Error::internal_err(stderr));
-        }
+        let child = start_child_process(cmd, "bundle").await?;
+
+        // let mut stdout = String::new();
+
+        handle_child::handle_child(
+            &job.id,
+            conn,
+            mem_peak,
+            canceled_by,
+            child,
+            !*DISABLE_NSJAIL,
+            worker_name,
+            &job.workspace_id,
+            "bundle",
+            None,
+            false,
+            &mut None,
+            // Some(&mut stdout),
+            None,
+        )
+        .await?;
+
+        // stdout
+        let path_lock = format!("{job_dir}/Gemfile.lock");
+        let mut file = File::open(path_lock).await?;
+        let mut req_content = "".to_string();
+        file.read_to_string(&mut req_content).await?;
+        req_content
     };
 
     if let Some(db) = conn.as_sql() {
@@ -191,7 +228,7 @@ source \"https://rubygems.org\"\n"
         ).fetch_optional(db).await?;
     }
 
-    append_logs(job_id, w_id, format!("\n{}", &lock), conn).await;
+    append_logs(&job.id, &job.workspace_id, format!("\n{}", &lock), conn).await;
     Ok(lock)
 }
 
@@ -199,99 +236,240 @@ async fn install<'a>(
     JobHandlerInput { worker_name, job, conn, job_dir, .. }: &mut JobHandlerInput<'a>,
     lockfile: String,
 ) -> Result<String, Error> {
-    // lazy_static::lazy_static! {
-    //     static ref LOCKED_REQ: regex::Regex = regex::Regex::new(r"\b(\w*)\b\s\((.*)\)").unwrap();
-    // }
-    //
-    let mut file = File::create(job_dir.to_owned() + "/Gemfile.lock").await?;
-    file.write_all(&lockfile.as_bytes()).await?;
-
-    let mut deps = vec![];
-    if let Some((mut pos, _)) = lockfile.lines().find_position(|x| x.starts_with("GEM")) {
-        let prefix = lockfile
-            .lines()
-            .enumerate()
-            .skip(pos)
-            .map_while(|(i, mut x)| {
-                pos = i;
-                if x == "  specs:" {
-                    None
-                } else {
-                    if x.len() > 1 && x.ends_with('/') {
-                        x = &x[0..x.len() - 1];
-                    }
-                    Some(
-                        x.replace(" ", "")
-                            .replace("https://", "")
-                            .replace(":", "=")
-                            .replace("/", "_"),
-                    )
-                }
-            })
-            .collect_vec()
-            .join("@");
-
-        for x in lockfile.lines().skip(pos + 1).take_while(|x| !x.is_empty()) {
-            // Gemfile.lock:
-            //
-            // GEM
-            //   specs:
-            // ____activesupport (8.0.2) - Yes
-            // 1234__base64              - Ignore
-            // 123456
-            //
-            // Entries we actually want to include do not start with 6 whitespaces
-            if !x.starts_with(" ".repeat(6).as_str()) {
-                // Final format:
-                // GIT@remote=github.com-fazibear-colorize@revision=4498bb697dbfab7265b09d121c2ef5fc8d9c4c45@tag=v1.0.0@colorize=1.0.0
-                // GEM@remote=rubygems.org@activesupport=8.0.2
-                let path = format!(
-                    "{RUBY_CACHE_DIR}/gems/{}@{}",
-                    prefix.clone(),
-                    x.trim_start().replace(" (", "=").replace(')', "").as_str()
-                );
-                deps.push(RequiredDependency {
-                    path,
-                    custom_name: None,
-                    short_name: Some(x.into()),
-                });
-            }
-        }
+    #[derive(Debug, Clone)]
+    enum CurrentSource {
+        GIT { remote: Option<String>, revision: Option<String> },
+        GEM { remote: Option<String> },
+        INIT,
     }
 
+    #[derive(Clone, Debug)]
+    struct CustomPayload {
+        source: CurrentSource,
+        version: String,
+        pkg: String,
+    }
+
+    let mut deps = vec![];
+    let mut current_source = CurrentSource::INIT;
+    'lock_lines: for (i, line) in lockfile.lines().enumerate() {
+        // Trimed line
+        let tl = line.trim_start();
+        if tl.starts_with("GIT") {
+            current_source = CurrentSource::GIT { remote: None, revision: None };
+            continue 'lock_lines;
+        } else if tl.starts_with("GEM") {
+            current_source = CurrentSource::GEM { remote: None };
+            continue 'lock_lines;
+        }
+
+        const REMOTE: &str = "remote:";
+        if line.contains(REMOTE) {
+            match &mut current_source {
+                CurrentSource::GIT { remote, .. } => remote.replace(tl.replace(REMOTE, "")),
+                CurrentSource::GEM { remote } => remote.replace(tl.replace(REMOTE, "")),
+                // TODO: Add more descriptive error
+                CurrentSource::INIT => return Err(anyhow!("Malformed Gemfile.lock").into()),
+            };
+            continue 'lock_lines;
+        }
+
+        const REVISION: &str = "revision:";
+        if line.contains(REVISION) {
+            if let CurrentSource::GIT { revision, .. } = &mut current_source {
+                revision.replace(tl.replace(REVISION, ""));
+            }
+            continue 'lock_lines;
+        }
+
+        // Check on untrimed line
+        if !line.starts_with("    ") || line.starts_with("      ") {
+            //               "1234"                      "123456"
+            // For example:
+            //
+            // GIT
+            //  remote: https://github.com/rails/rails.git
+            //  revision: 8cb4f8ceffe375f64052579cd7a580bfdaf36d61
+            //  specs:
+            //    actioncable (8.1.0.alpha)
+            //      actionpack (= 8.1.0.alpha)
+            //      activesupport (= 8.1.0.alpha)
+            //      nio4r (~> 2.0)
+            //      websocket-driver (>= 0.6.1)
+            //      zeitwerk (~> 2.6)
+            //    actionmailbox (8.1.0.alpha)
+            //      actionpack (= 8.1.0.alpha)
+            //      activejob (= 8.1.0.alpha)
+            //      activerecord (= 8.1.0.alpha)
+            //      activestorage (= 8.1.0.alpha)
+            //      activesupport (= 8.1.0.alpha)
+            //      mail (>= 2.8.0)
+            //    actionmailer (8.1.0.alpha)
+            //   ...
+            //
+            // In this snippet we only want actioncable, actionmailbox and actionmailer
+            //
+            // If it got the hit than that's not it, just skip
+            continue 'lock_lines;
+        }
+
+        // TODO: Test for safety
+        let buf = tl.replace(['(', ')'], "");
+        let &[pkg, version, ..] = buf.split_whitespace().collect_vec().as_slice() else {
+            todo!();
+        };
+
+        let custom_payload = CustomPayload {
+            source: current_source.clone(),
+            version: version.into(),
+            pkg: pkg.into(),
+        };
+
+        // Calculate hash based on source
+        // Obfuscation is essential because remote can include credentials
+        let mut hash = calculate_hash(&format!("{:?}", custom_payload.clone()));
+
+        // Use 32 characters which is 256 bits
+        hash.truncate(32);
+
+        // Final format:
+        // 123...zx-activesupport-8.0.2
+        // ^^^^^^^^ hash based on source and type (GEM or GIT)
+        let handle = format!("{}-{}-{}", hash, pkg, version);
+        let path = format!("{RUBY_CACHE_DIR}/gems/{}", &handle);
+
+        deps.push(dbg!(RequiredDependency {
+            path,
+            s3_handle: Some(handle),
+            short_name: Some(tl.to_owned()),
+            custom_payload,
+        }));
+    }
+
+    let rubylib = deps
+        .iter()
+        .map(|rd| {
+            format!(
+                "{}/gems/{}-{}/lib",
+                rd.path, rd.custom_payload.pkg, rd.custom_payload.version
+            )
+        })
+        .join(":");
+    // if let Some((mut pos, _)) = lockfile.lines().find_position(|x| x.starts_with("GEM")) {
+    //     let prefix = lockfile
+    //         .lines()
+    //         .enumerate()
+    //         .skip(pos)
+    //         .map_while(|(i, mut x)| {
+    //             pos = i;
+    //             if x == "  specs:" {
+    //                 None
+    //             } else {
+    //                 if x.len() > 1 && x.ends_with('/') {
+    //                     x = &x[0..x.len() - 1];
+    //                 }
+    //                 Some(
+    //                     x.replace(" ", "")
+    //                         .replace("https://", "")
+    //                         .replace(":", "=")
+    //                         .replace("/", "_"),
+    //                 )
+    //             }
+    //         })
+    //         .collect_vec()
+    //         .join("@");
+
+    //     // dbg!(&prefix);
+    //     for x in lockfile.lines().skip(pos + 1).take_while(|x| !x.is_empty()) {
+    //         // Gemfile.lock:
+    //         //
+    //         // GEM
+    //         //   specs:
+    //         // ____activesupport (8.0.2) - Yes
+    //         // 1234__base64              - Ignore
+    //         // 123456
+    //         //
+    //         // Entries we actually want to include do not start with 6 whitespaces
+    //         if !x.starts_with(" ".repeat(6).as_str()) {
+    //             let mut hash = calculate_hash(&prefix);
+    //             hash.truncate(16); // Use 16 characters which is 128 bits
+
+    //             // Final format:
+    //             // 123...zx-activesupport-8.0.2
+    //             // ^^^^^^^^ hash based on source and type (GEM or GIT)
+    //             // Obfuscation is essential because remote can include credentials
+    //             let path = format!(
+    //                 "{RUBY_CACHE_DIR}/gems/{}-{}",
+    //                 hash,
+    //                 x.trim_start().replace(" (", "-").replace(')', "").as_str()
+    //             );
+
+    //             dbg!(&path);
+    //             // let path = format!(
+    //             //     "{RUBY_CACHE_DIR}/gems/{}@{}",
+    //             //     prefix.clone(),
+    //             //     x.trim_start().replace(" (", "=").replace(')', "").as_str()
+    //             // );
+    //             deps.push(RequiredDependency {
+    //                 custom_payload: (path.clone(),),
+    //                 path,
+    //                 custom_name: None,
+    //                 short_name: Some(x.into()),
+    //                 // custom_payload: (),
+    //             });
+    //         }
+    //     }
+    // }
+
     let job_dir = job_dir.to_owned();
-    let tmp_install_dir = format!("{RUBY_CACHE_DIR}/tmp-install-{}", Uuid::new_v4());
+    // let tmp_install_dir = format!("{RUBY_CACHE_DIR}/tmp-install-{}", Uuid::new_v4());
     // let fetch_dir2 = fetch_dir.clone();
     par_install_language_dependencies(
         deps,
-        "bundle (ruby)",
-        "bundle (ruby)",
+        "ruby",
+        "gem",
         false,
         *RUBY_CONCURRENT_DOWNLOADS,
         false,
-        crate::common::InstallStrategy::AllAtOnce(Arc::new(move |dependencies| {
+        crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
             let mut cmd = Command::new(if cfg!(windows) {
-                "bundle"
+                "gem"
             } else {
-                BUNDLE_PATH.as_str()
+                GEM_PATH.as_str()
             });
-            // let artifacts = dependencies
-            //     .into_iter()
-            //     .map(|e| {
-            //         e.custom_name.ok_or(anyhow::anyhow!(
-            //             "Internal Error: Artifact name should be Some!"
-            //         ))
-            //     })
-            //     .collect::<anyhow::Result<Vec<String>>>()?;
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
                 // .envs(PROXY_ENVS.clone())
             ;
 
-            cmd.args(&["install", "--path", tmp_install_dir.as_str(), "--no-cache"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+            cmd.args(&[
+                "install",
+                &dependency.custom_payload.pkg,
+                "--version",
+                &dependency.custom_payload.version,
+                "--install-dir",
+                &dependency.path,
+                // Disable transitive dependencies!
+                "--ignore-dependencies",
+                "--no-document",
+                // Make it output minimal info
+                "--quiet",
+                "--silent",
+                // Do not use default sources
+                "--clear-sources",
+                // Specify the one from lockfile
+                "--source",
+                match dependency.custom_payload.source {
+                    CurrentSource::GIT { remote, revision } => todo!(),
+                    CurrentSource::GEM { remote } => remote.unwrap(),
+                    CurrentSource::INIT => todo!(),
+                }
+                .trim(),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
             #[cfg(windows)]
             {
                 cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
@@ -305,45 +483,13 @@ async fn install<'a>(
             Ok(cmd)
         })),
         async move |_| Ok(()),
-        // async move |_| {
-        //     move_to_repository(&fetch_dir2, 0).await?;
-        //     // remove_dir_all(&fetch_dir2).await?;
-        //     #[async_recursion]
-        //     async fn move_to_repository(path: &str, depth: u8) -> anyhow::Result<()> {
-        //         if depth == 3 {
-        //             copy_dir_recursively(
-        //                 &PathBuf::from(path),
-        //                 &PathBuf::from(JAVA_REPOSITORY_DIR),
-        //             )?;
-
-        //             return Ok(());
-        //         }
-        //         let mut entries = tokio::fs::read_dir(path).await?;
-        //         loop {
-        //             let Some(entry) = entries.next_entry().await? else {
-        //                 break Ok(());
-        //             };
-
-        //             let path = entry
-        //                 .path()
-        //                 .to_str()
-        //                 .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
-        //                 .to_owned();
-
-        //             move_to_repository(&path, depth + 1).await?;
-        //         }
-        //     }
-        // Ok(())
-        // },
         &job.id,
         &job.workspace_id,
         worker_name,
         conn,
     )
     .await?;
-    // todo!()
-    Ok("".into())
-    // Ok(classpath)
+    Ok(rubylib)
 }
 
 async fn run<'a>(
@@ -362,6 +508,7 @@ async fn run<'a>(
         parent_runnable_path,
         ..
     }: &mut JobHandlerInput<'a>,
+    rubylib: String,
 ) -> Result<(), Error> {
     // let reserved_variables =
     //     get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
@@ -432,7 +579,7 @@ async fn run<'a>(
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("\n--- JAVA CODE EXECUTION ---\n"),
+        format!("\n--- RUBY CODE EXECUTION ---\n"),
         conn,
     )
     .await;
@@ -445,6 +592,7 @@ async fn run<'a>(
     cmd.env_clear()
         .current_dir(job_dir.to_owned())
         .env("PATH", PATH_ENV.as_str())
+        .env("RUBYLIB", rubylib.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .envs(envs);
     // .envs(reserved_variables);
