@@ -127,19 +127,8 @@ pub async fn do_duckdb(
                         )
                         .await?;
 
-                    let uri = match (
-                        &duckdb_conn_settings.s3_bucket,
-                        &duckdb_conn_settings.azure_container_path,
-                    ) {
-                        (Some(s3_bucket), None) => format!("s3://{}/{}", s3_bucket, &s3_obj.s3),
-                        (None, Some(az_container)) => format!("{}/{}", az_container, &s3_obj.s3),
-                        _ => {
-                            return Err(Error::ExecutionErr(
-                                "S3Object must have either s3_bucket or azure_container_path"
-                                    .to_string(),
-                            ));
-                        }
-                    };
+                    let uri =
+                        duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, &s3_obj.s3)?;
                     m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
                     used_storages.insert(s3_obj.storage, duckdb_conn_settings);
                 } else {
