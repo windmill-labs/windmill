@@ -99,9 +99,6 @@ pub async fn do_duckdb(
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
-        // Prevent interpolate_named_args from detecting argument identifiers in the signature for
-        // the first query block
-        let query = trunc_sig(query);
 
         let (_query_with_transformed_s3_uris, mut used_storages) =
             transform_s3_uris(query, client).await?;
@@ -708,13 +705,6 @@ fn interpolate_named_args<'a>(
         query = query.replace(&pat, &format!("${}", values.len()));
     }
     (query, values)
-}
-
-fn trunc_sig(query: &str) -> &str {
-    let idx = query.rfind("-- $").unwrap_or(query.len());
-    // find next \n starting from idx and return everything after it
-    let idx = query[idx..].find('\n').map(|i| i + idx).unwrap_or(0);
-    &query[idx..]
 }
 
 // input should contain a single statement. remove all comments before and after it
