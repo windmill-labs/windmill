@@ -61,6 +61,8 @@
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import ExploreAssetButton from '../ExploreAssetButton.svelte'
+	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
@@ -82,7 +84,11 @@
 		})
 	}
 	function removeDucklake(index: number) {
+		let d = ducklakeSettings.ducklakes[index]
 		ducklakeSettings.ducklakes.splice(index, 1)
+		sendUserToast(`Ducklake ${d.name} removed`, false, [
+			{ label: 'Undo', callback: () => ducklakeSettings.ducklakes.splice(index, 0, d) }
+		])
 	}
 
 	async function onSave() {
@@ -108,7 +114,9 @@
 		secondaryStorageNames.refresh()
 	})
 
-	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '']
+	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', '']
+
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -174,6 +182,9 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
+					<ExploreAssetButton asset={{ kind: 'ducklake', path: ducklake.name }} {dbManagerDrawer} />
+				</Cell>
+				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDucklake(ducklakeIndex)} />
 				</Cell>
 			</Row>
@@ -191,3 +202,4 @@
 </DataTable>
 
 <Button wrapperClasses="mt-6 max-w-fit" on:click={onSave}>Save ducklake settings</Button>
+<DbManagerDrawer bind:this={dbManagerDrawer} />

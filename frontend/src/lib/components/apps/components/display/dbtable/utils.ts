@@ -656,7 +656,14 @@ export function formatGraphqlSchema(schema: IntrospectionQuery): string {
 }
 
 export type DbType = (typeof dbTypes)[number]
-export const dbTypes = ['mysql', 'ms_sql_server', 'postgresql', 'snowflake', 'bigquery'] as const
+export const dbTypes = [
+	'mysql',
+	'ms_sql_server',
+	'postgresql',
+	'snowflake',
+	'bigquery',
+	'duckdb'
+] as const
 export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
@@ -675,6 +682,8 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
 				case 'bigquery':
 					return `\`${column?.field}\`` // BigQuery uses backticks
+				case 'duckdb':
+					return `"${column?.field}"` // DuckDB uses double quotes for identifiers
 				default:
 					throw new Error('Unsupported database type')
 			}

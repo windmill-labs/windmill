@@ -12,6 +12,14 @@ import { makeInsertQuery } from './apps/components/display/dbtable/queries/inser
 import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 
+export type DbInput =
+	| {
+			type: 'database'
+			resourceType: DbType
+			resourcePath: string
+	  }
+	| { type: 'ducklake'; ducklake: string }
+
 export type IDbTableOps = {
 	resourcePath: string
 	resourceType: DbType
@@ -36,30 +44,29 @@ export type IDbTableOps = {
 }
 
 export function dbTableOpsWithPreviewScripts({
-	resourcePath,
-	resourceType,
+	input,
 	tableKey,
 	colDefs,
 	workspace
 }: {
-	resourcePath: string
-	resourceType: DbType
+	input: DbInput
 	tableKey: string
 	colDefs: ColumnDef[]
 	workspace: string
 }): IDbTableOps {
+	if (input.type !== 'database') throw new Error('Unimplemented')
 	return {
-		resourcePath,
-		resourceType,
+		resourcePath: input.resourcePath,
+		resourceType: input.resourceType,
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			const countQuery = makeCountQuery(resourceType, tableKey, undefined, colDefs)
+			const countQuery = makeCountQuery(input.resourceType, tableKey, undefined, colDefs)
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + resourcePath, quicksearch },
-					language: getLanguageByResourceType(resourceType),
+					args: { database: '$res:' + input.resourcePath, quicksearch },
+					language: getLanguageByResourceType(input.resourceType),
 					content: countQuery
 				}
 			})
@@ -67,56 +74,56 @@ export function dbTableOpsWithPreviewScripts({
 			return count
 		},
 		getRows: async (params) => {
-			const query = makeSelectQuery(tableKey, colDefs, undefined, resourceType as DbType)
+			const query = makeSelectQuery(tableKey, colDefs, undefined, input.resourceType as DbType)
 			let items = (await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + resourcePath, ...params },
-					language: getLanguageByResourceType(resourceType),
+					args: { database: '$res:' + input.resourcePath, ...params },
+					language: getLanguageByResourceType(input.resourceType),
 					content: query
 				}
 			})) as unknown[]
-			if (resourceType === 'ms_sql_server') items = items?.[0] as unknown[]
+			if (input.resourceType === 'ms_sql_server') items = items?.[0] as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
 			return items
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
-			const updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, resourceType)
+			const updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, input.resourceType)
 
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: {
-						database: '$res:' + resourcePath,
+						database: '$res:' + input.resourcePath,
 						value_to_update: newValue,
 						...values
 					},
-					language: getLanguageByResourceType(resourceType),
+					language: getLanguageByResourceType(input.resourceType),
 					content: updateQuery
 				}
 			})
 		},
 		onDelete: async ({ values }) => {
-			const deleteQuery = makeDeleteQuery(tableKey, colDefs, resourceType)
+			const deleteQuery = makeDeleteQuery(tableKey, colDefs, input.resourceType)
 
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + resourcePath, ...values },
-					language: getLanguageByResourceType(resourceType),
+					args: { database: '$res:' + input.resourcePath, ...values },
+					language: getLanguageByResourceType(input.resourceType),
 					content: deleteQuery
 				}
 			})
 		},
 		onInsert: async ({ values }) => {
-			const insertQuery = makeInsertQuery(tableKey, colDefs, resourceType)
+			const insertQuery = makeInsertQuery(tableKey, colDefs, input.resourceType)
 			runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + resourcePath, ...values },
-					language: getLanguageByResourceType(resourceType),
+					args: { database: '$res:' + input.resourcePath, ...values },
+					language: getLanguageByResourceType(input.resourceType),
 					content: insertQuery
 				}
 			})
@@ -140,13 +147,12 @@ export type DbTableActionFactory = (params: {
 
 export function dbDeleteTableActionWithPreviewScript({
 	workspace,
-	resourcePath,
-	resourceType
+	input
 }: {
 	workspace: string
-	resourcePath: string
-	resourceType: DbType
+	input: DbInput
 }): DbTableActionFactory {
+	if (input.type !== 'database') throw new Error('Unimplemented')
 	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
 		displayName: 'Delete',
@@ -154,12 +160,12 @@ export function dbDeleteTableActionWithPreviewScript({
 		icon: Trash2,
 		successText: `Table '${tableKey}' deleted successfully`,
 		action: async () => {
-			const deleteQuery = makeDeleteTableQuery(tableKey, resourceType)
+			const deleteQuery = makeDeleteTableQuery(tableKey, input.resourceType)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + resourcePath },
-					language: getLanguageByResourceType(resourceType),
+					args: { database: '$res:' + input.resourcePath },
+					language: getLanguageByResourceType(input.resourceType),
 					content: deleteQuery
 				}
 			})

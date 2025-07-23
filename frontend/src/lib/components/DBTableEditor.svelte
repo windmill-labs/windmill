@@ -40,7 +40,7 @@
 	export type DBTableEditorProps = {
 		onConfirm: (values: CreateTableValues) => void | Promise<void>
 		previewSql?: (values: CreateTableValues) => string
-		resourceType: DbType
+		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
 	}
@@ -74,19 +74,19 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 
-	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
-		$props()
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
 
-	const columnTypes = DB_TYPES[resourceType]
+	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
 		{
 			postgresql: 'VARCHAR',
 			snowflake: 'varchar',
 			ms_sql_server: 'varchar',
 			bigquery: 'string',
-			mysql: 'varchar'
+			mysql: 'varchar',
+			duckdb: 'string'
 		} satisfies Record<DbType, string>
-	)[resourceType]
+	)[dbType]
 
 	const values: CreateTableValues = $state({
 		name: '',
@@ -258,8 +258,7 @@
 									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 										value: o,
 										label:
-											(currentSchema && o.startsWith(currentSchema)) ||
-											!dbSupportsSchemas(resourceType)
+											(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
 												? o.split('.')[1]
 												: o
 									}))}

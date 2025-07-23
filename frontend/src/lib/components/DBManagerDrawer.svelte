@@ -11,11 +11,14 @@
 		getLanguageByResourceType,
 		loadAllTablesMetaData,
 		loadTableMetaData,
-		type DbType,
 		type TableMetadata
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
-	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
+	import {
+		dbDeleteTableActionWithPreviewScript,
+		dbTableOpsWithPreviewScripts,
+		type DbInput
+	} from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -23,25 +26,28 @@
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack } from 'svelte'
 
-	let resourceType: DbType | undefined = $state(undefined)
-	let resourcePath: string | undefined = $state(undefined)
-	let open = $derived(resourcePath && resourceType)
+	let input: DbInput | undefined = $state()
+	let open = $derived(!!input)
 
-	export function openDrawer(_resourceType: DbType, _resourcePath: string) {
-		resourceType = _resourceType
-		resourcePath = _resourcePath
+	export function openDrawer(nInput: DbInput) {
+		input = nInput
 		getSchema()
 	}
 	export function closeDrawer() {
-		resourceType = undefined
-		resourcePath = undefined
+		input = undefined
 		refreshCount = 0
 		refreshing = false
 	}
 
-	let dbSchema: DBSchema | undefined = $derived(
-		resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
-	)
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+	function getDbSchemasPath(input: DbInput): string {
+		switch (input.type) {
+			case 'database':
+				return input.resourcePath
+			case 'ducklake':
+				return 'ducklake://' + input.ducklake
+		}
+	}
 
 	// `refreshCount` is a derived state. `refreshing` is the source of truth
 	let refreshCount = $state(0)
@@ -61,26 +67,27 @@
 	})
 
 	async function getSchema() {
-		if (!resourcePath || !resourceType || ($dbSchemas[resourcePath] && !refreshing)) return
-		try {
-			const oldDbSchema = $dbSchemas[resourcePath]
+		if (!input) return
+		const dbSchemasPath = getDbSchemasPath(input)
+		if ($dbSchemas[dbSchemasPath] && !refreshing) return
+
+		const oldDbSchema = $dbSchemas[dbSchemasPath]
+		if (input.type == 'database') {
 			await getDbSchemas(
-				resourceType,
-				resourcePath,
+				input.resourceType,
+				input.resourcePath,
 				$workspaceStore,
 				$dbSchemas,
 				(message: string) => {
 					if (open) sendUserToast(message, true)
 				}
 			)
-			// avoid infinite loop on error due to the way getDbSchemas is implemented
-			// and relying on an assignement side effect
-			if (oldDbSchema !== $dbSchemas[resourcePath]) $dbSchemas = $dbSchemas
-		} catch (e) {
-			console.error(e)
-		} finally {
-			refreshing = false
 		}
+
+		// avoid infinite loop on error due to the way getDbSchemas is implemented
+		// and relying on an assignement side effect
+		if (oldDbSchema !== $dbSchemas[dbSchemasPath]) $dbSchemas = $dbSchemas
+		refreshing = false
 	}
 
 	let windowWidth = $state(window.innerWidth)
@@ -94,24 +101,28 @@
 	let cachedLastRefreshCount = 0
 
 	async function getColDefs(tableKey: string) {
-		if (!resourcePath || !resourceType) return []
+		if (input?.type != 'database') return []
 
 		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
 		cachedLastRefreshCount = refreshCount
-		if (cachedColDefs[tableKey]) {
-			return cachedColDefs[tableKey]
-		}
+
+		if (cachedColDefs[tableKey]) return cachedColDefs[tableKey]
+
 		try {
 			cachedColDefs =
-				(await loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType)) ??
-				cachedColDefs
+				(await loadAllTablesMetaData(
+					'$res:' + input.resourcePath,
+					$workspaceStore,
+					input.resourceType
+				)) ?? cachedColDefs
 			return cachedColDefs[tableKey]
 		} catch (e) {
+			// Query is not implemented for all dbs, need a fallback
 			const result = await loadTableMetaData(
-				'$res:' + resourcePath,
+				'$res:' + input.resourcePath,
 				$workspaceStore,
 				tableKey,
-				resourceType
+				input.resourceType
 			)
 
 			if (result) cachedColDefs[tableKey] = result
@@ -137,7 +148,7 @@
 	preventEscape
 	on:close={closeDrawer}
 >
-	{#key [resourceType, resourcePath, dbSchema]}
+	{#key [input, dbSchema]}
 		<DrawerContent
 			title={replResultData ? 'Query Result' : 'Database Manager'}
 			on:close={() => {
@@ -150,7 +161,9 @@
 			CloseIcon={replResultData ? ArrowLeft : undefined}
 			noPadding
 		>
-			{#if dbSchema && $workspaceStore && resourceType && resourcePath}
+			{#if dbSchema && $workspaceStore && input}
+				{@const _input = input}
+				{@const dbType = input.type == 'database' ? input.resourceType : 'duckdb'}
 				<Splitpanes horizontal>
 					<Pane class="relative">
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -174,36 +187,33 @@
 							{/if}
 						</div>
 						<DbManager
-							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
+							dbSupportsSchemas={input.type == 'database' && dbSupportsSchemas(input.resourceType)}
 							{dbSchema}
 							{getColDefs}
 							dbTableOpsFactory={({ colDefs, tableKey }) =>
 								dbTableOpsWithPreviewScripts({
 									colDefs,
 									tableKey,
-									resourcePath: resourcePath!,
-									resourceType: resourceType!,
+									input: _input,
 									workspace: $workspaceStore
 								})}
 							dbTableActionsFactory={[
-								dbDeleteTableActionWithPreviewScript({
-									resourcePath,
-									resourceType,
-									workspace: $workspaceStore
-								})
+								dbDeleteTableActionWithPreviewScript({ input: _input, workspace: $workspaceStore })
 							]}
 							{refresh}
 							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
-								resourceType: resourceType!,
-								previewSql: (values) =>
-									makeCreateTableQuery(values, resourceType!, selectedSchemaKey),
+								dbType,
+								previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
 								async onConfirm(values) {
 									await runScriptAndPollResult({
 										workspace: $workspaceStore,
 										requestBody: {
-											args: { database: '$res:' + resourcePath },
-											content: makeCreateTableQuery(values, resourceType!, selectedSchemaKey),
-											language: getLanguageByResourceType(resourceType!)
+											args:
+												_input.type == 'database'
+													? { database: '$res:' + _input.resourcePath }
+													: {},
+											content: makeCreateTableQuery(values, dbType, selectedSchemaKey),
+											language: getLanguageByResourceType(dbType)
 										}
 									})
 									refresh()
@@ -211,26 +221,28 @@
 							})}
 						/>
 					</Pane>
-					<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
-						<SqlRepl
-							{resourcePath}
-							{resourceType}
-							onData={(data) => {
-								replResultData = data
-							}}
-							placeholderTableName={sortArray(
-								Object.keys(
-									dbSchema?.schema[
-										'public' in dbSchema?.schema
-											? 'public'
-											: 'dbo' in dbSchema?.schema
-												? 'dbo'
-												: Object.keys(dbSchema?.schema)?.[0]
-									]
-								)
-							)?.[0]}
-						/>
-					</Pane>
+					{#if input.type == 'database'}
+						<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
+							<SqlRepl
+								resourcePath={input.resourcePath}
+								resourceType={input.resourceType}
+								onData={(data) => {
+									replResultData = data
+								}}
+								placeholderTableName={sortArray(
+									Object.keys(
+										dbSchema?.schema[
+											'public' in dbSchema?.schema
+												? 'public'
+												: 'dbo' in dbSchema?.schema
+													? 'dbo'
+													: Object.keys(dbSchema?.schema)?.[0]
+										]
+									)
+								)?.[0]}
+							/>
+						</Pane>
+					{/if}
 				</Splitpanes>
 			{:else}
 				<Splitpanes>
