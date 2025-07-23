@@ -150,7 +150,7 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
         let workspace_tags = tags_o
             .1
             .iter()
-            .filter(|(_, workspaces)| workspaces.contains(&workspace))
+            .filter(|(_, tag_data)| tag_data.applies_to_workspace(&workspace))
             .map(|(tag, _)| tag.clone())
             .collect::<Vec<String>>();
         let all_tags = tags_o.0.clone();
