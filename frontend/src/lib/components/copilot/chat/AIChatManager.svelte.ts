@@ -331,6 +331,7 @@ class AIChatManager {
 		}
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
+		let addedMessages: ChatCompletionMessageParam[] = []
 		try {
 			let completion: any = null
 
@@ -416,7 +417,9 @@ class AIChatManager {
 					}
 
 					if (answer) {
-						this.messages.push({ role: 'assistant', content: answer })
+						const toAdd = { role: 'assistant' as const, content: answer }
+						addedMessages.push(toAdd)
+						messages.push(toAdd)
 					}
 
 					callbacks.onMessageEnd()
@@ -426,8 +429,8 @@ class AIChatManager {
 					) as ChatCompletionMessageToolCall[]
 
 					if (toolCalls.length > 0) {
-						this.messages.push({
-							role: 'assistant',
+						const toAdd = {
+							role: 'assistant' as const,
 							tool_calls: toolCalls.map((t) => ({
 								...t,
 								function: {
@@ -435,21 +438,26 @@ class AIChatManager {
 									arguments: t.function.arguments || '{}'
 								}
 							}))
-						})
+						}
+						messages.push(toAdd)
+						addedMessages.push(toAdd)
 						for (const toolCall of toolCalls) {
-							await processToolCall({
+							const messageToAdd = await processToolCall({
 								tools,
 								toolCall,
 								messages,
 								helpers,
 								toolCallbacks: callbacks
 							})
+							messages.push(messageToAdd)
+							addedMessages.push(messageToAdd)
 						}
 					} else {
 						break
 					}
 				}
 			}
+			return addedMessages
 		} catch (err) {
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
@@ -668,9 +676,10 @@ class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			await this.chatRequest({
+			const addedMessages = await this.chatRequest({
 				...params
 			})
+			this.messages = [...this.messages, ...(addedMessages ?? [])]
 
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
