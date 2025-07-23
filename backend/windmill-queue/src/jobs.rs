@@ -35,12 +35,15 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+
+
+
+#[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
     db::{Authed, UserDB},
-    email_oss::send_email_html,
     error::{self, to_anyhow, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
@@ -53,7 +56,6 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    server::load_smtp_config,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
@@ -70,7 +72,8 @@ use backon::{BackoffBuilder, Retryable};
 
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
-
+#[cfg(feature = "smtp")]
+use windmill_common::server::load_smtp_config;
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
