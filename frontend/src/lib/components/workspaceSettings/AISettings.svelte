@@ -12,7 +12,7 @@
 	import Button from '../common/button/Button.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
-	import { StarIcon } from 'lucide-svelte'
+	import Badge from '../common/badge/Badge.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -153,54 +153,55 @@
 		<div class="flex flex-col gap-4">
 			{#each aiProviderLabels as [provider, label]}
 				<div class="flex flex-col gap-2">
-					<Toggle
-						options={{
-							right: label
-						}}
-						checked={!!aiProviders[provider]}
-						on:change={(e) => {
-							if (e.detail) {
-								aiProviders = {
-									...aiProviders,
-									[provider]: {
-										resource_path: '',
-										models:
-											availableAiModels[provider].length > 0 ? [availableAiModels[provider][0]] : []
+					<div class="flex flex-row gap-2">
+						<Toggle
+							options={{
+								right: label
+							}}
+							checked={!!aiProviders[provider]}
+							on:change={(e) => {
+								if (e.detail) {
+									aiProviders = {
+										...aiProviders,
+										[provider]: {
+											resource_path: '',
+											models:
+												availableAiModels[provider].length > 0
+													? [availableAiModels[provider][0]]
+													: []
+										}
 									}
-								}
 
-								if (availableAiModels[provider].length > 0 && !defaultModel) {
-									defaultModel = availableAiModels[provider][0]
-								}
-							} else {
-								aiProviders = Object.fromEntries(
-									Object.entries(aiProviders).filter(([key]) => key !== provider)
-								)
-								if (defaultModel) {
-									const currentDefaultModel = Object.values(aiProviders).find(
-										(p) => defaultModel && p.models.includes(defaultModel)
+									if (availableAiModels[provider].length > 0 && !defaultModel) {
+										defaultModel = availableAiModels[provider][0]
+									}
+								} else {
+									aiProviders = Object.fromEntries(
+										Object.entries(aiProviders).filter(([key]) => key !== provider)
 									)
-									if (!currentDefaultModel) {
-										defaultModel = undefined
+									if (defaultModel) {
+										const currentDefaultModel = Object.values(aiProviders).find(
+											(p) => defaultModel && p.models.includes(defaultModel)
+										)
+										if (!currentDefaultModel) {
+											defaultModel = undefined
+										}
+									}
+									if (codeCompletionModel) {
+										const currentCodeCompletionModel = Object.values(aiProviders).find(
+											(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
+										)
+										if (!currentCodeCompletionModel) {
+											codeCompletionModel = undefined
+										}
 									}
 								}
-								if (codeCompletionModel) {
-									const currentCodeCompletionModel = Object.values(aiProviders).find(
-										(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-									)
-									if (!currentCodeCompletionModel) {
-										codeCompletionModel = undefined
-									}
-								}
-							}
-						}}
-					/>
-					{#if provider === 'anthropic'}
-						<div class="text-xs flex flex-row gap-1 items-center text-primary mb-1">
-							<StarIcon size={16} />
-							Anthropic models are recommended for better performance on AI chat.
-						</div>
-					{/if}
+							}}
+						/>
+						{#if provider === 'anthropic'}
+							<Badge color="green">Recommended</Badge>
+						{/if}
+					</div>
 
 					{#if aiProviders[provider]}
 						<div class="mb-4 flex flex-col gap-2">
