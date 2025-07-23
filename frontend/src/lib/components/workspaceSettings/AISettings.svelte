@@ -12,6 +12,7 @@
 	import Button from '../common/button/Button.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -196,6 +197,13 @@
 					/>
 					{#if aiProviders[provider]}
 						<div class="mb-4 flex flex-col gap-2">
+							{#if provider === 'anthropic'}
+								<Alert type="info" title="Model Recommendation" class="mb-2">
+									{#snippet children()}
+										We recommend using Claude latest model for better reliability of the AI chat.
+									{/snippet}
+								</Alert>
+							{/if}
 							<div class="flex flex-row gap-1">
 								<ResourcePicker
 									selectFirst
