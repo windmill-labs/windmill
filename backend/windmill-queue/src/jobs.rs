@@ -1216,7 +1216,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
             }
 
-           
+            #[cfg(feature = "smtp")]
             if let Err(e) = send_trigger_failure_email_notification(
                 &queued_job,
                 db,
