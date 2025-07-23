@@ -94,8 +94,8 @@ class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	checkTokenUsageOverLimit = () => {
-		const estimatedTokens = this.messages.reduce((acc, message) => {
+	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
+		const estimatedTokens = messages.reduce((acc, message) => {
 			// Handle content field - can be string or array
 			if (message.content) {
 				if (typeof message.content === 'string') {
@@ -123,23 +123,24 @@ class AIChatManager {
 		)
 	}
 
-	deleteOldestMessage = (maxDepth: number = 10) => {
-		if (maxDepth <= 0 || this.messages.length === 0) {
-			return
+	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
+		if (maxDepth <= 0 || messages.length <= 1) {
+			return messages
 		}
-		const removed = this.messages.shift()
+		const removed = messages.shift()
 
 		// if the removed message is an assistant with tool calls, we need to delete correspding tool response.
 		if (removed?.role === 'assistant' && removed.tool_calls) {
-			if (this.messages.length > 0 && this.messages[0]?.role === 'tool') {
-				this.messages.shift()
+			if (messages.length > 0 && messages[0]?.role === 'tool') {
+				messages.shift()
 			}
 		}
 
 		// keep deleting messages until we are under the limit
-		if (this.checkTokenUsageOverLimit()) {
-			this.deleteOldestMessage(maxDepth - 1)
+		if (this.checkTokenUsageOverLimit(messages)) {
+			this.deleteOldestMessage(messages, maxDepth - 1)
 		}
+		return messages
 	}
 
 	loadApiTools = async () => {
@@ -415,7 +416,7 @@ class AIChatManager {
 					}
 
 					if (answer) {
-						messages.push({ role: 'assistant', content: answer })
+						this.messages.push({ role: 'assistant', content: answer })
 					}
 
 					callbacks.onMessageEnd()
@@ -425,7 +426,7 @@ class AIChatManager {
 					) as ChatCompletionMessageToolCall[]
 
 					if (toolCalls.length > 0) {
-						messages.push({
+						this.messages.push({
 							role: 'assistant',
 							tool_calls: toolCalls.map((t) => ({
 								...t,
@@ -617,6 +618,11 @@ class AIChatManager {
 
 			this.currentReply = ''
 
+			let trimmedMessages = structuredClone($state.snapshot(this.messages))
+			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
+				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
+			}
+
 			const params: {
 				messages: ChatCompletionMessageParam[]
 				abortController: AbortController
@@ -625,7 +631,7 @@ class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				messages: this.messages,
+				messages: trimmedMessages,
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
@@ -665,10 +671,6 @@ class AIChatManager {
 			await this.chatRequest({
 				...params
 			})
-
-			if (this.checkTokenUsageOverLimit()) {
-				this.deleteOldestMessage()
-			}
 
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
