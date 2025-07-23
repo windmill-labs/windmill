@@ -26,18 +26,23 @@ import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getCompletion } from '../lib'
+import { getCompletion, getModelContextWindow } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import type { DBSchemas } from '$lib/stores'
+import { copilotSessionModel, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
+import { get } from 'svelte/store'
+
+// If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
+const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
+const MAX_TOKENS_HARD_LIMIT = 5000
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -88,6 +93,48 @@ class AIChatManager {
 	})
 
 	open = $derived(chatState.size > 0)
+
+	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
+		const estimatedTokens = messages.reduce((acc, message) => {
+			// one token is ~ 4 characters
+			const tokenPerCharacter = 4
+			// handle content
+			if (message.content) {
+				acc += message.content.length / tokenPerCharacter
+			}
+			// Handle tool calls
+			if (message.role === 'assistant' && message.tool_calls) {
+				acc += JSON.stringify(message.tool_calls).length / tokenPerCharacter
+			}
+			return acc
+		}, 0)
+		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		return (
+			estimatedTokens >
+			modelContextWindow -
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+		)
+	}
+
+	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
+		if (maxDepth <= 0 || messages.length <= 1) {
+			return messages
+		}
+		const removed = messages.shift()
+
+		// if the removed message is an assistant with tool calls, we need to delete correspding tool response.
+		if (removed?.role === 'assistant' && removed.tool_calls) {
+			if (messages.length > 0 && messages[0]?.role === 'tool') {
+				messages.shift()
+			}
+		}
+
+		// keep deleting messages until we are under the limit
+		if (this.checkTokenUsageOverLimit(messages)) {
+			return this.deleteOldestMessage(messages, maxDepth - 1)
+		}
+		return messages
+	}
 
 	loadApiTools = async () => {
 		try {
@@ -277,6 +324,7 @@ class AIChatManager {
 		}
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
+		let addedMessages: ChatCompletionMessageParam[] = []
 		try {
 			let completion: any = null
 
@@ -362,7 +410,9 @@ class AIChatManager {
 					}
 
 					if (answer) {
-						messages.push({ role: 'assistant', content: answer })
+						const toAdd = { role: 'assistant' as const, content: answer }
+						addedMessages.push(toAdd)
+						messages.push(toAdd)
 					}
 
 					callbacks.onMessageEnd()
@@ -372,8 +422,8 @@ class AIChatManager {
 					) as ChatCompletionMessageToolCall[]
 
 					if (toolCalls.length > 0) {
-						messages.push({
-							role: 'assistant',
+						const toAdd = {
+							role: 'assistant' as const,
 							tool_calls: toolCalls.map((t) => ({
 								...t,
 								function: {
@@ -381,21 +431,26 @@ class AIChatManager {
 									arguments: t.function.arguments || '{}'
 								}
 							}))
-						})
+						}
+						messages.push(toAdd)
+						addedMessages.push(toAdd)
 						for (const toolCall of toolCalls) {
-							await processToolCall({
+							const messageToAdd = await processToolCall({
 								tools,
 								toolCall,
 								messages,
 								helpers,
 								toolCallbacks: callbacks
 							})
+							messages.push(messageToAdd)
+							addedMessages.push(messageToAdd)
 						}
 					} else {
 						break
 					}
 				}
 			}
+			return addedMessages
 		} catch (err) {
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
@@ -564,6 +619,11 @@ class AIChatManager {
 
 			this.currentReply = ''
 
+			let trimmedMessages = [...this.messages]
+			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
+				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
+			}
+
 			const params: {
 				messages: ChatCompletionMessageParam[]
 				abortController: AbortController
@@ -572,7 +632,7 @@ class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				messages: this.messages,
+				messages: trimmedMessages,
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
@@ -609,9 +669,11 @@ class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			await this.chatRequest({
+			const addedMessages = await this.chatRequest({
 				...params
 			})
+			this.messages = [...this.messages, ...(addedMessages ?? [])]
+
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
