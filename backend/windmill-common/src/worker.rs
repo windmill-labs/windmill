@@ -35,6 +35,35 @@ use crate::{
     KillpillSender, DB,
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpecificTagData {
+    pub tag_type: SpecificTagType,
+    pub workspaces: Vec<String>,
+}
+
+impl SpecificTagData {
+    pub fn applies_to_workspace(&self, workspace_id: &str) -> bool {
+        match self.tag_type {
+            SpecificTagType::AllExcluding => !self.workspaces.contains(&workspace_id.to_string()),
+            SpecificTagType::NoneExcept => self.workspaces.contains(&workspace_id.to_string()),
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SpecificTagType {
+    AllExcluding,
+    NoneExcept,
+}
+
+impl SpecificTagType {
+    pub fn corresponding_separator(&self) -> char {
+        match self {
+            SpecificTagType::AllExcluding => '^',
+            SpecificTagType::NoneExcept => '+',
+        }
+    }
+}
+
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
@@ -130,11 +159,21 @@ lazy_static::lazy_static! {
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
 
 
-    pub static ref CUSTOM_TAGS_PER_WORKSPACE: Arc<RwLock<(Vec<String>, HashMap<String, Vec<String>>)>> = Arc::new(RwLock::new((vec![], HashMap::new())));
+    pub static ref CUSTOM_TAGS_PER_WORKSPACE: Arc<RwLock<(Vec<String>, HashMap<String, SpecificTagData>)>> = Arc::new(RwLock::new((vec![], HashMap::new())));
 
     pub static ref ALL_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
 
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+)\)$").unwrap();
+
+
+    //    ^([\w-]+)         # Group 1: tag name
+    //    \(                # Literal '('
+    //    (                 # Group 2: the full workspace list
+    //      (?:[\w-]+\+)*[\w-]+     # NoneExcept pattern: ws1+ws2
+    //      |                      # OR
+    //      (?:\^[\w-]+)+          # AllExcluding pattern: ^ws1^ws2
+    //    )
+    //    \)$               # Closing ')'
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -496,18 +535,55 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, Vec<String>>) {
+fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, SpecificTagData>) {
     let mut global = vec![];
-    let mut specific: HashMap<String, Vec<String>> = HashMap::new();
+    let mut specific: HashMap<String, SpecificTagData> = HashMap::new();
     for e in tags {
         if let Some(cap) = CUSTOM_TAG_REGEX.captures(&e) {
-            let tag = cap.get(1).unwrap().as_str().to_string();
-            let workspaces = cap.get(2).unwrap().as_str().split("+");
-            specific.insert(tag, workspaces.map(|x| x.to_string()).collect_vec());
+            let tag_name = cap.get(1).unwrap().as_str().to_string();
+            let workspace_str = cap.get(2).unwrap().as_str();
+            let (tag_type, raw_workspaces): (SpecificTagType, Vec<String>) =
+                if workspace_str.contains('^') {
+                    let tag_type = SpecificTagType::AllExcluding;
+                    let workspaces: Vec<String> = workspace_str
+                        .split(tag_type.corresponding_separator())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect();
+
+                    if workspaces.is_empty() {
+                        tracing::warn!("Ignoring tag `{}` with empty exclusion list", e);
+                        global.push(e);
+                        continue;
+                    }
+
+                    (tag_type, workspaces)
+                } else {
+                    let tag_type = SpecificTagType::NoneExcept;
+                    let workspaces: Vec<String> = workspace_str
+                        .split(tag_type.corresponding_separator())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect();
+
+                    if workspaces.is_empty() {
+                        tracing::warn!("Ignoring tag `{}` with empty inclusion list", e);
+                        global.push(e);
+                        continue;
+                    }
+
+                    (tag_type, workspaces)
+                };
+
+            specific.insert(
+                tag_name,
+                SpecificTagData { tag_type, workspaces: raw_workspaces },
+            );
         } else {
             global.push(e.to_string());
         }
     }
+
     (global, specific)
 }
 
@@ -1615,4 +1691,103 @@ pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
 pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_global_tag_only() {
+        let input = vec!["global-tag".to_string()];
+        let (global, specific) = process_custom_tags(input);
+
+        assert_eq!(global, vec!["global-tag"]);
+        assert!(specific.is_empty());
+    }
+
+    #[test]
+    fn test_specific_tag_none_except() {
+        let input = vec!["feature(ws1+ws2)".to_string()];
+        let (global, specific) = process_custom_tags(input);
+
+        let mut expected = HashMap::new();
+        expected.insert(
+            "feature".to_string(),
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
+            },
+        );
+
+        assert!(global.is_empty());
+        assert_eq!(specific, expected);
+    }
+
+    #[test]
+    fn test_specific_tag_all_excluding() {
+        let input = vec!["bugfix(^ws3^ws4)".to_string()];
+        let (global, specific) = process_custom_tags(input);
+
+        let mut expected = HashMap::new();
+        expected.insert(
+            "bugfix".to_string(),
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
+            },
+        );
+
+        assert!(global.is_empty());
+        assert_eq!(specific, expected);
+    }
+
+    #[test]
+    fn test_mixed_tags() {
+        let input = vec![
+            "global".to_string(),
+            "feat(ws1+ws2)".to_string(),
+            "hotfix(^ws3)".to_string(),
+        ];
+        let (global, specific) = process_custom_tags(input);
+
+        assert_eq!(global, vec!["global"]);
+
+        let mut expected = HashMap::new();
+        expected.insert(
+            "feat".to_string(),
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
+            },
+        );
+        expected.insert(
+            "hotfix".to_string(),
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec!["ws3".to_string()],
+            },
+        );
+
+        assert_eq!(specific, expected);
+    }
+
+    #[test]
+    fn test_invalid_specific_tag_format() {
+        let input = vec!["invalid(custom+format".to_string()];
+        let (global, specific) = process_custom_tags(input);
+
+        // Regex does not match, so it's treated as a global tag.
+        assert_eq!(global, vec!["invalid(custom+format"]);
+        assert!(specific.is_empty());
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let input: Vec<String> = vec![];
+        let (global, specific) = process_custom_tags(input);
+        assert!(global.is_empty());
+        assert!(specific.is_empty());
+    }
 }

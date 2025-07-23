@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
+use windmill_common::worker::SpecificTagType;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -164,7 +165,18 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
         let workspace_tags = tags_o
             .1
             .iter()
-            .map(|(tag, workspaces)| format!("{}({})", tag, workspaces.join("+")))
+            .map(|(tag, tag_data)| {
+                let separator = tag_data.tag_type.corresponding_separator();
+                let workspaces = tag_data.workspaces.join(&*separator.to_string());
+                match tag_data.tag_type {
+                    SpecificTagType::AllExcluding => {
+                        format!("{}({}{})", tag, separator, workspaces)
+                    }
+                    SpecificTagType::NoneExcept => {
+                        format!("{}({})", tag, workspaces)
+                    }
+                }
+            })
             .collect::<Vec<String>>();
         let all_tags = tags_o.0.clone();
         return Ok(Json(
