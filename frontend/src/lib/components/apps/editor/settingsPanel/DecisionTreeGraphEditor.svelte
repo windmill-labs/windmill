@@ -40,7 +40,7 @@
 	setContext('DecisionTreeEditor', { selectedNodeId })
 
 	let sortedSelectedNextNodes = $derived(
-		selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
+		[...(selectedNode?.next ?? [])].sort((n1, n2) => n1.id.localeCompare(n2.id))
 	)
 </script>
 
