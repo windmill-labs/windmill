@@ -40,7 +40,7 @@ use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
     db::{Authed, UserDB},
-    email_oss::send_email,
+    email_oss::send_email_html,
     error::{self, to_anyhow, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
@@ -1534,29 +1534,62 @@ async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>
     let error_details = serde_json::to_string_pretty(result.0)
         .unwrap_or_else(|_| "Unable to serialize error details".to_string());
 
-    let content = format!(
+     let content = format!(
         r#"
-A trigger job has failed in your Windmill workspace.
-
-Trigger Type: {}
-Script/Flow: {}
-Workspace: {}
-Job ID: {}
-Job URL: {}
-
-Error Details:
-{}
-
-This email was automatically sent by Windmill because SMTP is configured for your workspace and the triggered job failed.
-You can disable these notifications by configuring a workspace error handler or removing SMTP configuration.
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <style>
+      body {{ font-family: Arial, sans-serif; color: #333; }}
+      h1 {{ color: #c0392b; }}
+      .section {{ margin-bottom: 20px; }}
+      .label {{ font-weight: bold; }}
+      pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }}
+      a.button {{
+        display: inline-block;
+        padding: 10px 15px;
+        margin-top: 10px;
+        color: #fff;
+        background-color: #2980b9;
+        text-decoration: none;
+        border-radius: 5px;
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>⚠️ Trigger Job Failure Notification</h1>
+    <div class="section">
+      <p>A trigger job has failed in your Windmill workspace.</p>
+    </div>
+    <div class="section">
+      <p><span class="label">Trigger Type:</span> {}</p>
+      <p><span class="label">Script/Flow:</span> {}</p>
+      <p><span class="label">Workspace:</span> {}</p>
+      <p><span class="label">Job ID:</span> {}</p>
+      <p><span class="label">Job URL:</span> <a href="{joburl}">{joburl}</a></p>
+      <a class="button" href="{joburl}">View Job Details</a>
+    </div>
+    <div class="section">
+      <p class="label">Error Details:</p>
+      <pre>{details}</pre>
+    </div>
+    <hr />
+    <div class="section">
+      <p>This email was automatically sent by Windmill because SMTP is configured for your workspace and the triggered job failed.</p>
+      <p>You can disable these notifications by configuring a workspace error handler or removing SMTP configuration.</p>
+    </div>
+  </body>
+</html>
 "#,
-        &trigger_kind,
-        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
-        queued_job.workspace_id,
+         &trigger_kind,
+         queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
+       queued_job.workspace_id,
         queued_job.id,
-        job_url,
-        error_details
+        joburl = job_url,
+        details = &error_details
     );
+
 
     // Check if workspace has custom email recipients configured
     let custom_recipients = sqlx::query_scalar!(
@@ -1575,15 +1608,20 @@ You can disable these notifications by configuring a workspace error handler or 
         return  Ok(());
     } ;
 
-    if let Err(e) = send_email(&subject, &content, recipients.clone(), smtp_config, None).await {
-        tracing::error!(
-            "Failed to send trigger failure email notification for job {}: {}",
+    if let Err(e) = send_email_html(&subject, &content, recipients.clone(), smtp_config, None).await {
+        
+        let err_msg = format!(
+            "Failed to send email notification for trigger failure (trigger kind: {}, job ID: {}): {}",
+            trigger_kind,
             queued_job.id,
             e
         );
+
+        report_critical_error(err_msg, db.clone(), Some(&queued_job.workspace_id), None).await;
     } else {
         tracing::info!(
-            "Sent trigger failure email notification for job {} to {:?}",
+            "Sent trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
+            trigger_kind,
             queued_job.id,
             recipients
         );
@@ -4505,6 +4543,12 @@ pub async fn push<'c, 'd>(
     // }
     
     
+    let trigger_kind = if schedule_path.is_some() {
+        Some(JobTriggerKind::Schedule)
+    } else {
+        trigger_kind
+    };
+    
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4513,11 +4557,7 @@ pub async fn push<'c, 'd>(
             flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
             cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $38, $21, $22, $23, $24, $25, $26,
-            CASE 
-                WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind
-                WHEN $39::job_trigger_kind IS NOT NULL THEN $39::job_trigger_kind
-            END,
+            $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
         inserted_runtime AS (

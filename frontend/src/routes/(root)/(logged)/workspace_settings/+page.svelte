@@ -1264,12 +1264,11 @@
 						}
 						triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email];
 					}}
-					createText="Add email: "
 					class="w-full"
 				/>
 				<div class="flex gap-2 items-center mt-2">
 					<Button
-						disabled={!$enterpriseLicense || deepEqual(triggerFailureEmailRecipients, initialTriggerFailureEmailRecipients)}
+						disabled={deepEqual(triggerFailureEmailRecipients, initialTriggerFailureEmailRecipients)}
 						size="sm"
 						on:click={editTriggerFailureEmailSettings}
 					>

@@ -29,7 +29,7 @@ use windmill_common::{
     INSTANCE_NAME,
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_queue::{PushArgsOwned, JobTriggerKind};
+use windmill_queue::{JobTriggerKind, PushArgsOwned};
 
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},
@@ -717,6 +717,7 @@ async fn get_url_from_runnable(
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
+        JobTriggerKind::Websocket,
     )
     .await?;
 
@@ -881,6 +882,7 @@ impl WebsocketTrigger {
                         None,
                         None,
                         "".to_string(), // doesn't matter as no retry/error handler
+                        JobTriggerKind::Websocket,
                     )
                     .await
                     .map(|r| r.get().to_owned())?;
@@ -1399,6 +1401,7 @@ async fn run_job(
                     error_handler_path.as_deref(),
                     error_handler_args.as_ref(),
                     format!("websocket_trigger/{}", trigger_path),
+                    JobTriggerKind::Websocket
                 ) => {
                     if let Ok(result) = result.map(|r| r.get().to_owned()) {
                         // only send the result if it's not null

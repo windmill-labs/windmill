@@ -471,7 +471,7 @@ async fn trigger_runnable_inner(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger_kind: JobTriggerKind,
 ) -> Result<(Uuid, Option<bool>)> {
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
     let (uuid, delete_after_use) = if is_flow {
@@ -485,7 +485,7 @@ async fn trigger_runnable_inner(
             path,
             run_query,
             args,
-            trigger_kind,
+            Some(trigger_kind),
         )
         .await?;
         (uuid, None)
@@ -501,7 +501,7 @@ async fn trigger_runnable_inner(
             error_handler_path,
             error_handler_args,
             trigger_path,
-            trigger_kind,
+            Some(trigger_kind),
         )
         .await?
     };
@@ -536,7 +536,7 @@ pub async fn trigger_runnable(
         error_handler_path,
         error_handler_args,
         trigger_path,
-        Some(trigger_kind),
+        trigger_kind,
     )
     .await?;
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
@@ -570,7 +570,7 @@ pub async fn trigger_runnable_and_wait_for_result(
         error_handler_path,
         error_handler_args,
         trigger_path,
-        Some(trigger_kind),
+        trigger_kind,
     )
     .await?;
     let (result, success) =
@@ -596,7 +596,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger_kind: JobTriggerKind,
 ) -> Result<Box<RawValue>> {
     let username = authed.username.clone();
     let (uuid, delete_after_use) = trigger_runnable_inner(
