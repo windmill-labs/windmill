@@ -133,6 +133,7 @@
             dotnet-sdk_9
             oracle-instantclient
             ansible
+            ruby
 
             # LSP/Local dev
             svelte-language-server
@@ -220,6 +221,7 @@
           COURSIER_PATH = "${coursier}/coursier";
           RUBY_PATH = "${pkgs.ruby}/bin/ruby";
           RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
+          RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";
           # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
