@@ -62,8 +62,9 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
-	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
-	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
+	import PushWorkspaceModal from '$lib/components/git_sync/PushWorkspaceModal.svelte'
+	import PullWorkspaceModal from '$lib/components/git_sync/PullWorkspaceModal.svelte'
+	import type { SettingsObject } from '$lib/git-sync'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import { untrack } from 'svelte'
 
@@ -154,6 +155,10 @@
 		}[]
 	>([])
 
+	// Modal state for git sync operations
+	let showPushModal = $state<{ idx: number; repo: any; open: boolean } | null>(null)
+	let showPullModal = $state<{ idx: number; repo: any; open: boolean } | null>(null)
+
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
 	let workspaceEncryptionKey: string | undefined = $state(undefined)
 	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
@@ -173,6 +178,19 @@
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let initialGitSyncSettings = $state<GitSyncSettings | undefined>(undefined)
+
+	// Clean up modal state when modals are closed
+	$effect(() => {
+		if (showPushModal && !showPushModal.open) {
+			setTimeout(() => showPushModal = null, 0)
+		}
+	})
+
+	$effect(() => {
+		if (showPullModal && !showPullModal.open) {
+			setTimeout(() => showPullModal = null, 0)
+		}
+	})
 	let loadedSettings = $state(false)
 
 	const latestGitSyncHubScript = hubPaths.gitSync
@@ -1464,43 +1482,24 @@
 														initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
 													) && !emptyString(repo.git_repo_resource_path)}
 													requiresMigration={repo.legacyImported}
-													onSave={(settings) => {
-														// Apply the new settings to the repository
-														repo.settings.include_path = settings.include_path
-														repo.settings.exclude_path = settings.exclude_path
-														repo.settings.extra_include_path = settings.extra_include_path
-														repo.settings.include_type = settings.include_type
-
-														// Save the repository settings
-														saveRepoSettings(idx)
-													}}
 												/>
 												<div class="w-1/3 flex gap-2">
-													<InitGitRepoPopover
-														gitRepoResourcePath={repo.git_repo_resource_path}
-														uiState={{
-															include_path: repo.settings.include_path,
-															exclude_path: repo.settings.exclude_path || [],
-															extra_include_path: repo.settings.extra_include_path || [],
-															include_type: repo.settings.include_type
-														}}
-													/>
-													<PullGitRepoPopover
-														gitRepoResourcePath={repo.git_repo_resource_path}
-														uiState={{
-															include_path: repo.settings.include_path,
-															exclude_path: repo.settings.exclude_path || [],
-															extra_include_path: repo.settings.extra_include_path || [],
-															include_type: repo.settings.include_type
-														}}
-														onFilterUpdate={(filters: { include_path: string[], exclude_path: string[], extra_include_path: string[], include_type: string[] }) => {
-															// Direct prop update - much simpler!
-															repo.settings.include_path = filters.include_path
-															repo.settings.exclude_path = filters.exclude_path
-															repo.settings.extra_include_path = filters.extra_include_path
-															repo.settings.include_type = filters.include_type as ObjectType[]
-														}}
-													/>
+													<Button
+														size="xs"
+														color="dark"
+														variant="border"
+														on:click={() => showPushModal = { idx, repo, open: true }}
+													>
+														Push to Git
+													</Button>
+													<Button
+														size="xs"
+														color="dark"
+														variant="border"
+														on:click={() => showPullModal = { idx, repo, open: true }}
+													>
+														Pull from Git
+													</Button>
 												</div>
 												<Toggle
 													disabled={emptyString(repo.git_repo_resource_path)}
@@ -1669,6 +1668,59 @@
 		</div>
 	{/if}
 </CenteredPage>
+
+<!-- Git Sync Modals -->
+{#if showPushModal}
+	<PushWorkspaceModal
+		bind:open={showPushModal.open}
+		gitRepoResourcePath={showPushModal.repo.git_repo_resource_path}
+		uiState={{
+			include_path: showPushModal.repo.settings.include_path,
+			exclude_path: showPushModal.repo.settings.exclude_path || [],
+			extra_include_path: showPushModal.repo.settings.extra_include_path || [],
+			include_type: showPushModal.repo.settings.include_type
+		}}
+		onClose={() => showPushModal = null}
+		onSuccess={() => {
+			sendUserToast('Successfully pushed to git repository')
+			showPushModal = null
+		}}
+	/>
+{/if}
+
+{#if showPullModal}
+	<PullWorkspaceModal
+		bind:open={showPullModal.open}
+		gitRepoResourcePath={showPullModal.repo.git_repo_resource_path}
+		repoIndex={showPullModal.idx}
+		currentGitSyncSettings={gitSyncSettings}
+		uiState={{
+			include_path: showPullModal.repo.settings.include_path,
+			exclude_path: showPullModal.repo.settings.exclude_path || [],
+			extra_include_path: showPullModal.repo.settings.extra_include_path || [],
+			include_type: showPullModal.repo.settings.include_type
+		}}
+		onFilterUpdate={(filters: SettingsObject) => {
+			if (showPullModal) {
+				// Update the repository settings
+				showPullModal.repo.settings.include_path = filters.include_path
+				showPullModal.repo.settings.exclude_path = filters.exclude_path
+				showPullModal.repo.settings.extra_include_path = filters.extra_include_path
+				showPullModal.repo.settings.include_type = filters.include_type as ObjectType[]
+			}
+		}}
+		onSettingsSaved={() => {
+			// Update initial settings to reflect current state
+			initialGitSyncSettings = JSON.parse(JSON.stringify(gitSyncSettings))
+		}}
+		onClose={() => showPullModal = null}
+		onSuccess={() => {
+			sendUserToast('Successfully pulled from git repository')
+			showPullModal = null
+		}}
+	/>
+{/if}
+
 
 <style>
 </style>

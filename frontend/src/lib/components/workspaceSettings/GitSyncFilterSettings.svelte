@@ -1,12 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter, Eye, Loader2, CheckCircle2, XCircle, Check, RefreshCw } from 'lucide-svelte'
+	import { Filter } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import hubPaths from '$lib/hubPaths.json'
-	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { Button } from '$lib/components/common'
-	import { sendUserToast } from '$lib/toast'
 	import FilterList from './FilterList.svelte'
 	import { Tabs, Tab } from '$lib/components/common'
 
@@ -43,25 +38,6 @@
 		key: boolean
 	}
 
-	type PreviewResult = {
-		diff?: { [key: string]: { from: any; to: any } }
-		hasChanges?: boolean
-		isInitialSetup?: boolean
-		message?: string
-		local?: {
-			include_path: string[]
-			exclude_path: string[]
-			extra_include_path: string[]
-			include_type: ObjectType[]
-		}
-		backend?: {
-			include_path: string[]
-			exclude_path: string[]
-			extra_include_path: string[]
-			include_type: ObjectType[]
-		}
-	}
-
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
@@ -71,8 +47,7 @@
 		excludes = $bindable([] as string[]),
 		extraIncludes = $bindable([] as string[]),
 		isInitialSetup = false,
-		requiresMigration = false,
-		onSave = (settings: any) => {}
+		requiresMigration = false
 	} = $props()
 
 	// Component state
@@ -80,14 +55,6 @@
 
 	// Determine if component should be editable or read-only
 	const isEditable = $derived(isInitialSetup || requiresMigration)
-
-	// Pull/Preview state
-	let previewResult = $state<PreviewResult | null>(null)
-	let previewJobId = $state<string | null>(null)
-	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
-	let isPreviewLoading = $state(false)
-	let previewError = $state('')
-	let previewSettingsSnapshot = $state<string | null>(null)
 
 	// Compute effective include types (include_type minus exclude_types_override for legacy repos only)
 	const effectiveIncludeTypes = $derived(
@@ -152,163 +119,7 @@
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
 
-	// Simple JSON-based UI state helper
-	function getUIState() {
-		return {
-			include_path,
-			exclude_path: excludes,
-			extra_include_path: extraIncludes,
-			include_type
-		}
-	}
 
-	// Apply settings from backend format (used by both local git repo and backend settings)
-	function fromBackendFormat(settings: {
-		include_path: string[]
-		exclude_path: string[]
-		extra_include_path: string[]
-		include_type: ObjectType[]
-	}) {
-		include_path = settings.include_path || []
-		excludes = settings.exclude_path || []
-		extraIncludes = settings.extra_include_path || []
-		include_type = settings.include_type || []
-	}
-
-
-	// Sync changes from git repository
-	async function previewPullFromGitRepo() {
-		isPreviewLoading = true
-		previewError = ''
-		previewResult = null
-		previewJobId = null
-		previewJobStatus = undefined
-
-		// Take a snapshot of current settings
-		previewSettingsSnapshot = JSON.stringify({
-			include_path,
-			excludes,
-			extraIncludes,
-			include_type
-		})
-
-		try {
-			const workspace = $workspaceStore
-			if (!workspace) return
-
-			// Always pass UI state as JSON - the backend now handles this uniformly
-			const payloadObj = {
-				workspace_id: workspace,
-				repo_url_resource_path: git_repo_resource_path,
-				only_wmill_yaml: true,
-				dry_run: true,
-				pull: true,
-				settings_json: JSON.stringify(getUIState())
-			}
-
-			const jobId = await JobService.runScriptByPath({
-				workspace,
-				path: hubPaths.gitInitRepo,
-				requestBody: payloadObj,
-				skipPreprocessor: true
-			})
-
-			previewJobId = jobId
-			previewJobStatus = 'running'
-			let jobSuccess = false
-			let result: PreviewResult = {}
-
-			await (
-				await import('$lib/utils')
-			).tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-					if (jobSuccess) {
-						const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-						result = jobResult as PreviewResult
-					}
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: 'Preview job timed out after 5s' }
-						})
-					} catch (err) {}
-				},
-				interval: 500,
-				timeout: 10000
-			})
-
-			previewJobStatus = jobSuccess ? 'success' : 'failure'
-			if (jobSuccess) {
-				previewResult = result
-			} else {
-				previewError = 'Preview failed'
-			}
-		} catch (e) {
-			previewJobStatus = 'failure'
-			previewError = e?.message || 'Preview failed'
-			previewResult = null
-		} finally {
-			isPreviewLoading = false
-		}
-	}
-
-	// Apply pulled settings from git repository
-	async function applyPulledSettings() {
-		if (previewResult?.local) {
-			try {
-				fromBackendFormat(previewResult.local)
-				if (isEditable) {
-					// For editable mode, trigger save callback with new settings
-					onSave({
-						include_path,
-						exclude_path: excludes,
-						extra_include_path: extraIncludes,
-						include_type
-					})
-				}
-				sendUserToast('Changes applied from git repository')
-
-				// Clear the preview state after applying settings
-				previewResult = null
-				previewJobId = null
-				previewJobStatus = undefined
-				previewError = ''
-			} catch (e) {
-				previewError = 'Failed to apply pulled settings: ' + e.message
-			}
-		}
-	}
-
-
-
-	// Reset preview state when settings change (making preview stale)
-	$effect(() => {
-		// Track all the settings that affect the preview
-		const currentSettings = JSON.stringify({
-			include_path,
-			excludes,
-			extraIncludes,
-			include_type
-		})
-
-		// If we have an existing preview result and settings have changed from snapshot, clear it
-		if (
-			previewResult !== null &&
-			previewSettingsSnapshot !== null &&
-			currentSettings !== previewSettingsSnapshot
-		) {
-			previewResult = null
-			previewJobId = null
-			previewJobStatus = undefined
-			previewError = ''
-			previewSettingsSnapshot = null
-		}
-	})
 </script>
 
 <div class="rounded-lg shadow-sm border p-0 w-full">
@@ -319,20 +130,6 @@
 			<span class="font-semibold text-sm">Git Sync filter settings</span>
 		</div>
 		<div class="flex items-center gap-2">
-			{#if !isEditable}
-				<Button
-					size="xs"
-					color="light"
-					on:click={previewPullFromGitRepo}
-					disabled={isPreviewLoading}
-					startIcon={{
-						icon: isPreviewLoading ? Loader2 : RefreshCw,
-						classes: isPreviewLoading ? 'animate-spin' : ''
-					}}
-				>
-					{isPreviewLoading ? 'Syncing...' : 'Sync with repo'}
-				</Button>
-			{/if}
 			<button
 				class="text-gray-500 hover:text-primary focus:outline-none"
 				onclick={() => (collapsed = !collapsed)}
@@ -593,76 +390,6 @@
 						</div>
 					</div>
 				</div>
-			</div>
-
-			{#if previewResult?.hasChanges && (previewResult?.isInitialSetup || (previewResult?.diff && Object.keys(previewResult.diff).length > 0))}
-				<div class="mt-4 flex flex-col gap-2 p-2 border-t">
-					<div class="flex gap-2 items-center">
-						<Button
-							size="sm"
-							on:click={applyPulledSettings}
-							disabled={isPreviewLoading}
-							color="dark"
-							startIcon={{ icon: Check }}
-						>
-							Apply Changes
-						</Button>
-					</div>
-				</div>
-			{/if}
-		{/if}
-
-		<!-- Preview/job status sections (shown for both editable and read-only modes) -->
-		{#if previewError}
-			<div class="text-xs text-red-600 mt-2 px-4">{previewError}</div>
-		{/if}
-		{#if previewJobId}
-			<div class="flex items-center gap-2 text-xs text-tertiary mt-1 px-4">
-				{#if previewJobStatus === 'running'}
-					<Loader2 class="animate-spin" size={14} />
-				{:else if previewJobStatus === 'success'}
-					<CheckCircle2 size={14} class="text-green-600" />
-				{:else if previewJobStatus === 'failure'}
-					<XCircle size={14} class="text-red-700" />
-				{/if}
-				Pull job:
-				<a
-					target="_blank"
-					class="underline"
-					href={`/run/${previewJobId}?workspace=${$workspaceStore}`}>{previewJobId}</a
-				>
-			</div>
-		{/if}
-		{#if previewResult}
-			<div class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary mt-2 mx-4">
-				<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-				{#if previewResult.isInitialSetup}
-					<div class="mt-2 text-green-600">
-						{previewResult.message || 'wmill.yaml will be created with repository settings'}
-					</div>
-				{:else if previewResult.hasChanges && previewResult.diff && Object.keys(previewResult.diff).length > 0}
-					<div class="mt-2 space-y-1">
-						{#each Object.entries(previewResult.diff) as [field, change]}
-							<div class="flex items-start gap-2 text-2xs">
-								<span class="font-mono text-tertiary min-w-0 flex-shrink-0">{field}:</span>
-								<div class="min-w-0 flex-1">
-									{#if Array.isArray(change.from) || Array.isArray(change.to)}
-										<div class="space-y-0.5">
-											<div class="text-red-600">- {JSON.stringify(change.from)}</div>
-											<div class="text-green-600">+ {JSON.stringify(change.to)}</div>
-										</div>
-									{:else}
-										<span class="text-red-600">{JSON.stringify(change.from)}</span>
-										<span class="text-tertiary"> → </span>
-										<span class="text-green-600">{JSON.stringify(change.to)}</span>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="mt-2 text-tertiary">No changes found! The file is up to date.</div>
-				{/if}
 			</div>
 		{/if}
 	{/if}
