@@ -557,7 +557,7 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(resolvedConfig) 
-		api && resolvedConfig && resolvedConfig.columnDefs && untrack(() => updateOptions())
+		api && resolvedConfig && updateOptions()
 	})
 	$effect(() => {
 		value && untrack(() => updateValue())
