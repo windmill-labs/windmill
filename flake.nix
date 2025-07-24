@@ -205,7 +205,10 @@
           GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
-          DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          # DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          DATABASE_URL =
+            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
+
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";

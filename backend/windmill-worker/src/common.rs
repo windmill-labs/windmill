@@ -1033,7 +1033,7 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RequiredDependency<T: Clone + Send + Sync> {
     /// Expected directory of dependency in cache
     /// For example:

@@ -50,11 +50,11 @@ const targets = [
     desc: "Java",
     features: "java-parser",
     env: "tree-sitter",
-  # }, {
-  #   ident: "ruby",
-  #   desc: "Ruby",
-  #   features: "ruby-parser",
-  #   env: "tree-sitter",
+  }, {
+    ident: "ruby",
+    desc: "Ruby",
+    features: "ruby-parser",
+    env: "tree-sitter",
   },
   # ^^^ Add new entry here ^^^
 ];
@@ -115,7 +115,8 @@ def main [
         wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
       },
       "tree-sitter" => {
-        $env.CFLAGS_wasm32_unknown_unknown = "-I$(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"
+        $env.CFLAGS_wasm32_unknown_unknown = $"-I(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"
+        print $env.CFLAGS_wasm32_unknown_unknown;
         $env.RUSTFLAGS = "-Zwasm-c-abi=spec"
         wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features $t.features
       },
@@ -123,10 +124,11 @@ def main [
     }
 
     if ($cli) {
-      rm ($env.OUT_DIR)/.gitignore
+      rm $"($env.OUT_DIR)/.gitignore"
     } else {
-      let p = ($env.OUT_DIR)/package.json
+      let p = $"($env.OUT_DIR)/package.json"
       open $p | update name $"windmill-parser-wasm-($t.ident)" | save -f $p
     }
   }
 }
+

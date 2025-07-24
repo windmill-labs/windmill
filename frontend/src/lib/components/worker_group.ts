@@ -53,8 +53,10 @@ export const defaultTags = [
     'ansible',
     'csharp',
     'nu',
-    'java'
-    // KJQXZ 
+    'java',
+    'ruby'
+    // for related places search: ADD_NEW_LANG 
+
 ]
 export const nativeTags = [
     'nativets',

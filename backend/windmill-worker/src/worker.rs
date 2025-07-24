@@ -3256,6 +3256,32 @@ mount {{
             })
             .await
         }
+        Some(ScriptLang::Java) => {
+            #[cfg(not(feature = "java"))]
+            return Err(anyhow::anyhow!(
+                "Java is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "java")]
+            handle_java_job(JobHandlerInputRuby {
+                mem_peak,
+                canceled_by,
+                job,
+                conn,
+                client,
+                parent_runnable_path,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
         Some(ScriptLang::Ruby) => {
             #[cfg(not(feature = "ruby"))]
             return Err(anyhow::anyhow!(

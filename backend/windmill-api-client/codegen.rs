@@ -8213,6 +8213,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Csharp,
         #[serde(rename = "nu")]
         Nu,
+        #[serde(rename = "ruby")]
+        Ruby,
+        // for related places search: ADD_NEW_LANG 
     }
     impl From<&ScriptLang> for ScriptLang {
         fn from(value: &ScriptLang) -> Self {
@@ -8241,6 +8244,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Ansible => "ansible".to_string(),
                 Self::Csharp => "csharp".to_string(),
                 Self::Nu => "nu".to_string(),
+                Self::Ruby => "ruby".to_string(),
+                // for related places search: ADD_NEW_LANG 
             }
         }
     }
@@ -8267,6 +8272,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "ansible" => Ok(Self::Ansible),
                 "csharp" => Ok(Self::Csharp),
                 "nu" => Ok(Self::Nu),
+                "ruby" => Ok(Self::Ruby),
+                // for related places search: ADD_NEW_LANG 
                 _ => Err("invalid value"),
             }
         }

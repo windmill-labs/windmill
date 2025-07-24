@@ -116,6 +116,8 @@ impl FromStr for ScriptLang {
             "csharp" => ScriptLang::CSharp,
             "nu" => ScriptLang::Nu,
             "java" => ScriptLang::Java,
+            "ruby" => ScriptLang::Ruby,
+            // for related places search: ADD_NEW_LANG
             language => {
                 return Err(anyhow::anyhow!("{} is currently not supported", language).into())
             }
