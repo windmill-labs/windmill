@@ -81,7 +81,7 @@ impl CustomTags {
                 .map(|(tag, tag_data)| {
                     let separator = tag_data.tag_type.corresponding_separator();
                     let mut workspaces = tag_data.workspaces.join(&*separator.to_string());
-                    if tag_data.tag_type != SpecificTagType::AllExcluding {
+                    if tag_data.tag_type == SpecificTagType::AllExcluding {
                         // the AllExcluding tag syntax has a leading separator
                         workspaces.insert(0, separator);
                     }
@@ -1767,7 +1767,7 @@ mod tests {
         let input = vec![
             "global".to_string(),
             "feat(ws1+ws2)".to_string(),
-            "hotfix(^ws3)".to_string(),
+            "hotfix(^ws3^ws4)".to_string(),
         ];
         let result = CustomTags::from(input);
 
@@ -1785,7 +1785,7 @@ mod tests {
             "hotfix".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::AllExcluding,
-                workspaces: vec!["ws3".to_string()],
+                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
             },
         );
 
@@ -1891,7 +1891,7 @@ mod tests {
             result,
             vec![
                 "foo",
-                "urgent(+ws1+ws2)", // Note leading `+` for NoneExcept
+                "urgent(ws1+ws2)",
                 "legacy(^ws1^ws2)"
             ]
         );
