@@ -64,12 +64,17 @@ export function dbTableOpsWithPreviewScripts({
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			const countQuery = makeCountQuery(input.resourceType, tableKey, undefined, colDefs)
+			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
+			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			console.log('countQuery', countQuery)
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: { database: '$res:' + input.resourcePath, quicksearch },
-					language: getLanguageByResourceType(input.resourceType),
+					args:
+						input.type === 'database'
+							? { database: '$res:' + input.resourcePath, quicksearch }
+							: { quicksearch },
+					language,
 					content: countQuery
 				}
 			})
@@ -79,7 +84,6 @@ export function dbTableOpsWithPreviewScripts({
 		getRows: async (params) => {
 			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType)
 			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
-			console.log('getRows query', query)
 			let items = (await runScriptAndPollResult({
 				workspace,
 				requestBody: {
@@ -109,7 +113,7 @@ export function dbTableOpsWithPreviewScripts({
 						value_to_update: newValue,
 						...values
 					},
-					language: getLanguageByResourceType(input.resourceType),
+					language,
 					content: updateQuery
 				}
 			})
@@ -121,7 +125,7 @@ export function dbTableOpsWithPreviewScripts({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + input.resourcePath, ...values },
-					language: getLanguageByResourceType(input.resourceType),
+					language,
 					content: deleteQuery
 				}
 			})
@@ -132,7 +136,7 @@ export function dbTableOpsWithPreviewScripts({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + input.resourcePath, ...values },
-					language: getLanguageByResourceType(input.resourceType),
+					language,
 					content: insertQuery
 				}
 			})
@@ -238,5 +242,6 @@ function getDbType(input: DbInput): DbType {
 }
 
 function wrapDucklakeQuery(query: string, ducklake: string): string {
-	return `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n${query}`
+	let attach = `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n`
+	return query.replace(/^(--.*\n)*/, (match) => match + attach)
 }
