@@ -59,10 +59,11 @@
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
+	import DucklakeCatalogWizardDrawer from '../wizards/DucklakeCatalogWizardDrawer.svelte'
 
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
@@ -119,6 +120,7 @@
 	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', '']
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let catalogWizardDrawer: DucklakeCatalogWizardDrawer | undefined = $state()
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -202,6 +204,16 @@
 		</Row>
 	</tbody>
 </DataTable>
-
-<Button wrapperClasses="mt-6 max-w-fit" on:click={onSave}>Save ducklake settings</Button>
+{#if $superadmin}
+	<Button
+		wrapperClasses="mt-4 max-w-fit"
+		variant="border"
+		size="xs"
+		on:click={() => catalogWizardDrawer?.openDrawer()}
+	>
+		Setup a new catalog in the Windmill database
+	</Button>
+{/if}
+<Button wrapperClasses="mt-4 max-w-fit" on:click={onSave}>Save ducklake settings</Button>
 <DbManagerDrawer bind:this={dbManagerDrawer} />
+<DucklakeCatalogWizardDrawer bind:this={catalogWizardDrawer} />
