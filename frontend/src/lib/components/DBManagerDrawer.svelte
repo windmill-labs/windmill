@@ -217,28 +217,25 @@
 							})}
 						/>
 					</Pane>
-					{#if input.type == 'database'}
-						<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
-							<SqlRepl
-								resourcePath={input.resourcePath}
-								resourceType={input.resourceType}
-								onData={(data) => {
-									replResultData = data
-								}}
-								placeholderTableName={sortArray(
-									Object.keys(
-										dbSchema?.schema[
-											'public' in dbSchema?.schema
-												? 'public'
-												: 'dbo' in dbSchema?.schema
-													? 'dbo'
-													: Object.keys(dbSchema?.schema)?.[0]
-										]
-									)
-								)?.[0]}
-							/>
-						</Pane>
-					{/if}
+					<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
+						<SqlRepl
+							{input}
+							onData={(data) => {
+								replResultData = data
+							}}
+							placeholderTableName={sortArray(
+								Object.keys(
+									dbSchema?.schema[
+										'public' in dbSchema?.schema
+											? 'public'
+											: 'dbo' in dbSchema?.schema
+												? 'dbo'
+												: Object.keys(dbSchema?.schema)?.[0]
+									]
+								)
+							)?.[0]}
+						/>
+					</Pane>
 				</Splitpanes>
 			{:else}
 				<Splitpanes>

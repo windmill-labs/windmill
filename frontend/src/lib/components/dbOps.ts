@@ -206,7 +206,7 @@ SELECT json_group_object(table_name, table_data) AS result FROM (
 	GROUP BY c.table_name
 )`
 
-function getDbType(input: DbInput): DbType {
+export function getDbType(input: DbInput): DbType {
 	switch (input.type) {
 		case 'database':
 			return input.resourceType
