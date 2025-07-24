@@ -70,7 +70,9 @@
 	let { ducklakeSettings = $bindable() }: Props = $props()
 
 	function onNewDucklake() {
-		const name = ducklakeSettings.ducklakes.length ? `${random_adj()}_ducklake` : 'main'
+		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
+			? `${random_adj()}_ducklake`
+			: 'main'
 		ducklakeSettings.ducklakes.push({
 			name,
 			catalog: {

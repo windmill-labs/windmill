@@ -7,6 +7,8 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_while},
     character::complete::{char, multispace0},
+    combinator::opt,
+    sequence::preceded,
     IResult, Parser,
 };
 
@@ -121,12 +123,12 @@ fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
 
 fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
-    let (input, _) = tag("ducklake://").parse(input)?;
-    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
+    let (input, _) = tag("ducklake").parse(input)?;
+    let (input, path) =
+        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
     let (input, _) = quote(input)?;
-    Ok((input, path))
+    Ok((input, path.unwrap_or("main")))
 }
-
 fn parse_comment(input: &str) -> IResult<&str, &str> {
     let (input, _) = tag("--").parse(input)?;
     let (input, comment) = take_while(|c| c != '\n')(input)?;
