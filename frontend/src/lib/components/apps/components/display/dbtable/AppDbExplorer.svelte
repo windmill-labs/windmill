@@ -368,7 +368,7 @@
 		let tableMetadata = await loadTableMetaData(
 			{
 				type: 'database',
-				resourcePath: resolvedConfig.type.configuration[selected].resource,
+				resourcePath: resolvedConfig.type.configuration[selected].resource.substring(5),
 				resourceType: selected
 			},
 			$workspaceStore,
