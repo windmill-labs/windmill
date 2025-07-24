@@ -17,7 +17,7 @@ On Windmill, scripts are executed in isolated environments with specific convent
 - Libraries are installed automatically - do not show installation instructions
 - Credentials and configuration are stored in resources and passed as parameters
 - The windmill client (wmill) provides APIs for interacting with the platform
-- You can use \`wmill resource-type list --schema\` to list all resource types available. You should use that to know the type of the resource you need to use in your script.
+- You can use \`wmill resource-type list --schema\` to list all resource types available. You should use that to know the type of the resource you need to use in your script. You can use grep if the output is too long.
 
 ## Language-Specific Instructions
 
