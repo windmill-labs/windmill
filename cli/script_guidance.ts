@@ -19,6 +19,7 @@ On Windmill, scripts are executed in isolated environments with specific convent
 - Libraries are installed automatically - do not show installation instructions
 - Credentials and configuration are stored in resources and passed as parameters
 - The windmill client (wmill) provides APIs for interacting with the platform
+- You can use \`wmill resource-type list --schema\` to list all resource types available. You should use that to know the type of the resource you need to use in your script.
 
 ## Language-Specific Instructions
 
@@ -42,7 +43,7 @@ On Windmill, scripts are executed in isolated environments with specific convent
 **Resource Types:**
 On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: \`RT.Stripe\`.
-Only use them if needed to satisfy instructions. Always use the RT namespace. You can use \`wmill resource-type\` to list all resource types available.
+Only use them if needed to satisfy instructions. Always use the RT namespace.
 
 **Windmill Client (\`import * as wmill from "windmill-client"\`):**
 
@@ -88,7 +89,6 @@ If you need credentials, add a parameter to \`main\` with the corresponding reso
 Resource type name must be **IN LOWERCASE**.
 If an import conflicts with a resource type name, **rename the imported object, not the type name**.
 Import TypedDict from typing **if using it**.
-You can use \`wmill resource-type\` to list all resource types available.
 
 **Windmill Client (\`import wmill\`):**
 
@@ -136,7 +136,6 @@ If you need credentials, add a parameter to \`main\` with the corresponding reso
 **Redefine** the type of needed resources before the main function.
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.
-You can use \`wmill resource-type\` to list all resource types available.
 
 **Library Dependencies:**
 
