@@ -178,12 +178,12 @@
 						await JobService.cancelQueuedJob({
 							workspace,
 							id: jobId,
-							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 10s` }
+							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s` }
 						})
 					} catch (err) {}
 				},
 				interval: 500,
-				timeout: 10000
+				timeout: 60000
 			})
 
 			if (isPreview) {

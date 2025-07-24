@@ -42,7 +42,8 @@
 		Plus,
 		Loader2,
 		Save,
-		ExternalLink
+		ExternalLink,
+		FileSearch
 	} from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -107,6 +108,16 @@
 	type GitSyncRepository = BackendGitRepositorySettings & {
 		settings: GitRepositorySettings  // Required in frontend after transformation
 		legacyImported?: boolean
+		isUnsavedConnection?: boolean
+		// Repository detection state for new connections
+		detectionState?: 'idle' | 'loading' | 'no-wmill' | 'has-wmill' | 'error'
+		extractedSettings?: GitRepositorySettings
+		detectionError?: string
+		// Job tracking for detection
+		detectionJobId?: string
+		detectionJobStatus?: 'running' | 'success' | 'failure'
+		// Internal tracking for resource path changes
+		_trackedPath?: string
 	}
 
 	// Workspace-level legacy filter arrays (populated if we imported legacy settings)
@@ -191,6 +202,31 @@
 			setTimeout(() => showPullModal = null, 0)
 		}
 	})
+
+	// Watch for changes to git repository paths and reset detection state
+	$effect(() => {
+		gitSyncSettings.repositories.forEach((repo, idx) => {
+			if (repo.isUnsavedConnection) {
+				// Track the current path
+				const currentPath = repo.git_repo_resource_path
+				
+				// Only reset if we have a previous path stored and it's different from current
+				// This prevents resetting during normal state changes
+				if (repo._trackedPath && repo._trackedPath !== currentPath && repo.detectionState && repo.detectionState !== 'idle') {
+					repo.detectionState = 'idle'
+					repo.extractedSettings = undefined
+					repo.detectionError = undefined
+					// Clear detection job status when switching repositories
+					repo.detectionJobId = undefined
+					repo.detectionJobStatus = undefined
+				}
+				
+				// Update tracked path for next comparison
+				repo._trackedPath = currentPath
+			}
+		})
+	})
+
 	let loadedSettings = $state(false)
 
 	const latestGitSyncHubScript = hubPaths.gitSync
@@ -206,6 +242,13 @@
 				// If there were no initial repos, treat each repo as changed only when valid
 				if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
 					return repoValid
+				}
+
+				// If this is an unsaved connection, only show save button after detection is complete
+				if (repo.isUnsavedConnection) {
+					// Must have completed detection and be valid to save
+					const detectionComplete = repo.detectionState === 'no-wmill' || repo.detectionState === 'has-wmill'
+					return repoValid && detectionComplete
 				}
 
 				const initial = initialGitSyncSettings.repositories.find(
@@ -788,6 +831,122 @@
 		})
 	}
 
+	async function loadRepositorySettings(idx: number) {
+		const repo = gitSyncSettings.repositories[idx]
+		if (!repo.isUnsavedConnection) return
+		
+		repo.detectionState = 'loading'
+		repo.detectionError = undefined
+		repo.detectionJobId = undefined
+		repo.detectionJobStatus = undefined
+		
+		try {
+			const jobId = await JobService.runScriptByPath({
+				workspace: $workspaceStore!,
+				path: hubPaths.gitInitRepo,
+				requestBody: {
+					workspace_id: $workspaceStore!,
+					repo_url_resource_path: repo.git_repo_resource_path,
+					dry_run: true,
+					pull: false, // Use push direction for detection - this calls executeCliSettingsPullDryRun
+					only_wmill_yaml: true,
+					settings_json: JSON.stringify(repo.settings)
+				},
+				skipPreprocessor: true
+			})
+			
+			repo.detectionJobId = jobId
+			repo.detectionJobStatus = 'running'
+			
+			// Wait for job completion
+			tryEvery({
+				tryCode: async () => {
+					const jobResult = await JobService.getCompletedJob({
+						workspace: $workspaceStore!,
+						id: jobId
+					})
+					
+					const jobSuccess = !!jobResult.success
+					repo.detectionJobStatus = jobSuccess ? 'success' : 'failure'
+					
+					if (jobSuccess) {
+						const response = jobResult.result as any
+						if (response.isInitialSetup) {
+							repo.detectionState = 'no-wmill'
+						} else {
+							repo.detectionState = 'has-wmill'
+							// Apply extracted settings from the git repository
+							if (response.local) {
+								repo.extractedSettings = response.local
+								// Auto-apply the extracted settings
+								repo.settings = { ...response.local }
+							}
+						}
+					} else {
+						repo.detectionState = 'error'
+						const errorResult = jobResult.result as any
+						repo.detectionError = errorResult?.error?.message || 'Detection failed'
+					}
+				},
+				timeoutCode: async () => {
+					try {
+						await JobService.cancelQueuedJob({
+							workspace: $workspaceStore!,
+							id: jobId,
+							requestBody: { reason: 'Detection job timed out after 30s' }
+						})
+					} catch (err) {}
+					repo.detectionState = 'error'
+					repo.detectionError = 'Detection job timed out after 30s'
+				},
+				interval: 500,
+				timeout: 30000
+			})
+		} catch (error: any) {
+			repo.detectionState = 'error'
+			repo.detectionError = error?.message || error?.toString() || 'Failed to start detection job'
+		}
+	}
+
+	async function initializeRepository(idx: number) {
+		const repo = gitSyncSettings.repositories[idx]
+		if (!repo.isUnsavedConnection || repo.detectionState !== 'no-wmill') return
+		
+		try {
+			// Call the push modal logic to initialize the repository
+			showPushModal = { idx, repo, open: true }
+		} catch (error) {
+			sendUserToast('Failed to initialize repository: ' + error.message, true)
+		}
+	}
+
+	async function saveConnectionWithSettings(idx: number) {
+		const repo = gitSyncSettings.repositories[idx]
+		if (!repo.isUnsavedConnection || repo.detectionState !== 'has-wmill') return
+		
+		try {
+			// Save the repository with its current settings
+			const isValid = isRepoValid(idx)
+			if (!isValid) {
+				sendUserToast('Cannot save invalid repository (missing or duplicate resource)', true)
+				return
+			}
+			
+			// Call the existing save logic
+			await saveRepoSettings(idx)
+			
+			// Remove the unsaved connection flag and detection state
+			repo.isUnsavedConnection = false
+			repo.detectionState = undefined
+			repo.extractedSettings = undefined
+			repo.detectionError = undefined
+			
+			sendUserToast('Git sync connection saved successfully')
+		} catch (error) {
+			sendUserToast('Failed to save connection: ' + error.message, true)
+		}
+	}
+
 	async function editCriticalAlertMuteSetting() {
 		await SettingService.workspaceMuteCriticalAlertsUi({
 			workspace: $workspaceStore!,
@@ -1287,7 +1446,7 @@
 				<div class="flex mt-5 mb-5 gap-8">
 					<Button
 						startIcon={{ icon: Save }}
-						disabled={!$enterpriseLicense || !hasAnyChanges || gitSyncSettings.repositories.some((_,i)=>!isRepoValid(i))}
+						disabled={!$enterpriseLicense || !hasAnyChanges || gitSyncSettings.repositories.some((_,i)=>!isRepoValid(i)) || gitSyncSettings.repositories.some(repo => repo.isUnsavedConnection)}
 						on:click={() => {
 							editWindmillGitSyncSettings()
 							console.log('Saving git sync settings', gitSyncSettings)
@@ -1318,7 +1477,7 @@
 									</span>
 								</div>
 								<div class="flex items-center gap-2">
-									{#if (repoChanges[idx] || repo.legacyImported) && isRepoValid(idx)}
+									{#if (repoChanges[idx] || repo.legacyImported) && isRepoValid(idx) && !repo.isUnsavedConnection}
 										<Button
 											size="xs"
 											on:click={() => saveRepoSettings(idx)}
@@ -1400,9 +1559,7 @@
 											<ResourcePicker
 												bind:value={repo.git_repo_resource_path}
 												resourceType={'git_repository'}
-												disabled={initialGitSyncSettings?.repositories?.find(
-													initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
-												) !== undefined}
+												disabled={!repo.isUnsavedConnection}
 											/>
 											{#if !emptyString(repo.git_repo_resource_path)}
 												<Button
@@ -1470,57 +1627,172 @@
 														</div>
 													</Alert>
 												{/if}
-												<GitSyncFilterSettings
-													git_repo_resource_path={repo.git_repo_resource_path}
-													bind:include_path={repo.settings.include_path}
-													bind:include_type={repo.settings.include_type}
-													bind:exclude_types_override={repo.exclude_types_override}
-													isLegacyRepo={repo.legacyImported}
-													bind:excludes={repo.settings.exclude_path}
-													bind:extraIncludes={repo.settings.extra_include_path}
-													isInitialSetup={!initialGitSyncSettings?.repositories?.find(
-														initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
-													) && !emptyString(repo.git_repo_resource_path)}
-													requiresMigration={repo.legacyImported}
-												/>
-												<div class="w-1/3 flex gap-2">
-													<Button
-														size="xs"
-														color="dark"
-														variant="border"
-														on:click={() => showPushModal = { idx, repo, open: true }}
-													>
-														Push to Git
-													</Button>
-													<Button
-														size="xs"
-														color="dark"
-														variant="border"
-														on:click={() => showPullModal = { idx, repo, open: true }}
-													>
-														Pull from Git
-													</Button>
-												</div>
-												<Toggle
-													disabled={emptyString(repo.git_repo_resource_path)}
-													bind:checked={repo.use_individual_branch}
-													options={{
-														right: 'Create one branch per deployed object',
-														rightTooltip:
-															"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-													}}
-												/>
+												{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path)}
+													{#if isRepoDuplicate(idx)}
+														<!-- Duplicate resource - don't show any controls -->
+													{:else}
+														<!-- New connection flow -->
+														{#if !repo.detectionState || repo.detectionState === 'idle'}
+															<!-- Step 1: Check repo settings button -->
+															<div class="mt-4">
+																<div class="flex justify-start">
+																	<Button
+																		color="primary"
+																		variant="border"
+																		size="sm"
+																		onclick={() => loadRepositorySettings(idx)}
+																		startIcon={{ icon: FileSearch }}
+																	>
+																		Check repo settings
+																	</Button>
+																</div>
+															</div>
+														{:else if repo.detectionState === 'loading'}
+															<!-- Loading state -->
+															<div class="mt-4 flex items-center gap-2">
+																<Loader2 size={16} class="animate-spin" />
+																<span class="text-sm">Checking repository...</span>
+															</div>
+														{:else if repo.detectionState === 'no-wmill'}
+															<!-- No wmill.yaml found - new repository -->
+															<Alert type="info" title="Uninitialized Windmill repository found" class="my-2">
+																No git sync configuration found. Configure your sync settings below.
+															</Alert>
+															
+															<GitSyncFilterSettings
+																git_repo_resource_path={repo.git_repo_resource_path}
+																bind:include_path={repo.settings.include_path}
+																bind:include_type={repo.settings.include_type}
+																bind:exclude_types_override={repo.exclude_types_override}
+																isLegacyRepo={false}
+																bind:excludes={repo.settings.exclude_path}
+																bind:extraIncludes={repo.settings.extra_include_path}
+																isInitialSetup={true}
+																requiresMigration={false}
+															/>
+														{:else if repo.detectionState === 'has-wmill'}
+															<!-- wmill.yaml found - existing repository -->
+															<Alert type="success" title="Existing Windmill repository found" class="my-2">
+																Found existing git sync configuration. Settings loaded from repository.
+															</Alert>
+															
+															<GitSyncFilterSettings
+																git_repo_resource_path={repo.git_repo_resource_path}
+																bind:include_path={repo.settings.include_path}
+																bind:include_type={repo.settings.include_type}
+																bind:exclude_types_override={repo.exclude_types_override}
+																isLegacyRepo={false}
+																bind:excludes={repo.settings.exclude_path}
+																bind:extraIncludes={repo.settings.extra_include_path}
+																isInitialSetup={false}
+																requiresMigration={false}
+															/>
+														{:else if repo.detectionState === 'error'}
+															<!-- Error state -->
+															<Alert type="error" title="Detection error" class="my-2">
+																{repo.detectionError || 'Failed to check repository'}
+															</Alert>
+														{/if}
+														
+														<!-- Shared job status display for idle, loading, and error states -->
+														{#if repo.detectionJobId && repo.detectionState !== 'no-wmill' && repo.detectionState !== 'has-wmill'}
+															<div class="flex items-center gap-2 text-xs text-tertiary mt-2">
+																{#if repo.detectionJobStatus === 'running'}
+																	<Loader2 class="animate-spin" size={14} />
+																{:else if repo.detectionJobStatus === 'success'}
+																	<CheckCircle2 size={14} class="text-green-600" />
+																{:else if repo.detectionJobStatus === 'failure'}
+																	<XCircle size={14} class="text-red-700" />
+																{/if}
+																Detection job:
+																<a
+																	target="_blank"
+																	class="underline"
+																	href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
+																>
+																	{repo.detectionJobId}
+																</a>
+															</div>
+														{/if}
+													{/if}
+												{:else}
+													<!-- Existing saved connection flow -->
+													<GitSyncFilterSettings
+														git_repo_resource_path={repo.git_repo_resource_path}
+														bind:include_path={repo.settings.include_path}
+														bind:include_type={repo.settings.include_type}
+														bind:exclude_types_override={repo.exclude_types_override}
+														isLegacyRepo={repo.legacyImported}
+														bind:excludes={repo.settings.exclude_path}
+														bind:extraIncludes={repo.settings.extra_include_path}
+														isInitialSetup={false}
+														requiresMigration={repo.legacyImported}
+													/>
+													<div class="w-1/3 flex gap-2">
+														<Button
+															size="xs"
+															color="dark"
+															variant="border"
+															on:click={() => showPushModal = { idx, repo, open: true }}
+														>
+															Push to Git
+														</Button>
+														<Button
+															size="xs"
+															color="dark"
+															variant="border"
+															on:click={() => showPullModal = { idx, repo, open: true }}
+														>
+															Pull from Git
+														</Button>
+													</div>
+												{/if}
+												
+												{#if !repo.isUnsavedConnection || (repo.detectionState === 'no-wmill' || repo.detectionState === 'has-wmill')}
+													<Toggle
+														disabled={emptyString(repo.git_repo_resource_path)}
+														bind:checked={repo.use_individual_branch}
+														options={{
+															right: 'Create one branch per deployed object',
+															rightTooltip:
+																"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+														}}
+													/>
 
-												<Toggle
-													disabled={emptyString(repo.git_repo_resource_path) ||
-														!repo.use_individual_branch}
-													bind:checked={repo.group_by_folder}
-													options={{
-														right: 'Group deployed objects by folder',
-														rightTooltip:
-															'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-													}}
-												/>
+													<Toggle
+														disabled={emptyString(repo.git_repo_resource_path) ||
+															!repo.use_individual_branch}
+														bind:checked={repo.group_by_folder}
+														options={{
+															right: 'Group deployed objects by folder',
+															rightTooltip:
+																'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+														}}
+													/>
+												{/if}
+												
+												{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && (repo.detectionState === 'no-wmill' || repo.detectionState === 'has-wmill')}
+													<!-- Action buttons for new connections after detection -->
+													<div class="mt-4 flex gap-2">
+														{#if repo.detectionState === 'no-wmill'}
+															<Button
+																size="md"
+																onclick={() => initializeRepository(idx)}
+																startIcon={{ icon: Save }}
+															>
+																Initialize Git repository
+															</Button>
+														{:else if repo.detectionState === 'has-wmill'}
+															<Button
+																size="md"
+																onclick={() => saveConnectionWithSettings(idx)}
+																startIcon={{ icon: Save }}
+															>
+																Save connection
+															</Button>
+														{/if}
+													</div>
+												{/if}
 											{/if}
 										</div>
 									{:else}
@@ -1555,7 +1827,8 @@
 										include_type: ['script', 'flow', 'app', 'folder'] as ObjectType[]
 									},
 									exclude_types_override: [],
-									legacyImported: false
+									legacyImported: false,
+									isUnsavedConnection: true
 								}
 							]
 							gitSyncTestJobs = [
@@ -1681,8 +1954,25 @@
 			include_type: showPushModal.repo.settings.include_type
 		}}
 		onClose={() => showPushModal = null}
-		onSuccess={() => {
-			sendUserToast('Successfully pushed to git repository')
+		onSuccess={async () => {
+			const repo = showPushModal?.repo
+			const idx = showPushModal?.idx
+			
+			if (repo?.isUnsavedConnection && repo?.detectionState === 'no-wmill' && idx !== undefined) {
+				// This was a repository initialization - auto-save the connection
+				try {
+					await saveRepoSettings(idx)
+					repo.isUnsavedConnection = false
+					repo.detectionState = undefined
+					repo.extractedSettings = undefined
+					repo.detectionError = undefined
+					sendUserToast('Repository initialized and connection saved successfully')
+				} catch (error) {
+					sendUserToast('Repository initialized but failed to save connection: ' + error.message, true)
+				}
+			} else {
+				sendUserToast('Successfully pushed to git repository')
+			}
 			showPushModal = null
 		}}
 	/>

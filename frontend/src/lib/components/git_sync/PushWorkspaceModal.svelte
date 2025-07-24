@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Button, Alert } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -120,12 +120,12 @@
 						await JobService.cancelQueuedJob({
 							workspace,
 							id: jobId,
-							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 10s` }
+							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s` }
 						})
 					} catch (err) {}
 				},
 				interval: 500,
-				timeout: 10000
+				timeout: 60000
 			})
 
 			if (isPreview) {
@@ -244,8 +244,7 @@
 			<div class="border-t pt-4 mt-4">
 				<div class="flex justify-start gap-2">
 					<Button
-						size="md"
-						color="primary"
+						size="xs"
 						onclick={() => executeJob(false)}
 						disabled={isApplying}
 						startIcon={{
