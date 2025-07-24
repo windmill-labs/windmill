@@ -789,6 +789,8 @@
 		{#snippet triggers()}
 			{#if script}
 				<TriggersEditor
+					{args}
+					hash={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import Label from '../../Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -16,7 +14,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { copyToClipboard, isObject } from '$lib/utils'
+	import { copyToClipboard, isObject, readFieldsRecursively } from '$lib/utils'
 	// import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import TriggerTokens from '../TriggerTokens.svelte'
@@ -57,7 +55,36 @@
 	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
-	let url: string = $state('')
+	let webhookType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync'
+	let requestType = $state(isFlow ? 'path' : 'path') as 'hash' | 'path' | 'get_path'
+	let tokenType = $state('headers') as 'query' | 'headers'
+
+	$effect(() => {
+		if (webhookType === 'async' && requestType === 'get_path') {
+			requestType = hash ? 'hash' : 'path'
+		}
+	})
+
+	let cleanedRunnableArgs = $derived.by(() => {
+		readFieldsRecursively(runnableArgs)
+		return isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+			: runnableArgs
+	})
+	let url: string = $derived(
+		webhooks[webhookType][requestType] +
+			(tokenType === 'query'
+				? `?token=${token}${
+						requestType === 'get_path'
+							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`
+				: `${
+						requestType === 'get_path'
+							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`)
+	)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
 		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
@@ -89,10 +116,6 @@
 			}
 		}
 	}
-
-	let webhookType: 'async' | 'sync' = $state(DEFAULT_WEBHOOK_TYPE)
-	let requestType: 'hash' | 'path' | 'get_path' = $state(isFlow ? 'path' : 'path')
-	let tokenType: 'query' | 'headers' = $state('headers')
 
 	function headers() {
 		const headers = {}
@@ -222,32 +245,6 @@ while true; do
 done`
 }`
 	}
-
-	run(() => {
-		if (webhookType === 'async' && requestType === 'get_path') {
-			requestType = hash ? 'hash' : 'path'
-		}
-	})
-	let cleanedRunnableArgs = $derived(
-		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
-			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
-			: runnableArgs
-	)
-	run(() => {
-		url =
-			webhooks[webhookType][requestType] +
-			(tokenType === 'query'
-				? `?token=${token}${
-						requestType === 'get_path'
-							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-							: ''
-					}`
-				: `${
-						requestType === 'get_path'
-							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-							: ''
-					}`)
-	})
 </script>
 
 <UserSettings
