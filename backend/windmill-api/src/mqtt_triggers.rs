@@ -6,6 +6,7 @@ use crate::{
     users::fetch_api_authed,
     utils::check_scopes,
 };
+use windmill_queue::JobTriggerKind;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use axum::{
@@ -118,6 +119,7 @@ async fn run_job(
         trigger.error_handler_path.as_deref(),
         trigger.error_handler_args.as_ref(),
         format!("mqtt_trigger/{}", trigger.path),
+        JobTriggerKind::Mqtt,
     )
     .await?;
 

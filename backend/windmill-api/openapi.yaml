@@ -1932,6 +1932,10 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
+                  trigger_failure_email_recipients:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - error_handler_muted_on_cancel
 
@@ -2394,6 +2398,35 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_trigger_failure_email_notifications:
+    post:
+      summary: edit trigger failure email notifications
+      operationId: editTriggerFailureEmailNotifications
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Trigger failure email notification settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trigger_failure_email_recipients:
+                  type: array
+                  items:
+                    type: string
 
       responses:
         "200":

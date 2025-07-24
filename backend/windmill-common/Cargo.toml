@@ -82,7 +82,6 @@ openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
 url.workspace = true
-
 semver.workspace = true
 croner = "2.2.0"
 quick_cache.workspace = true

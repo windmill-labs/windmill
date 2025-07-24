@@ -31,7 +31,7 @@ use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
-    email_oss::send_email,
+    email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
@@ -99,7 +99,7 @@ pub async fn test_email(
     let to = test_email.to;
 
     let client_timeout = Duration::from_secs(3);
-    send_email(
+    send_email_plain_text(
         "Test email from Windmill",
         "Test email content",
         vec![to],
