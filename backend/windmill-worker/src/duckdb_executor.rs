@@ -556,7 +556,7 @@ async fn transform_attach_ducklake(
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake(://[^':]+)?' AS ([^ ;]+) \((.*)\)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
@@ -565,7 +565,7 @@ async fn transform_attach_ducklake(
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
     let extra_args = cap
         .get(3)
-        .map(|m| format!(", {}", m.as_str()))
+        .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
         .unwrap_or("".to_string());
 
     let ducklake_config = client.get_ducklake(ducklake_name).await?;
@@ -582,7 +582,7 @@ async fn transform_attach_ducklake(
         duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake_config.storage.path)?;
 
     let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}'${extra_args});",
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
