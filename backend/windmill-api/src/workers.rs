@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
+use windmill_common::worker::SpecificTagType;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -146,33 +147,12 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
     }
     if let Some(workspace) = query.workspace {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .filter(|(_, workspaces)| workspaces.contains(&workspace))
-            .map(|(tag, _)| tag.clone())
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(Some(workspace));
+        return Ok(Json(all_tags));
     } else if query.show_workspace_restriction.is_some_and(|x| x) {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .map(|(tag, workspaces)| format!("{}({})", tag, workspaces.join("+")))
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(None);
+        return Ok(Json(all_tags));
     }
     Ok(Json(ALL_TAGS.read().await.clone().into()))
 }
