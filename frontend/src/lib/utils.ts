@@ -131,7 +131,7 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 
 export function retrieveCommonWorkerPrefix(workerName: string): string {
 	const lastDashIndex = workerName.lastIndexOf('-')
-	
+
 	return workerName.substring(0, lastDashIndex)
 }
 
@@ -1477,6 +1477,6 @@ export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
 	})
 }
 
-export function pruneNullishArrayWithSet<T>(array: (T | null | undefined)[]): T[] {
+export function pruneNullishArray<T>(array: (T | null | undefined)[]): T[] {
 	return array.filter((item): item is T => item !== null && item !== undefined)
 }
