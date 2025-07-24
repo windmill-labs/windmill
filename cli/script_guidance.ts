@@ -1,7 +1,5 @@
-// Auto-generated embedded content from SCRIPT_GUIDANCE.md
-// This file is used in the npm package when the source file is not available
-
-export const SCRIPT_GUIDANCE = `---
+export const SCRIPT_GUIDANCE = `
+---
 alwaysApply: true
 ---
 
