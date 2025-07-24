@@ -31,9 +31,12 @@
 	): NonNullable<GetSettingsResponse['ducklake']> {
 		const s: GetSettingsResponse['ducklake'] = { ducklakes: {} }
 		for (const ducklake of settings.ducklakes) {
+			const catalog = ducklake.catalog
 			if (ducklake.name in s.ducklakes)
 				throw 'Settings contain duplicate ducklake name: ' + ducklake.name
-			if (!ducklake.catalog.resource_path) throw 'No resource selected for ' + ducklake.name
+			if (!catalog.resource_path) throw 'No resource selected for ' + ducklake.name
+			if (catalog.resource_type === 'instance_db' && catalog.resource_path === 'windmill')
+				throw ducklake.name + ' catalog cannot be called "windmill"'
 
 			s.ducklakes[ducklake.name] = {
 				catalog: ducklake.catalog,
