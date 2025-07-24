@@ -3,9 +3,15 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
-    pub include_path: Vec<String>,
-    pub include_type: Vec<ObjectType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_path: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_type: Option<Vec<ObjectType>>,
     pub repositories: Vec<GitRepositorySettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_path: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_include_path: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -14,7 +20,7 @@ pub struct WorkspaceDeploymentUISettings {
     pub include_type: Vec<ObjectType>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ObjectType {
     Script,
@@ -29,15 +35,41 @@ pub enum ObjectType {
     User,
     Group,
     Trigger,
+    Settings,
+    Key,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_types_override: Option<Vec<ObjectType>>,
     pub script_path: String,
     pub git_repo_resource_path: String,
     pub use_individual_branch: Option<bool>,
     pub group_by_folder: Option<bool>,
-    pub exclude_types_override: Option<Vec<ObjectType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<GitSyncSettings>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GitSyncSettings {
+    pub include_path: Vec<String>,
+    pub include_type: Vec<ObjectType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_path: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_include_path: Option<Vec<String>>,
+}
+
+impl Default for GitSyncSettings {
+    fn default() -> Self {
+        Self {
+            include_path: Vec::new(),
+            include_type: Vec::new(),
+            exclude_path: None,
+            extra_include_path: None,
+        }
+    }
 }
 
 lazy_static::lazy_static! {

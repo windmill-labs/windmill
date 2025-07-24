@@ -14,9 +14,13 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
-import { ScriptLanguage } from "./script_common.ts";
+import {
+  languagesWithRawReqsSupport,
+  LanguageWithRawReqsSupport,
+  ScriptLanguage,
+} from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { GlobalDeps, exts } from "./script.ts";
+import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
   FSFSElement,
   extractInlineScriptsForFlows,
@@ -40,40 +44,13 @@ export class LockfileGenerationError extends Error {
 export async function generateAllMetadata() {}
 
 function findClosestRawReqs(
-  lang: "bun" | "python3" | "php" | "go" | undefined,
+  lang: LanguageWithRawReqsSupport | undefined,
   remotePath: string,
   globalDeps: GlobalDeps
 ): string | undefined {
   let bestCandidate: { k: string; v: string } | undefined = undefined;
-  if (lang == "bun") {
-    Object.entries(globalDeps.pkgs).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "python3") {
-    Object.entries(globalDeps.reqs).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "php") {
-    Object.entries(globalDeps.composers).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "go") {
-    Object.entries(globalDeps.goMods).forEach(([k, v]) => {
+  if (lang) {
+    Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
         k.length >= (bestCandidate?.k ?? "").length
@@ -87,12 +64,28 @@ function findClosestRawReqs(
 }
 
 const TOP_HASH = "__flow_hash";
-async function generateFlowHash(folder: string) {
+async function generateFlowHash(
+  rawReqs: Record<string, string> | undefined,
+  folder: string,
+  defaultTs: "bun" | "deno" | undefined
+) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
-      hashes[f.path] = await generateHash(await f.getContentText());
+      let reqs: string | undefined;
+      if (rawReqs) {
+        // Get language name from path
+        const lang = inferContentTypeFromFilePath(f.path, defaultTs);
+        // Get lock for that language
+        [, reqs] =
+          Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
+      }
+
+      // Embed lock into hash
+      hashes[f.path] = await generateHash(
+        (await f.getContentText()) + (reqs ?? "")
+      );
     }
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
@@ -101,9 +94,13 @@ export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
   workspace: Workspace,
+  opts: GlobalOptions & {
+    defaultTs?: "bun" | "deno";
+  },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean
-): Promise<string | undefined> {
+  noStaleMessage?: boolean,
+  useRawReqs?: boolean
+): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
@@ -114,7 +111,24 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let hashes = await generateFlowHash(folder);
+  let rawReqs: Record<string, string> | undefined = undefined;
+  if (useRawReqs) {
+    // Find all dependency files in the workspace
+    const globalDeps = await findGlobalDeps();
+
+    // Find closest dependency files for this flow
+    rawReqs = {};
+
+    // TODO: PERF: Only include raw reqs for the languages that are in the flow
+    languagesWithRawReqsSupport.map((lang) => {
+      const dep = findClosestRawReqs(lang, folder, globalDeps);
+      if (dep) {
+        // @ts-ignore
+        rawReqs[lang.language] = dep;
+      }
+    });
+  }
+  let hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -126,6 +140,19 @@ export async function generateFlowLockInternal(
     return;
   } else if (dryRun) {
     return remote_path;
+  }
+
+  if (useRawReqs) {
+    log.warn(
+      "If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)"
+    );
+    log.info(
+      (await blueColor())(
+        `Found raw requirements (${languagesWithRawReqsSupport
+          .map((l) => l.rrFilename)
+          .join("/")}) for ${folder}, using it`
+      )
+    );
   }
 
   const flowValue = (await yamlParseFile(
@@ -150,12 +177,18 @@ export async function generateFlowLockInternal(
       folder + SEP!,
       changedScripts
     );
+
     //removeChangedLocks
-    flowValue.value = await updateFlow(workspace, flowValue.value, remote_path);
+    flowValue.value = await updateFlow(
+      workspace,
+      flowValue.value,
+      remote_path,
+      rawReqs
+    );
 
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      newPathAssigner("bun")
+      newPathAssigner(opts.defaultTs ?? "bun")
     );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
@@ -165,9 +198,15 @@ export async function generateFlowLockInternal(
           s.content
         );
       });
+
+    // Overwrite `flow.yaml` with the new lockfile references
+    await Deno.writeTextFile(
+      Deno.cwd() + SEP + folder + SEP + "flow.yaml",
+      yamlStringify(flowValue as Record<string, any>)
+    );
   }
 
-  hashes = await generateFlowHash(folder);
+  hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -176,7 +215,7 @@ export async function generateFlowLockInternal(
 }
 
 // on windows, when using powershell, blue is not readable
-async function blueColor(): Promise<(x: string) => void> {
+export async function blueColor(): Promise<(x: string) => void> {
   const isWin = await getIsWin();
   return isWin ? colors.black : colors.blue;
 }
@@ -201,15 +240,16 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
-  const rawReqs = findClosestRawReqs(
-    language as "bun" | "python3" | "php" | "go" | undefined,
-    scriptPath,
-    globalDeps
+  const rrLang = languagesWithRawReqsSupport.find(
+    (l) => language == l.language
   );
-  if (rawReqs) {
+
+  const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
+
+  if (rawReqs && rrLang) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${scriptPath}, using it`
+        `Found raw requirements (${rrLang.rrFilename}) for ${scriptPath}, using it`
       )
     );
   }
@@ -331,11 +371,8 @@ async function updateScriptLock(
 ): Promise<void> {
   if (
     !(
-      language == "bun" ||
-      language == "python3" ||
-      language == "go" ||
+      languagesWithRawReqsSupport.some((l) => l.language == language) ||
       language == "deno" ||
-      language == "php" ||
       language == "rust" ||
       language == "ansible"
     )
@@ -406,24 +443,48 @@ async function updateScriptLock(
 export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
-  remotePath: string
+  remotePath: string,
+  rawDeps?: Record<string, string>
 ): Promise<FlowValue | undefined> {
-  // generate the script lock running a dependency job in Windmill and update it inplace
-  // TODO: update this once the client is released
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-    {
-      method: "POST",
-      headers: {
-        Cookie: `token=${workspace.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        flow_value,
-        path: remotePath,
-      }),
-    }
-  );
+  let rawResponse;
+
+  if (rawDeps != undefined) {
+    log.info(colors.blue("Using raw requirements for flow dependencies"));
+
+    // generate the script lock running a dependency job in Windmill and update it inplace
+    rawResponse = await fetch(
+      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `token=${workspace.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          flow_value,
+          path: remotePath,
+          use_local_lockfiles: true,
+          raw_deps: rawDeps,
+        }),
+      }
+    );
+  } else {
+    // Standard dependency resolution on the server
+    rawResponse = await fetch(
+      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `token=${workspace.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          flow_value,
+          path: remotePath,
+        }),
+      }
+    );
+  }
 
   let responseText = "reading response failed";
   try {
@@ -469,7 +530,7 @@ export async function inferSchema(
   let inferedSchema: any;
   if (language === "python3") {
     const { parse_python } = await import(
-      "./wasm/python/windmill_parser_wasm.js"
+      "./wasm/py/windmill_parser_wasm.js"
     );
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
@@ -538,8 +599,8 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_sql } = await import("./wasm/regex/windmill_parser_wasm.js");
-    inferedSchema = JSON.parse(parse_sql(content));
+    const { parse_duckdb } = await import("./wasm/regex/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
     const { parse_graphql } = await import(
       "./wasm/regex/windmill_parser_wasm.js"
@@ -650,21 +711,27 @@ export function argSigToJsonSchemaType(
     | { resource: string | null }
     | {
         list:
-          | (string | { object: { key: string; typ: any }[] })
+          | (
+              | string
+              | {
+                  object: {
+                    name?: string;
+                    props?: { key: string; typ: any }[];
+                  };
+                }
+            )
           | { str: any }
-          | { object: { key: string; typ: any }[] }
+          | { object: { name?: string; props?: { key: string; typ: any }[] } }
           | null;
       }
     | { dynselect: string }
     | { str: string[] | null }
-    | { object: { key: string; typ: any }[] }
+    | { object: { name?: string; props?: { key: string; typ: any }[] } }
     | {
-        oneof: [
-          {
-            label: string;
-            properties: { key: string; typ: any }[];
-          }
-        ];
+        oneof: {
+          label: string;
+          properties: { key: string; typ: any }[];
+        }[];
       },
   oldS: SchemaProperty
 ): void {
@@ -716,9 +783,12 @@ export function argSigToJsonSchemaType(
     }
   } else if (typeof t !== "string" && `object` in t) {
     newS.type = "object";
-    if (t.object) {
+    if (t.object.name) {
+      newS.format = `resource-${t.object.name}`;
+    }
+    if (t.object.props) {
       const properties: Record<string, any> = {};
-      for (const prop of t.object) {
+      for (const prop of t.object.props) {
         if (oldS.properties && prop.key in oldS.properties) {
           properties[prop.key] = oldS.properties[prop.key];
         } else {
@@ -750,12 +820,24 @@ export function argSigToJsonSchemaType(
     newS.type = "array";
     if (t.list === "int" || t.list === "float") {
       newS.items = { type: "number" };
+      newS.originalType = "number[]";
     } else if (t.list === "bytes") {
       newS.items = { type: "string", contentEncoding: "base64" };
-    } else if (t.list == "string") {
-      newS.items = { type: "string" };
-    } else if (t.list && typeof t.list == "object" && "str" in t.list) {
+      newS.originalType = "bytes[]";
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "str" in t.list &&
+      t.list.str
+    ) {
       newS.items = { type: "string", enum: t.list.str };
+      newS.originalType = "enum[]";
+    } else if (
+      t.list == "string" ||
+      (t.list && typeof t.list == "object" && "str" in t.list)
+    ) {
+      newS.items = { type: "string", enum: oldS.items?.enum };
+      newS.originalType = "string[]";
     } else if (
       t.list &&
       typeof t.list == "object" &&
@@ -766,23 +848,30 @@ export function argSigToJsonSchemaType(
         type: "resource",
         resourceType: t.list.resource as string,
       };
+      newS.originalType = "resource[]";
     } else if (
       t.list &&
       typeof t.list == "object" &&
       "object" in t.list &&
-      t.list.object &&
-      t.list.object.length > 0
+      t.list.object
     ) {
-      const properties: Record<string, any> = {};
-      for (const prop of t.list.object) {
-        properties[prop.key] = { description: "", type: "" };
-
-        argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+      if (t.list.object.name) {
+        newS.format = `resource-${t.list.object.name}`;
       }
-
-      newS.items = { type: "object", properties: properties };
+      if (t.list.object.props && t.list.object.props.length > 0) {
+        const properties: Record<string, any> = {};
+        for (const prop of t.list.object.props) {
+          properties[prop.key] = { description: "", type: "" };
+          argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+        }
+        newS.items = { type: "object", properties: properties };
+      } else {
+        newS.items = { type: "object" };
+      }
+      newS.originalType = "record[]";
     } else {
       newS.items = { type: "object" };
+      newS.originalType = "object[]";
     }
   } else {
     newS.type = "object";
@@ -832,16 +921,15 @@ export function argSigToJsonSchemaType(
     delete oldS.items;
   }
 
-  Object.assign(oldS, newS);
+  if (oldS.format && !newS.format) {
+    oldS.format = undefined
+  }
 
+  Object.assign(oldS, newS);
   // if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
   // 	sendUserToast(JSON.stringify(savedItems))
   // 	oldS.items = savedItems
   // }
-
-  if (oldS.format?.startsWith("resource-") && newS.type != "object") {
-    oldS.format = undefined;
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////

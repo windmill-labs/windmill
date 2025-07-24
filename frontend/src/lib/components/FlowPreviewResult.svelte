@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -7,6 +7,7 @@
 	import { emptyString } from '$lib/utils'
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		job: Job
@@ -81,10 +82,17 @@
 			{#if mod.type == 'InProgress'}
 				{@const rawMod = job.raw_flow?.modules[i]}
 
-				<div
-					><span class="inline-flex gap-1"
-						><Badge color="indigo">{mod.id}</Badge>
-						<span class="font-medium text-primary">
+				<div>
+					<span class="inline-flex gap-1">
+						<Badge
+							color="indigo"
+							wrapperClass="max-w-full"
+							baseClass="max-w-full truncate !px-1"
+							title={mod.id}
+						>
+							<span class="max-w-full text-2xs truncate">{mod.id}</span></Badge
+						>
+						<span class="font-medium text-primary mt-0.5">
 							{#if !emptyString(rawMod?.summary)}
 								{rawMod?.summary ?? ''}
 							{:else if rawMod?.value.type == 'script'}
@@ -94,7 +102,7 @@
 							{/if}
 						</span>
 
-						<Loader2 class="animate-spin" /></span
+						<Loader2 class="animate-spin mt-0.5" /></span
 					></div
 				>
 			{/if}

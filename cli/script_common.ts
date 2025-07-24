@@ -22,6 +22,23 @@ export type ScriptLanguage =
   | "java";
 // for related places search: ADD_NEW_LANG
 
+// To make language support raw requirements:
+// 1. Add value here
+// 2. Modify backend to allow raw deps
+export type LanguageWithRawReqsSupport =
+  | { language: "bun", rrFilename /** (raw requirements filename) */: "package.json" }
+  // TODO: Add `requirements.in` - more intuitive and reflects better what actually happens
+  | { language: "python3", rrFilename: "requirements.txt" }
+  | { language: "php", rrFilename: "composer.json" }
+  | { language: "go", rrFilename: "go.mod" };
+
+export const languagesWithRawReqsSupport: LanguageWithRawReqsSupport[] = [
+  { language: "bun", rrFilename: "package.json" },
+  { language: "python3", rrFilename: "requirements.txt" },
+  { language: "php", rrFilename: "composer.json" },
+  { language: "go", rrFilename: "go.mod" },
+] as const;
+
 export function inferContentTypeFromFilePath(
   contentPath: string,
   defaultTs: "bun" | "deno" | undefined

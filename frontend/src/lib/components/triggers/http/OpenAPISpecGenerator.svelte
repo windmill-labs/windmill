@@ -48,9 +48,7 @@
 	let licenseName = $state('')
 	let licenseUrl = $state('')
 	let isGeneratingOpenapiSpec = $state(false)
-	let openapiDocument = $state(
-		'# Click "Generate OpenAPI document" to generate your OpenAPI spec.'
-	)
+	let openapiDocument = $state('# Click "Generate OpenAPI document" to generate your OpenAPI spec.')
 	let lang: OpenapiSpecFormat = $state('yaml')
 	let editor: SimpleEditor | undefined = $state()
 	let generateCurlCommandDrawer: Drawer | undefined = $state()
@@ -192,6 +190,7 @@
 						token = e.detail
 					}}
 					newTokenLabel={`openapi-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+					scopes={['openapi:write']}
 				/>
 			</div>
 
@@ -204,7 +203,7 @@
 			</Label>
 
 			<Label label="Example cURL">
-				<svelte:fragment slot="header">
+				{#snippet header()}
 					<Tooltip>
 						Use this cURL command to call the OpenAPI generation endpoint.
 
@@ -220,7 +219,7 @@
 
 						<br />
 					</Tooltip>
-				</svelte:fragment>
+				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
 curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi/generate" \\

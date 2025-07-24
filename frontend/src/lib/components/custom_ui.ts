@@ -37,6 +37,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	downloadLogs?: boolean
 	tagSelectPlaceholder?: string
 	tagSelectNoLabel?: boolean
+	tagLabel?: string
 }
 
 export type DisplayResultUi = {
@@ -51,6 +52,7 @@ export type PreviewPanelUi = {
 	displayResult?: DisplayResultUi
 	disableVariablePicker?: boolean
 	disableDownload?: boolean
+	tagLabel?: string
 }
 
 export type EditorBarUi = {

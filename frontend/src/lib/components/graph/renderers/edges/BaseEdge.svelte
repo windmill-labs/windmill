@@ -7,11 +7,7 @@
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
-	import { type FlowGraphAssetContext } from '$lib/components/flows/types'
-	import {
-		assetDisplaysAsOutputInFlowGraph,
-		NODE_WITH_WRITE_ASSET_Y_OFFSET
-	} from '../nodes/AssetNode.svelte'
+	import { NODE_WITH_WRITE_ASSET_Y_OFFSET } from '../nodes/AssetNode.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
@@ -20,8 +16,6 @@
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
-
-	const flowGraphAssetCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let {
 		// id,
@@ -50,12 +44,9 @@
 			isOwner: boolean
 			flowJob: Job | undefined
 			suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+			shouldOffsetInsertBtnDueToAssetNode?: boolean
 		}
 	} = $props()
-
-	const shouldOffsetInsertButtonDueToAssetNode = flowGraphAssetCtx?.val.assetsMap?.[
-		data.sourceId
-	]?.some(assetDisplaysAsOutputInFlowGraph)
 
 	let [edgePath] = $derived(
 		getBezierPath({
@@ -89,7 +80,7 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY + 28 + (shouldOffsetInsertButtonDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={sourceY + 28 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
 	class="base-edge"
 	style=""
 >

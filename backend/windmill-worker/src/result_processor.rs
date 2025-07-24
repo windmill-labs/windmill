@@ -1,14 +1,14 @@
 #[cfg(feature = "otel")]
 use opentelemetry::trace::FutureExt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
-    }
+    },
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
@@ -17,7 +17,12 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, KillpillSender, DB
+    add_time,
+    error::{self, Error},
+    jobs::JobKind,
+    utils::WarnAfterExt,
+    worker::{to_raw_value, Connection, WORKER_GROUP},
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -25,18 +30,30 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
+    INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
 
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::ANSI_ESCAPE_RE, common::{error_to_value, read_result, save_in_cache}, otel_oss::add_root_flow_job_to_otlp, worker_flow::update_flow_status_after_job_completion, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload, UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS
+    bash_executor::ANSI_ESCAPE_RE,
+    common::{error_to_value, read_result, save_in_cache},
+    otel_oss::add_root_flow_job_to_otlp,
+    worker_flow::update_flow_status_after_job_completion,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
+    UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
+
+#[derive(Debug, Deserialize)]
+struct ErrorMessage {
+    message: String,
+    name: String,
+}
 
 async fn process_jc(
     jc: JobCompleted,
@@ -50,17 +67,35 @@ async fn process_jc(
 ) {
     let success: bool = jc.success;
 
-    let span = tracing::span!(
-        tracing::Level::INFO,
-        "job_postprocessing",
-        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
-        // hostname = %hostname,
-        language = field::Empty,
-        script_path = field::Empty,
-        flow_step_id = field::Empty,
-        parent_job = field::Empty,
-        otel.name = field::Empty
-    );
+    let span = if success {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+        )
+    } else {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            error.message = field::Empty,
+            error.name = field::Empty,
+        )
+    };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
         root_job
     } else {
@@ -89,6 +124,12 @@ async fn process_jc(
     if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
     }
+    if !success {
+        if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
+            span.record("error.message", result_error.message.as_str());
+            span.record("error.name", result_error.name.as_str());
+        }
+    }
 
     let root_job = handle_receive_completed_job(
         jc,
@@ -112,6 +153,7 @@ async fn process_jc(
 enum JobCompletedRx {
     JobCompleted(SendResult),
     Killpill,
+    WakeUp,
 }
 
 pub fn start_background_processor(
@@ -119,6 +161,7 @@ pub fn start_background_processor(
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
+    wake_up_notify: Arc<Notify>,
     last_processing_duration: Arc<AtomicU16>,
     base_internal_url: String,
     db: DB,
@@ -155,7 +198,11 @@ pub fn start_background_processor(
                     }
                     result = bounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
-                    }
+                    },
+                    _ = wake_up_notify.notified() => {
+                        tracing::info!("bg processor received wake up signal, checking if same worker queue is empty");
+                        Some(JobCompletedRx::WakeUp)
+                    },
                     _ = killpill_rx.recv() => {
                         tracing::info!("bg processor received killpill signal, queuing killpill job");
                         Some(JobCompletedRx::Killpill)
@@ -167,7 +214,10 @@ pub fn start_background_processor(
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                JobCompletedRx::JobCompleted(SendResult { result: SendResultPayload::JobCompleted(jc), time }) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result: SendResultPayload::JobCompleted(jc),
+                    time,
+                }) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -210,19 +260,24 @@ pub fn start_background_processor(
                     {
                         infos.add_iter(bench, true);
                     }
-                    last_processing_duration.store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
-                JobCompletedRx::JobCompleted(SendResult { result: SendResultPayload::UpdateFlow(UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                }), time}) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result:
+                        SendResultPayload::UpdateFlow(UpdateFlow {
+                            flow,
+                            w_id,
+                            success,
+                            result,
+                            worker_dir,
+                            stop_early_override,
+                            token,
+                        }),
+                    time,
+                }) => {
                     // let r;
-                    tracing::info!(parent_flow = %flow, "updating flow status");
+                    tracing::info!(parent_flow = %flow, "updating flow status after job completion");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
                         &AuthedClient::new(
@@ -249,12 +304,14 @@ pub fn start_background_processor(
                     {
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
-                    last_processing_duration.store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
                 JobCompletedRx::Killpill => {
                     tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
                 }
+                JobCompletedRx::WakeUp => {}
             }
         }
 

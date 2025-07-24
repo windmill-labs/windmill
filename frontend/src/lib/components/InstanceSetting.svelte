@@ -406,9 +406,16 @@
 							{:else if expiration}
 								<div class="flex flex-row gap-1 items-center">
 									<AlertCircle size={12} class="text-red-600" />
-									<span class="text-red-600 dark:text-red-400 text-xs"
-										>License key expired on {expiration}</span
-									>
+									<span class="text-red-600 dark:text-red-400 text-xs">
+										{#if $values[setting.key]?.endsWith('__dev')}
+											Dev license key expired on {expiration}.<br />If even after successful
+											renewal, your dev license key is still expired, it means that your production
+											key has expired due to unpaid invoices or excessive use of your production
+											instance.
+										{:else}
+											License key expired on {expiration}.
+										{/if}
+									</span>
 								</div>
 							{:else}
 								<div class="flex flex-row gap-1 items-center">
@@ -440,12 +447,17 @@
 														: 'text-red-600'
 											)}
 										>
-											{latestKeyRenewalAttempt.result === 'success'
-												? 'Latest key renewal succeeded'
-												: isTrial
-													? 'Latest key renewal ignored because in trial'
-													: 'Latest key renewal failed'}
-											on {attemptedAt}
+											{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
+												Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
+												updated to align with your current production key's expiration date.
+											{:else}
+												{latestKeyRenewalAttempt.result === 'success'
+													? 'Latest key renewal succeeded'
+													: isTrial
+														? 'Latest key renewal ignored because in trial'
+														: 'Latest key renewal failed'}
+												on {attemptedAt}
+											{/if}
 										</span>
 									</div>
 									{#snippet text()}

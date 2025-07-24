@@ -51,10 +51,9 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
-	import { refreshStateStore, usePromise } from '$lib/svelte5Utils.svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
-	import { inferAssets } from '$lib/infer'
 
 	const {
 		selectedId,
@@ -122,6 +121,8 @@
 	let testJob: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
+
+	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -191,10 +192,13 @@
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
+	let lastJobId: string | undefined = undefined
+
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
+		lastJobId = undefined
 	}
 
 	async function getLastJob() {
@@ -207,11 +211,23 @@
 		) {
 			return
 		}
+
+		if (
+			lastJobId == $flowStateStore[flowModule.id]?.previewJobId ||
+			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId ||
+			$flowStateStore[flowModule.id]?.previewSuccess == undefined
+		) {
+			return
+		}
+		lastJobId = $flowStateStore[flowModule.id]?.previewJobId
+
 		const job = await JobService.getJob({
 			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
-			id: $flowStateStore[flowModule.id]?.previewJobId ?? ''
+			id: $flowStateStore[flowModule.id]?.previewJobId ?? '',
+			noCode: true
 		})
-		if (job) {
+		if (job && job.type === 'CompletedJob') {
+			lastJobId = $flowStateStore[flowModule.id]?.previewJobId
 			lastJob = job
 		}
 	}
@@ -297,19 +313,6 @@
 				}
 			}, 100)
 		}
-	})
-
-	let assets = usePromise(
-		async () =>
-			flowModule.value.type === 'rawscript'
-				? await inferAssets(flowModule.value.language, flowModule.value.content)
-				: undefined,
-		{ clearValueOnRefresh: false, loadInit: false }
-	)
-	$effect(() => {
-		if (flowModule.value.type !== 'rawscript') return
-		;[flowModule.value.content, flowModule.value.language]
-		untrack(() => assets.refresh())
 	})
 
 	let rawScriptLang = $derived(
@@ -422,11 +425,8 @@
 								{#if !noEditor}
 									{#key flowModule.id}
 										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-											{#if assets.value?.length}
-												<AssetsDropdownButton
-													assets={assets.value}
-													bind:fallbackAccessTypes={flowModule.value.asset_fallback_access_types}
-												/>
+											{#if assets?.length}
+												<AssetsDropdownButton {assets} />
 											{/if}
 										</div>
 										<Editor
@@ -437,7 +437,6 @@
 											bind:this={editor}
 											class="h-full relative"
 											code={flowModule.value.content}
-											lang={scriptLangToEditorLang(flowModule?.value?.language)}
 											scriptLang={flowModule?.value?.language}
 											automaticLayout={true}
 											cmdEnterAction={async () => {
@@ -882,6 +881,7 @@
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
 											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											tagLabel={customUi?.tagLabel}
 										/>
 									</Pane>
 								{/if}

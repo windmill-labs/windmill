@@ -9,7 +9,7 @@
 		type RichConfigurations
 	} from '../../types'
 	import { initCss } from '../../utils'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -44,14 +44,14 @@
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
-		jobId: undefined
+		jobId: undefined as string | undefined
 	})
 
 	initializing = false
 
 	let css = $state(initCss($app.css?.jobiddisplaycomponent, customCss))
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testIsLoading: boolean = $state(false)
 	let testJob: Job | undefined = $state(undefined)
 
@@ -61,13 +61,24 @@
 				outputs.loading.set(true)
 				const jobId = resolvedConfig?.['jobId']
 				if (jobId) {
-					testJobLoader?.watchJob(jobId)
+					jobLoader?.watchJob(jobId, {
+						done(x) {
+							onDone(x)
+						}
+					})
 				}
 			})
 		}
 	})
 
 	let result: any = $state(undefined)
+
+	function onDone(job: Job & { result?: any }) {
+		outputs.loading.set(false)
+		outputs.jobId.set(job.id)
+		outputs.result.set(job.result)
+		result = job.result
+	}
 </script>
 
 {#each Object.keys(components['jobiddisplaycomponent'].initialData.configuration) as key (key)}
@@ -89,17 +100,12 @@
 	/>
 {/each}
 
-<TestJobLoader
+<JobLoader
+	noCode={true}
 	workspaceOverride={workspace}
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
-	on:done={(e) => {
-		outputs.loading.set(false)
-		outputs.jobId.set(e.detail.id)
-		outputs.result.set(e.detail.result)
-		result = e.detail.result
-	}}
 />
 
 <InitializeComponent {id} />

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.506.0
+  version: 1.512.0
   title: Windmill API
 
   contact:
@@ -581,7 +581,7 @@ paths:
       summary: get connected repositories
       operationId: getGlobalConnectedRepositories
       tags:
-        - git_sync
+        - Git Sync
       responses:
         "200":
           description: connected repositories
@@ -2792,6 +2792,22 @@ paths:
               schema:
                 type: string
 
+  /tokens/list/scopes:
+    get:
+      summary: list of available scopes
+      operationId: ListAvailableScopes
+      tags:
+        - token
+      responses:
+        "200":
+          description: list of available scopes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScopeDomain"
+
   /users/tokens/create:
     post:
       summary: create token
@@ -3099,7 +3115,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
-  
+
   /w/{workspace}/workspaces/get_secondary_storage_names:
     get:
       summary: get secondary storage names
@@ -3397,6 +3413,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3439,6 +3458,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level authentication"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication"
               required:
                 - cc_client_id
                 - cc_client_secret
@@ -5071,6 +5093,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptHash"
         - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
+        - name: authed
           in: query
           schema:
             type: boolean
@@ -7560,6 +7586,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: no_code
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
@@ -7661,7 +7691,43 @@ paths:
                   progress:
                     type: integer
                   flow_status:
-                    $ref: "#/components/schemas/WorkflowStatusRecord"
+                    $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+                  workflow_as_code_status:
+                    $ref: "#/components/schemas/WorkflowStatus"
+
+  /w/{workspace}/jobs_u/getupdate_sse/{id}:
+    get:
+      summary: get job updates via server-sent events
+      operationId: getJobUpdatesSSE
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: running
+          in: query
+          schema:
+            type: boolean
+        - name: log_offset
+          in: query
+          schema:
+            type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
+        - name: only_result
+          in: query
+          schema:
+            type: boolean
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs_u/get_log_file/{path}:
     get:
@@ -12321,8 +12387,7 @@ paths:
         "200":
           description: Parquet Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/load_table_count/{path}:
     get:
@@ -12401,8 +12466,7 @@ paths:
         "200":
           description: Csv Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
@@ -13841,18 +13905,25 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
-        fallback_access_types:
+        assets:
           type: array
           items:
             type: object
-            required: [path, kind, access_type]
+            required:
+              - path
+              - kind
             properties:
               path:
                 type: string
               kind:
                 type: string
-                enum: [s3object, resource]
+                enum:
+                  - s3object
+                  - resource
               access_type:
+                type: string
+                enum: [r, w, rw]
+              alt_access_type:
                 type: string
                 enum: [r, w, rw]
 
@@ -14014,6 +14085,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14121,6 +14194,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14583,36 +14658,41 @@ components:
                   - type: object
                     properties:
                       object:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            key:
-                              type: string
-                            typ:
-                              oneOf:
-                                - type: string
-                                  enum:
-                                    [
-                                      "float",
-                                      "int",
-                                      "bool",
-                                      "email",
-                                      "unknown",
-                                      "bytes",
-                                      "dict",
-                                      "datetime",
-                                      "sql",
-                                    ]
-                                - type: object
-                                  properties:
-                                    str: {}
-                                  required: [str]
-                          required:
-                            - key
-                            - typ
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          props:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                typ:
+                                  oneOf:
+                                    - type: string
+                                      enum:
+                                        [
+                                          "float",
+                                          "int",
+                                          "bool",
+                                          "email",
+                                          "unknown",
+                                          "bytes",
+                                          "dict",
+                                          "datetime",
+                                          "sql",
+                                        ]
+                                    - type: object
+                                      properties:
+                                        str: {}
+                                      required: [str]
+                              required:
+                                - key
+                                - typ
                     required:
-                      - object
+                      - object 
                   - type: object
                     properties:
                       list:
@@ -16758,6 +16838,39 @@ components:
         - edited_at
         - execution_mode
 
+    ScopeDefinition:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+          nullable: true
+        requires_resource_path:
+          type: boolean
+      required:
+        - value
+        - label
+        - requires_resource_path
+
+    ScopeDomain:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeDefinition"
+      required:
+        - name
+        - scopes
+
     ListableRawApp:
       type: object
       properties:
@@ -17027,27 +17140,6 @@ components:
     WorkspaceGitSyncSettings:
       type: object
       properties:
-        include_path:
-          type: array
-          items:
-            type: string
-        include_type:
-          type: array
-          items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
         repositories:
           type: array
           items:
@@ -17099,6 +17191,42 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        collapsed:
+          type: boolean
+        settings:
+          type: object
+          properties:
+            include_path:
+              type: array
+              items:
+                type: string
+            include_type:
+              type: array
+              items:
+                type: string
+                enum:
+                  - script
+                  - flow
+                  - app
+                  - folder
+                  - resource
+                  - variable
+                  - secret
+                  - resourcetype
+                  - schedule
+                  - user
+                  - group
+                  - trigger
+                  - settings
+                  - key
+            exclude_path:
+              type: array
+              items:
+                type: string
+            extra_include_path:
+              type: array
+              items:
+                type: string
         exclude_types_override:
           type: array
           items:
@@ -17116,6 +17244,8 @@ components:
               - user
               - group
               - trigger
+              - settings
+              - key
       required:
         - script_path
         - git_repo_resource_path
@@ -17562,7 +17692,6 @@ components:
       enum:
         - s3object
         - resource
-        - variable
     Asset:
       type: object
       properties:

@@ -100,11 +100,11 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	// Component references
-	let s3FilePicker = $state<S3FilePicker | null>(null)
-	let s3Editor = $state<SimpleEditor | null>(null)
-	let variablePicker = $state<ItemPicker | null>(null)
-	let variableEditor = $state<VariableEditor | null>(null)
-	let drawer = $state<Drawer | null>(null)
+	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
+	let s3Editor = $state<SimpleEditor | undefined>(undefined)
+	let variablePicker = $state<ItemPicker | undefined>(undefined)
+	let variableEditor = $state<VariableEditor | undefined>(undefined)
+	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
@@ -502,11 +502,10 @@
 										disabled={!can_write}
 									/>
 								{/if}
-								{s3FileUploadRawMode}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
-											bind:editor={s3Editor as any}
+											bind:editor={s3Editor}
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 											bind:value={static_asset_config}
 										/>
@@ -616,7 +615,7 @@
 										{#if !static_asset_config}
 											<div class="flex flex-row justify-between">
 												<Label label="Request type" class="w-full">
-													<svelte:fragment slot="action">
+													{#snippet action()}
 														<ToggleButtonGroup
 															class="w-auto h-full"
 															selected={is_async ? 'async' : 'sync'}
@@ -642,12 +641,12 @@
 																/>
 															{/snippet}
 														</ToggleButtonGroup>
-													</svelte:fragment>
+													{/snippet}
 												</Label>
 											</div>
 										{/if}
 										<Label label="Authentication" class="w-full">
-											<svelte:fragment slot="action">
+											{#snippet action()}
 												<ToggleButtonGroup
 													class="w-auto h-full"
 													bind:selected={authentication_method}
@@ -665,7 +664,7 @@
 														{#each authentication_options as option}
 															{#if option.value === 'signature'}
 																<Popover placement="top-end" usePointerDownOutside>
-																	<svelte:fragment slot="trigger">
+																	{#snippet trigger()}
 																		<ToggleButton
 																			label={option.label}
 																			value={option.value}
@@ -673,8 +672,8 @@
 																			{item}
 																			{disabled}
 																		/>
-																	</svelte:fragment>
-																	<svelte:fragment slot="content">
+																	{/snippet}
+																	{#snippet content()}
 																		<ToggleButtonGroup
 																			class="w-auto h-full"
 																			bind:selected={signature_options_type}
@@ -704,7 +703,7 @@
 																				/>
 																			{/snippet}
 																		</ToggleButtonGroup>
-																	</svelte:fragment>
+																	{/snippet}
 																</Popover>
 															{:else}
 																<ToggleButton
@@ -718,7 +717,7 @@
 														{/each}
 													{/snippet}
 												</ToggleButtonGroup>
-											</svelte:fragment>
+											{/snippet}
 										</Label>
 
 										{#each authentication_options as option}
@@ -848,14 +847,14 @@
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'HTTP Route' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render saveButton()}
-		</svelte:fragment>
+		{/snippet}
 		{#if description}
 			{@render description()}
 		{/if}

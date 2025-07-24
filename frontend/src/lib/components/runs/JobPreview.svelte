@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
@@ -15,8 +15,10 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 
 	interface Props {
 		id: string
@@ -30,8 +32,7 @@
 
 	let result: any = $state()
 
-	function onDone(event: { detail: Job }) {
-		job = event.detail
+	function onDone(job: Job) {
 		result = job['result']
 	}
 
@@ -46,6 +47,11 @@
 
 	let viewTab = $state('result')
 
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
+
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
@@ -56,25 +62,27 @@
 		}
 	})
 	$effect(() => {
-		id && testJobLoader && untrack(() => testJobLoader?.watchJob(id))
+		id &&
+			jobLoader &&
+			untrack(() =>
+				jobLoader?.watchJob(id, {
+					done(x) {
+						onDone(x)
+					}
+				})
+			)
 	})
 	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => testJobLoader?.getLogs())
+		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => jobLoader?.getLogs())
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
 	})
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<TestJobLoader
-	lazyLogs
-	workspaceOverride={workspace}
-	bind:job={currentJob}
-	bind:this={testJobLoader}
-	on:done={onDone}
-/>
+<JobLoader lazyLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
@@ -181,9 +189,9 @@
 		{/if}
 
 		<div class=" w-full rounded-md min-h-full">
-			{#if job?.is_flow_step == false && job?.flow_status && (isScriptPreview(job?.job_kind) || job?.job_kind == 'script') && !(typeof job.flow_status == 'object' && '_metadata' in job.flow_status)}
+			{#if job?.workflow_as_code_status}
 				<WorkflowTimeline
-					flow_status={asWorkflowStatus(job.flow_status)}
+					flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 					flowDone={job.type == 'CompletedJob'}
 				/>
 			{/if}
@@ -192,6 +200,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>
+					<Tab size="xs" value="assets">Assets</Tab>
 					{#if isScriptPreview(job?.job_kind)}
 						<Tab size="xs" value="code">Code</Tab>
 					{/if}
@@ -205,6 +214,8 @@
 								<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
 							</div>
 						</div>
+					{:else if viewTab == 'assets'}
+						<JobAssetsViewer {job} />
 					{:else}
 						<div class="flex flex-col border rounded-md p-2 mt-2 h-full overflow-auto">
 							{#if viewTab == 'logs'}
@@ -263,3 +274,8 @@
 		</div>
 	{/if}
 </div>
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

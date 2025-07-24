@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { requireLogin } from "./context.ts";
+import { requireLogin } from "./auth.ts";
 import {
   GlobalOptions,
   isSuperset,

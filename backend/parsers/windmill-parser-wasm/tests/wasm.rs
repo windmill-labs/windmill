@@ -1,6 +1,6 @@
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
 use windmill_parser_bash::parse_powershell_sig;
 use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
 
@@ -115,10 +115,10 @@ export function main(test1?: string, test2: string = \"burkina\",
                 Arg {
                     otyp: None,
                     name: "min_object".to_string(),
-                    typ: Typ::Object(vec![
+                    typ: Typ::Object(ObjectType::new(None, Some(vec![
                         ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Float) }
-                    ]),
+                    ]))),
                     default: None,
                     has_default: false,
                     oidx: None
@@ -210,10 +210,10 @@ export function main(test2 = \"burkina\",
                 Arg {
                     otyp: None,
                     name: "min_object".to_string(),
-                    typ: Typ::Object(vec![
+                    typ: Typ::Object(ObjectType::new(None, Some(vec![
                         ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Int) }
-                    ]),
+                    ]))),
                     default: Some(json!({"a": "test", "b": 42})),
                     has_default: true,
                     oidx: None

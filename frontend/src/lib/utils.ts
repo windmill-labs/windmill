@@ -86,14 +86,6 @@ export function isJobReRunnable(j: Job): boolean {
 }
 
 export const WORKER_NAME_PREFIX = 'wk'
-export const AGENT_WORKER_NAME_PREFIX = 'ag'
-const SSH_AGENT_WORKER_SUFFIX = '/ssh'
-
-export function isAgentWorkerShell(workerName: string) {
-	return (
-		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
-	)
-}
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
@@ -135,6 +127,12 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 			day: '2-digit'
 		})
 	}
+}
+
+export function retrieveCommonWorkerPrefix(workerName: string): string {
+	const lastDashIndex = workerName.lastIndexOf('-')
+	
+	return workerName.substring(0, lastDashIndex)
 }
 
 export function subtractDaysFromDateString(
@@ -1464,4 +1462,21 @@ export function formatS3Object(s3Object: S3Object): S3Uri {
 export function isS3Uri(uri: string): uri is S3Uri {
 	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
 	return !!match && match.length === 3
+}
+
+export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
+	const seen = new Set()
+	return array.filter((item) => {
+		const value = key(item)
+		if (seen.has(value)) {
+			return false
+		} else {
+			seen.add(value)
+			return true
+		}
+	})
+}
+
+export function pruneNullishArrayWithSet<T>(array: (T | null | undefined)[]): T[] {
+	return array.filter((item): item is T => item !== null && item !== undefined)
 }

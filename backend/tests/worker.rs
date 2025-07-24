@@ -114,7 +114,7 @@ fn next_worker_name() -> String {
                 .unwrap_or(s)
         })
         .unwrap_or("no thread name");
-    format!("{id}/{thread_name}")
+    format!("{id}/worker-{thread_name}")
 }
 
 pub struct ApiServer {
@@ -1147,7 +1147,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
-                        asset_fallback_access_types: None,
+                        assets: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1191,7 +1191,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 concurrent_limit: None,
                                 concurrency_time_window_s: None,
                                 is_trigger: None,
-                                asset_fallback_access_types: None,
+                                assets: None,
                             }
                             .into(),
                             stop_after_if: Default::default(),
@@ -1321,7 +1321,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
-                        asset_fallback_access_types: None,
+                        assets: None,
 
                     }.into(),
                     stop_after_if: Default::default(),
@@ -1376,7 +1376,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
-                                    asset_fallback_access_types: None,
+                                    assets: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
                                 stop_after_all_iters_if: Default::default(),
@@ -1416,7 +1416,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
-                                    asset_fallback_access_types: None,
+                                    assets: None,
 
                                 }.into(),
                                 stop_after_if: Default::default(),
@@ -1482,7 +1482,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
-                        asset_fallback_access_types: None,
+                        assets: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),
