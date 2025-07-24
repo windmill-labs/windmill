@@ -663,10 +663,9 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-    let (global_tags, specific_tags) = (&custom_tags_per_w.0, &custom_tags_per_w.1);
-    if global_tags.contains(&tag.to_string()) {
+    if custom_tags_per_w.global.contains(&tag.to_string()) {
         is_tag_in_workspace_custom_tags = true;
-    } else if let Some(specific_tag) = specific_tags.get(tag) {
+    } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
         is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(w_id);
     }
 

@@ -147,44 +147,12 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
     }
     if let Some(workspace) = query.workspace {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .filter(|(_, tag_data)| tag_data.applies_to_workspace(&workspace))
-            .map(|(tag, _)| tag.clone())
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(Some(workspace));
+        return Ok(Json(all_tags));
     } else if query.show_workspace_restriction.is_some_and(|x| x) {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .map(|(tag, tag_data)| {
-                let separator = tag_data.tag_type.corresponding_separator();
-                let workspaces = tag_data.workspaces.join(&*separator.to_string());
-                match tag_data.tag_type {
-                    SpecificTagType::AllExcluding => {
-                        format!("{}({}{})", tag, separator, workspaces)
-                    }
-                    SpecificTagType::NoneExcept => {
-                        format!("{}({})", tag, workspaces)
-                    }
-                }
-            })
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(None);
+        return Ok(Json(all_tags));
     }
     Ok(Json(ALL_TAGS.read().await.clone().into()))
 }
