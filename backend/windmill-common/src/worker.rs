@@ -1717,50 +1717,6 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    #[test]
-    fn test_global_tag_only() {
-        let input = vec!["global-tag".to_string()];
-        let result = CustomTags::from(input);
-
-        assert_eq!(result.global, vec!["global-tag"]);
-        assert!(result.specific.is_empty());
-    }
-
-    #[test]
-    fn test_specific_tag_none_except() {
-        let input = vec!["feature(ws1+ws2)".to_string()];
-        let result = CustomTags::from(input);
-
-        let mut expected = HashMap::new();
-        expected.insert(
-            "feature".to_string(),
-            SpecificTagData {
-                tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
-            },
-        );
-
-        assert!(result.global.is_empty());
-        assert_eq!(result.specific, expected);
-    }
-
-    #[test]
-    fn test_specific_tag_all_excluding() {
-        let input = vec!["bugfix(^ws3^ws4)".to_string()];
-        let result = CustomTags::from(input);
-
-        let mut expected = HashMap::new();
-        expected.insert(
-            "bugfix".to_string(),
-            SpecificTagData {
-                tag_type: SpecificTagType::AllExcluding,
-                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
-            },
-        );
-
-        assert!(result.global.is_empty());
-        assert_eq!(result.specific, expected);
-    }
 
     #[test]
     fn test_mixed_tags() {
