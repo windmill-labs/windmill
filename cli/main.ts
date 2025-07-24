@@ -12,6 +12,7 @@ import app from "./apps.ts";
 import script from "./script.ts";
 import workspace, { getActiveWorkspace } from "./workspace.ts";
 import resource from "./resource.ts";
+import resourceType from "./resource-type.ts";
 import user from "./user.ts";
 import variable from "./variable.ts";
 import hub from "./hub.ts";
@@ -43,6 +44,7 @@ export {
     script,
     workspace,
     resource,
+    resourceType,
     user,
     variable,
     hub,
@@ -304,6 +306,7 @@ const command = new Command()
     .command("script", script)
     .command("workspace", workspace)
     .command("resource", resource)
+    .command("resource-type", resourceType)
     .command("user", user)
     .command("variable", variable)
     .command("hub", hub)
