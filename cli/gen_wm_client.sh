@@ -14,10 +14,10 @@ const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://loc
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
 EOF
-gsed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' gen/core/OpenAPI.ts
-gsed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' gen/core/OpenAPI.ts
-gsed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" gen/core/OpenAPI.ts
+sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' gen/core/OpenAPI.ts
+sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' gen/core/OpenAPI.ts
+sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" gen/core/OpenAPI.ts
 
-find gen/ -name "*.ts" -exec gsed -i -E "s/(import.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
+find gen/ -name "*.ts" -exec sed -i -E "s/(import.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
 
-find gen/ -name "*.ts" -exec gsed -i -E "s/(export.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
+find gen/ -name "*.ts" -exec sed -i -E "s/(export.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
