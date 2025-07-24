@@ -7,19 +7,20 @@
  */
 // use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
 use windmill_parser::{
-    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
+    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, ObjectType, OneOfVariant,
+    Typ,
 };
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
-    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident,
-    IdentName, Lit, MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat,
-    Param, Pat, Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
-    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
-    TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, Ident, IdentName, Lit,
+    MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Stmt,
+    Str, TsArrayType, TsEntityName, TsInterfaceDecl, TsKeywordType, TsKeywordTypeKind, TsLit,
+    TsLitType, TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAliasDecl,
+    TsTypeAnn, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 
@@ -30,6 +31,19 @@ use wasm_bindgen::prelude::*;
 struct ImportsFinder {
     imports: HashSet<String>,
     skip_type_only: bool,
+}
+
+impl ImportsFinder {
+    fn process_raw(&mut self, raw: Option<String>) {
+        if let Some(ref s) = raw {
+            let s = s.to_string();
+            if s.starts_with("'") && s.ends_with("'") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            } else if s.starts_with("\"") && s.ends_with("\"") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            }
+        }
+    }
 }
 
 impl Visit for ImportsFinder {
@@ -59,14 +73,47 @@ impl Visit for ImportsFinder {
                 }
             }
         }
-        if let Some(ref s) = n.src.raw {
-            let s = s.to_string();
-            if s.starts_with("'") && s.ends_with("'") {
-                self.imports.insert(s[1..s.len() - 1].to_string());
-            } else if s.starts_with("\"") && s.ends_with("\"") {
-                self.imports.insert(s[1..s.len() - 1].to_string());
+        self.process_raw(n.src.raw.as_ref().map(|x| x.to_string()));
+    }
+
+    fn visit_export_all(&mut self, node: &swc_ecma_ast::ExportAll) {
+        if !self.skip_type_only || node.type_only {
+            return;
+        }
+
+        self.process_raw(node.src.raw.as_ref().map(|x| x.to_string()));
+    }
+    fn visit_named_export(&mut self, node: &swc_ecma_ast::NamedExport) {
+        if node.src.is_none() || !self.skip_type_only || node.type_only {
+            return;
+        }
+        if node.specifiers.len() > 0 {
+            let mut is_type_only = true;
+            for specifier in node.specifiers.iter() {
+                match specifier {
+                    swc_ecma_ast::ExportSpecifier::Named(swc_ecma_ast::ExportNamedSpecifier {
+                        is_type_only,
+                        ..
+                    }) if *is_type_only => (),
+                    _ => {
+                        is_type_only = false;
+                        break;
+                    }
+                }
+            }
+            if is_type_only {
+                return;
             }
         }
+
+        self.process_raw(
+            node.src
+                .as_ref()
+                .unwrap()
+                .raw
+                .as_ref()
+                .map(|x| x.to_string()),
+        );
     }
 }
 
@@ -159,6 +206,11 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     Ok(visitor.idents.into_iter().collect())
 }
 
+#[derive(Debug)]
+pub enum TypeDecl {
+    Interface(TsInterfaceDecl),
+    Alias(TsTypeAliasDecl),
+}
 pub mod asset_parser;
 pub use asset_parser::parse_assets;
 
@@ -168,7 +220,7 @@ pub fn parse_deno_signature(
     code: &str,
     skip_dflt: bool,
     skip_params: bool,
-    main_override: Option<String>,
+    entrypoint_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
@@ -188,6 +240,9 @@ pub fn parse_deno_signature(
         err_s += &e.into_kind().msg().to_string();
     }
 
+    let mut has_preprocessor = false;
+    let mut entrypoint_params = None;
+
     let ast = parser
         .parse_module()
         .map_err(|e| {
@@ -195,35 +250,71 @@ pub fn parse_deno_signature(
         })?
         .body;
 
-    let has_preprocessor = ast.iter().any(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, .. }),
-            ..
-        })) => &sym.to_string() == "preprocessor",
-        _ => false,
-    });
+    let entrypoint_function = entrypoint_override.as_deref().unwrap_or("main");
 
-    let main_name = main_override.unwrap_or("main".to_string());
-    let params = ast.into_iter().find_map(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, function, .. }),
-            ..
-        })) if &sym.to_string() == &main_name => Some(function.params),
-        _ => None,
-    });
+    let mut symbol_table: HashMap<String, TypeDecl> = HashMap::new();
+
+    for item in ast {
+        if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl { decl, .. }))
+        | ModuleItem::Stmt(Stmt::Decl(decl)) = item
+        {
+            match decl {
+                Decl::TsInterface(mut iface) => match symbol_table.get_mut(iface.id.sym.as_str()) {
+                    Some(TypeDecl::Interface(interface)) => {
+                        interface.body.body.append(&mut iface.body.body);
+                    }
+                    None => {
+                        symbol_table.insert(
+                            to_snake_case(iface.id.sym.as_str()),
+                            TypeDecl::Interface(*iface),
+                        );
+                    }
+                    _ => {}
+                },
+                Decl::TsTypeAlias(alias) => {
+                    symbol_table.insert(
+                        to_snake_case(alias.id.sym.as_str()),
+                        TypeDecl::Alias(*alias),
+                    );
+                }
+                Decl::Fn(fn_decl) => {
+                    let name = fn_decl.ident.sym.to_string();
+                    if name == "preprocessor" {
+                        has_preprocessor = true;
+                    }
+                    if name == entrypoint_function {
+                        entrypoint_params = Some(fn_decl.function.params.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 
     let mut c: u16 = 0;
-    let no_main_func = params.is_none();
+
+    let no_main_func = entrypoint_params.is_none();
+    let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
         star_kwargs: false,
         args: if skip_params {
             vec![]
         } else {
-            params
-                .map(|x| {
-                    x.into_iter()
-                        .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
+            entrypoint_params
+                .map(|param| {
+                    param
+                        .into_iter()
+                        .map(|param| {
+                            parse_param(
+                                &symbol_table,
+                                &mut type_resolver,
+                                param,
+                                &cm,
+                                skip_dflt,
+                                &mut c,
+                            )
+                        })
                         .collect::<anyhow::Result<Vec<Arg>>>()
                 })
                 .transpose()?
@@ -236,14 +327,16 @@ pub fn parse_deno_signature(
 }
 
 fn parse_param(
-    x: Param,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    param: Param,
     cm: &Lrc<SourceMap>,
     skip_dflt: bool,
     counter: &mut u16,
 ) -> anyhow::Result<Arg> {
-    let r = match x.pat {
+    let r = match param.pat {
         Pat::Ident(ident) => {
-            let (name, typ, nullable) = binding_ident_to_arg(&ident);
+            let (name, typ, nullable) = binding_ident_to_arg(symbol_table, type_resolver, &ident);
             Ok(Arg {
                 otyp: None,
                 name,
@@ -256,9 +349,9 @@ fn parse_param(
         // Pat::Object(ObjectPat { ... }) = todo!()
         Pat::Assign(AssignPat { left, right, .. }) => {
             let (name, mut typ, _nullable) = match *left {
-                Pat::Ident(ident) => binding_ident_to_arg(&ident),
+                Pat::Ident(ident) => binding_ident_to_arg(symbol_table, type_resolver, &ident),
                 Pat::Object(ObjectPat { type_ann, .. }) => {
-                    let (typ, nullable) = eval_type_ann(&type_ann);
+                    let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
                     *counter += 1;
                     let name = format!("anon{}", counter);
                     (name, typ, nullable)
@@ -300,16 +393,16 @@ fn parse_param(
             Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true, oidx: None })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
-            let (typ, nullable) = eval_type_ann(&type_ann);
+            let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
             *counter += 1;
             let name = format!("anon{}", counter);
             Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable, oidx: None })
         }
         _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`: {:#?}",
-            cm.span_to_snippet(x.span())
-                .unwrap_or_else(|_| cm.span_to_string(x.span())),
-            x.pat
+            cm.span_to_snippet(param.span())
+                .unwrap_or_else(|_| cm.span_to_string(param.span())),
+            param.pat
         )),
     };
     r
@@ -328,14 +421,22 @@ fn eval_span(span: Span, cm: &Lrc<SourceMap>) -> Option<Value> {
     }
 }
 
-fn eval_type_ann(type_ann: &Option<Box<TsTypeAnn>>) -> (Typ, bool) {
+fn eval_type_ann(
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    type_ann: &Option<Box<TsTypeAnn>>,
+) -> (Typ, bool) {
     return type_ann
         .as_ref()
-        .map(|x| tstype_to_typ(&*x.type_ann))
+        .map(|x| tstype_to_typ(symbol_table, type_resolver, &*x.type_ann, true))
         .unwrap_or((Typ::Unknown, false));
 }
-fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
-    let (typ, nullable) = eval_type_ann(type_ann);
+fn binding_ident_to_arg(
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    BindingIdent { id, type_ann }: &BindingIdent,
+) -> (String, Typ, bool) {
+    let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, type_ann);
     (id.sym.to_string(), typ, nullable)
 }
 
@@ -365,11 +466,158 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
     Ok(content)
 }
 
-fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
+fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ) {
+    let mut visited = std::collections::HashSet::new();
+    resolve_type_ref_with_visited(type_resolver, typ, &mut visited);
+}
+
+fn resolve_type_ref_with_visited(
+    type_resolver: &HashMap<String, (Typ, bool)>,
+    typ: &mut Typ,
+    visited: &mut std::collections::HashSet<String>,
+) {
+    match typ {
+        Typ::Object(ObjectType { props: Some(obj), .. }) => {
+            for property in obj.iter_mut() {
+                resolve_type_ref_with_visited(type_resolver, &mut property.typ, visited);
+            }
+        }
+        Typ::List(list) => resolve_type_ref_with_visited(type_resolver, list, visited),
+        Typ::Object(ObjectType { name: Some(name), props: None }) => {
+            if visited.contains(name) {
+                return;
+            }
+            let maybe_resolved_type = type_resolver
+                .get(name)
+                .map(|rs_typ| {
+                    let mut typ = rs_typ.0.clone();
+                    visited.insert(name.clone());
+                    resolve_type_ref_with_visited(type_resolver, &mut typ, visited);
+                    visited.remove(name);
+                    typ
+                })
+                .unwrap_or(Typ::Object(ObjectType::new(Some(name.to_owned()), None)));
+
+            *typ = maybe_resolved_type;
+        }
+        _ => {}
+    }
+}
+
+fn resolve_interface(
+    iface: &TsInterfaceDecl,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+) -> Vec<ObjectProperty> {
+    let mut properties = vec![];
+
+    for ext in &iface.extends {
+        // If the current interface extends other interfaces,
+        // retrieve their properties first and add them to the current interface's object definition.
+        if let Expr::Ident(Ident { sym, .. }) = &*ext.expr {
+            if let Some(TypeDecl::Interface(parent_iface)) =
+                symbol_table.get(&to_snake_case(sym.as_str()))
+            {
+                properties.extend(resolve_interface(parent_iface, symbol_table, type_resolver));
+            }
+        }
+    }
+
+    for member in &iface.body.body {
+        if let TsTypeElement::TsPropertySignature(sig) = member {
+            if let Expr::Ident(Ident { sym, .. }) = &*sig.key {
+                let typ = sig
+                    .type_ann
+                    .as_ref()
+                    .map(|ta| {
+                        Box::new(tstype_to_typ(symbol_table, type_resolver, &ta.type_ann, false).0)
+                    })
+                    .unwrap_or(Box::new(Typ::Unknown));
+
+                properties.push(ObjectProperty { key: sym.to_string(), typ });
+            }
+        }
+    }
+
+    properties
+}
+
+fn resolve_type_alias(
+    alias: &TsTypeAliasDecl,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    top_level_call: bool,
+) -> (Typ, bool) {
+    tstype_to_typ(symbol_table, type_resolver, &alias.type_ann, top_level_call)
+}
+
+fn resolve_ts_interface_and_type_alias(
+    type_name: &str,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    top_level_call: bool,
+) -> Option<(Typ, bool)> {
+    let Some(type_declaration) = symbol_table.get(type_name) else {
+        return None;
+    };
+
+    if let Some(resolved_type) = type_resolver.get_mut(type_name) {
+        return Some(resolved_type.to_owned());
+    }
+
+    type_resolver.insert(
+        type_name.to_owned(),
+        (
+            Typ::Object(ObjectType::new(Some(type_name.to_owned()), None)),
+            false,
+        ),
+    );
+
+    let mut resolved_type = match type_declaration {
+        TypeDecl::Alias(alias) => {
+            resolve_type_alias(alias, symbol_table, type_resolver, top_level_call)
+        }
+        TypeDecl::Interface(iface) => (
+            Typ::Object(ObjectType::new(
+                Some(to_snake_case(&type_name)),
+                Some(resolve_interface(iface, symbol_table, type_resolver)),
+            )),
+            false,
+        ),
+    };
+
+    if let Typ::Object(obj) = &mut resolved_type.0 {
+        if obj.name.is_none() {
+            obj.name = Some(type_name.to_owned());
+        }
+    }
+
+    type_resolver.insert(type_name.to_owned(), resolved_type.clone());
+
+    // `top_level_call` indicates whether the current invocation of the function
+    // is at the topmost level (e.g., the immediate parameters of the main function).
+    // When true:
+    // - Type references within object properties (e.g., nested interfaces) are recursively resolved
+    //   up to a default depth to inline and fully materialize their structure.
+    if top_level_call {
+        resolve_type_ref(type_resolver, &mut resolved_type.0);
+    }
+
+    Some(resolved_type)
+}
+
+fn tstype_to_typ(
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    ts_type: &TsType,
+    top_level_call: bool,
+) -> (Typ, bool) {
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
-                TsKeywordTypeKind::TsObjectKeyword => Typ::Object(vec![]),
+                TsKeywordTypeKind::TsObjectKeyword => {
+                    Typ::Object(ObjectType::new(None, Some(vec![])))
+                }
                 TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
                 TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
                 TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
@@ -391,7 +639,17 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                             key: sym.to_string(),
                             typ: type_ann
                                 .as_ref()
-                                .map(|typ| Box::new(tstype_to_typ(&*typ.type_ann).0))
+                                .map(|typ| {
+                                    Box::new(
+                                        tstype_to_typ(
+                                            symbol_table,
+                                            type_resolver,
+                                            &*typ.type_ann,
+                                            top_level_call,
+                                        )
+                                        .0,
+                                    )
+                                })
                                 .unwrap_or(Box::new(Typ::Unknown)),
                         }),
                         _ => None,
@@ -399,21 +657,25 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                     _ => None,
                 })
                 .collect();
-            (Typ::Object(properties), false)
+            (Typ::Object(ObjectType::new(None, Some(properties))), false)
         }
         TsType::TsParenthesizedType(TsParenthesizedType { type_ann, .. }) => {
-            tstype_to_typ(type_ann)
+            tstype_to_typ(symbol_table, type_resolver, type_ann, top_level_call)
         }
         // TODO: we can do better here and extract the inner type of array
-        TsType::TsArrayType(TsArrayType { elem_type, .. }) => {
-            (Typ::List(Box::new(tstype_to_typ(&**elem_type).0)), false)
-        }
+        TsType::TsArrayType(TsArrayType { elem_type, .. }) => (
+            Typ::List(Box::new(
+                tstype_to_typ(symbol_table, type_resolver, &**elem_type, top_level_call).0,
+            )),
+            false,
+        ),
         TsType::TsLitType(TsLitType { lit: TsLit::Str(Str { value, .. }), .. }) => {
             (Typ::Str(Some(vec![value.to_string()])), false)
         }
-        TsType::TsOptionalType(TsOptionalType { type_ann, .. }) => {
-            (tstype_to_typ(type_ann).0, true)
-        }
+        TsType::TsOptionalType(TsOptionalType { type_ann, .. }) => (
+            tstype_to_typ(symbol_table, type_resolver, type_ann, top_level_call).0,
+            true,
+        ),
         TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
             TsUnionType { types, .. },
         )) => {
@@ -438,11 +700,18 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 } else {
                     0
                 };
-                (tstype_to_typ(&types[other_p]).0, true)
+                (
+                    tstype_to_typ(symbol_table, type_resolver, &types[other_p], top_level_call).0,
+                    true,
+                )
             } else {
                 if types.len() > 1 {
-                    let one_of_values: Vec<OneOfVariant> =
-                        types.into_iter().map_while(parse_one_of_type).collect();
+                    let one_of_values: Vec<OneOfVariant> = types
+                        .into_iter()
+                        .map_while(|t| {
+                            parse_one_of_type(symbol_table, type_resolver, t, top_level_call)
+                        })
+                        .collect();
 
                     if one_of_values.len() == types.len() {
                         return (Typ::OneOf(one_of_values), false);
@@ -481,6 +750,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 TsEntityName::Ident(Ident { sym, .. }) => sym,
                 TsEntityName::TsQualifiedName(p) => &*p.right.sym,
             };
+
             match sym.to_string().as_str() {
                 "Resource" => (
                     Typ::Resource(
@@ -501,23 +771,68 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 "Base64" => (Typ::Bytes, false),
                 "Email" => (Typ::Email, false),
                 "Sql" => (Typ::Sql, false),
-                x @ _ if x.starts_with("DynSelect_") => (
-                    Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string()),
+                symbol @ _ if symbol.starts_with("DynSelect_") => (
+                    Typ::DynSelect(symbol.strip_prefix("DynSelect_").unwrap().to_string()),
                     false,
                 ),
-                x @ _ => (Typ::Resource(to_snake_case(x)), false),
+                symbol @ _ => {
+                    let symbol = to_snake_case(symbol);
+
+                    resolve_ts_interface_and_type_alias(
+                        &symbol,
+                        symbol_table,
+                        type_resolver,
+                        top_level_call,
+                    )
+                    .unwrap_or_else(|| (Typ::Resource(symbol), false))
+                }
             }
         }
         _ => (Typ::Unknown, false),
     }
 }
 
-fn parse_one_of_type(x: &Box<TsType>) -> Option<OneOfVariant> {
+fn parse_one_of_type(
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    x: &Box<TsType>,
+    top_level_call: bool,
+) -> Option<OneOfVariant> {
     match &**x {
         TsType::TsTypeLit(TsTypeLit { members, .. }) => {
             let label = one_of_label(members)?;
-            let properties = one_of_properties(members);
+            let properties =
+                one_of_properties(symbol_table, type_resolver, members, top_level_call);
             Some(OneOfVariant { label, properties })
+        }
+        TsType::TsTypeRef(TsTypeRef { type_name, .. }) => {
+            let label = type_name.as_ident()?.sym.to_string();
+            match label.as_str() {
+                symbol
+                    if ["Resource", "Date", "Base64", "Email", "Sql"]
+                        .iter()
+                        .any(|s| *s == symbol)
+                        || symbol.starts_with("DynSelect_") =>
+                {
+                    return None
+                }
+                symbol @ _ => {
+                    let Typ::Object(ObjectType { props: Some(properties), .. }) =
+                        resolve_ts_interface_and_type_alias(
+                            symbol,
+                            symbol_table,
+                            type_resolver,
+                            top_level_call,
+                        )
+                        .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false))
+                        .0
+                    else {
+                        return None;
+                    };
+
+                    Some(OneOfVariant { label, properties })
+                }
+            }
         }
         _ => None,
     }
@@ -550,7 +865,12 @@ fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
     })
 }
 
-fn one_of_properties(members: &Vec<TsTypeElement>) -> Vec<ObjectProperty> {
+fn one_of_properties(
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    members: &Vec<TsTypeElement>,
+    top_level_call: bool,
+) -> Vec<ObjectProperty> {
     members
         .iter()
         .filter_map(|x| {
@@ -564,10 +884,12 @@ fn one_of_properties(members: &Vec<TsTypeElement>) -> Vec<ObjectProperty> {
             };
             let typ = type_ann
                 .as_ref()
-                .map(|typ| Box::new(tstype_to_typ(&*typ.type_ann).0))
-                .unwrap_or(Box::new(Typ::Unknown));
+                .map(|typ| {
+                    tstype_to_typ(symbol_table, type_resolver, &*typ.type_ann, top_level_call).0
+                })
+                .unwrap_or(Typ::Unknown);
 
-            Some(ObjectProperty { key: sym.to_string(), typ })
+            Some(ObjectProperty { key: sym.to_string(), typ: Box::new(typ) })
         })
         .collect()
 }

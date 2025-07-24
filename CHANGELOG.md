@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.512.0](https://github.com/windmill-labs/windmill/compare/v1.511.0...v1.512.0) (2025-07-23)
+
+
+### Features
+
+* local type references parsing support for main function args ([#5995](https://github.com/windmill-labs/windmill/issues/5995)) ([10befb9](https://github.com/windmill-labs/windmill/commit/10befb995d07f50803213bcf177df8891fd920e1))
+
+
+### Bug Fixes
+
+* fix decision tree graph editor ([a57df1f](https://github.com/windmill-labs/windmill/commit/a57df1f78119b80ce764ddbff0ecb989cbb4c315))
+* include export from ts relative import tracking ([91849ba](https://github.com/windmill-labs/windmill/commit/91849baf3404c308f946f7c384ce679f2c89cbe7))
+* run autoscaling scripts with superadmin permissions ([86e14f8](https://github.com/windmill-labs/windmill/commit/86e14f8135eb8ccfad47f0340986464983019153))
+
+## [1.511.0](https://github.com/windmill-labs/windmill/compare/v1.510.1...v1.511.0) (2025-07-22)
+
+
+### Features
+
+* **aichat:** give completions to autocomplete for other languages than ts ([#6253](https://github.com/windmill-labs/windmill/issues/6253)) ([71b85df](https://github.com/windmill-labs/windmill/commit/71b85dfc42694f552a0572afd2072bbe528ac74b))
+* **aichat:** improve autocomplete with ata, editor diagnostic and deletion cues ([#6245](https://github.com/windmill-labs/windmill/issues/6245)) ([dc242c5](https://github.com/windmill-labs/windmill/commit/dc242c5a8df7d5d2ad710f3a5578dcb5fb4c9667))
+* periodic worker group script ([#6159](https://github.com/windmill-labs/windmill/issues/6159)) ([c4178c0](https://github.com/windmill-labs/windmill/commit/c4178c05be5cff4ef0617e31e0f05adc29e04f89))
+
+
+### Bug Fixes
+
+* add error name and message to job_postprocessing span ([34ccc8e](https://github.com/windmill-labs/windmill/commit/34ccc8e0f7487cf51370e0ff94546063ee7771ad))
+* scopes-run-and-webhook-token-display ([#6259](https://github.com/windmill-labs/windmill/issues/6259)) ([37b18f0](https://github.com/windmill-labs/windmill/commit/37b18f0661d797466423db021150c99398435c8b))
+
 ## [1.510.1](https://github.com/windmill-labs/windmill/compare/v1.510.0...v1.510.1) (2025-07-21)
 
 

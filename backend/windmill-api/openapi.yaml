@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.510.1
+  version: 1.512.0
   title: Windmill API
 
   contact:
@@ -14660,36 +14660,41 @@ components:
                   - type: object
                     properties:
                       object:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            key:
-                              type: string
-                            typ:
-                              oneOf:
-                                - type: string
-                                  enum:
-                                    [
-                                      "float",
-                                      "int",
-                                      "bool",
-                                      "email",
-                                      "unknown",
-                                      "bytes",
-                                      "dict",
-                                      "datetime",
-                                      "sql",
-                                    ]
-                                - type: object
-                                  properties:
-                                    str: {}
-                                  required: [str]
-                          required:
-                            - key
-                            - typ
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          props:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                typ:
+                                  oneOf:
+                                    - type: string
+                                      enum:
+                                        [
+                                          "float",
+                                          "int",
+                                          "bool",
+                                          "email",
+                                          "unknown",
+                                          "bytes",
+                                          "dict",
+                                          "datetime",
+                                          "sql",
+                                        ]
+                                    - type: object
+                                      properties:
+                                        str: {}
+                                      required: [str]
+                              required:
+                                - key
+                                - typ
                     required:
-                      - object
+                      - object 
                   - type: object
                     properties:
                       list:

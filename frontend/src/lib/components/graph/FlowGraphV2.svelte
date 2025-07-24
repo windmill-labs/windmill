@@ -507,7 +507,11 @@
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={debouncedWidth}>
+<div
+	style={`height: ${height}px; max-height: ${maxHeight}px;`}
+	class="overflow-clip"
+	bind:clientWidth={debouncedWidth}
+>
 	{#if graph?.error}
 		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
