@@ -2424,6 +2424,24 @@ paths:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
 
+  /w/{workspace}/workspaces/list_ducklakes:
+    get:
+      summary: list ducklakes
+      operationId: listDucklakes
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings

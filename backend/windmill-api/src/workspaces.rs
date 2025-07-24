@@ -118,6 +118,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/get_ducklake/:name", get(get_ducklake))
+        .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
@@ -888,6 +889,28 @@ async fn edit_large_file_storage_config(
         "Edit large file storage config for workspace {}",
         &w_id
     ))
+}
+
+async fn list_ducklakes(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(ducklakes))
 }
 
 async fn get_ducklake(
