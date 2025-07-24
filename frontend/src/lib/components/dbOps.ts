@@ -179,7 +179,8 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	const stringified = Array.isArray(result) && result.length && result?.[0]?.['result']
+	const stringified = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+
 	if (!stringified) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
 	let schema: Omit<SQLSchema, 'stringified'> = {
 		schema: { main: JSON.parse(stringified) },

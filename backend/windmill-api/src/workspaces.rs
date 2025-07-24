@@ -32,6 +32,7 @@ use chrono::Utc;
 
 use regex::Regex;
 
+use serde_json::json;
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -44,13 +45,14 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
-use windmill_common::workspaces::{Ducklake, DucklakeWithConnData};
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType, DucklakeWithConnData};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -937,17 +939,35 @@ async fn get_ducklake(
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)
         .map_err(|err| Error::internal_err(format!("parsing ducklake {name}: {err}")))?;
 
-    let catalog_resource = get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db.clone()),
-        &db,
-        &w_id,
-        &ducklake.catalog.resource_path,
-        None,
-        &token,
-    )
-    .await?
-    .ok_or_else(|| Error::internal_err(format!("Ducklake {name}: Catalog resource not found")))?;
+    let catalog_resource = {
+        match ducklake.catalog.resource_type {
+            DucklakeCatalogResourceType::Instance => {
+                // type Instance uses the Windmill database directly
+                let components = parse_postgres_url(&get_database_url().await?)?;
+                json!({
+                    "dbname": ducklake.catalog.resource_path,
+                    "host": components.host,
+                    "port": components.port,
+                    "user": components.username,
+                    "password": components.password,
+                    "sslmode": components.ssl_mode,
+                })
+            }
+            _ => get_resource_value_interpolated_internal(
+                &authed,
+                Some(user_db.clone()),
+                &db,
+                &w_id,
+                &ducklake.catalog.resource_path,
+                None,
+                &token,
+            )
+            .await?
+            .ok_or_else(|| {
+                Error::internal_err(format!("Ducklake {name}: Catalog resource not found"))
+            })?,
+        }
+    };
 
     let Json(storage_settings) = duckdb_connection_settings_v2(
         authed.clone(),

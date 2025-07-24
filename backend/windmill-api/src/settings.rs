@@ -68,6 +68,7 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route("/databases_exist", post(databases_exist))
+        .route("/create_database/:name", post(create_database))
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
@@ -519,4 +520,27 @@ async fn databases_exist(
     .collect();
 
     Ok(Json(result))
+}
+
+async fn create_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(name): Path<String>,
+) -> Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+
+    // Validate name to ensure it only contains alphanumeric characters
+    // Prevents SQL injection on the instance database
+    let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_-]+$")
+        .map_err(|_| error::Error::internal_err("Failed to compile regex".to_string()))?;
+    if !valid_name.is_match(&name) {
+        return Err(error::Error::BadRequest(
+            "Invalid database name".to_string(),
+        ));
+    }
+
+    let result = sqlx::query(&format!("CREATE DATABASE \"{name}\""))
+        .execute(&db)
+        .await?;
+    Ok(())
 }

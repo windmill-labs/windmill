@@ -5,8 +5,8 @@
 		ducklakes: {
 			name: string
 			catalog: {
-				resource_type: 'postgresql' | 'mysql' | 'instance_db'
-				resource_path?: string // Name of the database when resource_type is instance_db
+				resource_type: 'postgresql' | 'mysql' | 'instance'
+				resource_path?: string // Name of the database when resource_type is instance
 			}
 			storage: {
 				storage?: string
@@ -35,8 +35,10 @@
 			if (ducklake.name in s.ducklakes)
 				throw 'Settings contain duplicate ducklake name: ' + ducklake.name
 			if (!catalog.resource_path) throw 'No resource selected for ' + ducklake.name
-			if (catalog.resource_type === 'instance_db' && catalog.resource_path === 'windmill')
+			if (catalog.resource_type === 'instance' && catalog.resource_path === 'windmill')
 				throw ducklake.name + ' catalog cannot be called "windmill"'
+			if (ducklake.storage.path.startsWith('/'))
+				ducklake.storage.path = ducklake.storage.path.slice(1)
 
 			s.ducklakes[ducklake.name] = {
 				catalog: ducklake.catalog,
@@ -87,7 +89,7 @@
 		ducklakeSettings.ducklakes.push({
 			name,
 			catalog: {
-				resource_type: isWmDbEnabled ? 'instance_db' : 'postgresql',
+				resource_type: isWmDbEnabled ? 'instance' : 'postgresql',
 				resource_path: isWmDbEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
 			},
 			storage: {
@@ -98,16 +100,12 @@
 	}
 
 	function removeDucklake(index: number) {
-		let d = ducklakeSettings.ducklakes[index]
 		ducklakeSettings.ducklakes.splice(index, 1)
-		sendUserToast(`Ducklake ${d.name} removed`, false, [
-			{ label: 'Undo', callback: () => ducklakeSettings.ducklakes.splice(index, 0, d) }
-		])
 	}
 
 	const windmillDbNames = $derived(
 		ducklakeSettings.ducklakes
-			.filter((d) => d.catalog.resource_type === 'instance_db')
+			.filter((d) => d.catalog.resource_type === 'instance')
 			.map((d) => d.catalog.resource_path ?? '')
 	)
 
@@ -126,6 +124,7 @@
 						</span>`
 					})
 					if (!confirmed) return
+					await Promise.all(nonExistentDbs.map((name) => SettingService.createDatabase({ name })))
 				}
 			}
 			const settings = convertDucklakeSettingsToBackend(ducklakeSettings)
@@ -193,7 +192,7 @@
 							items={[
 								{ value: 'postgresql', label: 'PostgreSQL' },
 								{ value: 'mysql', label: 'MySQL' },
-								...(isWmDbEnabled ? [{ value: 'instance_db', label: 'Instance DB' }] : [])
+								...(isWmDbEnabled ? [{ value: 'instance', label: 'Instance' }] : [])
 							]}
 							bind:value={
 								() => ducklake.catalog.resource_type,
@@ -201,14 +200,14 @@
 									ducklake.catalog = {
 										resource_type,
 										resource_path:
-											resource_type === 'instance_db' ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+											resource_type === 'instance' ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
 									}
 								}
 							}
 							class="w-28"
 						/>
 						<div class="flex items-center gap-1 w-80">
-							{#if ducklake.catalog.resource_type !== 'instance_db'}
+							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
@@ -235,7 +234,7 @@
 							class="w-48"
 							inputClass="!placeholder-primary"
 						/>
-						<input placeholder="Data path" bind:value={ducklake.storage.path} />
+						<input placeholder="Data path (defaults to /)" bind:value={ducklake.storage.path} />
 					</div>
 				</Cell>
 				<Cell class="w-12">

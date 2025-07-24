@@ -14,6 +14,7 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::workspaces::DucklakeCatalogResourceType;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -569,7 +570,10 @@ async fn transform_attach_ducklake(
         .unwrap_or("".to_string());
 
     let ducklake_config = client.get_ducklake(ducklake_name).await?;
-    let db_type = ducklake_config.catalog.resource_type.as_ref();
+    let db_type = match ducklake_config.catalog.resource_type {
+        DucklakeCatalogResourceType::Instance => "postgres",
+        _ => ducklake_config.catalog.resource_type.as_ref(),
+    };
 
     let db_conn_str = format_attach_db_conn_str(ducklake_config.catalog_resource, db_type)?;
 

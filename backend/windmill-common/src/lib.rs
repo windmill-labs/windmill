@@ -281,7 +281,7 @@ pub struct PostgresUrlComponents {
     pub host: String,
     pub port: Option<u16>,
     pub database: String,
-    pub query_params: Option<String>,
+    pub ssl_mode: Option<String>,
 }
 
 pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
@@ -293,7 +293,12 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
     let host = parsed_url.host_str().ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?.to_string();
     let port = parsed_url.port();
     let database = parsed_url.path().trim_start_matches('/').to_string();
-    let query_params = parsed_url.query().map(|q| q.to_string());
+    let mut ssl_mode = None;
+    for query in parsed_url.query_pairs() {
+        if query.0 == "sslmode" {
+            ssl_mode = Some(query.1.to_string());
+        }
+    }
 
     Ok(PostgresUrlComponents {
         scheme,
@@ -302,7 +307,7 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
         host,
         port,
         database,
-        query_params,
+        ssl_mode,
     })
 }
 

@@ -120,6 +120,7 @@ pub enum DucklakeCatalogResourceType {
     #[strum(serialize = "postgres")]
     Postgresql,
     Mysql,
+    Instance,
 }
 
 #[derive(Deserialize, Serialize)]

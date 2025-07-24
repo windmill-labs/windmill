@@ -752,6 +752,26 @@ paths:
                 items:
                   type: string
 
+  /settings/create_database/{name}:
+    post:
+      summary: Runs CREATE DATABASE on the Windmill Postgres
+      operationId: createDatabase
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to create
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /settings/global/{key}:
     get:
       summary: get global settings
@@ -17134,6 +17154,7 @@ components:
                     enum:
                       - postgresql
                       - mysql
+                      - instance
                   resource_path:
                     type: string
                 required:
