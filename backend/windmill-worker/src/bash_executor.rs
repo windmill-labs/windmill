@@ -742,7 +742,10 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX))
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -808,6 +811,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         #[cfg(windows)]
         {
             cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("WINDIR", SYSTEM_ROOT.as_str())
                 .env(
                     "LOCALAPPDATA",
                     std::env::var("LOCALAPPDATA")
