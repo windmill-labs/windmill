@@ -728,6 +728,30 @@ paths:
               schema:
                 type: boolean
 
+  /settings/databases_exist:
+    post:
+      summary: checks that all given databases exist or else return the ones that don't
+      operationId: databasesExist
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: databases that do not exist
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /settings/global/{key}:
     get:
       summary: get global settings
