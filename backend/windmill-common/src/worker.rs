@@ -601,7 +601,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
                 .map(|x| x.to_string())
                 .collect_vec(),
         ]
-            .concat();
+        .concat();
     }
     Ok(())
 }
@@ -1547,13 +1547,15 @@ pub async fn load_worker_config(
                     "Periodic script interval must be at least {} seconds, got {} seconds",
                     MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
                     interval
-                ).into());
+                )
+                .into());
             }
         } else {
             killpill_tx.send();
             return Err(anyhow::anyhow!(
                 "Periodic script interval must be specified when periodic script is configured"
-            ).into());
+            )
+            .into());
         }
     }
 
@@ -1717,7 +1719,6 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-
     #[test]
     fn test_mixed_tags() {
         let input = vec![
@@ -1842,14 +1843,8 @@ mod tests {
         ];
         let tags = CustomTags::from(input);
 
-        let result = tags.to_string_vec(None);
-        assert_eq!(
-            result,
-            vec![
-                "foo",
-                "urgent(ws1+ws2)",
-                "legacy(^ws1^ws2)"
-            ]
-        );
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
     }
 }
