@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.513.0](https://github.com/windmill-labs/windmill/compare/v1.512.0...v1.513.0) (2025-07-24)
+
+
+### Features
+
+* enable workspace exclusion in custom tags ([#6263](https://github.com/windmill-labs/windmill/issues/6263)) ([be3173d](https://github.com/windmill-labs/windmill/commit/be3173d048f8c3ee3681840b9880f509b754d779))
+
+
+### Bug Fixes
+
+* add windir env var to pwsh for legacy modules like AD ([#6271](https://github.com/windmill-labs/windmill/issues/6271)) ([7920583](https://github.com/windmill-labs/windmill/commit/79205839b6c3ba51a637f634d8cfba737b4dee1c))
+* fix webhook panel reactivity ([241be48](https://github.com/windmill-labs/windmill/commit/241be4897eb3377ccce097404fcd176e746c3015))
+* improve aggrid columnDefs reactivity ([f71104e](https://github.com/windmill-labs/windmill/commit/f71104e9f64bf6cb340d99ad91977c79651780c8))
+
 ## [1.512.0](https://github.com/windmill-labs/windmill/compare/v1.511.0...v1.512.0) (2025-07-23)
 
 
