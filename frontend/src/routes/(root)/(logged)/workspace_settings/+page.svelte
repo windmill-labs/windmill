@@ -1247,7 +1247,7 @@
 				</div>
 			</div>
 			<div class="flex flex-col gap-2 my-4">
-				<Label for="trigger-failure-emails">Email Recipients</Label>
+				<Label>Email Recipients</Label>
 				<MultiSelect
 					items={[] as { label: string; value: string }[]}
 					bind:value={triggerFailureEmailRecipients}

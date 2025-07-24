@@ -379,6 +379,10 @@ pub struct EditTriggerFailureEmailNotifications {
     pub trigger_failure_email_recipients: Vec<String>,
 }
 
+lazy_static::lazy_static! {
+    pub static ref EMAIL_REGEXP: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1277,6 +1281,15 @@ async fn edit_trigger_failure_email_notifications(
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(req): Json<EditTriggerFailureEmailNotifications>,
 ) -> Result<String> {
+    for recipient in &req.trigger_failure_email_recipients {
+        if !EMAIL_REGEXP.is_match(recipient) {
+            return Err(Error::BadRequest(format!(
+                "Invalid email format: {}",
+                recipient
+            )));
+        }
+    }
+
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
@@ -1292,11 +1305,17 @@ async fn edit_trigger_failure_email_notifications(
     audit_log(
         &mut *tx,
         &authed,
-        "workspaces.edit_trigger_failure_email",
+        "workspaces.trigger_failure_email_recipients",
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("trigger_failure_email_recipients", &format!("{:?}", req.trigger_failure_email_recipients)[..])].into()),
+        Some(
+            [(
+                "trigger_failure_email_recipients",
+                &format!("{:?}", req.trigger_failure_email_recipients)[..],
+            )]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -1306,13 +1325,18 @@ async fn edit_trigger_failure_email_notifications(
         &authed.username,
         &db,
         &w_id,
-        windmill_git_sync::DeployedObject::Settings { setting_type: "trigger_failure_email".to_string() },
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "trigger_failure_email_recipients".to_string(),
+        },
         Some("Trigger failure email notifications configuration updated".to_string()),
         false,
     )
     .await?;
 
-    Ok(format!("Edit trigger_failure_email_notifications for workspace {}", &w_id))
+    Ok(format!(
+        "Edit trigger_failure_email_notifications for workspace {}",
+        &w_id
+    ))
 }
 
 #[derive(Deserialize)]
