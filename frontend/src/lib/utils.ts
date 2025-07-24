@@ -1480,3 +1480,13 @@ export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
 export function pruneNullishArray<T>(array: (T | null | undefined)[]): T[] {
 	return array.filter((item): item is T => item !== null && item !== undefined)
 }
+
+export function assert(msg: string, condition: boolean, value?: any) {
+	if (!condition) {
+		let m = 'Assertion failed: ' + msg
+		if (value) m += '\nValue: ' + JSON.stringify(value, null, 2)
+		m += '\nPlease alert the Windmill team about this'
+		sendUserToast(m, true)
+		console.error(m)
+	}
+}
