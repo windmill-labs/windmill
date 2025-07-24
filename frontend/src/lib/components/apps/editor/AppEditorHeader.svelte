@@ -943,12 +943,12 @@
 			workspace: $workspaceStore!,
 			customPath,
 			requestBody: {
-				workspaced_route: workspaced_route
+				workspaced_route
 			}
 		})
 	}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	async function validateCustomPath(customPath: string): Promise<void> {
+	async function validateCustomPath(customPath: string, workspaced_route: boolean): Promise<void> {
 		customPathError = ''
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -956,7 +956,10 @@
 		validateTimeout = setTimeout(async () => {
 			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
 				customPathError = 'Invalid path'
-			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
+			} else if (
+				(customPath !== savedApp?.custom_path || workspaced_route != savedApp?.workspaced_route) &&
+				(await appExists(customPath))
+			) {
 				customPathError = 'Path already taken'
 			} else {
 				customPathError = ''
@@ -985,8 +988,8 @@
 		}${customPath}`
 	)
 	$effect(() => {
-		;[customPath]
-		untrack(() => customPath !== undefined && validateCustomPath(customPath))
+		;[customPath, workspaced_route]
+		untrack(() => customPath !== undefined && validateCustomPath(customPath, workspaced_route))
 	})
 </script>
 

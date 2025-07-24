@@ -681,7 +681,7 @@ async fn custom_path_exists_inner(
         .unwrap_or(false)
     } else {
         let full_custom_path = match workspaced_route {
-            Some(true) => Cow::Owned(format!("{}/{}", w_id, custom_path.trim_matches('/'))),
+            Some(true) => Cow::Owned(format!("{}/{}", w_id, custom_path)),
             _ => Cow::Borrowed(custom_path),
         };
         sqlx::query_scalar!(
@@ -690,11 +690,10 @@ async fn custom_path_exists_inner(
                 SELECT 1 
                 FROM app 
                 WHERE 
-                    ((workspaced_route IS TRUE AND workspace_id = $1 AND workspace_id || '/' || custom_path = $2) 
-                    OR (workspaced_route IS FALSE AND custom_path = $2))
+                    (workspaced_route IS TRUE AND workspace_id || '/' || custom_path = $1) 
+                    OR (workspaced_route IS FALSE AND custom_path = $1)
             )
             "#,
-            w_id,
             full_custom_path.as_ref(),
         )
         .fetch_one(db)
@@ -1363,9 +1362,45 @@ async fn update_app_internal<'a>(
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists =
-                    custom_path_exists_inner(&db, ncustom_path, w_id, ns.workspaced_route).await?;
+                let exists_query = if *CLOUD_HOSTED {
+                    sqlx::query_scalar!(
+                        r#"
+                        SELECT EXISTS(
+                            SELECT 1 
+                            FROM app 
+                            WHERE 
+                                custom_path = $1
+                                AND workspace_id = $2 
+                                AND NOT (path = $3 AND workspace_id = $2)
+                        )
+                        "#,
+                        ncustom_path,
+                        w_id,
+                        path
+                    )
+                } else {
+                    let full_custom_path = match ns.workspaced_route {
+                        Some(true) => Cow::Owned(format!("{}/{}", w_id, ncustom_path)),
+                        _ => Cow::Borrowed(ncustom_path),
+                    };
+                    sqlx::query_scalar!(
+                        r#"
+                        SELECT EXISTS(
+                            SELECT 1 
+                            FROM app 
+                            WHERE 
+                                ((workspaced_route IS TRUE AND workspace_id || '/' || custom_path = $1) 
+                                OR (workspaced_route IS FALSE AND custom_path = $1))
+                                AND NOT (path = $2 AND workspace_id = $3)
+                        )
+                        "#,
+                        full_custom_path.as_ref(),
+                        path,
+                        w_id,
+                    )
+                };
 
+                let exists = exists_query.fetch_one(&mut *tx).await?.unwrap_or(false);
                 if exists {
                     return Err(Error::BadRequest(format!(
                         "App with custom path {} already exists",
