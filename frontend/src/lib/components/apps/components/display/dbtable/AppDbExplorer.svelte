@@ -366,10 +366,13 @@
 		$app = $app
 
 		let tableMetadata = await loadTableMetaData(
-			resolvedConfig.type.configuration[selected].resource,
+			{
+				type: 'database',
+				resourcePath: resolvedConfig.type.configuration[selected].resource,
+				resourceType: selected
+			},
 			$workspaceStore,
-			resolvedConfig.type.configuration[selected].table,
-			selected
+			resolvedConfig.type.configuration[selected].table
 		)
 
 		if (!tableMetadata) return

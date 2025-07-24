@@ -18,6 +18,7 @@
 		dbDeleteTableActionWithPreviewScript,
 		dbTableOpsWithPreviewScripts,
 		getDucklakeSchema,
+		wrapDucklakeQuery,
 		type DbInput
 	} from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
@@ -202,16 +203,14 @@
 								dbType,
 								previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
 								async onConfirm(values) {
+									const dbArg =
+										input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+									const language = getLanguageByResourceType(dbType)
+									let query = makeCreateTableQuery(values, dbType, selectedSchemaKey)
+									if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 									await runScriptAndPollResult({
 										workspace: $workspaceStore,
-										requestBody: {
-											args:
-												_input.type == 'database'
-													? { database: '$res:' + _input.resourcePath }
-													: {},
-											content: makeCreateTableQuery(values, dbType, selectedSchemaKey),
-											language: getLanguageByResourceType(dbType)
-										}
+										requestBody: { args: dbArg, content: query, language }
 									})
 									refresh()
 								}

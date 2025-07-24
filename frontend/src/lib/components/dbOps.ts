@@ -23,8 +23,7 @@ export type DbInput =
 	| { type: 'ducklake'; ducklake: string }
 
 export type IDbTableOps = {
-	resourcePath: string
-	resourceType: DbType
+	dbType: DbType
 	tableKey: string
 	colDefs: ColumnDef[]
 
@@ -58,25 +57,17 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
+	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
 	return {
-		resourcePath: input.resourcePath,
-		resourceType: input.resourceType,
+		dbType,
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
 			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
 			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
-			console.log('countQuery', countQuery)
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args:
-						input.type === 'database'
-							? { database: '$res:' + input.resourcePath, quicksearch }
-							: { quicksearch },
-					language,
-					content: countQuery
-				}
+				requestBody: { args: { ...dbArg, quicksearch }, language, content: countQuery }
 			})
 			const count = result?.[0].count as number
 			return count
@@ -86,14 +77,7 @@ export function dbTableOpsWithPreviewScripts({
 			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args:
-						input.type === 'database'
-							? { database: '$res:' + input.resourcePath, ...params }
-							: params,
-					language,
-					content: query
-				}
+				requestBody: { args: { ...dbArg, ...params }, language, content: query }
 			})) as unknown[]
 			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
 				items = items?.[0] as unknown[]
@@ -103,42 +87,31 @@ export function dbTableOpsWithPreviewScripts({
 			return items
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
-			const updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, input.resourceType)
-
+			let updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, dbType)
+			if (input.type === 'ducklake') updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: {
-						database: '$res:' + input.resourcePath,
-						value_to_update: newValue,
-						...values
-					},
+					args: { ...dbArg, value_to_update: newValue, ...values },
 					language,
 					content: updateQuery
 				}
 			})
 		},
 		onDelete: async ({ values }) => {
-			const deleteQuery = makeDeleteQuery(tableKey, colDefs, input.resourceType)
-
+			let deleteQuery = makeDeleteQuery(tableKey, colDefs, dbType)
+			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args: { database: '$res:' + input.resourcePath, ...values },
-					language,
-					content: deleteQuery
-				}
+				requestBody: { args: { ...dbArg, ...values }, language, content: deleteQuery }
 			})
 		},
 		onInsert: async ({ values }) => {
-			const insertQuery = makeInsertQuery(tableKey, colDefs, input.resourceType)
+			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
+			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
 			runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args: { database: '$res:' + input.resourcePath, ...values },
-					language,
-					content: insertQuery
-				}
+				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
 			})
 		}
 	}
@@ -165,6 +138,8 @@ export function dbDeleteTableActionWithPreviewScript({
 	workspace: string
 	input: DbInput
 }): DbTableActionFactory {
+	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+
 	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
 		displayName: 'Delete',
@@ -176,11 +151,10 @@ export function dbDeleteTableActionWithPreviewScript({
 			const language = getLanguageByResourceType(dbType)
 			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
-			console.log('deleteQuery', deleteQuery)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
-					args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {},
+					args: { ...dbArg },
 					language,
 					content: deleteQuery
 				}
@@ -241,7 +215,7 @@ function getDbType(input: DbInput): DbType {
 	}
 }
 
-function wrapDucklakeQuery(query: string, ducklake: string): string {
+export function wrapDucklakeQuery(query: string, ducklake: string): string {
 	let attach = `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n`
 	return query.replace(/^(--.*\n)*/, (match) => match + attach)
 }

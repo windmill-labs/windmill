@@ -141,7 +141,7 @@
 		{#if dbTableOps.onInsert}
 			<InsertRowDrawerButton
 				columnDefs={dbTableOps.colDefs ?? []}
-				dbType={dbTableOps.resourceType}
+				dbType={dbTableOps.dbType}
 				onInsert={(values) => {
 					if (!$workspaceStore) return
 					dbTableOps.onInsert?.({ values }).then((result) => {

@@ -1,4 +1,4 @@
-import { JobService, type Preview, ResourceService } from '$lib/gen'
+import { JobService, type Preview, ResourceService, type ScriptLang } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import {
 	buildClientSchema,
@@ -702,7 +702,7 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 		})
 }
 
-export function getLanguageByResourceType(name: string): Preview['language'] {
+export function getLanguageByResourceType(name: string): ScriptLang {
 	const language = {
 		postgresql: 'postgresql',
 		mysql: 'mysql',
