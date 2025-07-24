@@ -1253,7 +1253,7 @@
 					bind:value={triggerFailureEmailRecipients}
 					placeholder="Enter email addresses..."
 					onCreateItem={(email) => {
-						const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+						const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 						if (!emailRegex.test(email)) {
 							sendUserToast('Invalid email format', true);
 							return;
