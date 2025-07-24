@@ -24,13 +24,6 @@
 		path,
 		newItem = false
 	}: Props = $props()
-
-	let data = $derived({
-		hash,
-		token,
-		scopes,
-		args
-	})
 </script>
 
 <HighlightTheme />
@@ -46,13 +39,5 @@
 			{isFlow ? 'flow' : 'script'}.
 		</Alert>
 	{/if}
-
-	<WebhooksConfigSection
-		{isFlow}
-		{path}
-		hash={data?.hash}
-		token={data?.token}
-		runnableArgs={data?.args}
-		scopes={data?.scopes}
-	/>
+	<WebhooksConfigSection {isFlow} {path} {hash} {token} runnableArgs={args} {scopes} />
 </Section>
