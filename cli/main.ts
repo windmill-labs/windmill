@@ -22,6 +22,7 @@ import sync from "./sync.ts";
 import gitsyncSettings from "./gitsync-settings.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
+import { SCRIPT_GUIDANCE } from "./script_guidance.ts";
 
 import dev from "./dev.ts";
 import { fetchVersion } from "./context.ts";
@@ -268,6 +269,34 @@ const command = new Command()
                     }
                 }
             }
+
+            // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
+            try {
+                const scriptGuidanceContent = SCRIPT_GUIDANCE;
+                                
+                // Create .cursor/rules directory
+                await Deno.mkdir(".cursor/rules", { recursive: true });
+                
+                // Create windmill.mdc file
+                if (!await Deno.stat(".cursor/rules/windmill.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/windmill.mdc", scriptGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/windmill.mdc"));
+                }
+                
+                // Create CLAUDE.md file
+                if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
+                    await Deno.writeTextFile("CLAUDE.md", scriptGuidanceContent);
+                    log.info(colors.green("Created CLAUDE.md"));
+                }
+                
+            } catch (error) {
+                if (error instanceof Error) {
+                    log.warn(`Could not create guidance files: ${error.message}`);
+                } else {
+                    log.warn(`Could not create guidance files: ${error}`);
+                }
+            }
+
         },
     )
     .command("app", app)
