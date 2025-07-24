@@ -15,7 +15,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
-use windmill_common::worker::SpecificTagType;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
