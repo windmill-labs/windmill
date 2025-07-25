@@ -317,7 +317,7 @@ export function extractInlineScriptsForFlows(
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
       const [basePath, ext] = pathAssigner.assignPath(
-        m.summary,
+        m.id,
         m.value.language
       );
       const path = basePath + ext;
@@ -353,9 +353,8 @@ export function extractInlineScriptsForFlows(
 }
 
 interface PathAssigner {
-  assignPath(summary: string | undefined, language: string): [string, string];
+  assignPath(id: string, language: string): [string, string];
 }
-const INLINE_SCRIPT = "inline_script";
 
 export function extractInlineScriptsForApps(
   rec: any,
@@ -368,8 +367,7 @@ export function extractInlineScriptsForApps(
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const [basePath, ext] = pathAssigner.assignPath(rec["id"], o["language"]);
         const r = [];
         if (o["content"]) {
           const content = o["content"];
@@ -397,28 +395,11 @@ export function extractInlineScriptsForApps(
 }
 
 export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
-  let counter = 0;
-  const seen_names = new Set<string>();
   function assignPath(
-    summary: string | undefined,
+    id: string,
     language: RawScript["language"] | "frontend" | "bunnative"
   ): [string, string] {
-    let name;
-
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
-
-    let original_name = name;
-
-    if (name == "") {
-      original_name = INLINE_SCRIPT;
-      name = `${INLINE_SCRIPT}_0`;
-    }
-
-    while (seen_names.has(name)) {
-      counter++;
-      name = `${original_name}_${counter}`;
-    }
-    seen_names.add(name);
+    const name = id.toLowerCase();
 
     let ext;
     if (language == "python3") ext = "py";
