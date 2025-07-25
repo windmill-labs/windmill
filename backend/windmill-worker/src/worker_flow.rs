@@ -656,8 +656,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
 
+                    // for parallel branchall and forloop, we do not want to trigger the error handler again at the forloop/branchall node since it was already triggered at the leaf level
+                    // so we want to ignore the has_triggered_error_handler flag at the forloop/branchall node and reset it based on if the node is a success or failure
                     if !success && flow_value.failure_module.is_some() {
                         has_triggered_error_handler = true;
+                    } else {
+                        has_triggered_error_handler = false;
                     }
                     (success, Some(new_status))
                 } else {
