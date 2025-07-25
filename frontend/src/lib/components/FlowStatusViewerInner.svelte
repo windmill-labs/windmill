@@ -912,7 +912,7 @@
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
 </script>
 
-<JobLoader noCode noLogs bind:this={jobLoader} />
+<JobLoader workspaceOverride={workspaceId} noCode noLogs bind:this={jobLoader} />
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you

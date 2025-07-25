@@ -639,6 +639,7 @@
 	{#snippet triggers()}
 		{#if flow}
 			<TriggersEditor
+				{args}
 				initialPath={flow.path}
 				currentPath={flow.path}
 				noEditor={true}
