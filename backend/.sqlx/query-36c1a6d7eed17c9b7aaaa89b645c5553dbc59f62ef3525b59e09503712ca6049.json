@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM app\n                WHERE\n                    (\n                        app.workspaced_route IS NOT TRUE\n                        AND app.custom_path = $1\n                        AND ($2::TEXT IS NULL OR app.workspace_id = $2)\n                    )\n                    OR (\n                        app.workspaced_route IS TRUE\n                        AND app.workspace_id = $2\n                        AND app.custom_path = $3\n                    )\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "36c1a6d7eed17c9b7aaaa89b645c5553dbc59f62ef3525b59e09503712ca6049"
+}
