@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.513.1](https://github.com/windmill-labs/windmill/compare/v1.513.0...v1.513.1) (2025-07-25)
+
+
+### Bug Fixes
+
+* improve error handler behavior wrt to parrallel branchall & forloops ([#6273](https://github.com/windmill-labs/windmill/issues/6273)) ([3f784e3](https://github.com/windmill-labs/windmill/commit/3f784e3c07aa35ef2298bed301d581bf25300ba6))
+* jobLoader for flowstatusviewerinner work with public apps ([94e20a9](https://github.com/windmill-labs/windmill/commit/94e20a97e036fdb99e34c79b466e957b943cb26a))
+* **mcp:** allow mcp scopes to run scripts and flows ([#6278](https://github.com/windmill-labs/windmill/issues/6278)) ([e8f4c24](https://github.com/windmill-labs/windmill/commit/e8f4c2418b83af75be90b21ab2ab64537fef00eb))
+
 ## [1.513.0](https://github.com/windmill-labs/windmill/compare/v1.512.0...v1.513.0) (2025-07-24)
 
 
