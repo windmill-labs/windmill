@@ -37,6 +37,7 @@ import { add as workspaceAdd } from "./workspace.ts";
 import workers from "./workers.ts";
 import queues from "./queues.ts";
 import { readLockfile } from "./metadata.ts";
+import { FLOW_GUIDANCE } from "./flow_guidance.ts";
 
 export {
     flow,
@@ -275,19 +276,35 @@ const command = new Command()
             // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
             try {
                 const scriptGuidanceContent = SCRIPT_GUIDANCE;
+                const flowGuidanceContent = FLOW_GUIDANCE;
                                 
                 // Create .cursor/rules directory
                 await Deno.mkdir(".cursor/rules", { recursive: true });
                 
                 // Create windmill.mdc file
-                if (!await Deno.stat(".cursor/rules/windmill.mdc").catch(() => null)) {
-                    await Deno.writeTextFile(".cursor/rules/windmill.mdc", scriptGuidanceContent);
-                    log.info(colors.green("Created .cursor/rules/windmill.mdc"));
+                if (!await Deno.stat(".cursor/rules/script.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/script.mdc", scriptGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/script.mdc"));
+                }
+
+                if (!await Deno.stat(".cursor/rules/flow.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/flow.mdc"));
                 }
                 
                 // Create CLAUDE.md file
                 if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
-                    await Deno.writeTextFile("CLAUDE.md", scriptGuidanceContent);
+                    await Deno.writeTextFile("CLAUDE.md", `
+                        # Claude
+
+                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+
+                        ## Script Guidance
+                        ${scriptGuidanceContent}
+
+                        ## Flow Guidance
+                        ${flowGuidanceContent}
+                    `);
                     log.info(colors.green("Created CLAUDE.md"));
                 }
                 
