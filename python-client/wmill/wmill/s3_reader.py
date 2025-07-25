@@ -1,11 +1,11 @@
 from io import BufferedReader, BytesIO
-from json import JSONDecodeError
+from typing import Optional, Union
 
 import httpx
 
 
 class S3BufferedReader(BufferedReader):
-    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: str | None, storage: str | None):
+    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: Optional[str], storage: Optional[str]):
         params = {
             "file_key": file_key,
         }
@@ -61,7 +61,7 @@ class S3BufferedReader(BufferedReader):
         self._context_manager.__exit__(*args)
 
 
-def bytes_generator(buffered_reader: BufferedReader | BytesIO):
+def bytes_generator(buffered_reader: Union[BufferedReader, BytesIO]):
     while True:
         byte = buffered_reader.read(50 * 1024)
         if not byte:
