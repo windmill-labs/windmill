@@ -3,8 +3,9 @@ use std::{collections::HashMap, fs::read_to_string, process::Stdio, str::FromStr
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use itertools::Itertools;
+use regex::Regex;
 use tokio::{
-    fs::{remove_dir_all, File},
+    fs::{self, remove_dir_all, File},
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
@@ -26,16 +27,13 @@ use crate::{
         start_child_process, OccupancyMetrics, RequiredDependency,
     },
     handle_child::{self, handle_child},
-    DISABLE_NSJAIL, PATH_ENV, RUBY_CACHE_DIR,
+    DISABLE_NSJAIL, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref RUBY_PATH: String = std::env::var("RUBY_PATH").unwrap_or_else(|_| "/usr/bin/ruby".to_string());
     static ref BUNDLE_PATH: String = std::env::var("RUBY_BUNDLE_PATH").unwrap_or_else(|_| "/usr/bin/bundle".to_string());
     static ref GEM_PATH: String = std::env::var("RUBY_GEM_PATH").unwrap_or_else(|_| "/usr/bin/gem".to_string());
-
-    // static ref STOREPASS: String = std::env::var("JAVA_STOREPASS").unwrap_or("123456".into());
-    // static ref TRUST_STORE_PATH: String = std::env::var("JAVA_TRUST_STORE_PATH").unwrap_or("/usr/local/share/ca-certificates/truststore.jks".into());
 }
 
 #[allow(dead_code)]
@@ -61,11 +59,7 @@ pub async fn handle_ruby_job<'a>(
 ) -> Result<Box<sqlx::types::JsonRawValue>, Error> {
     // --- Prepare ---
     {
-        create_args_and_out_file(&args.client, args.job, args.job_dir, args.conn).await?;
-        File::create(format!("{}/main.rb", args.job_dir))
-            .await?
-            .write_all(&wrap(args.inner_content)?.into_bytes())
-            .await?;
+        prepare(&args).await?;
     }
     // --- Gen Lockfile ---
 
@@ -83,35 +77,81 @@ pub async fn handle_ruby_job<'a>(
     }
     // Err(anyhow::anyhow!("todo").into())
 }
+pub async fn prepare<'a>(
+    JobHandlerInput {
+        job,
+        conn,
+        job_dir,
+        inner_content,
+        client,
+        //
+        ..
+    }: &JobHandlerInput<'a>,
+) -> Result<(), Error> {
+    create_args_and_out_file(&client, job, job_dir, conn).await?;
+    File::create(format!("{}/main.rb", job_dir))
+        .await?
+        .write_all(&wrap(inner_content)?.into_bytes())
+        .await?;
+
+    fs::create_dir_all(format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill/")).await?;
+    File::create(format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill/inline.rb"))
+            .await?
+            .write_all(&wrap(
+        r#"    
+def source(*a, **rest)
+end
+def group(*a, **rest)
+end
+def ruby(*a, **rest)
+  warn "Custom Ruby runtime specifications (engine, engine_version, patchlevel) are not supported in this environment. Using system ruby"
+end
+def gem(name, version = nil, require: nil, **rest)
+  case require
+  when false
+    # Skip requiring entirely
+  when nil, true
+    Kernel.require(name)
+  else # String or other truthy value
+    Kernel.require(require.to_s)
+  end
+end
+def gemfile(&block)
+  instance_eval(&block) if block_given?
+end
+def main
+end
+"#
+            )?.into_bytes())
+            .await?;
+    Ok(())
+}
 pub async fn resolve<'a>(
     JobHandlerInput {
-        occupancy_metrics,
         mem_peak,
         canceled_by,
         worker_name,
         job,
         conn,
         job_dir,
-        shared_mount,
-        client,
-        envs,
-        base_internal_url,
-        parent_runnable_path,
         inner_content,
+        //
         ..
     }: &mut JobHandlerInput<'a>,
 ) -> Result<String, Error> {
-    //     let deps = "# frozen_string_literal: true
-    // source \"https://index.ruby-china.com\"\n"
-    //         .to_owned()
-    //         + windmill_parser_ruby::parse_ruby_requirements(&inner_content)?
-    //             .into_iter()
-    //             .map(|im| format!("gem {im}"))
-    //             .join("\n")
-    //             .as_str();
-    let gemfile = windmill_parser_ruby::parse_ruby_requirements(&inner_content)?;
+    lazy_static::lazy_static! {
+        static ref BUNDLER_RE: Regex = Regex::new(r"^\s*require\s+'bundler/inline'").unwrap();
+    }
 
-    dbg!(&gemfile);
+    if BUNDLER_RE.find(&inner_content).is_some() {
+        return Err(anyhow!(
+            "Detected `require 'bundler/inline'` - please replace with `require 'windmill/inline'`.
+Your Gemfile syntax will continue to work as-is."
+        )
+        .into());
+    }
+
+    let gemfile = windmill_parser_ruby::parse_ruby_requirements(&inner_content)?;
 
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
     file.write_all(&gemfile.as_bytes()).await?;
@@ -145,9 +185,13 @@ pub async fn resolve<'a>(
         cmd
             // .env_clear()
             .current_dir(job_dir.to_owned())
-            .env("PATH", PATH_ENV.as_str())
-            // .envs(PROXY_ENVS.clone())
-        ;
+            .envs(vec![
+                ("PATH".to_owned(), PATH_ENV.clone()),
+                // Make sure there is nothing written to actual home
+                // This way we keep everything clean, organized and maintable
+                ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
+            ])
+            .envs(PROXY_ENVS.clone());
 
         // // Configure proxies
         // {
@@ -174,7 +218,7 @@ pub async fn resolve<'a>(
         //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
         //     ]);
         // }
-        cmd.args(&["lock"])
+        cmd.args(&["lock", "--retry", "2"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         // .args(&get_repos().await)
@@ -354,7 +398,8 @@ async fn install<'a>(
                 rd.path, rd.custom_payload.pkg, rd.custom_payload.version
             )
         })
-        .join(":");
+        .join(":")
+        + format!(":{RUBY_CACHE_DIR}/gems/windmill-internal").as_str();
     // if let Some((mut pos, _)) = lockfile.lines().find_position(|x| x.starts_with("GEM")) {
     //     let prefix = lockfile
     //         .lines()
@@ -437,11 +482,13 @@ async fn install<'a>(
             } else {
                 GEM_PATH.as_str()
             });
-            cmd.env_clear()
-                .current_dir(&job_dir)
-                .env("PATH", PATH_ENV.as_str())
-                // .envs(PROXY_ENVS.clone())
-            ;
+            cmd.env_clear().current_dir(&job_dir).envs(vec![
+                ("PATH".to_owned(), PATH_ENV.clone()),
+                // Make sure there is nothing written to actual home
+                // This way we keep everything clean, organized and maintable
+                ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
+            ]);
+            // .envs(PROXY_ENVS.clone())
 
             cmd.args(&[
                 "install",
@@ -670,9 +717,7 @@ INNER_CONTENT
 
 require 'json'
 a = JSON.parse(File.read("args.json"))
-
 res = main(SPREAD)
-
 File.open("result.json", "w") do |file|
   file.write(JSON.generate(res))
 end
