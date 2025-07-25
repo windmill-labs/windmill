@@ -670,6 +670,7 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 .nest("/mcp/w/:workspace_id/sse", mcp_router.layer(from_extractor::<ApiAuthed>()))
+                .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
