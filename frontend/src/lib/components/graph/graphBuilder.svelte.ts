@@ -821,7 +821,6 @@ export function graphBuilder(
 							type: 'branchOneStart'
 						}
 
-
 						nodes.push(defaultBranch)
 
 						addEdge(module.id, defaultBranch.id, { rootId: module.id, branch: 0 }, prefix, {
@@ -884,7 +883,7 @@ export function graphBuilder(
 						let expanded = expandedSubflows[module.id]
 						if (expanded) {
 							expanded = $state.snapshot(expanded)
-							const startId = `${module.id}-subflow-start`
+							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
 								: module.id

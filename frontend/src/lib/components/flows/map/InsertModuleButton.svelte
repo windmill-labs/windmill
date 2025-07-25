@@ -88,7 +88,10 @@ shouldUsePortal={true} -->
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
 			{:else if kind === 'failure'}
-				<Bug size={14} />
+				<div class="flex items-center gap-1">
+					<Bug size={14} />
+					<span class="text-xs w-20">Error Handler</span>
+				</div>
 			{:else}
 				<Cross size={iconSize} />
 			{/if}
