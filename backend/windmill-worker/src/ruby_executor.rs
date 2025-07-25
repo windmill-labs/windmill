@@ -94,8 +94,10 @@ pub async fn prepare<'a>(
         .write_all(&wrap(inner_content)?.into_bytes())
         .await?;
 
-    fs::create_dir_all(format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill/")).await?;
-    File::create(format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill/inline.rb"))
+    let mini_wm_path = format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill");
+    if !std::fs::metadata(&mini_wm_path).is_ok() {
+        fs::create_dir_all(&mini_wm_path).await?;
+        File::create(format!("{}/inline.rb", &mini_wm_path))
             .await?
             .write_all(&wrap(
         r#"    
@@ -124,6 +126,7 @@ end
 "#
             )?.into_bytes())
             .await?;
+    }
     Ok(())
 }
 pub async fn resolve<'a>(
