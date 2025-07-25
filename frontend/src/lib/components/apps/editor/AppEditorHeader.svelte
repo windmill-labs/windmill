@@ -949,9 +949,7 @@
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
 			customPath,
-			requestBody: {
-				workspaced_route
-			}
+			workspacedRoute: workspaced_route
 		})
 	}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined

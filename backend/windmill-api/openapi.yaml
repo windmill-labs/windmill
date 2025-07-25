@@ -6547,7 +6547,7 @@ paths:
                 type: string
 
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
-    post:
+    get:
       summary: check if custom path exists
       operationId: customPathExists
       tags:
@@ -6555,15 +6555,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CustomPath"
-      requestBody:
-        description: check custom path existence with workspace prefix option
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                workspaced_route:
-                  type: boolean
+        - name: workspaced_route
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: custom path exists

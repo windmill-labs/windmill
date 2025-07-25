@@ -104,7 +104,7 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/custom_path_exists/*custom_path", post(custom_path_exists))
+        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
         .route("/sign_s3_objects", post(sign_s3_objects))
 }
 
@@ -660,11 +660,6 @@ async fn update_app_history(
     return Ok(());
 }
 
-#[derive(Deserialize)]
-struct CustomPathExistsRequest {
-    workspaced_route: Option<bool>,
-}
-
 async fn custom_path_exists_inner(
     db: &DB,
     custom_path: &str,
@@ -713,13 +708,17 @@ async fn custom_path_exists_inner(
     Ok(exists)
 }
 
+#[derive(Deserialize)]
+struct QueryParams {
+    workspaced_route: Option<bool>,
+}
+
 async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
-    Json(payload): Json<CustomPathExistsRequest>,
+    Query(query): Query<QueryParams>,
 ) -> JsonResult<bool> {
-    let exists =
-        custom_path_exists_inner(&db, &custom_path, &w_id, payload.workspaced_route).await?;
+    let exists = custom_path_exists_inner(&db, &custom_path, &w_id, query.workspaced_route).await?;
     Ok(Json(exists))
 }
 
@@ -1420,7 +1419,7 @@ async fn update_app_internal<'a>(
                     )
                 };
 
-                let exists = exists_query.fetch_one(&mut *tx).await?.unwrap_or(false);
+                let exists = exists_query.fetch_one(&db).await?.unwrap_or(false);
                 if exists {
                     return Err(Error::BadRequest(format!(
                         "App with custom path {} already exists",
