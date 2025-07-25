@@ -135,6 +135,33 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn update_ca_certificates_if_requested() {
+    if std::env::var("RUN_UPDATE_CA_CERTIFICATE_AT_START")
+        .ok()
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
+        tracing::info!("RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running update-ca-certificates");
+        
+        let output = std::process::Command::new("update-ca-certificates")
+            .output();
+        
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    tracing::info!("Successfully updated CA certificates");
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    tracing::warn!("Failed to update CA certificates, but continuing startup: {}", stderr);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Could not run update-ca-certificates command, but continuing startup: {}", e);
+            }
+        }
+    }
+}
+
 #[inline(always)]
 fn create_and_run_current_thread_inner<F, R>(future: F) -> R
 where
@@ -263,31 +290,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
-    // Update CA certificates if environment variable is set
-    if std::env::var("RUN_UPDATE_CA_CERTIFICATE_AT_START")
-        .ok()
-        .map(|v| v.to_lowercase() == "true")
-        .unwrap_or(false)
-    {
-        tracing::info!("RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running update-ca-certificates");
-        
-        let output = std::process::Command::new("update-ca-certificates")
-            .output();
-        
-        match output {
-            Ok(result) => {
-                if result.status.success() {
-                    tracing::info!("Successfully updated CA certificates");
-                } else {
-                    let stderr = String::from_utf8_lossy(&result.stderr);
-                    tracing::warn!("Failed to update CA certificates, but continuing startup: {}", stderr);
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Could not run update-ca-certificates command, but continuing startup: {}", e);
-            }
-        }
-    }
+    update_ca_certificates_if_requested();
 
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
