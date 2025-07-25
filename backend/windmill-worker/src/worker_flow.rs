@@ -100,8 +100,10 @@ pub async fn update_flow_status_after_job_completion(
         stop_early_override,
         skip_error_handler: false,
     };
+    tracing::error!("update_flow_status_after_job_completion: {rec:#?}");
     let mut unrecoverable = unrecoverable;
     loop {
+        tracing::error!("loop");
         potentially_crash_for_testing();
         let nrec = match update_flow_status_after_job_completion_internal(
             db,
@@ -182,6 +184,7 @@ pub enum UpdateFlowStatusAfterJobCompletion {
     NonLastParallelBranch,
     PreprocessingStep,
 }
+#[derive(Debug)]
 pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
     job_id_for_status: Uuid,
@@ -1356,7 +1359,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         } else {
                             None
                         },
-                        skip_error_handler: skip_error_handler || is_failure_step,
+                        skip_error_handler: true,
                     },
                 ));
             }
