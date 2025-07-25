@@ -571,10 +571,39 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
 
+
+                    let branches = current_module
+                        .and_then(|x| x.get_branches_skip_failures().ok())
+                        .map(|x| {
+                            x.branches
+                                .iter()
+                                .map(|b| b.skip_failure.unwrap_or(false))
+                                .collect::<Vec<_>>()
+                        });
+
+                    let mut njobs = Vec::new();
+
+                    let jobs_filtered = if branchall.is_some() {
+                        if let Some(branches) = branches {
+                            for (branch, job) in branches.iter().zip(jobs.iter()) {
+                                if !branch {
+                                    njobs.push(job.clone());
+                                }
+                            }
+                            njobs.as_slice()
+                        } else {
+                            jobs.as_slice()
+                        }
+                    } else {
+                        jobs.as_slice()
+                    };
+        
+
+
                     let new_status = if skip_loop_failures
                          || sqlx::query_scalar!(
                              "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
-                             jobs.as_slice()
+                             jobs_filtered
                          )
                          .fetch_all(&mut *tx)
                          .await
@@ -626,7 +655,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tracing::info!(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
-                    if !success  && flow_value.failure_module.is_some() {
+
+                    if !success && flow_value.failure_module.is_some() {
                         has_triggered_error_handler = true;
                     }
                     (success, Some(new_status))
@@ -800,17 +830,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
-        let skip_parallel_branchall_failure = match (module_status, new_status.as_ref()) {
-            (
-                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
-                Some(FlowStatusModule::Success { flow_jobs_success, .. }),
-            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
-            (
-                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
-                Some(FlowStatusModule::Failure { flow_jobs_success, .. }),
-            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
-            _ => false,
-        };
+
+
+
         let step_counter = if inc_step_counter {
             sqlx::query!(
                 "UPDATE v2_job_status
@@ -1122,6 +1144,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
 
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.is_canceled() => false,
@@ -1129,10 +1152,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             false if unrecoverable => false,
             false
                 if skip_seq_branch_failure
-                    || skip_parallel_branchall_failure
                     || skip_loop_failures
                     || continue_on_error =>
             {
+
                 !is_last_step
             }
             false
@@ -1170,7 +1193,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
-             skip_seq_branch_failure = %skip_seq_branch_failure, skip_parallel_branchall_failure = %skip_parallel_branchall_failure, skip_loop_failures = %skip_loop_failures,
+             skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
