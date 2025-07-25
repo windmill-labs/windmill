@@ -14,7 +14,8 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_common::workspaces::DucklakeCatalogResourceType;
+use windmill_common::workspaces::{DucklakeCatalogResourceType, DucklakeWithConnData};
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -569,21 +570,39 @@ async fn transform_attach_ducklake(
         .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
         .unwrap_or("".to_string());
 
-    let ducklake_config = client.get_ducklake(ducklake_name).await?;
-    let db_type = match ducklake_config.catalog.resource_type {
+    let ducklake = {
+        let mut c = client.get_ducklake(ducklake_name).await?;
+        // If the ducklake catalog is the windmill instance db, find out its connection settings
+        if matches!(
+            c.catalog.resource_type,
+            DucklakeCatalogResourceType::Instance
+        ) {
+            let components = parse_postgres_url(&get_database_url().await?)?;
+            c.catalog_resource = json!({
+                "dbname": c.catalog.resource_path,
+                "host": components.host,
+                "port": components.port,
+                "user": components.username,
+                "password": components.password,
+                "sslmode": components.ssl_mode,
+            });
+        }
+        c
+    };
+    let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
-        _ => ducklake_config.catalog.resource_type.as_ref(),
+        _ => ducklake.catalog.resource_type.as_ref(),
     };
 
-    let db_conn_str = format_attach_db_conn_str(ducklake_config.catalog_resource, db_type)?;
+    let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
 
-    let storage_settings = ducklake_config.storage_settings;
-    let storage = ducklake_config.storage.storage;
+    let storage_settings = ducklake.storage_settings;
+    let storage = ducklake.storage.storage;
     if !duckdb_connection_settings_cache.contains_key(&storage) {
         duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
     };
     let s3_conn_str =
-        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake_config.storage.path)?;
+        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake.storage.path)?;
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}'{extra_args});",

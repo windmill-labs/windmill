@@ -52,7 +52,6 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -943,15 +942,9 @@ async fn get_ducklake(
         match ducklake.catalog.resource_type {
             DucklakeCatalogResourceType::Instance => {
                 // type Instance uses the Windmill database directly
-                let components = parse_postgres_url(&get_database_url().await?)?;
-                json!({
-                    "dbname": ducklake.catalog.resource_path,
-                    "host": components.host,
-                    "port": components.port,
-                    "user": components.username,
-                    "password": components.password,
-                    "sslmode": components.ssl_mode,
-                })
+                // Credentials are resolved by the worker directly
+                // to avoid leaking the windmill database credentials
+                json!("SECRET")
             }
             _ => get_resource_value_interpolated_internal(
                 &authed,

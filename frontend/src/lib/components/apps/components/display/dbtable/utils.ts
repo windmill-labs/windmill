@@ -146,7 +146,7 @@ async function makeLoadTableMetaDataQuery(
 	table: string | undefined
 ): Promise<string> {
 	if (input.type === 'ducklake') {
-		return `ATTACH 'ducklake://main' AS __ducklake__;
+		return `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
 		SELECT
 			COLUMN_NAME as field,
 			DATA_TYPE as DataType,
