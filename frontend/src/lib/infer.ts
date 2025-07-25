@@ -87,7 +87,9 @@ export async function inferAssets(
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			return JSON.parse(parse_assets_sql(code))
+			let r = JSON.parse(parse_assets_sql(code))
+			console.log('duckdb assets', r)
+			return r
 		}
 		if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()

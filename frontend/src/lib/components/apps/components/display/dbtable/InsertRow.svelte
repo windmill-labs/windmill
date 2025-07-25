@@ -7,7 +7,8 @@
 		parse_mysql,
 		parse_bigquery,
 		parse_snowflake,
-		parse_mssql
+		parse_mssql,
+		parse_duckdb
 	} from 'windmill-sql-datatype-parser-wasm'
 	import wasmUrl from 'windmill-sql-datatype-parser-wasm/windmill_sql_datatype_parser_wasm_bg.wasm?url'
 
@@ -46,8 +47,9 @@
 			case 'ms_sql_server':
 				rawType = parse_mssql(field)
 				break
-			default:
-				throw new Error('Language not supported')
+			case 'duckdb':
+				rawType = parse_duckdb(field)
+				break
 		}
 
 		return rawType

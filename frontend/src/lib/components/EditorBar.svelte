@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { ResourceService, VariableService, type Script } from '$lib/gen'
+	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -50,6 +50,7 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -112,6 +113,7 @@
 	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
+	let ducklakePicker: ItemPicker | undefined = $state()
 
 	let showContextVarPicker = $derived(
 		[
@@ -175,6 +177,7 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
+	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -644,6 +647,22 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
+{#if showDucklakePicker}
+	<ItemPicker
+		bind:this={ducklakePicker}
+		pickCallback={async (_, name) => {
+			editor?.insertAtCursor(`ATTACH 'ducklake://${name}' AS dl;\nUSE dl;\n`)
+		}}
+		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
+		itemName="ducklake"
+		loadItems={async () =>
+			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	/>
+{/if}
+
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
@@ -754,6 +773,22 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Package }}
 				>
 					+Type
+				</Button>
+			{/if}
+
+			{#if showDucklakePicker && customUi?.ducklake != false}
+				<Button
+					aiId="editor-bar-use-ducklake"
+					aiDescription="Use Ducklake"
+					title="Use Ducklake"
+					color="light"
+					on:click={() => ducklakePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DucklakeIcon }}
+					{iconOnly}
+					>+Ducklake
 				</Button>
 			{/if}
 

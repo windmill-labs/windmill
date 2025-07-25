@@ -163,7 +163,7 @@
 						</svelte:fragment>
 					</Popover>
 					<div class="flex flex-col flex-1">
-						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
+						<Tooltip class="select-none w-48 truncate" disablePopup={disableLiTooltip}>
 							{asset.path}
 							<svelte:fragment slot="text">
 								{asset.path}

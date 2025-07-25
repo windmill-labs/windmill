@@ -67,6 +67,8 @@ pub fn global_service() -> Router {
             "/critical_alerts/:id/acknowledge",
             post(acknowledge_critical_alert),
         )
+        .route("/databases_exist", post(databases_exist))
+        .route("/create_database/:name", post(create_database))
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
@@ -497,4 +499,48 @@ pub async fn acknowledge_all_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn acknowledge_all_critical_alerts() -> error::Error {
     error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+async fn databases_exist(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(database_names): Json<Vec<String>>,
+) -> JsonResult<Vec<String>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let result = sqlx::query_scalar!(
+        r#"SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem)
+        WHERE elem NOT IN (SELECT datname FROM pg_catalog.pg_database);"#,
+        database_names.as_slice()
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|x| x)
+    .collect();
+
+    Ok(Json(result))
+}
+
+async fn create_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(name): Path<String>,
+) -> Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+
+    // Validate name to ensure it only contains alphanumeric characters
+    // Prevents SQL injection on the instance database
+    let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_-]+$")
+        .map_err(|_| error::Error::internal_err("Failed to compile regex".to_string()))?;
+    if !valid_name.is_match(&name) {
+        return Err(error::Error::BadRequest(
+            "Invalid database name".to_string(),
+        ));
+    }
+
+    let result = sqlx::query(&format!("CREATE DATABASE \"{name}\""))
+        .execute(&db)
+        .await?;
+    Ok(())
 }
