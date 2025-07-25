@@ -220,6 +220,10 @@ fn get_stop_after_if_data(
     return (false, None);
 }
 
+fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
+    let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
+    return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
+}
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -1222,10 +1226,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                 "Flow job canceled\n".to_string()
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
-            } else if success {
-                "Flow job completed with success\n".to_string()
+            } else if is_failure_step {
+                format!("Flow job completed with error, and error handler was triggered.\n It completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
             } else {
-                "Flow job completed with error\n".to_string()
+                format!("Flow job completed with {}\n", if success { "success" } else { "error" })
             };
             append_logs(&flow_job.id, w_id, logs, &db.into()).await;
         }
@@ -1275,6 +1279,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             }
         }
+        
         if flow_job.is_canceled() {
             add_completed_job_error(
                 db,
@@ -1297,10 +1302,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                 save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
             }
-            fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
-                let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
-                return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
-            }
+
             let success = success
                 && (!is_failure_step || result_has_recover_true(nresult.clone()))
                 && stop_early_err_msg.is_none();
