@@ -124,7 +124,7 @@ components:
         cache_ttl:
           type: number
         timeout:
-          type: number
+          $ref: "#/components/schemas/InputTransform"
         delete_after_use:
           type: boolean
         summary:
