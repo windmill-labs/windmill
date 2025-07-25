@@ -98,12 +98,10 @@ pub async fn update_flow_status_after_job_completion(
         success,
         result,
         stop_early_override,
-        skip_error_handler: false,
+        has_triggered_error_handler: false,
     };
-    tracing::error!("update_flow_status_after_job_completion: {rec:#?}");
     let mut unrecoverable = unrecoverable;
     loop {
-        tracing::error!("loop");
         potentially_crash_for_testing();
         let nrec = match update_flow_status_after_job_completion_internal(
             db,
@@ -117,7 +115,7 @@ pub async fn update_flow_status_after_job_completion(
             same_worker_tx,
             worker_dir,
             rec.stop_early_override,
-            rec.skip_error_handler,
+            rec.has_triggered_error_handler,
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
@@ -142,7 +140,7 @@ pub async fn update_flow_status_after_job_completion(
                     same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
-                    rec.skip_error_handler,
+                    rec.has_triggered_error_handler,
                     worker_name,
                     job_completed_tx.clone(),
                     #[cfg(feature = "benchmark")]
@@ -184,14 +182,13 @@ pub enum UpdateFlowStatusAfterJobCompletion {
     NonLastParallelBranch,
     PreprocessingStep,
 }
-#[derive(Debug)]
 pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
     job_id_for_status: Uuid,
     success: bool,
     result: Arc<Box<RawValue>>,
     stop_early_override: Option<bool>,
-    skip_error_handler: bool,
+    has_triggered_error_handler: bool,
 }
 
 #[derive(Deserialize)]
@@ -236,11 +233,12 @@ pub async fn update_flow_status_after_job_completion_internal(
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
-    skip_error_handler: bool,
+    has_triggered_error_handler: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
+    let mut has_triggered_error_handler = has_triggered_error_handler;
     add_time!(bench, "update flow status internal START");
     let (
         should_continue_flow,
@@ -295,6 +293,11 @@ pub async fn update_flow_status_after_job_completion_internal(
             Step::Step(i) => flow_value.modules.get(i),
             _ => None,
         };
+
+        if current_module.is_some_and(|x| x.is_flow()) {
+            has_triggered_error_handler = false;
+        }
+
         let module_status = match module_step {
             Step::PreprocessorStep => old_status
                 .preprocessor_module
@@ -623,7 +626,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tracing::info!(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
-                    (true, Some(new_status))
+                    if !success  && flow_value.failure_module.is_some() {
+                        has_triggered_error_handler = true;
+                    }
+                    (success, Some(new_status))
                 } else {
                     add_time!(bench, "handle parallel flow start");
                     tx.commit().await?;
@@ -1155,7 +1161,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             false
                 if !is_failure_step
-                    && !skip_error_handler
+                    && !has_triggered_error_handler
                     && flow_value.failure_module.is_some() =>
             {
                 true
@@ -1163,7 +1169,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             false => false,
         };
 
-        tracing::info!(id = %flow_job.id, root_id = %job_root, "flow should continue: {should_continue_flow}");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
+             skip_seq_branch_failure = %skip_seq_branch_failure, skip_parallel_branchall_failure = %skip_parallel_branchall_failure, skip_loop_failures = %skip_loop_failures,
+             current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
+            continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
         (
             should_continue_flow,
@@ -1267,7 +1276,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             let success = success
                 && (!is_failure_step || result_has_recover_true(nresult.clone()))
-                && !skip_error_handler
                 && stop_early_err_msg.is_none();
 
             add_time!(bench, "flow status update 1");
@@ -1359,7 +1367,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         } else {
                             None
                         },
-                        skip_error_handler: true,
+                        has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
                     },
                 ));
             }
@@ -1782,9 +1790,10 @@ async fn push_next_flow_job(
         .flow_innermost_root_job
         .map(|x| x.to_string())
         .unwrap_or_else(|| "none".to_string());
-    tracing::info!(id = %flow_job.id, root_id = %job_root, "pushing next flow job");
 
     let mut step = Step::from_i32_and_len(status.step, flow.modules.len());
+
+    tracing::info!(id = %flow_job.id, root_id = %job_root, step = ?step, "pushing next flow job");
 
     let mut status_module = match step {
         Step::Step(i) => status
@@ -1798,6 +1807,8 @@ async fn push_next_flow_job(
             .unwrap_or_else(|| status.failure_module.module_status.clone()),
         Step::FailureStep => status.failure_module.module_status.clone(),
     };
+
+    // tracing::error!("status_module: {status_module:#?}");
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
