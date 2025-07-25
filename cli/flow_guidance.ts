@@ -10,7 +10,7 @@ OpenFlow is an open standard for defining workflows as directed acyclic graphs w
 When asked to create a flow, ask the user in which folder he wants to put it if not specified. Then create a new folder in the specified folder, that ends with \`.flow\`. It should contain a \`.yaml\` file that contains the flow definition. 
 For rawscript type module in the flow, the content key should start with "!inline" followed by the path of the script containing the code. It should be put in the same folder as the flow.
 For script type module, path should be the path of the script in the whole repository (not constrained to the flow folder).
-You do not need to create .lock and .yaml files manually. Instead, you should run \`wmill flow generate-locks\` to create them.
+You do not need to create .lock and .yaml files manually. Instead, you should run \`wmill flow generate-locks --yes\` to create them.
 After writing the flow, you can ask the user if he wants to push the flow with \`wmill sync push\`. Both should be run at the root of the repository.
 
 ## OpenFlow Structure
