@@ -27,8 +27,10 @@ use serde::Serialize;
 use windmill_common::flows::InputTransform;
 use windmill_common::worker::WORKER_CONFIG;
 
+#[cfg(feature = "python")]
+use windmill_common::flow_status::{FlowStatus, FlowStatusModule, RestartedFrom};
+
 use windmill_common::{
-    flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, JobPayload, RawCode},
     jwt::JWT_SECRET,

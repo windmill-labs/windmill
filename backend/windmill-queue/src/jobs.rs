@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::PgExecutor;
-use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
+use sqlx::{types::Json, Pool, Postgres, Transaction};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -1543,12 +1543,6 @@ pub async fn handle_maybe_scheduled_job<'c>(
     }
 }
 
-#[derive(Clone, Serialize, FromRow)]
-struct CompletedJobSubset {
-    success: bool,
-    result: Option<sqlx::types::Json<Box<RawValue>>>,
-    started_at: chrono::DateTime<chrono::Utc>,
-}
 
 #[cfg(feature = "enterprise")]
 async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
