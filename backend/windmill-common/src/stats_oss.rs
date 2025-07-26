@@ -6,7 +6,7 @@ pub use crate::stats_ee::*;
 use sqlx::Postgres;
 
 #[cfg(not(feature = "private"))]
-use crate::{error::Result, scripts::ScriptLang, DB};
+use crate::{error::Result, DB};
 
 #[cfg(not(feature = "private"))]
 pub async fn get_disable_stats_setting(_db: &DB) -> bool {
