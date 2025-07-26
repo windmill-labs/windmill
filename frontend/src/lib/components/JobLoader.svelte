@@ -27,7 +27,7 @@
 
 	interface Props {
 		isLoading?: boolean
-		job?: Job & { result_stream?: string } | undefined
+		job?: (Job & { result_stream?: string }) | undefined
 		noCode?: boolean
 		noLogs?: boolean
 		workspaceOverride?: string | undefined
@@ -363,6 +363,7 @@
 			} else {
 				job.result_stream = job.result_stream.concat(previewJobUpdates.result_stream)
 			}
+			console.log('job.result_stream', job.result_stream)
 		}
 
 		if (previewJobUpdates.log_offset) {

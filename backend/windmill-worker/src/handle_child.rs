@@ -7,6 +7,7 @@ use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::result_stream::extract_stream_from_logs;
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -296,6 +297,7 @@ pub async fn handle_child(
         }
     };
 
+    let mut stream_result = Vec::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -308,6 +310,7 @@ pub async fn handle_child(
         pipe_stdout,
         &mut rx2,
         child_name,
+        &mut stream_result,
     )
     .instrument(trace_span!("child_lines"));
 
@@ -346,6 +349,7 @@ pub async fn write_lines(
     pipe_stdout: Option<&mut String>,
     rx2: &mut broadcast::Receiver<()>,
     child_name: &str,
+    stream_result: &mut Vec<String>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -406,6 +410,9 @@ pub async fn write_lines(
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
+                    }
+                    if let Some(stream) = extract_stream_from_logs(&line) {
+                        stream_result.push(stream);
                     }
                     append_with_limit(&mut joined, &line, &mut log_remaining);
                     if log_remaining == 0 {

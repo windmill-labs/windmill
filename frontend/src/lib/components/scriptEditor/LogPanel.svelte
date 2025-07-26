@@ -36,7 +36,7 @@
 	interface Props {
 		lang: Preview['language'] | undefined
 		previewIsLoading?: boolean
-		previewJob: Job & { result_stream?: string } | undefined
+		previewJob: (Job & { result_stream?: string; result?: any; success?: boolean }) | undefined
 		pastPreviews?: CompletedJob[]
 		editor?: Editor | undefined
 		diffEditor?: DiffEditor | undefined
@@ -60,7 +60,7 @@
 		showCaptures = false,
 		customUi = undefined,
 		children,
-		capturesTab,
+		capturesTab
 	}: Props = $props()
 
 	type DContent = {
@@ -151,7 +151,7 @@
 							</Pane>
 							<Pane>
 								{@render children?.()}
-								{#if previewJob != undefined && 'result' in previewJob}
+								{#if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
 									<div class="relative w-full h-full p-2">
 										<div class="relative">
 											<DisplayResult

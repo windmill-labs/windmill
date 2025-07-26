@@ -39,6 +39,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -487,8 +488,13 @@
 </script>
 
 <HighlightTheme />
-{result_stream}
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex items-center gap-2 text-tertiary">
+		<Loader2 class="animate-spin" size={16} /> Streaming result...
+	</div>
+	<ResultStreamDisplay {result_stream} />
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
