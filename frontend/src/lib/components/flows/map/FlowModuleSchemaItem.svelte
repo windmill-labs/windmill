@@ -225,11 +225,11 @@
 					acceptUnderScores
 					reservedIds={dfs(flowStore?.val?.value.modules ?? [], (x) => x.id)}
 					bind:value={newId}
-					on:save={(e) => {
-						dispatch('changeId', { id, newId: e.detail, deps: getDeps?.dependents ?? {} })
+					onSave={({ oldId, newId }) => {
+						dispatch('changeId', { id: oldId, newId, deps: getDeps?.dependents ?? {} })
 						editId = false
 					}}
-					on:close={() => {
+					onClose={() => {
 						editId = false
 					}}
 				/>

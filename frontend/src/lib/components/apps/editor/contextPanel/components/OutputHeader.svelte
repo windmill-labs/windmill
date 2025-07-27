@@ -74,7 +74,7 @@
 		indigo: 'bg-indigo-500 text-white'
 	}
 
-	function renameId(newId: string): void {
+	function renameId(oldId: string, newId: string): void {
 		const item = findGridItem($app, id)
 
 		if (!item) {
@@ -84,12 +84,12 @@
 		item.id = newId
 
 		const oldSubgrids = Object.keys($app.subgrids ?? {}).filter((subgrid) =>
-			subgrid.startsWith(id + '-')
+			subgrid.startsWith(oldId + '-')
 		)
 
 		oldSubgrids.forEach((subgrid) => {
 			if ($app.subgrids) {
-				$app.subgrids[subgrid.replace(id, newId)] = $app.subgrids[subgrid]
+				$app.subgrids[subgrid.replace(oldId, newId)] = $app.subgrids[subgrid]
 				delete $app.subgrids[subgrid]
 			}
 		})
@@ -103,11 +103,11 @@
 				processRunnable(from, to, x)
 			})
 		}
-		propagateRename(id, newId)
+		propagateRename(oldId, newId)
 		if (item?.data.type == 'tablecomponent') {
 			for (let c of item.data.actionButtons) {
 				let old = c.id
-				c.id = c.id.replace(id + '_', newId + '_')
+				c.id = c.id.replace(oldId + '_', newId + '_')
 				propagateRename(old, c.id)
 			}
 		}
@@ -121,7 +121,7 @@
 		) {
 			for (let c of item.data.actions ?? []) {
 				let old = c.id
-				c.id = c.id.replace(id + '_', newId + '_')
+				c.id = c.id.replace(oldId + '_', newId + '_')
 				propagateRename(old, c.id)
 			}
 		}
@@ -129,7 +129,7 @@
 		if (item?.data.type === 'menucomponent') {
 			for (let c of item.data.menuItems) {
 				let old = c.id
-				c.id = c.id.replace(id + '_', newId + '_')
+				c.id = c.id.replace(oldId + '_', newId + '_')
 				propagateRename(old, c.id)
 			}
 		}
@@ -277,11 +277,7 @@
 				</button>
 				{#if selectable && renamable && $selectedComponent?.includes(id)}
 					<div class="h-3">
-						<IdEditor
-							{id}
-							on:selected={() => ($selectedComponent = [id])}
-							on:save={({ detail }) => renameId(detail)}
-						/></div
+						<IdEditor {id} onChange={({ oldId, newId }) => renameId(oldId, newId)} /></div
 					>
 				{/if}
 			</div>
