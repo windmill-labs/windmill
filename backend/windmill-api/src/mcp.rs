@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::utils::check_scopes;
 use axum::body::to_bytes;
 use axum::Router;
 use axum::{extract::Path, http::Request, middleware::Next, response::Response};
@@ -854,14 +855,6 @@ impl ServerHandler for Runner {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        let parse_args = |args_opt: Option<JsonObject>| -> Result<Value, Error> {
-            args_opt.map(Value::Object).ok_or_else(|| {
-                Error::invalid_params(
-                    "Missing arguments for tool",
-                    Some(request.name.clone().into()),
-                )
-            })
-        };
 
         let http_parts = context
             .extensions
@@ -875,15 +868,28 @@ impl ServerHandler for Runner {
             tracing::error!("ApiAuthed Axum extension not found");
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
+
+        match check_scopes(&authed, || format!("mcp:*")) {
+            Ok(_) => (),
+            Err(e) => {
+                tracing::error!("Invalid scope for MCP call_tool: {}", e);
+                return Err(Error::internal_error(format!("Invalid scope for MCP call_tool: {}", e), None));
+            }
+        }
+
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
             Error::internal_error("DB Axum extension not found", None)
         })?;
+
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
             Error::internal_error("UserDB Axum extension not found", None)
         })?;
-        let args = parse_args(request.arguments)?;
+        
+        let args = request.arguments.map(Value::Object).ok_or_else(|| {
+            Error::invalid_params("Missing arguments for tool", Some(request.name.clone().into()))
+        })?;
 
         let workspace_id = http_parts
             .extensions
@@ -1007,6 +1013,19 @@ impl ServerHandler for Runner {
                 Error::internal_error("http::request::Parts not found", None)
             })?;
 
+        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
+            tracing::error!("ApiAuthed Axum extension not found");
+            Error::internal_error("ApiAuthed Axum extension not found", None)
+        })?;
+
+        match check_scopes(&authed, || format!("mcp:*")) {
+            Ok(_) => (),
+            Err(e) => {
+                tracing::error!("Invalid scope for MCP list_tools: {}", e);
+                return Err(Error::internal_error(format!("Invalid scope for MCP list_tools: {}", e), None));
+            }
+        }
+
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
             Error::internal_error("DB Axum extension not found", None)
@@ -1015,11 +1034,6 @@ impl ServerHandler for Runner {
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
             Error::internal_error("UserDB Axum extension not found", None)
-        })?;
-
-        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
-            tracing::error!("ApiAuthed Axum extension not found");
-            Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
         let workspace_id = http_parts
