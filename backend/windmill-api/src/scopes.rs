@@ -119,7 +119,7 @@ impl ScopeDefinition {
         }
 
         match (self.action.as_str(), other.action.as_str()) {
-            (a, b) if (a == "write" && b == "read") || b == "*" || (a == b) => {} 
+            (a, b) if (a == "write" && b == "read") || (a == b) => {}
             _ => return false,
         }
 

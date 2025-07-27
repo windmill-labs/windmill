@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::utils::check_scopes;
 use axum::body::to_bytes;
 use axum::Router;
 use axum::{extract::Path, http::Request, middleware::Next, response::Response};
@@ -229,6 +228,20 @@ struct ResourceType {
 impl Runner {
     pub fn new() -> Self {
         Self {}
+    }
+
+    fn check_scopes(authed: &ApiAuthed) -> Result<(), Error> {
+        let scopes = authed.scopes.as_ref();
+        if scopes.is_none()
+            || scopes
+                .unwrap()
+                .iter()
+                .all(|scope| scope != "mcp:all" && scope != "mcp:favorites" && !scope.starts_with("mcp:hub:"))
+        {
+            tracing::error!("Unauthorized: missing mcp scope");
+            return Err(Error::internal_error("Unauthorized: missing mcp scope".to_string(), None));
+        }
+        Ok(())
     }
 
     async fn get_item_schema(
@@ -869,13 +882,7 @@ impl ServerHandler for Runner {
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
-        match check_scopes(&authed, || format!("mcp:*")) {
-            Ok(_) => (),
-            Err(e) => {
-                tracing::error!("Invalid scope for MCP call_tool: {}", e);
-                return Err(Error::internal_error(format!("Invalid scope for MCP call_tool: {}", e), None));
-            }
-        }
+        Runner::check_scopes(authed)?;
 
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
@@ -1018,13 +1025,7 @@ impl ServerHandler for Runner {
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
-        match check_scopes(&authed, || format!("mcp:*")) {
-            Ok(_) => (),
-            Err(e) => {
-                tracing::error!("Invalid scope for MCP list_tools: {}", e);
-                return Err(Error::internal_error(format!("Invalid scope for MCP list_tools: {}", e), None));
-            }
-        }
+        Runner::check_scopes(authed)?;
 
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
@@ -1045,15 +1046,13 @@ impl ServerHandler for Runner {
             })
             .map(|w_id| w_id.0.clone())?;
 
-        let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
+        let scopes = authed.scopes.as_ref();
+        let owned_scope = scopes.and_then(|scopes| {
             scopes
                 .iter()
                 .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
         });
-        let hub_scope = authed
-            .scopes
-            .as_ref()
-            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
+        let hub_scope = scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
         let scope_type = owned_scope.map_or("all", |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
             parts[1]
