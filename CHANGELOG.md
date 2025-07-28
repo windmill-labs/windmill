@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.513.1](https://github.com/windmill-labs/windmill/compare/v1.513.0...v1.513.1) (2025-07-25)
+
+
+### Bug Fixes
+
+* improve error handler behavior wrt to parrallel branchall & forloops ([#6273](https://github.com/windmill-labs/windmill/issues/6273)) ([3f784e3](https://github.com/windmill-labs/windmill/commit/3f784e3c07aa35ef2298bed301d581bf25300ba6))
+* jobLoader for flowstatusviewerinner work with public apps ([94e20a9](https://github.com/windmill-labs/windmill/commit/94e20a97e036fdb99e34c79b466e957b943cb26a))
+* **mcp:** allow mcp scopes to run scripts and flows ([#6278](https://github.com/windmill-labs/windmill/issues/6278)) ([e8f4c24](https://github.com/windmill-labs/windmill/commit/e8f4c2418b83af75be90b21ab2ab64537fef00eb))
+
+## [1.513.0](https://github.com/windmill-labs/windmill/compare/v1.512.0...v1.513.0) (2025-07-24)
+
+
+### Features
+
+* enable workspace exclusion in custom tags ([#6263](https://github.com/windmill-labs/windmill/issues/6263)) ([be3173d](https://github.com/windmill-labs/windmill/commit/be3173d048f8c3ee3681840b9880f509b754d779))
+
+
+### Bug Fixes
+
+* add windir env var to pwsh for legacy modules like AD ([#6271](https://github.com/windmill-labs/windmill/issues/6271)) ([7920583](https://github.com/windmill-labs/windmill/commit/79205839b6c3ba51a637f634d8cfba737b4dee1c))
+* fix webhook panel reactivity ([241be48](https://github.com/windmill-labs/windmill/commit/241be4897eb3377ccce097404fcd176e746c3015))
+* improve aggrid columnDefs reactivity ([f71104e](https://github.com/windmill-labs/windmill/commit/f71104e9f64bf6cb340d99ad91977c79651780c8))
+
 ## [1.512.0](https://github.com/windmill-labs/windmill/compare/v1.511.0...v1.512.0) (2025-07-23)
 
 
