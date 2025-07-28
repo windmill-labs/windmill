@@ -13,6 +13,7 @@
 	import csharp from 'svelte-highlight/languages/csharp'
 	import yaml from 'svelte-highlight/languages/yaml'
 	import java from 'svelte-highlight/languages/java'
+	import ruby from 'svelte-highlight/languages/ruby'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
