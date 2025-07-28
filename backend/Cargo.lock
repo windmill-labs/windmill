@@ -746,9 +746,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-config"
-version = "1.8.2"
+version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebd9b83179adf8998576317ce47785948bcff399ec5b15f4dfbdedd44ddf5b92"
+checksum = "c0baa720ebadea158c5bda642ac444a2af0cdf7bb66b46d1e4533de5d1f449d0"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -835,9 +835,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sqs"
-version = "1.76.0"
+version = "1.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "837b4b181a1306a5a67d85218fa7d7298e340041d9bd81ae6919b9ec4f86ca97"
+checksum = "32a6dcd63dffae1f7872df42ce9f1f0f785f8c9a3d3e880ef6c171d0415439df"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -857,9 +857,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.76.0"
+version = "1.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64bf26698dd6d238ef1486bdda46f22a589dc813368ba868dc3d94c8d27b56ba"
+checksum = "18f2f37fea82468fe3f5a059542c05392ef680c4f7f00e0db02df8b6e5c7d0c6"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -879,9 +879,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.77.0"
+version = "1.78.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09cd07ed1edd939fae854a22054299ae3576500f4e0fadc560ca44f9c6ea1664"
+checksum = "ecb4f6eada20e0193450cd48b12ed05e1e66baac86f39160191651b932f2b7d9"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -901,9 +901,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.78.0"
+version = "1.79.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37f7766d2344f56d10d12f3c32993da36d78217f32594fe4fb8e57a538c1cdea"
+checksum = "317377afba3498fca4948c5d32b399ef9a5ad35561a1e8a6f2ac7273dabf802d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1058,9 +1058,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.8.4"
+version = "1.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38280ac228bc479f347fcfccf4bf4d22d68f3bb4629685cb591cabd856567bbc"
+checksum = "937a49ecf061895fca4a6dd8e864208ed9be7546c0527d04bc07d502ec5fba1c"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
@@ -1120,9 +1120,9 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.3.7"
+version = "1.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a322fec39e4df22777ed3ad8ea868ac2f94cd15e1a55f6ee8d8d6305057689a"
+checksum = "b069d19bf01e46298eaedd7c6f283fe565a59263e53eebec945f3e6398f42390"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
@@ -4685,9 +4685,9 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dyn-clone"
-version = "1.0.19"
+version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
+checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "dyn-iter"
@@ -7298,7 +7298,7 @@ checksum = "4488594b9328dee448adb906d8b126d9b7deb7cf5c22161ee591610bb1be83c0"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
- "redox_syscall 0.5.15",
+ "redox_syscall 0.5.16",
 ]
 
 [[package]]
@@ -7380,9 +7380,9 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "litrs"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
+checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "lock_api"
@@ -9056,7 +9056,7 @@ checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.15",
+ "redox_syscall 0.5.16",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -9507,9 +9507,9 @@ checksum = "c6fa0831dd7cc608c38a5e323422a0077678fa5744aa2be4ad91c4ece8eec8d5"
 
 [[package]]
 name = "prettyplease"
-version = "0.2.35"
+version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061c1221631e079b26479d25bbf2275bfe5917ae8419cd7e34f13bfc2aa7539a"
+checksum = "ff24dfcda44452b9816fff4cd4227e1bb73ff5a2f1bc1105aa92fb8565ce44d2"
 dependencies = [
  "proc-macro2",
  "syn 2.0.104",
@@ -9841,9 +9841,9 @@ dependencies = [
 
 [[package]]
 name = "quick_cache"
-version = "0.6.14"
+version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b450dad8382b1b95061d5ca1eb792081fb082adf48c678791fe917509596d5f"
+checksum = "8565e62e02af316570d4b492f17af1481d6c07cea60f4e7edd71700da5052ba9"
 dependencies = [
  "ahash 0.8.12",
  "equivalent",
@@ -10156,9 +10156,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8af0dde094006011e6a740d4879319439489813bd0bcdc7d821beaeeff48ec"
+checksum = "7251471db004e509f4e75a62cca9435365b5ec7bcdff530d612ac7c87c44a792"
 dependencies = [
  "bitflags 2.9.1",
 ]
@@ -10663,9 +10663,9 @@ dependencies = [
 
 [[package]]
 name = "rustc-demangle"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "989e6739f80c4ad5b13e0fd7fe89531180375b18520cc8c82080e4dc4035b84f"
+checksum = "56f7d92ca342cea22a06f2121d944b4fd82af56988c270852495420f961d4ace"
 
 [[package]]
 name = "rustc-hash"
@@ -14641,7 +14641,7 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6994d13118ab492c3c80c1f81928718159254c53c472bf9ce36f8dae4add02a7"
 dependencies = [
- "redox_syscall 0.5.15",
+ "redox_syscall 0.5.16",
  "wasite",
  "web-sys",
 ]
@@ -14685,7 +14685,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -14737,7 +14737,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -14748,8 +14748,11 @@ dependencies = [
  "async_zip",
  "aws-config",
  "aws-sdk-sqs",
+ "aws-sdk-sso",
+ "aws-sdk-ssooidc",
  "aws-sdk-sts",
  "axum",
+ "backon",
  "base32",
  "base64 0.22.1",
  "byteorder",
@@ -14803,6 +14806,7 @@ dependencies = [
  "rumqttc",
  "rust-embed",
  "rust_decimal",
+ "rustls 0.23.29",
  "samael",
  "serde",
  "serde_json",
@@ -14848,7 +14852,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14863,7 +14867,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "chrono",
  "serde",
@@ -14876,7 +14880,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -14890,7 +14894,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14969,7 +14973,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "regex",
  "serde",
@@ -14983,7 +14987,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -15006,7 +15010,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15018,7 +15022,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15027,7 +15031,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15039,7 +15043,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15051,7 +15055,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15063,7 +15067,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15075,7 +15079,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15087,7 +15091,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15098,7 +15102,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15109,7 +15113,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15121,7 +15125,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15144,7 +15148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15161,7 +15165,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15175,7 +15179,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15193,7 +15197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -15217,7 +15221,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15227,7 +15231,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15260,7 +15264,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15270,7 +15274,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.512.0"
+version = "1.514.1"
 dependencies = [
  "anyhow",
  "async-recursion",

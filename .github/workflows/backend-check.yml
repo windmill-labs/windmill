@@ -21,9 +21,6 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -45,9 +42,6 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -82,9 +76,6 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -122,9 +113,6 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo check
         timeout-minutes: 16
         working-directory: ./backend

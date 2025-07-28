@@ -244,15 +244,6 @@ pub struct WorkspaceSettings {
     pub trigger_failure_email_recipients: Option<Vec<String>>,
 }
 
-#[derive(FromRow, Serialize, Debug)]
-pub struct Usage {
-    pub workspace_id: String,
-    pub slack_team_id: Option<String>,
-    pub slack_name: Option<String>,
-    pub slack_command_script: Option<String>,
-    pub slack_email: String,
-}
-
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
 pub enum WorkspaceKeyKind {

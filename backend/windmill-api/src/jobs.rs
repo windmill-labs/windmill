@@ -4481,6 +4481,9 @@ pub async fn run_wait_result_flow_by_path_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
+    let path = flow_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
+
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
@@ -4503,7 +4506,7 @@ pub async fn run_wait_result_flow_by_path_get(
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_flow_path(flow_path.to_path()),
+            RunnableId::from_flow_path(path),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4523,12 +4526,15 @@ pub async fn run_wait_result_script_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
+    let path = script_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
+
     let args = args
         .to_args_from_runnable(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(script_path.to_path()),
+            RunnableId::from_script_path(path),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4546,14 +4552,11 @@ pub async fn run_wait_result_script_by_path_internal(
     w_id: String,
     args: PushArgsOwned,
 ) -> error::Result<Response> {
-    let script_path = script_path.to_path();
-    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
-
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path.to_path(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
     drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
@@ -4738,12 +4741,15 @@ pub async fn run_wait_result_flow_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
+    let path = flow_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
+
     let args = args
         .to_args_from_runnable(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(flow_path.to_path()),
+            RunnableId::from_flow_path(path),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4764,7 +4770,6 @@ pub async fn run_wait_result_flow_by_path_internal(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
