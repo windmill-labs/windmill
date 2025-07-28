@@ -44,13 +44,22 @@ export function replaceInlineScripts(
         // rename the file if the prefix is different from the module id (fix old naming)
         if (pathPrefix != m.id) {
           const pathSuffix = path.split(".").slice(1).join(".");
-          log.info(`File ${path} has a different prefix than the module id ${m.id}`);
+          log.info(`Renaming ${path} to ${m.id}.${pathSuffix}`);
           Deno.renameSync(localPath + path, localPath + m.id + "." + pathSuffix);
         }
 
         const lock = m.value.lock;
         if (removeLocks && removeLocks.includes(path)) {
           m.value.lock = undefined;
+          // delete the file if the prefix is different from the module id (fix old naming)
+          if (lock && lock != "") {
+            const path = lock.split(" ")[1];
+            const pathPrefix = path.split(".")[0];
+            if (pathPrefix != m.id) {
+              log.info(`Deleting ${path}`);
+              Deno.removeSync(localPath + path);
+            }
+          }
         } else if (
           lock &&
           typeof lock == "string" &&
