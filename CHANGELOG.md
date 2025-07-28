@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.514.0](https://github.com/windmill-labs/windmill/compare/v1.513.1...v1.514.0) (2025-07-28)
+
+
+### Features
+
+* migrate audit log ids to bigints (blocking migration for EE) ([6e8f5a5](https://github.com/windmill-labs/windmill/commit/6e8f5a5b00056a324fa4fc27b740290338e672c9))
+
+
+### Bug Fixes
+
+* fix id renaming in apps ([a999bc7](https://github.com/windmill-labs/windmill/commit/a999bc7b28764e3583fdd843f13060c760627b51))
+* **mcp:** add proper check for mcp routes ([#6282](https://github.com/windmill-labs/windmill/issues/6282)) ([f892f7c](https://github.com/windmill-labs/windmill/commit/f892f7c9af1058b899c880160bd91d5e7b3ebcd6))
+
 ## [1.513.1](https://github.com/windmill-labs/windmill/compare/v1.513.0...v1.513.1) (2025-07-25)
 
 
