@@ -190,7 +190,6 @@ windmill-api-client = { path = "./windmill-api-client" }
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }
 
-rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
@@ -354,8 +353,11 @@ datafusion = "47.0.0"
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
-aws-sdk-sqs = "=1.78.0"
-aws-sdk-sts = "=1.78.0"
+aws-sdk-sqs = "=1.77.0"
+aws-sdk-sts = "=1.79.0"
+aws-sdk-sso = "=1.77.0"
+aws-sdk-ssooidc = "=1.78.0"
+rustls = "=0.23.29"
 
 
 
