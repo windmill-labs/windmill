@@ -65,6 +65,10 @@ pub const ENV_SETTINGS: &[&str] = &[
     "DENO_PATH",
     "GO_PATH",
     "JAVA_PATH",
+    "RUBY_PATH",
+    "BUNDLE_PATH",
+    "GEM_PATH",
+    "RUBY_CONCURRENT_DOWNLOADS",
     // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",
