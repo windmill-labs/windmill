@@ -56,10 +56,6 @@ where
                     is_scoped_token = true;
                 }
 
-                if scope.starts_with("mcp:") {
-                    return Ok(());
-                }
-
                 match ScopeDefinition::from_scope_string(scope) {
                     Ok(scope) if scope.includes(&required_scope) => return Ok(()),
                     _ => {}

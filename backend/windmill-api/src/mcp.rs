@@ -230,6 +230,20 @@ impl Runner {
         Self {}
     }
 
+    fn check_scopes(authed: &ApiAuthed) -> Result<(), Error> {
+        let scopes = authed.scopes.as_ref();
+        if scopes.is_none()
+            || scopes
+                .unwrap()
+                .iter()
+                .all(|scope| scope != "mcp:all" && scope != "mcp:favorites" && !scope.starts_with("mcp:hub:"))
+        {
+            tracing::error!("Unauthorized: missing mcp scope");
+            return Err(Error::internal_error("Unauthorized: missing mcp scope".to_string(), None));
+        }
+        Ok(())
+    }
+
     async fn get_item_schema(
         path: &str,
         user_db: &UserDB,
@@ -854,14 +868,6 @@ impl ServerHandler for Runner {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        let parse_args = |args_opt: Option<JsonObject>| -> Result<Value, Error> {
-            args_opt.map(Value::Object).ok_or_else(|| {
-                Error::invalid_params(
-                    "Missing arguments for tool",
-                    Some(request.name.clone().into()),
-                )
-            })
-        };
 
         let http_parts = context
             .extensions
@@ -875,15 +881,22 @@ impl ServerHandler for Runner {
             tracing::error!("ApiAuthed Axum extension not found");
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
+
+        Runner::check_scopes(authed)?;
+
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
             Error::internal_error("DB Axum extension not found", None)
         })?;
+
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
             Error::internal_error("UserDB Axum extension not found", None)
         })?;
-        let args = parse_args(request.arguments)?;
+        
+        let args = request.arguments.map(Value::Object).ok_or_else(|| {
+            Error::invalid_params("Missing arguments for tool", Some(request.name.clone().into()))
+        })?;
 
         let workspace_id = http_parts
             .extensions
@@ -1007,6 +1020,13 @@ impl ServerHandler for Runner {
                 Error::internal_error("http::request::Parts not found", None)
             })?;
 
+        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
+            tracing::error!("ApiAuthed Axum extension not found");
+            Error::internal_error("ApiAuthed Axum extension not found", None)
+        })?;
+
+        Runner::check_scopes(authed)?;
+
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
             Error::internal_error("DB Axum extension not found", None)
@@ -1015,11 +1035,6 @@ impl ServerHandler for Runner {
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
             Error::internal_error("UserDB Axum extension not found", None)
-        })?;
-
-        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
-            tracing::error!("ApiAuthed Axum extension not found");
-            Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
         let workspace_id = http_parts
@@ -1031,15 +1046,13 @@ impl ServerHandler for Runner {
             })
             .map(|w_id| w_id.0.clone())?;
 
-        let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
+        let scopes = authed.scopes.as_ref();
+        let owned_scope = scopes.and_then(|scopes| {
             scopes
                 .iter()
                 .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
         });
-        let hub_scope = authed
-            .scopes
-            .as_ref()
-            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
+        let hub_scope = scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
         let scope_type = owned_scope.map_or("all", |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
             parts[1]

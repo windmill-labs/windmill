@@ -418,7 +418,8 @@ impl ScopeAction {
     }
 }
 
-pub fn check_route_access(
+pub fn 
+check_route_access(
     token_scopes: &[String],
     route_path: &str,
     http_method: &str,
@@ -428,9 +429,12 @@ pub fn check_route_access(
 
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
+
+    // Backward compatibility: MCP handlers expect unusual scope actions: all, favorites, hub.
     if required_domain == ScopeDomain::Mcp {
         return Ok(());
     }
+
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
