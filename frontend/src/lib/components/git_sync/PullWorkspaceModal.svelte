@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Button, Alert, Badge } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService, WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -48,6 +48,8 @@
 	// UI state
 	let showCliInstructions = $state(false)
 	let previewResult = $state<SyncResponse | null>(null)
+	let settingsApplied = $state(false)
+	let showWorkspaceChanges = $state(false)
 
 	// Note: Escape key is handled by the Modal component itself
 
@@ -113,6 +115,8 @@
 			applyError = ''
 			showCliInstructions = false
 			previewResult = null
+			settingsApplied = false
+			showWorkspaceChanges = false
 		}
 	})
 
@@ -226,6 +230,45 @@
 	}
 
 
+	// Apply settings only in two-step flow (no job needed - we have the data from preview)
+	async function applySettingsOnly() {
+		isApplying = true
+
+		try {
+			// We already have the settings from the preview result
+			const settingsData = previewResult?.settingsDiffResult?.local
+
+			if (!previewResult?.settingsDiffResult?.hasChanges) {
+				sendUserToast('No settings changes to apply', true)
+				return
+			}
+
+			if (!settingsData) {
+				sendUserToast('Settings data not available', true)
+				return
+			}
+
+			// Update the UI state with the new settings
+			if (onFilterUpdate) {
+				onFilterUpdate(settingsData)
+			}
+
+			// Save the updated settings
+			await saveUpdatedSettings()
+
+			// Transition to step 2
+			settingsApplied = true
+			showWorkspaceChanges = true
+			sendUserToast('Settings applied successfully. You can now review workspace changes.')
+
+		} catch (error: any) {
+			console.error('Failed to apply settings:', error)
+			sendUserToast('Failed to apply settings: ' + error.message, true)
+		} finally {
+			isApplying = false
+		}
+	}
+
 	// Close modal handler
 	function handleClose() {
 		if (!isPreviewLoading && !isApplying) {
@@ -296,22 +339,9 @@
 		<!-- Preview results -->
 		{#if previewResult && !previewError}
 			<div class="space-y-4">
-				<!-- File changes -->
-				<div>
-					<h4 class="text-sm font-semibold text-primary mb-2">Workspace changes to pull</h4>
-
-					{#if previewResult.changes?.length > 0}
-						<GitDiffPreview previewResult={previewResult} />
-					{:else}
-						<div class="bg-surface-secondary rounded-lg p-3">
-							<div class="text-sm text-tertiary">No changes to pull from the repository.</div>
-						</div>
-					{/if}
-				</div>
-
-				<!-- Settings changes -->
-				{#if previewResult.settingsDiffResult?.hasChanges}
-					<div class="border-t pt-4">
+				<!-- Settings changes (always show first if present) -->
+				{#if previewResult.settingsDiffResult?.hasChanges && !settingsApplied}
+					<div>
 						<h4 class="text-sm font-semibold text-primary mb-2">
 							Filter Settings from Repository
 							<Badge color="blue" size="xs" class="ml-2">wmill.yaml</Badge>
@@ -343,6 +373,21 @@
 						</div>
 					</div>
 				{/if}
+
+				<!-- Workspace changes (show when no settings changes, or when settings applied) -->
+				{#if showWorkspaceChanges || (!previewResult.settingsDiffResult?.hasChanges && previewResult.changes?.length > 0)}
+					<div class={previewResult.settingsDiffResult?.hasChanges && settingsApplied ? 'border-t pt-4' : ''}>
+						<h4 class="text-sm font-semibold text-primary mb-2">Workspace changes to pull</h4>
+
+						{#if previewResult.changes?.length > 0}
+							<GitDiffPreview previewResult={previewResult} />
+						{:else}
+							<div class="bg-surface-secondary rounded-lg p-3">
+								<div class="text-sm text-tertiary">No changes to pull from the repository.</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -350,40 +395,25 @@
 		{#if previewResult && !previewError}
 			{@const hasSettingsChanges = previewResult.settingsDiffResult?.hasChanges}
 			{@const hasFileChanges = previewResult.changes?.length > 0}
-			{#if hasSettingsChanges || hasFileChanges}
-			<div class="border-t pt-4 mt-4">
-				<div class="flex justify-start gap-2">
 
-					{#if hasSettingsChanges && hasFileChanges}
-						<!-- Show both buttons when both settings and file changes are detected -->
-						<div class="flex flex-col gap-2">
-							<div class="text-xs text-tertiary">Settings changes detected - choose your pull option:</div>
+			{#if hasSettingsChanges || hasFileChanges}
+				<div class="border-t pt-4 mt-4">
+					{#if hasSettingsChanges && hasFileChanges && !settingsApplied}
+						<!-- Step 1: Settings changes first when both are present -->
+						<div class="flex flex-col gap-3">
+							<div class="text-sm font-medium text-primary">Step 1 of 2: Apply settings changes</div>
+							<div class="text-xs text-tertiary">Settings changes detected. Apply these first to ensure workspace content is pulled with the correct configuration.</div>
 							<div class="flex gap-2">
 								<Button
 									size="md"
-									color="dark"
-									variant="border"
-									onclick={() => executeJob(false, true)}
+									onclick={applySettingsOnly}
 									disabled={isApplying}
 									startIcon={{
-										icon: isApplying ? Loader2 : undefined,
+										icon: isApplying ? Loader2 : Save,
 										classes: isApplying ? 'animate-spin' : ''
 									}}
 								>
-									{isApplying ? 'Pulling...' : 'Settings only'}
-								</Button>
-								<Button
-									size="md"
-									color="dark"
-									variant="border"
-									onclick={() => executeJob(false, false)}
-									disabled={isApplying}
-									startIcon={{
-										icon: isApplying ? Loader2 : undefined,
-										classes: isApplying ? 'animate-spin' : ''
-									}}
-								>
-									{isApplying ? 'Pulling...' : 'Everything'}
+									{isApplying ? 'Applying...' : 'Apply settings'}
 								</Button>
 								<Button
 									size="md"
@@ -395,20 +425,19 @@
 								</Button>
 							</div>
 						</div>
-					{:else if hasSettingsChanges}
-						<!-- Show only settings button when only settings changes are detected -->
+					{:else if hasSettingsChanges && !hasFileChanges}
+						<!-- Only settings changes -->
 						<div class="flex gap-2">
 							<Button
 								size="md"
-								color="primary"
 								onclick={() => executeJob(false, true)}
 								disabled={isApplying}
 								startIcon={{
-									icon: isApplying ? Loader2 : undefined,
+									icon: isApplying ? Loader2 : Save,
 									classes: isApplying ? 'animate-spin' : ''
 								}}
 							>
-								{isApplying ? 'Pulling...' : 'Settings only'}
+								{isApplying ? 'Applying...' : 'Apply settings'}
 							</Button>
 							<Button
 								size="md"
@@ -419,44 +448,42 @@
 								Cancel
 							</Button>
 						</div>
-					{:else if hasFileChanges}
-						<!-- Show single pull button when only file changes (no settings changes) -->
-						<div class="flex gap-2">
-							<Button
-								size="md"
-								color="primary"
-								onclick={() => executeJob(false, false)}
-								disabled={isApplying}
-								startIcon={{
-									icon: isApplying ? Loader2 : undefined,
-									classes: isApplying ? 'animate-spin' : ''
-								}}
-							>
-								{isApplying ? 'Pulling...' : 'Pull from repository'}
-							</Button>
-							<Button
-								size="md"
-								color="light"
-								onclick={handleClose}
-								disabled={isApplying}
-							>
-								Cancel
-							</Button>
+					{:else if hasFileChanges && (!hasSettingsChanges || settingsApplied)}
+						<!-- Step 2: Workspace changes (either no settings changes, or settings already applied) -->
+						<div class="flex flex-col gap-3">
+							{#if settingsApplied}
+								<div class="text-sm font-medium text-primary">Step 2 of 2: Pull Workspace Changes</div>
+								<div class="text-xs text-green-600">✓ Settings applied successfully. Now you can pull the workspace changes.</div>
+							{/if}
+							<div class="flex gap-2">
+								<Button
+									size="md"
+									onclick={() => executeJob(false, false)}
+									disabled={isApplying}
+									startIcon={{
+										icon: isApplying ? Loader2 : Save,
+										classes: isApplying ? 'animate-spin' : ''
+									}}
+								>
+									{isApplying ? 'Pulling...' : 'Pull from repository'}
+								</Button>
+								<Button
+									size="md"
+									color="light"
+									onclick={handleClose}
+									disabled={isApplying}
+								>
+									{settingsApplied ? 'Close' : 'Cancel'}
+								</Button>
+							</div>
 						</div>
 					{:else}
-						<!-- No changes to pull - show only cancel -->
-						<div class="flex gap-2">
-							<Button
-								size="md"
-								color="light"
-								onclick={handleClose}
-							>
-								Close
-							</Button>
+						<!-- No changes to pull -->
+						<div class="bg-surface-secondary rounded-lg p-3">
+							<div class="text-sm text-tertiary">No changes to pull from the repository.</div>
 						</div>
 					{/if}
 				</div>
-			</div>
 			{/if}
 		{/if}
 

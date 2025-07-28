@@ -4,22 +4,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FilterList from './FilterList.svelte'
 	import { Tabs, Tab } from '$lib/components/common'
-
-	type ObjectType =
-		| 'script'
-		| 'flow'
-		| 'app'
-		| 'folder'
-		| 'resource'
-		| 'variable'
-		| 'secret'
-		| 'resourcetype'
-		| 'schedule'
-		| 'user'
-		| 'group'
-		| 'trigger'
-		| 'settings'
-		| 'key'
+	import type { GitSyncObjectType } from '$lib/gen'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -41,8 +26,8 @@
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
-		include_type = $bindable(['script', 'flow', 'app', 'folder'] as ObjectType[]),
-		exclude_types_override = $bindable([] as ObjectType[]),
+		include_type = $bindable(['script', 'flow', 'app', 'folder'] as GitSyncObjectType[]),
+		exclude_types_override = $bindable([] as GitSyncObjectType[]),
 		isLegacyRepo = false,
 		excludes = $bindable([] as string[]),
 		extraIncludes = $bindable([] as string[]),
@@ -86,7 +71,7 @@
 
 	function updateIncludeType(key: keyof GitSyncTypeMap, value: boolean) {
 		const newTypes = new Set(include_type)
-		const typeMap: Record<keyof GitSyncTypeMap, ObjectType> = {
+		const typeMap: Record<keyof GitSyncTypeMap, GitSyncObjectType> = {
 			scripts: 'script',
 			flows: 'flow',
 			apps: 'app',

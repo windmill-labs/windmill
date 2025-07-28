@@ -13649,6 +13649,24 @@ components:
           customai,
         ]
 
+    GitSyncObjectType:
+      type: string
+      enum:
+        - script
+        - flow
+        - app
+        - folder
+        - resource
+        - variable
+        - secret
+        - resourcetype
+        - schedule
+        - user
+        - group
+        - trigger
+        - settings
+        - key
+
     AIProviderModel:
       type: object
       properties:
@@ -17129,15 +17147,7 @@ components:
         include_type:
           type: array
           items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - resource
-              - variable
-              - secret
-              - trigger
+            $ref: "#/components/schemas/GitSyncObjectType"
 
     WorkspaceDefaultScripts:
       type: object
@@ -17177,22 +17187,7 @@ components:
             include_type:
               type: array
               items:
-                type: string
-                enum:
-                  - script
-                  - flow
-                  - app
-                  - folder
-                  - resource
-                  - variable
-                  - secret
-                  - resourcetype
-                  - schedule
-                  - user
-                  - group
-                  - trigger
-                  - settings
-                  - key
+                $ref: "#/components/schemas/GitSyncObjectType"
             exclude_path:
               type: array
               items:
@@ -17204,22 +17199,7 @@ components:
         exclude_types_override:
           type: array
           items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
-              - settings
-              - key
+            $ref: "#/components/schemas/GitSyncObjectType"
       required:
         - script_path
         - git_repo_resource_path

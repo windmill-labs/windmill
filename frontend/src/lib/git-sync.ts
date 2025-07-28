@@ -24,9 +24,11 @@ export interface SettingsResponse {
 	repository: string
 }
 
+import type { GitSyncObjectType } from '$lib/gen'
+
 export interface SettingsObject {
 	include_path: string[]
 	exclude_path: string[]
 	extra_include_path: string[]
-	include_type: string[]
+	include_type: GitSyncObjectType[]
 }

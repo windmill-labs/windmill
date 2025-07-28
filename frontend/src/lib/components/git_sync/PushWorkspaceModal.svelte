@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Button, Alert } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -15,6 +15,8 @@
 		uiState: SettingsObject
 		onClose: () => void
 		onSuccess?: () => void
+		isNewConnection?: boolean
+		onSaveWithoutInit?: () => void
 	}
 
 	let {
@@ -22,7 +24,9 @@
 		gitRepoResourcePath,
 		uiState,
 		onClose,
-		onSuccess
+		onSuccess,
+		isNewConnection = false,
+		onSaveWithoutInit
 	}: Props = $props()
 
 	// Job state
@@ -252,8 +256,21 @@
 							classes: isApplying ? 'animate-spin' : ''
 						}}
 					>
-						{isApplying ? 'Pushing...' : 'Push to repository'}
+						{isApplying ?
+							(isNewConnection ? 'Initializing...' : 'Pushing...') :
+							(isNewConnection ? 'Initialize repo and save connection' : 'Push to repository')
+						}
 					</Button>
+					{#if isNewConnection && onSaveWithoutInit}
+						<Button
+							size="xs"
+							color="light"
+							onclick={onSaveWithoutInit}
+							disabled={isApplying}
+						>
+							Save without initializing repo
+						</Button>
+					{/if}
 					<Button
 						size="md"
 						color="light"

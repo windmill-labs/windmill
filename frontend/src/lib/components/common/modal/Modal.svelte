@@ -38,7 +38,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window on:keydown|capture={onKeyDown} />
 
 {#if open}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
