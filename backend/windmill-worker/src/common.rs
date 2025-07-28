@@ -1102,6 +1102,7 @@ pub async fn par_install_language_dependencies<
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
+    jailed: bool,
     conn: &'a Connection,
 ) -> anyhow::Result<()> {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -1218,7 +1219,11 @@ pub async fn par_install_language_dependencies<
                     windmill_queue::append_logs(
                         job_id,
                         w_id,
-                        format!("\n--- INSTALLATION ---\n\nTo be installed:\n\n"),
+                        if jailed {
+                            format!("\n--- ISOLATED INSTALLATION ---\n\nTo be installed:\n\n")
+                        } else {
+                            format!("\n--- INSTALLATION ---\n\nTo be installed:\n\n")
+                        },
                         conn,
                     )
                     .await;

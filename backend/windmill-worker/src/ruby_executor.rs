@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs::read_to_string, process::Stdio, str::FromStr
 
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
+use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::{
@@ -15,7 +16,7 @@ use windmill_common::{
     client::AuthedClient,
     error::{self, Error},
     utils::calculate_hash,
-    worker::Connection,
+    worker::{write_file, Connection},
 };
 use windmill_parser::Arg;
 use windmill_parser_ruby::parse_ruby_signature;
@@ -23,11 +24,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, par_install_language_dependencies, read_result,
-        start_child_process, OccupancyMetrics, RequiredDependency,
+        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
+        read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
     handle_child::{self, handle_child},
-    DISABLE_NSJAIL, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -35,6 +36,24 @@ lazy_static::lazy_static! {
     static ref BUNDLE_PATH: String = std::env::var("RUBY_BUNDLE_PATH").unwrap_or_else(|_| "/usr/bin/bundle".to_string());
     static ref GEM_PATH: String = std::env::var("RUBY_GEM_PATH").unwrap_or_else(|_| "/usr/bin/gem".to_string());
 }
+
+const NSJAIL_CONFIG_RUN_RUBY_CONTENT: &str = include_str!("../nsjail/run.ruby.config.proto");
+const NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT: &str =
+    include_str!("../nsjail/download.ruby.config.proto");
+
+#[cfg(debug_assertions)]
+const DEV_CONF_NSJAIL: &'static str = r#"
+# Mount nix store for nixos to work properly
+mount {
+    src: "/nix/store"
+    dst: "/nix/store"
+    is_bind: true
+    mandatory: false
+}
+"#;
+
+#[cfg(not(debug_assertions))]
+const DEV_CONF_NSJAIL: &'static str = "";
 
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
@@ -66,16 +85,17 @@ pub async fn handle_ruby_job<'a>(
     let lockfile = resolve(&mut args).await?;
 
     // --- Install ---
-    let rubylib = install(&mut args, lockfile).await?;
+
+    let ir = install(&mut args, lockfile).await?;
+
     // --- Execute ---
     {
-        run(&mut args, rubylib).await?;
+        run(&mut args, ir).await?;
     }
     // --- Retrieve results ---
     {
         read_result(&args.job_dir).await
     }
-    // Err(anyhow::anyhow!("todo").into())
 }
 pub async fn prepare<'a>(
     JobHandlerInput {
@@ -143,7 +163,7 @@ pub async fn resolve<'a>(
     }: &mut JobHandlerInput<'a>,
 ) -> Result<String, Error> {
     lazy_static::lazy_static! {
-        static ref BUNDLER_RE: Regex = Regex::new(r"^\s*require\s+'bundler/inline'").unwrap();
+        static ref BUNDLER_RE: Regex = Regex::new(r"^\s*require\s*'bundler/inline'").unwrap();
     }
 
     if BUNDLER_RE.find(&inner_content).is_some() {
@@ -154,7 +174,11 @@ Your Gemfile syntax will continue to work as-is."
         .into());
     }
 
-    let gemfile = windmill_parser_ruby::parse_ruby_requirements(&inner_content)?;
+    let gemfile: String = windmill_parser_ruby::parse_ruby_requirements(&inner_content)?
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+        .join("\n");
 
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
     file.write_all(&gemfile.as_bytes()).await?;
@@ -279,10 +303,18 @@ Your Gemfile syntax will continue to work as-is."
     Ok(lock)
 }
 
+struct InstallRes {
+    /// "/tmp/windmill/cache/ruby/gems/ab..xz-name-1.0.0/gems/name-1.0.0/lib:/tmp/windmill/..."
+    rubylib: String,
+
+    /// ["/tmp/windmill/cache/ruby/gems/ab..xz-name-1.0.0", "/tmp/windmill/..."]
+    top_level_paths: Vec<String>,
+}
+
 async fn install<'a>(
     JobHandlerInput { worker_name, job, conn, job_dir, .. }: &mut JobHandlerInput<'a>,
     lockfile: String,
-) -> Result<String, Error> {
+) -> Result<InstallRes, Error> {
     #[derive(Debug, Clone)]
     enum CurrentSource {
         GIT { remote: Option<String>, revision: Option<String> },
@@ -299,7 +331,7 @@ async fn install<'a>(
 
     let mut deps = vec![];
     let mut current_source = CurrentSource::INIT;
-    'lock_lines: for (i, line) in lockfile.lines().enumerate() {
+    'lock_lines: for line in lockfile.lines() {
         // Trimed line
         let tl = line.trim_start();
         if tl.starts_with("GIT") {
@@ -393,98 +425,39 @@ async fn install<'a>(
         }));
     }
 
-    let rubylib = deps
-        .iter()
-        .map(|rd| {
-            format!(
-                "{}/gems/{}-{}/lib",
-                rd.path, rd.custom_payload.pkg, rd.custom_payload.version
-            )
-        })
-        .join(":")
-        + format!(":{RUBY_CACHE_DIR}/gems/windmill-internal").as_str();
-    // if let Some((mut pos, _)) = lockfile.lines().find_position(|x| x.starts_with("GEM")) {
-    //     let prefix = lockfile
-    //         .lines()
-    //         .enumerate()
-    //         .skip(pos)
-    //         .map_while(|(i, mut x)| {
-    //             pos = i;
-    //             if x == "  specs:" {
-    //                 None
-    //             } else {
-    //                 if x.len() > 1 && x.ends_with('/') {
-    //                     x = &x[0..x.len() - 1];
-    //                 }
-    //                 Some(
-    //                     x.replace(" ", "")
-    //                         .replace("https://", "")
-    //                         .replace(":", "=")
-    //                         .replace("/", "_"),
-    //                 )
-    //             }
-    //         })
-    //         .collect_vec()
-    //         .join("@");
-
-    //     // dbg!(&prefix);
-    //     for x in lockfile.lines().skip(pos + 1).take_while(|x| !x.is_empty()) {
-    //         // Gemfile.lock:
-    //         //
-    //         // GEM
-    //         //   specs:
-    //         // ____activesupport (8.0.2) - Yes
-    //         // 1234__base64              - Ignore
-    //         // 123456
-    //         //
-    //         // Entries we actually want to include do not start with 6 whitespaces
-    //         if !x.starts_with(" ".repeat(6).as_str()) {
-    //             let mut hash = calculate_hash(&prefix);
-    //             hash.truncate(16); // Use 16 characters which is 128 bits
-
-    //             // Final format:
-    //             // 123...zx-activesupport-8.0.2
-    //             // ^^^^^^^^ hash based on source and type (GEM or GIT)
-    //             // Obfuscation is essential because remote can include credentials
-    //             let path = format!(
-    //                 "{RUBY_CACHE_DIR}/gems/{}-{}",
-    //                 hash,
-    //                 x.trim_start().replace(" (", "-").replace(')', "").as_str()
-    //             );
-
-    //             dbg!(&path);
-    //             // let path = format!(
-    //             //     "{RUBY_CACHE_DIR}/gems/{}@{}",
-    //             //     prefix.clone(),
-    //             //     x.trim_start().replace(" (", "=").replace(')', "").as_str()
-    //             // );
-    //             deps.push(RequiredDependency {
-    //                 custom_payload: (path.clone(),),
-    //                 path,
-    //                 custom_name: None,
-    //                 short_name: Some(x.into()),
-    //                 // custom_payload: (),
-    //             });
-    //         }
-    //     }
-    // }
-
     let job_dir = job_dir.to_owned();
-    // let tmp_install_dir = format!("{RUBY_CACHE_DIR}/tmp-install-{}", Uuid::new_v4());
-    // let fetch_dir2 = fetch_dir.clone();
+    let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
     par_install_language_dependencies(
-        deps,
+        deps.clone(),
         "ruby",
         "gem",
         false,
         *RUBY_CONCURRENT_DOWNLOADS,
         false,
         crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
-            let mut cmd = Command::new(if cfg!(windows) {
-                "gem"
+            let mut cmd = if jailed {
+                std::fs::create_dir_all(&dependency.path)?;
+                let nsjail_proto = format!("{}.download.config.proto", Uuid::new_v4());
+                let _ = write_file(
+                    &job_dir,
+                    &nsjail_proto,
+                    &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
+                        // .replace("{JOB_DIR}", &job_dir)
+                        .replace("{TARGET}", &dependency.path)
+                        // .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                        .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                        .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
+                )?;
+                let mut cmd = Command::new(NSJAIL_PATH.as_str());
+                cmd.args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
+                cmd
             } else {
-                GEM_PATH.as_str()
-            });
+                Command::new(if cfg!(windows) {
+                    "gem"
+                } else {
+                    GEM_PATH.as_str()
+                })
+            };
             cmd.env_clear().current_dir(&job_dir).envs(vec![
                 ("PATH".to_owned(), PATH_ENV.clone()),
                 // Make sure there is nothing written to actual home
@@ -538,10 +511,30 @@ async fn install<'a>(
         &job.id,
         &job.workspace_id,
         worker_name,
+        jailed,
         conn,
     )
     .await?;
-    Ok(rubylib)
+
+    let mut res = InstallRes {
+        rubylib: deps
+            .iter()
+            .map(|rd| {
+                format!(
+                    "{}/gems/{}-{}/lib",
+                    rd.path, rd.custom_payload.pkg, rd.custom_payload.version
+                )
+            })
+            .join(":"),
+        top_level_paths: deps.iter().map(|rd| rd.path.clone()).collect_vec(),
+    };
+    // Include builtin windmill client
+    {
+        const WM_INTERNAL: &str = concatcp!(RUBY_CACHE_DIR, "/gems/windmill-internal");
+        res.top_level_paths.push(WM_INTERNAL.to_owned());
+        res.rubylib += format!(":{WM_INTERNAL}").as_str();
+    }
+    Ok(res)
 }
 
 async fn run<'a>(
@@ -560,134 +553,152 @@ async fn run<'a>(
         parent_runnable_path,
         ..
     }: &mut JobHandlerInput<'a>,
-    rubylib: String,
+    InstallRes { rubylib, top_level_paths }: InstallRes,
 ) -> Result<(), Error> {
-    // let reserved_variables =
-    //     get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
-    // let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
-    //     // append_logs(
-    //     //     &job.id,
-    //     //     &job.workspace_id,
-    //     //     format!("\n--- ISOLATED JAVA CODE EXECUTION ---\n"),
-    //     //     db.clone(),
-    //     // )
-    //     // .await;
+    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n--- ISOLATED RUBY CODE EXECUTION ---\n"),
+            conn,
+        )
+        .await;
+        dbg!(&rubylib);
+        let shared_deps = top_level_paths
+            .into_iter()
+            .map(|pp| {
+                format!(
+                    r#"
+mount {{
+    src: "{pp}"
+    dst: "{pp}"
+    is_bind: true
+    rw: false
+}}
+                "#
+                )
+            })
+            .join("\n");
 
-    //     write_file(
-    //         job_dir,
-    //         "run.config.proto",
-    //         &NSJAIL_CONFIG_RUN_JAVA_CONTENT
-    //             .replace("{JOB_DIR}", job_dir)
-    //             .replace("{CACHE_DIR}", JAVA_CACHE_DIR)
-    //             .replace("{SHARED_MOUNT}", &shared_mount)
-    //             // .replace("{CACHED_TARGET}", &shared_mount)
-    //             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-    //     )?;
-    //     let mut cmd = Command::new(NSJAIL_PATH.as_str());
-    //     cmd.env_clear()
-    //         .current_dir(job_dir)
-    //         .env("PATH", PATH_ENV.as_str())
-    //         .env("BASE_INTERNAL_URL", base_internal_url)
-    //         .envs(envs)
-    //         .envs(reserved_variables)
-    //         .envs(PROXY_ENVS.clone())
-    //         .args(vec![
-    //             "--config",
-    //             "run.config.proto",
-    //             "--",
-    //             JAVA_PATH.as_str(),
-    //         ]);
-    //     if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
-    //         cmd.args(&[
-    //             &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
-    //             &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
-    //         ]);
-    //     }
-    //     // Configure proxies
-    //     {
-    //         let jps = parse_proxy()?;
-    //         if let Some(val) = jps.https_host {
-    //             cmd.arg(&format!("-Dhttps.proxyHost={}", val));
-    //         }
-    //         if let Some(val) = jps.https_port {
-    //             cmd.arg(&format!("-Dhttps.proxyPort={}", val));
-    //         }
-    //         if let Some(val) = jps.http_host {
-    //             cmd.arg(&format!("-Dhttp.proxyHost={}", val));
-    //         }
-    //         if let Some(val) = jps.http_port {
-    //             cmd.arg(&format!("-Dhttp.proxyPort={}", val));
-    //         }
-    //         if let Some(val) = jps.no_proxy {
-    //             cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
-    //         }
-    //     }
-    //     cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
-    //     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_RUBY_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{SHARED_MOUNT}", &shared_mount)
+                .replace("{SHARED_DEPENDENCIES}", &shared_deps)
+                .replace("{DEV}", DEV_CONF_NSJAIL)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.env_clear()
+            .current_dir(job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("RUBYLIB", rubylib.as_str())
+            .envs(envs)
+            .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                RUBY_PATH.as_str(),
+                "main.rb",
+            ]);
+        // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
+        //     cmd.args(&[
+        //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+        //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+        //     ]);
+        // }
+        // Configure proxies
+        // {
+        //     let jps = parse_proxy()?;
+        //     if let Some(val) = jps.https_host {
+        //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+        //     }
+        //     if let Some(val) = jps.https_port {
+        //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+        //     }
+        //     if let Some(val) = jps.http_host {
+        //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+        //     }
+        //     if let Some(val) = jps.http_port {
+        //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+        //     }
+        //     if let Some(val) = jps.no_proxy {
+        //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+        //     }
+        // }
+        // cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    //     start_child_process(cmd, NSJAIL_PATH.as_str()).await?
-    // } else {
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        format!("\n--- RUBY CODE EXECUTION ---\n"),
-        conn,
-    )
-    .await;
-
-    let mut cmd = Command::new(if cfg!(windows) {
-        "ruby"
+        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        RUBY_PATH.as_str()
-    });
-    cmd.env_clear()
-        .current_dir(job_dir.to_owned())
-        .env("PATH", PATH_ENV.as_str())
-        .env("RUBYLIB", rubylib.as_str())
-        .env("BASE_INTERNAL_URL", base_internal_url)
-        .envs(envs);
-    // .envs(reserved_variables);
-    // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
-    //     cmd.args(&[
-    //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
-    //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
-    //     ]);
-    // }
-    // Configure proxies
-    // {
-    //     let jps = parse_proxy()?;
-    //     if let Some(val) = jps.https_host {
-    //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
-    //     }
-    //     if let Some(val) = jps.https_port {
-    //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
-    //     }
-    //     if let Some(val) = jps.http_host {
-    //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
-    //     }
-    //     if let Some(val) = jps.http_port {
-    //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
-    //     }
-    //     if let Some(val) = jps.no_proxy {
-    //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
-    //     }
-    // }
-    cmd.args(&["main.rb"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n--- RUBY CODE EXECUTION ---\n"),
+            conn,
+        )
+        .await;
 
-    #[cfg(windows)]
-    {
-        cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-            .env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-            );
-    }
-    let child = start_child_process(cmd, "java").await?;
-    // };
+        let mut cmd = Command::new(if cfg!(windows) {
+            "ruby"
+        } else {
+            RUBY_PATH.as_str()
+        });
+        cmd.env_clear()
+            .current_dir(job_dir.to_owned())
+            .env("PATH", PATH_ENV.as_str())
+            .env("RUBYLIB", rubylib.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(envs);
+        // .envs(reserved_variables);
+        // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
+        //     cmd.args(&[
+        //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+        //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+        //     ]);
+        // }
+        // Configure proxies
+        // {
+        //     let jps = parse_proxy()?;
+        //     if let Some(val) = jps.https_host {
+        //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+        //     }
+        //     if let Some(val) = jps.https_port {
+        //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+        //     }
+        //     if let Some(val) = jps.http_host {
+        //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+        //     }
+        //     if let Some(val) = jps.http_port {
+        //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+        //     }
+        //     if let Some(val) = jps.no_proxy {
+        //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+        //     }
+        // };
+        cmd.args(&["main.rb"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+        start_child_process(cmd, "ruby").await?
+    };
     handle_child::handle_child(
         &job.id,
         conn,
@@ -697,7 +708,7 @@ async fn run<'a>(
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
-        "java",
+        "ruby",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
