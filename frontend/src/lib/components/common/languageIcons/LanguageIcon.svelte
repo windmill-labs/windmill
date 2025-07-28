@@ -23,6 +23,7 @@
 	import NuIcon from '$lib/components/icons/NuIcon.svelte'
 	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
 	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
+	import RubyIcon from '$lib/components/icons/RubyIcon.svelte'
 
 	interface Props {
 		lang: 
@@ -106,7 +107,7 @@
 		csharp: CSharpIcon,
 		nu: NuIcon,
 		java: JavaIcon,
-		ruby: JavaIcon,
+		ruby: RubyIcon,
 		duckdb: DuckDbIcon
 		// for related places search: ADD_NEW_LANG
 	}
