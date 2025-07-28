@@ -31,6 +31,7 @@ use crate::{
         check_tag_available_for_workspace, delete_job_metadata_after_use, result_to_response,
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
+    utils::check_scopes,
     HTTP_CLIENT,
 };
 
@@ -703,12 +704,14 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
 ) -> Result<(Uuid, Option<bool>)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+
     let retry = retry.map(|r| r.0.clone());
     let error_handler_path = error_handler_path.map(|p| p.to_string());
     let error_handler_args = error_handler_args.map(|args| args.0.clone());
-
-    #[cfg(feature = "enterprise")]
-    check_license_key_valid().await?;
 
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = {
         let mut tx = user_db.clone().begin(&authed).await?;
