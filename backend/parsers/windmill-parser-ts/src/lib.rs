@@ -586,10 +586,26 @@ fn resolve_ts_interface_and_type_alias(
         ),
     };
 
-    if let Typ::Object(obj) = &mut resolved_type.0 {
-        if obj.name.is_none() {
-            obj.name = Some(type_name.to_owned());
+
+    match &mut resolved_type {
+        (Typ::Object(ObjectType { name, .. }), _) => {
+            if name.is_none() {
+                *name = Some(type_name.to_owned());
+            }
         }
+        (Typ::Resource(name), _) => {
+            *name = type_name.to_owned();
+        }
+        (Typ::List(list), _) => {
+            if let Typ::Object(ObjectType { name, .. }) = &mut **list {
+                if name.is_none() {
+                    *name = Some(type_name.to_owned());
+                }
+            } else if let Typ::Resource(name) = &mut **list {
+                *name = type_name.to_owned();
+            }
+        }
+        _ => {}
     }
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
@@ -777,7 +793,6 @@ fn tstype_to_typ(
                 ),
                 symbol @ _ => {
                     let symbol = to_snake_case(symbol);
-
                     resolve_ts_interface_and_type_alias(
                         &symbol,
                         symbol_table,
