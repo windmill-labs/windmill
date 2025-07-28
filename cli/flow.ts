@@ -39,6 +39,15 @@ export function replaceInlineScripts(
       if (m.value.content.startsWith("!inline")) {
         const path = m.value.content.split(" ")[1];
         m.value.content = Deno.readTextFileSync(localPath + path);
+
+        const pathPrefix = path.split(".")[0];
+        // rename the file if the prefix is different from the module id (fix old naming)
+        if (pathPrefix != m.id) {
+          const pathSuffix = path.split(".").slice(1).join(".");
+          log.info(`File ${path} has a different prefix than the module id ${m.id}`);
+          Deno.renameSync(localPath + path, localPath + m.id + "." + pathSuffix);
+        }
+
         const lock = m.value.lock;
         if (removeLocks && removeLocks.includes(path)) {
           m.value.lock = undefined;
