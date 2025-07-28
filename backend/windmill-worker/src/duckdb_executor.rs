@@ -501,17 +501,6 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     Ok(s)
 }
 
-async fn fetch_attach_db_conn_str(
-    parsed: &ParsedAttachDbResource<'_>,
-    job_id: &Uuid,
-    client: &AuthedClient,
-) -> Result<String> {
-    let db_resource: Value = client
-        .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-        .await?;
-    format_attach_db_conn_str(db_resource, parsed.db_type)
-}
-
 fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
     match db_type.to_lowercase().as_str() {
         "postgres" => Ok("INSTALL postgres;"),
@@ -536,9 +525,12 @@ async fn transform_attach_db_resource_query(
     job_id: &Uuid,
     client: &AuthedClient,
 ) -> Result<Vec<String>> {
+    let db_resource: Value = client
+        .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+        .await?;
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        fetch_attach_db_conn_str(&parsed, &job_id, &client).await?,
+        format_attach_db_conn_str(db_resource, parsed.db_type)?,
         parsed.name,
         parsed.db_type,
         parsed.extra_args.unwrap_or("")
