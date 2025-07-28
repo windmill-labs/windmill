@@ -56,7 +56,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::not_found_if_none;
+use windmill_common::utils::{empty_as_none, not_found_if_none};
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -108,10 +108,6 @@ pub fn workspaced_service() -> Router {
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/edit_error_handler", post(edit_error_handler))
-        .route(
-            "/edit_trigger_failure_email_notifications",
-            post(edit_trigger_failure_email_notifications),
-        )
         .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
@@ -372,11 +368,8 @@ pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-}
-
-#[derive(Deserialize)]
-pub struct EditTriggerFailureEmailNotifications {
-    pub trigger_failure_email_recipients: Vec<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub trigger_failure_email_recipients: Option<Vec<String>>,
 }
 
 lazy_static::lazy_static! {
@@ -1231,7 +1224,15 @@ async fn edit_error_handler(
 
     if let Some(error_handler) = &ee.error_handler {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
+            r#"
+            UPDATE workspace_settings
+            SET
+                error_handler = $1,
+                error_handler_extra_args = $2,
+                error_handler_muted_on_cancel = $3,
+                trigger_failure_email_recipients = NULL
+            WHERE workspace_id = $4
+        "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
@@ -1239,14 +1240,48 @@ async fn edit_error_handler(
         )
         .execute(&mut *tx)
         .await?;
+    } else if let Some(recipients) = &ee.trigger_failure_email_recipients {
+        for recipient in recipients {
+            if !EMAIL_REGEXP.is_match(recipient) {
+                return Err(Error::BadRequest(format!(
+                    "Invalid email format: {}",
+                    recipient
+                )));
+            }
+        }
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET
+                error_handler = NULL,
+                error_handler_extra_args = NULL,
+                trigger_failure_email_recipients = $1,
+                error_handler_muted_on_cancel = $2
+            WHERE workspace_id = $3
+        "#,
+            recipients,
+            ee.error_handler_muted_on_cancel.unwrap_or(false),
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
-            &w_id,
+            r#"
+            UPDATE workspace_settings
+            SET
+                error_handler = NULL,
+                error_handler_extra_args = NULL,
+                error_handler_muted_on_cancel = NULL,
+                trigger_failure_email_recipients = NULL
+            WHERE workspace_id = $1
+        "#,
+            &w_id
         )
         .execute(&mut *tx)
         .await?;
     }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1254,12 +1289,20 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+        Some(
+            [
+                ("error_handler", &format!("{:?}", ee.error_handler)[..]),
+                (
+                    "trigger_failure_email_recipients",
+                    &format!("{:?}", ee.trigger_failure_email_recipients)[..],
+                ),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
 
-    // Trigger git sync for error handler changes
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1272,71 +1315,6 @@ async fn edit_error_handler(
     .await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
-}
-
-async fn edit_trigger_failure_email_notifications(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(req): Json<EditTriggerFailureEmailNotifications>,
-) -> Result<String> {
-    for recipient in &req.trigger_failure_email_recipients {
-        if !EMAIL_REGEXP.is_match(recipient) {
-            return Err(Error::BadRequest(format!(
-                "Invalid email format: {}",
-                recipient
-            )));
-        }
-    }
-
-    require_admin(is_admin, &username)?;
-
-    let mut tx = db.begin().await?;
-
-    sqlx::query!(
-        "UPDATE workspace_settings SET trigger_failure_email_recipients = $1 WHERE workspace_id = $2",
-        &req.trigger_failure_email_recipients,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.trigger_failure_email_recipients",
-        ActionKind::Update,
-        &w_id,
-        Some(&authed.email),
-        Some(
-            [(
-                "trigger_failure_email_recipients",
-                &format!("{:?}", req.trigger_failure_email_recipients)[..],
-            )]
-            .into(),
-        ),
-    )
-    .await?;
-    tx.commit().await?;
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        windmill_git_sync::DeployedObject::Settings {
-            setting_type: "trigger_failure_email_recipients".to_string(),
-        },
-        Some("Trigger failure email notifications configuration updated".to_string()),
-        false,
-    )
-    .await?;
-
-    Ok(format!(
-        "Edit trigger_failure_email_notifications for workspace {}",
-        &w_id
-    ))
 }
 
 #[derive(Deserialize)]

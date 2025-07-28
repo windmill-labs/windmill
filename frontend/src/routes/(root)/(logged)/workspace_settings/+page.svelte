@@ -102,7 +102,6 @@
 
 	// Import the generated backend type
 	import type { GitRepositorySettings as BackendGitRepositorySettings } from '$lib/gen'
-	import Label from '$lib/components/Label.svelte'
 
 	// Frontend repository format extends backend with guaranteed settings and additional UI state
 	type GitSyncRepository = BackendGitRepositorySettings & {
@@ -126,7 +125,7 @@
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
 	let workspaceToDeployTo: string | undefined = $state(undefined)
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' | 'email' = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
@@ -717,15 +716,29 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		if (errorHandlerSelected === 'email') {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: {
+					error_handler: undefined,
+					error_handler_extra_args: undefined,
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					trigger_failure_email_recipients: triggerFailureEmailRecipients.length > 0 ? triggerFailureEmailRecipients : undefined
+				}
+			})
+			initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
+			sendUserToast(`Trigger failure email recipients updated`)
+		} else if (errorHandlerScriptPath) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					trigger_failure_email_recipients: undefined
 				}
 			})
+			initialTriggerFailureEmailRecipients = []
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
@@ -733,27 +746,15 @@
 				requestBody: {
 					error_handler: undefined,
 					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined
+					error_handler_muted_on_cancel: undefined,
+					trigger_failure_email_recipients: undefined
 				}
 			})
+			initialTriggerFailureEmailRecipients = []
 			sendUserToast(`workspace error handler removed`)
 		}
 	}
 
-	async function editTriggerFailureEmailSettings() {
-		try {
-			await WorkspaceService.editTriggerFailureEmailNotifications({
-				workspace: $workspaceStore!,
-				requestBody: {
-					trigger_failure_email_recipients: triggerFailureEmailRecipients
-				}
-			})
-			sendUserToast(`Trigger failure email recipients updated`)
-			initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
-		} catch (err) {
-			sendUserToast(`Failed to update trigger failure email recipients: ${err}`, true)
-		}
-	}
 
 
 	async function runGitSyncTestJob(settingsIdx: number) {
@@ -1193,6 +1194,8 @@
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
+				bind:triggerFailureEmailRecipients
+				bind:initialTriggerFailureEmailRecipients
 			>
 				{#snippet customTabTooltip()}
 					<Tooltip>
@@ -1237,49 +1240,6 @@
 				>
 					Save
 				</Button>
-			</div>
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
-					<Description>
-						Configure email addresses to receive notifications when trigger jobs fail. This feature requires SMTP to be configured.
-					</Description>
-				</div>
-			</div>
-			<div class="flex flex-col gap-2 my-4">
-				<Label>Email Recipients</Label>
-				<MultiSelect
-					items={[] as { label: string; value: string }[]}
-					bind:value={triggerFailureEmailRecipients}
-					placeholder="Enter email addresses..."
-					onCreateItem={(email) => {
-						const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-						if (!emailRegex.test(email)) {
-							sendUserToast('Invalid email format', true);
-							return;
-						}
-						if (triggerFailureEmailRecipients.includes(email)) {
-							sendUserToast('Email already added', true);
-							return;
-						}
-						triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email];
-					}}
-					class="w-full"
-				/>
-				<div class="flex gap-2 items-center mt-2">
-					<Button
-						disabled={deepEqual(triggerFailureEmailRecipients, initialTriggerFailureEmailRecipients)}
-						size="sm"
-						on:click={editTriggerFailureEmailSettings}
-					>
-						Save Email Settings
-					</Button>
-					{#if triggerFailureEmailRecipients.length > 0}
-						<span class="text-sm text-tertiary">
-							{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1 ? '' : 's'} configured
-						</span>
-					{/if}
-				</div>
 			</div>
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">

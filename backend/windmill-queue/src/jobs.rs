@@ -33,7 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::utils::now_from_db;
+use windmill_common::utils::{now_from_db, IsEmpty};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 
@@ -1203,32 +1203,22 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             {
                 match err {
                     Error::QuotaExceeded(_) => {}
-                    _ => {
+                    err => {
+                        tracing::error!(
+                            "Could not run workspace error handler for job {}: {}",
+                            &queued_job.id,
+                            err
+                        );
                         let base_url = BASE_URL.read().await;
                         let w_id: &String = &queued_job.workspace_id;
                         report_critical_error(format!(
-                            "Could not push workspace error handler for failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                            "Failed to push workspace error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
                             queued_job.id,
                             err
                         ), db.clone(), Some(&w_id), None)
                         .await;
                     }
                 }
-            }
-
-            #[cfg(feature = "smtp")]
-            if let Err(e) = send_trigger_failure_email_notification(
-                &queued_job,
-                db,
-                Json(&result),
-            )
-            .await
-            {
-                tracing::error!(
-                    "Could not send trigger failure email notification for job {}: {}",
-                    queued_job.id,
-                    e
-                );
             }
         }
     }
@@ -1415,8 +1405,29 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-        "SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel FROM workspace_settings WHERE workspace_id = $1",
+
+    let (
+        error_handler,
+        error_handler_extra_args,
+        error_handler_muted_on_cancel,
+        trigger_failure_email_recipients
+    ) = sqlx::query_as::<_, (
+            Option<String>,
+            Option<Json<Box<RawValue>>>,
+            bool,
+            Option<Vec<String>>
+        )>(
+    r#"
+            SELECT
+                error_handler,
+                error_handler_extra_args,
+                error_handler_muted_on_cancel,
+                trigger_failure_email_recipients
+            FROM 
+                workspace_settings
+            WHERE 
+                workspace_id = $1
+        "#
     )
     .bind(&w_id)
     .fetch_optional(db)
@@ -1475,37 +1486,51 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             .await?;
         }
     }
+    else if !trigger_failure_email_recipients.is_empty() && queued_job.parent_job.is_none() {
+        #[cfg(feature = "smtp")]
+        return send_workspace_trigger_failure_email_notification(
+            queued_job,
+            db,
+            result,
+            trigger_failure_email_recipients.unwrap(),
+        )
+        .await;
 
+        #[cfg(not(feature = "smtp"))]
+        {
+            tracing::warn!(
+                "SMTP is not enabled, skipping workspace trigger failure email notification for job {}",
+                queued_job.id
+            );
+        }
+    }
     Ok(())
 }
 
 #[cfg(feature = "smtp")]
-async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>(
+async fn send_workspace_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>(
     queued_job: &MiniPulledJob,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
+    recipients: Vec<String>,
 ) -> Result<(), Error> {
-
-    if queued_job.parent_job.is_some() {
-        return Ok(());
-    }
 
     let smtp_config = match load_smtp_config(db).await? {
         Some(config) => config,
         None => {
-            tracing::info!("SMTP not configured, skipping trigger failure email notification");
+            tracing::info!("SMTP not configured, skipping workspace trigger failure email notification");
             return Ok(());
         }
     };
 
-    let trigger_kind:Option<JobTriggerKind> = sqlx::query_scalar!(
+    let trigger_kind: Option<JobTriggerKind> = sqlx::query_scalar!(
         r#"SELECT 
             trigger_kind AS "trigger_kind: _"
         FROM 
             v2_job 
         WHERE 
             id = $1"#,
-            queued_job.id
+        queued_job.id
     )
     .fetch_optional(db)
     .await?
@@ -1513,7 +1538,7 @@ async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>
 
     let trigger_kind = match trigger_kind {
         Some(trigger_kind) => {
-            tracing::debug!("Trigger job {} is a {:?} trigger", queued_job.id, trigger_kind);
+            tracing::debug!("Workspace trigger job {} is a {:?} trigger", queued_job.id, trigger_kind);
             trigger_kind
         }
         _ => {
@@ -1522,15 +1547,12 @@ async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>
     };
 
     let base_url = BASE_URL.read().await;
-
     let job_url = format!("{}/run/{}?workspace={}", base_url, queued_job.id, queued_job.workspace_id);
-    
-
-    let trigger_kind = trigger_kind.to_string().to_uppercase();
+    let trigger_kind_str = trigger_kind.to_string().to_uppercase();
 
     let subject = format!(
         "Windmill {} Trigger Job Failed: {} in workspace {}",
-        &trigger_kind,
+        &trigger_kind_str,
         queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
         queued_job.workspace_id
     );
@@ -1538,7 +1560,7 @@ async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>
     let error_details = serde_json::to_string_pretty(result.0)
         .unwrap_or_else(|_| "Unable to serialize error details".to_string());
 
-     let content = format!(
+    let content = format!(
         r#"
 <!DOCTYPE html>
 <html>
@@ -1562,70 +1584,54 @@ async fn send_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>
     </style>
   </head>
   <body>
-    <h1>⚠️ Trigger Job Failure Notification</h1>
+    <h1>Windmill {} Trigger Job Failed</h1>
+    
     <div class="section">
-      <p>A trigger job has failed in your Windmill workspace.</p>
+      <span class="label">Workspace:</span> {}
     </div>
+    
     <div class="section">
-      <p><span class="label">Trigger Type:</span> {}</p>
-      <p><span class="label">Script/Flow:</span> {}</p>
-      <p><span class="label">Workspace:</span> {}</p>
-      <p><span class="label">Job ID:</span> {}</p>
-      <p><span class="label">Job URL:</span> <a href="{joburl}">{joburl}</a></p>
-      <a class="button" href="{joburl}">View Job Details</a>
+      <span class="label">Trigger Type:</span> {}
     </div>
+    
     <div class="section">
-      <p class="label">Error Details:</p>
-      <pre>{details}</pre>
+      <span class="label">Script/Flow Path:</span> {}
     </div>
-    <hr />
+    
     <div class="section">
-      <p>This email was automatically sent by Windmill because SMTP is configured for your workspace and the triggered job failed.</p>
-      <p>You can disable these notifications by configuring a workspace error handler or removing SMTP configuration.</p>
+      <span class="label">Job ID:</span> {}
     </div>
+    
+    <div class="section">
+      <span class="label">Error Details:</span>
+      <pre>{}</pre>
+    </div>
+    
+    <a href="{}" class="button">View Job Details</a>
   </body>
 </html>
 "#,
-         &trigger_kind,
-         queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
-       queued_job.workspace_id,
+        trigger_kind_str,
+        queued_job.workspace_id,
+        trigger_kind_str,
+        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
         queued_job.id,
-        joburl = job_url,
-        details = &error_details
+        error_details,
+        job_url
     );
 
-
-    // Check if workspace has custom email recipients configured
-    let custom_recipients = sqlx::query_scalar!(
-        "SELECT trigger_failure_email_recipients FROM workspace_settings WHERE workspace_id = $1",
-        &queued_job.workspace_id
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(None);
-
-    let Some(recipients) = custom_recipients else  {
-        tracing::info!(
-            "No custom trigger failure email recipients configured for workspace {}. Skipping email notification.",
-            queued_job.workspace_id
-        );
-        return  Ok(());
-    } ;
-
     if let Err(e) = send_email_html(&subject, &content, recipients.clone(), smtp_config, None).await {
-        
         let err_msg = format!(
-            "Failed to send email notification for trigger failure (trigger kind: {}, job ID: {}): {}",
-            trigger_kind,
+            "Failed to send workspace email notification for trigger failure (trigger kind: {}, job ID: {}): {}",
+            trigger_kind_str,
             queued_job.id,
             e
         );
-
-        report_critical_error(err_msg, db.clone(), Some(&queued_job.workspace_id), None).await;
+        return Err(Error::internal_err(err_msg));
     } else {
         tracing::info!(
-            "Sent trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
-            trigger_kind,
+            "Sent workspace trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
+            trigger_kind_str,
             queued_job.id,
             recipients
         );

@@ -2398,6 +2398,11 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
+                trigger_failure_email_recipients:
+                  type: array
+                  items:
+                    type: string
+                  description: List of email addresses to notify when trigger jobs fail
 
       responses:
         "200":

@@ -10,6 +10,10 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
+	import Description from '$lib/components/Description.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
 		JobService,
@@ -38,12 +42,14 @@
 		isEditable: boolean
 		toggleText?: string
 		showScriptHelpText?: boolean
-		handlerSelected: 'custom' | 'slack' | 'teams'
+		handlerSelected: 'custom' | 'slack' | 'teams' | 'email'
 		handlerPath: string | undefined
 		handlerExtraArgs: Record<string, any>
 		customScriptTemplate: string
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
+		triggerFailureEmailRecipients?: string[]
+		initialTriggerFailureEmailRecipients?: string[]
 	}
 
 	let {
@@ -56,7 +62,9 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip
+		customTabTooltip,
+		triggerFailureEmailRecipients = $bindable([]),
+		initialTriggerFailureEmailRecipients = $bindable([])
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -248,7 +256,7 @@
 				channelCache[lastHandlerSelected] = handlerExtraArgs['channel']
 			}
 
-			if (handlerSelected === 'custom') {
+			if (handlerSelected === 'custom' || handlerSelected === 'email') {
 				handlerExtraArgs['channel'] = ''
 				handlerPath = undefined
 			} else {
@@ -302,12 +310,14 @@
 				'slack'
 			]).then((schema) => (slackHandlerSchema = schema))
 	})
+
 </script>
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
 		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
 		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
+		<Tab value="email" disabled={!isEditable}>Email</Tab>
 		<Tab value="custom" disabled={!isEditable}>
 			Custom
 			{@render customTabTooltip?.()}
@@ -563,4 +573,42 @@
 			{/if}
 		{/if}
 	{/if}
+{:else if handlerSelected === 'email'}
+	<div class="flex flex-col gap-4 my-4">
+		<div class="flex flex-col gap-1">
+			<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
+			<Description>
+				Configure email addresses to receive notifications when trigger jobs fail. This feature
+				requires SMTP to be configured.
+			</Description>
+		</div>
+	</div>
+	<div class="flex flex-col gap-2 my-4">
+		<Label>Email Recipients</Label>
+		<MultiSelect
+			items={[] as { label: string; value: string }[]}
+			bind:value={triggerFailureEmailRecipients}
+			placeholder="Enter email addresses..."
+			onCreateItem={(email) => {
+				const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+				if (!emailRegex.test(email)) {
+					sendUserToast('Invalid email format', true)
+					return
+				}
+				if (triggerFailureEmailRecipients.includes(email)) {
+					sendUserToast('Email already added', true)
+					return
+				}
+				triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email]
+			}}
+			class="w-full"
+		/>
+		{#if triggerFailureEmailRecipients.length > 0}
+			<span class="text-sm text-tertiary">
+				{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1
+					? ''
+					: 's'} configured
+			</span>
+		{/if}
+	</div>
 {/if}
