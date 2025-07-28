@@ -2412,34 +2412,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/edit_trigger_failure_email_notifications:
-    post:
-      summary: edit trigger failure email notifications
-      operationId: editTriggerFailureEmailNotifications
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: Trigger failure email notification settings
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                trigger_failure_email_recipients:
-                  type: array
-                  items:
-                    type: string
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /w/{workspace}/workspaces/edit_large_file_storage_config:
     post:
