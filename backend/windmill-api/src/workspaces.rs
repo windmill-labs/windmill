@@ -948,7 +948,7 @@ async fn get_ducklake(
             }
             _ => get_resource_value_interpolated_internal(
                 &authed,
-                Some(user_db.clone()),
+                None, // Never check permissions for the catalog resource
                 &db,
                 &w_id,
                 &ducklake.catalog.resource_path,
@@ -1007,6 +1007,26 @@ async fn edit_ducklake_config(
         Some([("ducklake", args_for_audit.as_str())].into()),
     )
     .await?;
+
+    // Check that all ducklake catalog resources exist to prevent
+    // exploiting the shared property to see any resource
+    for dl in new_config.settings.ducklakes.values() {
+        let catalog_res = sqlx::query_scalar!(
+            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &dl.catalog.resource_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if catalog_res.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Ducklake catalog resource {} not found in workspace {}",
+                dl.catalog.resource_path, &w_id
+            )));
+        }
+    }
 
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;

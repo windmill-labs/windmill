@@ -72,6 +72,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import { pluralize } from '$lib/utils'
+	import Alert from '../common/alert/Alert.svelte'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
@@ -164,6 +165,14 @@
 		</Description>
 	</div>
 </div>
+
+<Alert title="Resource details are shared" class="mb-4" type="warning">
+	Using a database resource as a catalog will share the database credentials with all users in the
+	workspace.
+	<br />
+	This is not the case for catalogs of type Instance, which use Windmill's own PostgreSQL instance. These
+	credentials are never exposed.
+</Alert>
 
 <DataTable>
 	<Head>
