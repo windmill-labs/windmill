@@ -17,7 +17,7 @@ pub enum ActionKind {
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct AuditLog {
     pub workspace_id: String,
-    pub id: i32,
+    pub id: i64,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub username: String,
     pub operation: String,
