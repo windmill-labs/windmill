@@ -433,6 +433,8 @@
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`System.getenv("${name}");`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			editor.insertAtCursor(`ENV['${name}']`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -503,6 +505,11 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_variable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -592,6 +599,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_resource("${path}")`)
 		} else if (lang == 'duckdb') {
 			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
 			if (!t) {

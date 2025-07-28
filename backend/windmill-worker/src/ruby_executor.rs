@@ -127,34 +127,118 @@ pub async fn prepare<'a>(
     let mini_wm_path = format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill");
     if !std::fs::metadata(&mini_wm_path).is_ok() {
         fs::create_dir_all(&mini_wm_path).await?;
+
+        // Create inline.rb for dependency management (bundler/inline compatibility)
         File::create(format!("{}/inline.rb", &mini_wm_path))
             .await?
             .write_all(&wrap(
         r#"    
-def source(*a, **rest)
-end
-def group(*a, **rest)
-end
-def ruby(*a, **rest)
-  warn "Custom Ruby runtime specifications (engine, engine_version, patchlevel) are not supported in this environment. Using system ruby"
-end
-def gem(name, version = nil, require: nil, **rest)
-  case require
-  when false
-    # Skip requiring entirely
-  when nil, true
-    Kernel.require(name)
-  else # String or other truthy value
-    Kernel.require(require.to_s)
+class GemfileProxy
+  def initialize
+    @gem_calls = []
+  end
+
+  def source(*args, **kwargs)
+    # Handle source calls if needed
+  end
+
+  def group(*args, **kwargs)
+    # Handle group calls if needed
+  end
+
+  def ruby(*args, **kwargs)
+    warn "Custom Ruby runtime specifications (engine, engine_version, patchlevel) are not supported in this environment. Using system ruby"
+  end
+
+  def gem(name, version = nil, require: nil, **kwargs)
+    @gem_calls << { name: name, version: version, require: require, kwargs: kwargs }
+    case require
+    when false
+      # Skip requiring entirely
+    when nil, true
+      Kernel.require(name)
+    else # String or other truthy value
+      Kernel.require(require.to_s)
+    end
+  end
+
+  def call_block(&block)
+    instance_eval(&block) if block_given?
   end
 end
+
 def gemfile(&block)
-  instance_eval(&block) if block_given?
+  proxy = GemfileProxy.new
+  proxy.call_block(&block)
 end
+
 def main
 end
 "#
             )?.into_bytes())
+            .await?;
+
+        // Create mini.rb for Windmill client methods
+        File::create(format!("{}/mini.rb", &mini_wm_path))
+            .await?
+            .write_all(
+                &wrap(
+                    r##"    
+require 'net/http'
+require 'uri'
+require 'json'
+
+# Windmill mini client methods
+def get_variable(path)
+  base_url = ENV['BASE_INTERNAL_URL']
+  workspace = ENV['WM_WORKSPACE']
+  token = ENV['WM_TOKEN']
+  
+  uri = URI("#{base_url}/api/w/#{workspace}/variables/get_value/#{path}")
+  
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = uri.scheme == 'https'
+  
+  request = Net::HTTP::Get.new(uri)
+  request['Authorization'] = "Bearer #{token}"
+  
+  response = http.request(request)
+  
+  if response.code == '200'
+    JSON.parse(response.body)
+  else
+    raise "Failed to get variable #{path}: #{response.code} #{response.message}"
+  end
+end
+
+def get_resource(path)
+  base_url = ENV['BASE_INTERNAL_URL']
+  workspace = ENV['WM_WORKSPACE']
+  token = ENV['WM_TOKEN']
+  
+  uri = URI("#{base_url}/api/w/#{workspace}/resources/get_value_interpolated/#{path}")
+  
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = uri.scheme == 'https'
+  
+  request = Net::HTTP::Get.new(uri)
+  request['Authorization'] = "Bearer #{token}"
+  
+  response = http.request(request)
+  
+  if response.code == '200'
+    JSON.parse(response.body)
+  else
+    raise "Failed to get resource #{path}: #{response.code} #{response.message}"
+  end
+end
+
+def main
+end
+"##,
+                )?
+                .into_bytes(),
+            )
             .await?;
     }
     Ok(())
@@ -664,6 +748,7 @@ mount {{
             .env("PATH", PATH_ENV.as_str())
             .env("RUBYLIB", rubylib.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(reserved_variables)
             .envs(envs);
         // .envs(reserved_variables);
         // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
@@ -733,8 +818,7 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .collect_vec()
         .join(",");
     Ok(
-        r#"    
-INNER_CONTENT
+        r#"INNER_CONTENT
 
 require 'json'
 a = JSON.parse(File.read("args.json"))
