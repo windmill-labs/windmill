@@ -1011,6 +1011,9 @@ async fn edit_ducklake_config(
     // Check that all ducklake catalog resources exist to prevent
     // exploiting the shared property to see any resource
     for dl in new_config.settings.ducklakes.values() {
+        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+            continue;
+        }
         let catalog_res = sqlx::query_scalar!(
             "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
             &w_id,

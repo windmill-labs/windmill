@@ -112,7 +112,7 @@ pub struct DucklakeStorage {
     pub path: String,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[derive(AsRefStr)]
 #[strum(serialize_all = "lowercase")]
