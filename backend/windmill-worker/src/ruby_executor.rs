@@ -82,7 +82,17 @@ pub async fn handle_ruby_job<'a>(
     }
     // --- Gen Lockfile ---
 
-    let lockfile = resolve(&mut args).await?;
+    let lockfile = resolve(
+        &args.job.id,
+        args.inner_content,
+        args.mem_peak,
+        args.canceled_by,
+        args.job_dir,
+        args.conn,
+        args.worker_name,
+        &args.job.workspace_id,
+    )
+    .await?;
 
     // --- Install ---
 
@@ -150,17 +160,14 @@ end
     Ok(())
 }
 pub async fn resolve<'a>(
-    JobHandlerInput {
-        mem_peak,
-        canceled_by,
-        worker_name,
-        job,
-        conn,
-        job_dir,
-        inner_content,
-        //
-        ..
-    }: &mut JobHandlerInput<'a>,
+    job_id: &Uuid,
+    inner_content: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    w_id: &str,
 ) -> Result<String, Error> {
     lazy_static::lazy_static! {
         static ref BUNDLER_RE: Regex = Regex::new(r"^\s*require\s*'bundler/inline'").unwrap();
@@ -197,8 +204,8 @@ Your Gemfile syntax will continue to work as-is."
     }
     let lock = {
         append_logs(
-            &job.id,
-            &job.workspace_id,
+            job_id,
+            w_id,
             format!("\n--- RESOLVING LOCKFILE ---\n"),
             conn,
         )
@@ -266,14 +273,14 @@ Your Gemfile syntax will continue to work as-is."
         // let mut stdout = String::new();
 
         handle_child::handle_child(
-            &job.id,
+            job_id,
             conn,
             mem_peak,
             canceled_by,
             child,
             !*DISABLE_NSJAIL,
             worker_name,
-            &job.workspace_id,
+            w_id,
             "bundle",
             None,
             false,
@@ -299,7 +306,7 @@ Your Gemfile syntax will continue to work as-is."
         ).fetch_optional(db).await?;
     }
 
-    append_logs(&job.id, &job.workspace_id, format!("\n{}", &lock), conn).await;
+    append_logs(job_id, w_id, format!("\n{}", &lock), conn).await;
     Ok(lock)
 }
 
@@ -342,7 +349,7 @@ async fn install<'a>(
             continue 'lock_lines;
         }
 
-        const REMOTE: &str = "remote:";
+        const REMOTE: &str = "remote: ";
         if line.contains(REMOTE) {
             match &mut current_source {
                 CurrentSource::GIT { remote, .. } => remote.replace(tl.replace(REMOTE, "")),
@@ -353,7 +360,7 @@ async fn install<'a>(
             continue 'lock_lines;
         }
 
-        const REVISION: &str = "revision:";
+        const REVISION: &str = "revision: ";
         if line.contains(REVISION) {
             if let CurrentSource::GIT { revision, .. } = &mut current_source {
                 revision.replace(tl.replace(REVISION, ""));
