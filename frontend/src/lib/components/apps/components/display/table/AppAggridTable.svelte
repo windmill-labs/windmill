@@ -95,9 +95,11 @@
 	let prevUid: string | undefined = undefined
 
 	let value: any[] = $state(
-		Array.isArray(result)
-			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
-			: [{ error: 'input was not an array' }]
+		untrack(() =>
+			Array.isArray(result)
+				? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
+				: [{ error: 'input was not an array' }]
+		)
 	)
 
 	let loaded = $state(false)
