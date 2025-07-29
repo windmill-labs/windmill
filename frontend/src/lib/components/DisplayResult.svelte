@@ -586,19 +586,19 @@
 				{#if !forceJson && resultKind === 'table-col'}
 					{@const data = 'table-col' in result ? result['table-col'] : result}
 					<AutoDataTable
-						class="absolute inset-0 [&>div]:h-full"
+						class="absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]"
 						objects={objectOfArraysToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row'}
 					{@const data = 'table-row' in result ? result['table-row'] : result}
 					<AutoDataTable
-						class="absolute inset-0 [&>div]:h-full"
+						class="absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]"
 						objects={arrayOfRowsToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
 					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
 					<AutoDataTable
-						class="absolute inset-0 [&>div]:h-full"
+						class="absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]"
 						objects={handleArrayOfObjectsHeaders(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}

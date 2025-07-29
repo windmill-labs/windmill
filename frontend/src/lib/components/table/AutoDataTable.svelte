@@ -283,6 +283,7 @@
 						currentPage = event.detail
 					}}
 					showNext={objects.length > perPage}
+					showPrev={objects.length > perPage}
 					hasMore={currentPage * perPage < objects.length}
 					rowCount={data.length}
 				>
@@ -335,7 +336,7 @@
 							{/each}
 						</tr>
 					</Head>
-					<tbody class="divide-y">
+					<tbody class="divide-y border-b">
 						{#each slicedData.filter((x) => x) as { _id, rowData }, index (index)}
 							<Row dividable selected={selection.includes(_id) && colSelection.length == 0}>
 								<Cell first={true} last={false} class="w-6">
