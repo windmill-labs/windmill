@@ -586,11 +586,46 @@ fn resolve_ts_interface_and_type_alias(
         ),
     };
 
-    if let Typ::Object(obj) = &mut resolved_type.0 {
-        if obj.name.is_none() {
-            obj.name = Some(type_name.to_owned());
+    fn update_name(typ: &mut Typ, type_name: &str) {
+        match typ {
+            // OBJECT TYPES:
+            // Normally, when you declare something like:
+            //     type Postgresql = object
+            // it will initially resolve to:
+            //     Typ::Object(ObjectType { name: None, .. })
+            //
+            // If the object has no name (name == None), we assign `type_name`
+            // so it becomes:
+            //     Typ::Object(ObjectType { name: Some("postgresql"), .. })
+            Typ::Object(ObjectType { name, .. }) if name.is_none() => {
+                *name = Some(type_name.to_owned());
+            }
+
+            // RESOURCE TYPES:
+            // In some cases, when a type alias points to something unresolved:
+            //     type Postgresql = Foo
+            // might initially resolve to:
+            //     Typ::Resource("Foo")
+            //
+            // This ensures backwards compatibility by updating that resource
+            // name to the alias name, so it becomes:
+            //     Typ::Resource("postgresql")
+            Typ::Resource(name) if name != type_name => {
+                *name = type_name.to_owned();
+            }
+
+            // LIST TYPES:
+            // For lists, e.g. `type PostgresqlList = [object]`,
+            // we recursively call `update_name` on the inner type,
+            // so the same renaming logic applies inside the list.
+            Typ::List(list) => {
+                update_name(list, type_name);
+            }
+            _ => {}
         }
     }
+
+    update_name(&mut resolved_type.0, type_name);
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
@@ -777,7 +812,6 @@ fn tstype_to_typ(
                 ),
                 symbol @ _ => {
                     let symbol = to_snake_case(symbol);
-
                     resolve_ts_interface_and_type_alias(
                         &symbol,
                         symbol_table,
