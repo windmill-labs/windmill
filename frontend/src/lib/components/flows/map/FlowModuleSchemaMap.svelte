@@ -408,6 +408,7 @@
 					}
 					refreshStateStore(flowStore)
 					onDelete?.(id)
+					delete $flowStateStore[id]
 				}
 
 				if (Object.keys(dependents).length > 0) {
