@@ -24,16 +24,15 @@ import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
   FSFSElement,
   findCodebase,
-  newPathAssigner,
   yamlOptions,
 } from "./sync.ts";
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts } from "../../windmill-utils/src/inline-scripts/replacer.ts";
+import { replaceInlineScripts } from "npm:centdix-utils";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../windmill-utils/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "npm:centdix-utils";
 
 export class LockfileGenerationError extends Error {
   constructor(message: string) {

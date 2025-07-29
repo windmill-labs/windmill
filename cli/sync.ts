@@ -4,7 +4,6 @@ import {
   colors,
   Command,
   Confirm,
-  Input,
   Select,
   ensureDir,
   minimatch,
@@ -37,8 +36,8 @@ import {
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings } from "./conf.ts";
 import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
@@ -47,9 +46,9 @@ import {
   generateScriptMetadataInternal,
   readLockfile,
 } from "./metadata.ts";
-import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../windmill-utils/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, FlowModule } from "npm:centdix-utils";
 
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -435,7 +434,7 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules);
+            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules as FlowModule[]);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
