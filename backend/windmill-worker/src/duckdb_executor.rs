@@ -426,7 +426,7 @@ struct ParsedAttachDbResource<'a> {
 }
 fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource<'a>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '(\$res:|res://)([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH '(\$res:|res://)([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
     }
 
     for cap in RE.captures_iter(query) {
@@ -555,7 +555,7 @@ async fn transform_attach_ducklake(
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
 ) -> Result<Option<(Vec<String>, Option<UseInstancePgPassword>)>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
