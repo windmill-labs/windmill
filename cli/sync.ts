@@ -46,9 +46,9 @@ import {
   generateScriptMetadataInternal,
   readLockfile,
 } from "./metadata.ts";
-import { OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { OpenFlow } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows, FlowModule } from "npm:centdix-utils";
+import { assignPath, extractInlineScripts as extractInlineScriptsForFlows, FlowModule } from "npm:centdix-utils";
 
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -310,13 +310,8 @@ export interface InlineScript {
   content: string;
 }
 
-interface PathAssigner {
-  assignPath(id: string, language: string): [string, string];
-}
-
 export function extractInlineScriptsForApps(
   rec: any,
-  pathAssigner: PathAssigner
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -325,7 +320,7 @@ export function extractInlineScriptsForApps(
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const [basePath, ext] = pathAssigner.assignPath(rec["id"], o["language"]);
+        const [basePath, ext] = assignPath(rec["id"], o["language"]);
         const r = [];
         if (o["content"]) {
           const content = o["content"];
@@ -345,52 +340,13 @@ export function extractInlineScriptsForApps(
         }
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
+        return extractInlineScriptsForApps(v);
       }
     });
   }
   return [];
 }
 
-export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
-  function assignPath(
-    id: string,
-    language: RawScript["language"] | "frontend" | "bunnative"
-  ): [string, string] {
-    const name = id.toLowerCase();
-
-    let ext;
-    if (language == "python3") ext = "py";
-    else if (language == defaultTs || language == "bunnative") ext = "ts";
-    else if (language == "bun") ext = "bun.ts";
-    else if (language == "deno") ext = "deno.ts";
-    else if (language == "go") ext = "go";
-    else if (language == "bash") ext = "sh";
-    else if (language == "powershell") ext = "ps1";
-    else if (language == "postgresql") ext = "pg.sql";
-    else if (language == "mysql") ext = "my.sql";
-    else if (language == "bigquery") ext = "bq.sql";
-    else if (language == "oracledb") ext = "odb.sql";
-    else if (language == "snowflake") ext = "sf.sql";
-    else if (language == "mssql") ext = "ms.sql";
-    else if (language == "graphql") ext = "gql";
-    else if (language == "nativets") ext = "native.ts";
-    else if (language == "frontend") ext = "frontend.js";
-    else if (language == "php") ext = "php";
-    else if (language == "rust") ext = "rs";
-    else if (language == "csharp") ext = "cs";
-    else if (language == "nu") ext = "nu";
-    else if (language == "ansible") ext = "playbook.yml";
-    else if (language == "java") ext = "java";
-    else if (language == "duckdb") ext = "duckdb.sql";
-    // for related places search: ADD_NEW_LANG
-    else ext = "no_ext";
-
-    return [`${name}.inline_script.`, ext];
-  }
-
-  return { assignPath };
-}
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
@@ -458,10 +414,7 @@ function ZipFSElement(
             };
           } else if (kind == "app") {
             const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(
-              app?.["value"],
-              newPathAssigner(defaultTs)
-            );
+            const inlineScripts = extractInlineScriptsForApps(app?.["value"]);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
