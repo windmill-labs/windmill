@@ -183,9 +183,11 @@
 			? property.type
 			: property.format === 'resource-s3_object'
 				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-					? 'oneOf'
-					: 'object'
+				: property.format?.startsWith('dynselect-')
+					? 'dynselect'
+					: property.oneOf && property.oneOf.length >= 2
+						? 'oneOf'
+						: 'object'
 	}
 
 	export function openField(key: string) {
@@ -530,6 +532,7 @@
 																				(v) => {
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
+																					const isDynSelect = v == 'dynselect'
 
 																					const emptyProperty = {
 																						contentEncoding: undefined,
@@ -554,6 +557,12 @@
 																							...emptyProperty,
 																							type: 'object',
 																							format: 'resource-s3_object'
+																						}
+																					} else if (isDynSelect) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'dynselect-main'
 																						}
 																					} else if (isOneOf) {
 																						schema.properties[argName] = {
@@ -604,7 +613,7 @@
 																			}}
 																		>
 																			{#snippet children({ item })}
-																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3'], ['DynSelect', 'dynselect']] as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
 																			{/snippet}
