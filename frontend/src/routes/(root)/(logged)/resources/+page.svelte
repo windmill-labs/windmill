@@ -417,6 +417,16 @@
 		}
 	})
 
+	onMount(() => {
+		let hash = $page.url.hash
+		if (hash.startsWith('#/resource/')) {
+			console.log('hash', hash)
+			let path = hash.slice(11)
+			resourceEditor?.initEdit(path)
+			
+		}
+	})
+
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
@@ -788,7 +798,7 @@
 										<Cell>
 											<a
 												class="break-all"
-												href="#{path}"
+												href="#/resource/{path}"
 												onclick={() => resourceEditor?.initEdit?.(path)}
 												>{#if marked}{@html marked}{:else}{path}{/if}</a
 											>
