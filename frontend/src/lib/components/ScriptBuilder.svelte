@@ -103,7 +103,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 
 	let {
-		script,
+		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		template = $bindable('script'),

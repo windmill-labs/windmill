@@ -241,7 +241,10 @@
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
 	let destroyed = false
-	const uri = computeUri(filePath, scriptLang)
+	const uri = computeUri(
+		untrack(() => filePath),
+		scriptLang
+	)
 
 	console.log('uri', uri)
 

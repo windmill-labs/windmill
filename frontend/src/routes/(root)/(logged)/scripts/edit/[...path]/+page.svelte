@@ -206,7 +206,7 @@
 	<ScriptBuilder
 		bind:this={scriptBuilder}
 		{initialPath}
-		{script}
+		bind:script
 		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}

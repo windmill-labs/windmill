@@ -60,7 +60,7 @@
 	let tabHeight: number = $state(0)
 	let footerHeight: number = $state(0)
 	let runnableComponent: RunnableComponent | undefined = $state()
-	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
 	let maxReachedIndex = $state(-1)
 	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
