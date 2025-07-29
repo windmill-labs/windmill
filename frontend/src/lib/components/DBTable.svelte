@@ -12,6 +12,7 @@
 	import type { IDbTableOps } from './dbOps'
 	import { deepEqual } from 'fast-equals'
 	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
 	import { untrack } from 'svelte'
 

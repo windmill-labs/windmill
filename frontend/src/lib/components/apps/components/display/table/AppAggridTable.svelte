@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { GridApi, createGrid } from 'ag-grid-community'
+	import { type GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, readFieldsRecursively, sendUserToast } from '$lib/utils'
 	import { getContext, mount, onDestroy, unmount, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -24,6 +24,7 @@
 	import SyncColumnDefs from './SyncColumnDefs.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import './theme/windmill-theme.css'
 
 	import {
@@ -556,7 +557,7 @@
 			untrack(() => clearActionOrder())
 	})
 	$effect(() => {
-		readFieldsRecursively(resolvedConfig) 
+		readFieldsRecursively(resolvedConfig)
 		api && resolvedConfig && updateOptions()
 	})
 	$effect(() => {
