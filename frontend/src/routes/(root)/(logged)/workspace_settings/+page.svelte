@@ -65,6 +65,7 @@
 	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
 	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { untrack } from 'svelte'
 
 	// Shared defaults for new Git-Sync repositories
@@ -124,13 +125,15 @@
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
 	let workspaceToDeployTo: string | undefined = $state(undefined)
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' | 'email' = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let triggerFailureEmailRecipients: string[] = $state([])
+	let initialTriggerFailureEmailRecipients: string[] = $state([])
 
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
@@ -596,6 +599,10 @@
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
+		triggerFailureEmailRecipients = settings.trigger_failure_email_recipients
+			? settings.trigger_failure_email_recipients
+			: []
+		initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -709,15 +716,29 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		if (errorHandlerSelected === 'email') {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: {
+					error_handler: undefined,
+					error_handler_extra_args: undefined,
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					trigger_failure_email_recipients: triggerFailureEmailRecipients.length > 0 ? triggerFailureEmailRecipients : undefined
+				}
+			})
+			initialTriggerFailureEmailRecipients = [...triggerFailureEmailRecipients]
+			sendUserToast(`Trigger failure email recipients updated`)
+		} else if (errorHandlerScriptPath) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					trigger_failure_email_recipients: undefined
 				}
 			})
+			initialTriggerFailureEmailRecipients = []
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
@@ -725,12 +746,16 @@
 				requestBody: {
 					error_handler: undefined,
 					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined
+					error_handler_muted_on_cancel: undefined,
+					trigger_failure_email_recipients: undefined
 				}
 			})
+			initialTriggerFailureEmailRecipients = []
 			sendUserToast(`workspace error handler removed`)
 		}
 	}
+
+
 
 	async function runGitSyncTestJob(settingsIdx: number) {
 		let gitSyncRepository = gitSyncSettings.repositories[settingsIdx]
@@ -1169,6 +1194,8 @@
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
+				bind:triggerFailureEmailRecipients
+				bind:initialTriggerFailureEmailRecipients
 			>
 				{#snippet customTabTooltip()}
 					<Tooltip>

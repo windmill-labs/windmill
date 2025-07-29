@@ -1932,6 +1932,10 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
+                  trigger_failure_email_recipients:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - error_handler_muted_on_cancel
 
@@ -2394,6 +2398,11 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
+                trigger_failure_email_recipients:
+                  type: array
+                  items:
+                    type: string
+                  description: List of email addresses to notify when trigger jobs fail
 
       responses:
         "200":
@@ -2402,6 +2411,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/workspaces/edit_large_file_storage_config:
     post:

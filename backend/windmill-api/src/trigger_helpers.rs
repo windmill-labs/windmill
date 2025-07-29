@@ -21,7 +21,7 @@ use windmill_common::{
     worker::to_raw_value,
     FlowVersionInfo,
 };
-use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
+use windmill_queue::{push, JobTriggerKind, PushArgs, PushArgsOwned, PushIsolationLevel};
 
 #[cfg(feature = "enterprise")]
 use crate::jobs::check_license_key_valid;
@@ -472,6 +472,7 @@ async fn trigger_runnable_inner(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: JobTriggerKind,
 ) -> Result<(Uuid, Option<bool>)> {
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
     let (uuid, delete_after_use) = if is_flow {
@@ -485,6 +486,7 @@ async fn trigger_runnable_inner(
             path,
             run_query,
             args,
+            Some(trigger_kind),
         )
         .await?;
         (uuid, None)
@@ -500,6 +502,7 @@ async fn trigger_runnable_inner(
             error_handler_path,
             error_handler_args,
             trigger_path,
+            Some(trigger_kind),
         )
         .await?
     };
@@ -520,6 +523,7 @@ pub async fn trigger_runnable(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: JobTriggerKind,
 ) -> Result<axum::response::Response> {
     let (uuid, _) = trigger_runnable_inner(
         db,
@@ -533,6 +537,7 @@ pub async fn trigger_runnable(
         error_handler_path,
         error_handler_args,
         trigger_path,
+        trigger_kind,
     )
     .await?;
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
@@ -551,6 +556,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: JobTriggerKind,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
     let (uuid, delete_after_use) = trigger_runnable_inner(
@@ -565,6 +571,7 @@ pub async fn trigger_runnable_and_wait_for_result(
         error_handler_path,
         error_handler_args,
         trigger_path,
+        trigger_kind,
     )
     .await?;
     let (result, success) =
@@ -590,6 +597,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: JobTriggerKind,
 ) -> Result<Box<RawValue>> {
     let username = authed.username.clone();
     let (uuid, delete_after_use) = trigger_runnable_inner(
@@ -604,6 +612,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         error_handler_path,
         error_handler_args,
         trigger_path,
+        trigger_kind,
     )
     .await?;
 
@@ -661,6 +670,7 @@ async fn trigger_script_internal(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
         let run_query = RunJobQuery::default();
@@ -673,6 +683,7 @@ async fn trigger_script_internal(
             path,
             run_query,
             args,
+            trigger_kind,
         )
         .await
     } else {
@@ -687,6 +698,7 @@ async fn trigger_script_internal(
             error_handler_path,
             error_handler_args,
             trigger_path,
+            trigger_kind,
         )
         .await
     }
@@ -703,6 +715,7 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -798,6 +811,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         None,
         push_authed.as_ref(),
+        trigger_kind,
     )
     .await?;
     tx.commit().await?;
