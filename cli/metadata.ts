@@ -30,7 +30,8 @@ import {
 } from "./sync.ts";
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
-import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { FlowFile } from "./flow.ts";
+import { replaceInlineScripts } from "../../windmill-utils/src/inline-scripts/replacer.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 
@@ -174,8 +175,9 @@ export async function generateFlowLockInternal(
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     replaceInlineScripts(
       flowValue.value.modules,
+      Deno.readTextFileSync,
       folder + SEP!,
-      changedScripts
+      { removeLocks: changedScripts }
     );
 
     //removeChangedLocks

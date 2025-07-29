@@ -8,11 +8,12 @@ import { requireLogin } from "./auth.ts";
 import { resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
-import { blueColor, generateFlowLockInternal } from "./metadata.ts";
+import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
-import { readInlinePathSync } from "./utils.ts";
-import { Flow, FlowModule } from "./gen/types.gen.ts";
+import { Flow } from "./gen/types.gen.ts";
+import { replaceInlineScripts } from "../../windmill-utils/src/inline-scripts/replacer.ts";
+
 
 export interface FlowFile {
   summary: string;
@@ -22,73 +23,6 @@ export interface FlowFile {
 }
 
 const alreadySynced: string[] = [];
-
-export function replaceInlineScripts(
-  modules: FlowModule[],
-  localPath: string,
-  removeLocks: string[] | undefined
-) {
-  modules.forEach((m, i) => {
-    if (!m.value) {
-      throw Error(
-        `Module value is undefined for flow module ${i} in ${localPath}`
-      );
-      return;
-    }
-    if (m.value.type == "rawscript") {
-      if (m.value.content.startsWith("!inline")) {
-        const path = m.value.content.split(" ")[1];
-        m.value.content = Deno.readTextFileSync(localPath + path);
-
-        const pathPrefix = path.split(".")[0];
-        // rename the file if the prefix is different from the module id (fix old naming)
-        if (pathPrefix != m.id) {
-          const pathSuffix = path.split(".").slice(1).join(".");
-          log.info(`Renaming ${path} to ${m.id}.${pathSuffix}`);
-          Deno.renameSync(localPath + path, localPath + m.id + "." + pathSuffix);
-        }
-
-        const lock = m.value.lock;
-        if (removeLocks && removeLocks.includes(path)) {
-          m.value.lock = undefined;
-          // delete the file if the prefix is different from the module id (fix old naming)
-          if (lock && lock != "") {
-            const path = lock.split(" ")[1];
-            const pathPrefix = path.split(".")[0];
-            if (pathPrefix != m.id) {
-              log.info(`Deleting ${path}`);
-              Deno.removeSync(localPath + path);
-            }
-          }
-        } else if (
-          lock &&
-          typeof lock == "string" &&
-          lock.trimStart().startsWith("!inline ")
-        ) {
-          const path = lock.split(" ")[1];
-          try {
-            m.value.lock = readInlinePathSync(localPath + path);
-          } catch {
-            log.error(`Lock file ${path} not found`);
-          }
-        }
-      }
-    } else if (m.value.type == "forloopflow") {
-      replaceInlineScripts(m.value.modules, localPath, removeLocks);
-    } else if (m.value.type == "whileloopflow") {
-      replaceInlineScripts(m.value.modules, localPath, removeLocks);
-    } else if (m.value.type == "branchall") {
-      m.value.branches.forEach((b) =>
-        replaceInlineScripts(b.modules, localPath, removeLocks)
-      );
-    } else if (m.value.type == "branchone") {
-      m.value.branches.forEach((b) =>
-        replaceInlineScripts(b.modules, localPath, removeLocks)
-      );
-      replaceInlineScripts(m.value.default, localPath, removeLocks);
-    }
-  });
-}
 
 export async function pushFlow(
   workspace: string,
@@ -116,7 +50,7 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
-  replaceInlineScripts(localFlow.value.modules, localPath, undefined);
+  replaceInlineScripts(localFlow.value.modules, Deno.readTextFileSync, localPath);
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
