@@ -46,9 +46,18 @@
 	async function getItemsFromOptions() {
 		return new Promise<{ label: string; value: any }[]>((resolve, reject) => {
 			let cb: Callbacks = {
-				doneResult({ result }) {
+				doneResult({ result, success }) {
 					if (!result || !Array.isArray(result)) {
-						reject('Result was not an array')
+						if (result?.error?.message && result?.error?.name) {
+							reject(
+								'Error in DynSelect function execution: ' +
+									result?.error?.name +
+									' - ' +
+									result?.error?.message
+							)
+						} else {
+							reject('Result was not an array but ' + JSON.stringify(result, null, 2))
+						}
 						return
 					}
 					if (result.length == 0) resolve([])
@@ -65,7 +74,7 @@
 				cancel: () => reject(),
 				doneError({ id, error }) {
 					reject(error)
-				},
+				}
 			}
 			helperScript?.type == 'inline'
 				? resultJobLoader?.runPreview(
@@ -113,7 +122,7 @@
 		/>
 		{#if _items.error}
 			<div class="text-red-400 text-2xs">
-				error: <Tooltip>{JSON.stringify(_items.error)}</Tooltip>
+				error: <Tooltip>{_items.error}</Tooltip>
 			</div>
 		{/if}
 	</div>

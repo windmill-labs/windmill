@@ -423,7 +423,6 @@
 			console.log('hash', hash)
 			let path = hash.slice(11)
 			resourceEditor?.initEdit(path)
-			
 		}
 	})
 
