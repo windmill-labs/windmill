@@ -203,7 +203,7 @@ fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result
                 let normalized = normalized.to_str().unwrap().to_string();
                 relative_imports.push(normalized);
             } else {
-                tracing::error!("error canonicalizing path: {:?}", normalized);
+                tracing::error!("error canonicalizing path: {script_path} with import {import}");
             }
         }
     }
