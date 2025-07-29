@@ -56,7 +56,7 @@
 				...(dbTableOps.onUpdate && {
 					defaultColDef: {
 						flex: 1,
-						minWidth: 160,
+						minWidth: 150,
 						editable: true,
 						onCellValueChanged: (e) => {
 							if (!$workspaceStore) return
@@ -78,7 +78,6 @@
 					}
 				}),
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
-				infiniteInitialRowCount: 100,
 				cacheBlockSize: 100,
 				cacheOverflowSize: 10,
 				maxBlocksInCache: 20,
