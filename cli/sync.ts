@@ -49,6 +49,7 @@ import {
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "../../windmill-utils/src/inline-scripts/extractor.ts";
 
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -310,48 +311,6 @@ export interface InlineScript {
   content: string;
 }
 
-export function extractInlineScriptsForFlows(
-  modules: FlowModule[],
-  pathAssigner: PathAssigner
-): InlineScript[] {
-  return modules.flatMap((m) => {
-    if (m.value.type == "rawscript") {
-      const [basePath, ext] = pathAssigner.assignPath(
-        m.id,
-        m.value.language
-      );
-      const path = basePath + ext;
-      const content = m.value.content;
-      const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replaceAll(SEP, "/");
-      const lock = m.value.lock;
-      if (lock && lock != "") {
-        const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
-        r.push({ path: lockPath, content: lock });
-      }
-      return r;
-    } else if (m.value.type == "forloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchall") {
-      return m.value.branches.flatMap((b) =>
-        extractInlineScriptsForFlows(b.modules, pathAssigner)
-      );
-    } else if (m.value.type == "whileloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchone") {
-      return [
-        ...m.value.branches.flatMap((b) =>
-          extractInlineScriptsForFlows(b.modules, pathAssigner)
-        ),
-        ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
-      ];
-    } else {
-      return [];
-    }
-  });
-}
-
 interface PathAssigner {
   assignPath(id: string, language: string): [string, string];
 }
@@ -476,10 +435,7 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules,
-              newPathAssigner(defaultTs)
-            );
+            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,

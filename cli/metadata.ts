@@ -23,7 +23,6 @@ import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
   FSFSElement,
-  extractInlineScriptsForFlows,
   findCodebase,
   newPathAssigner,
   yamlOptions,
@@ -34,6 +33,7 @@ import { FlowFile } from "./flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils/src/inline-scripts/replacer.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "../../windmill-utils/src/inline-scripts/extractor.ts";
 
 export class LockfileGenerationError extends Error {
   constructor(message: string) {
@@ -188,10 +188,7 @@ export async function generateFlowLockInternal(
       rawReqs
     );
 
-    const inlineScripts = extractInlineScriptsForFlows(
-      flowValue.value.modules,
-      newPathAssigner(opts.defaultTs ?? "bun")
-    );
+    const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules);
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
