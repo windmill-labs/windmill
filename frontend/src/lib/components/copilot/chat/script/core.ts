@@ -252,38 +252,37 @@ export function getLangContext(
 				PHP_RESOURCE_TYPE_SYSTEM +
 				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}` +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
-\`\`\`
-// require:
-// mylibrary/mylibrary
-// myotherlibrary/myotherlibrary@optionalversion
-\`\`\`
-Make sure to have one per line.
-No need to require autoload, it is already done.`
+					\`\`\`
+					// require:
+					// mylibrary/mylibrary
+					// myotherlibrary/myotherlibrary@optionalversion
+					\`\`\`
+					Make sure to have one per line.
+					No need to require autoload, it is already done.`
 			)
 		case 'rust':
 			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
-\`\`\`rust
-use anyhow::anyhow;
-use serde::Serialize;
+				\`\`\`rust
+				use anyhow::anyhow;
+				use serde::Serialize;
 
-#[derive(Serialize, Debug)]
-struct ReturnType {
-    // ...
-}
+				#[derive(Serialize, Debug)]
+				struct ReturnType {
+					// ...
+				}
 
-fn main(...) -> anyhow::Result<ReturnType>
-\`\`\`
-Arguments should be owned. Make sure the return type is serializable.
+				fn main(...) -> anyhow::Result<ReturnType>
+				\`\`\`
+				Arguments should be owned. Make sure the return type is serializable.
 
-Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! \`\`\'
-Serde is already included, no need to add it again.
+				Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
+				//! \`\`\`cargo
+				//! [dependencies]
+				//! anyhow = "1.0.86"
+				//! \`\`\'
+				Serde is already included, no need to add it again.
 
-If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.
-`
+				If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.`
 		case 'go':
 			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
 		case 'bash':

@@ -76,23 +76,37 @@ async function push(opts: PushOptions, filePath: string, name: string) {
   log.info(colors.bold.underline.green("Resource pushed"));
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { schema?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const res = await wmill.listResourceType({
     workspace: workspace.workspaceId,
   });
 
-  new Table()
-    .header(["Workspace", "Name"])
-    .padding(2)
-    .border(true)
-    .body(res.map((x) => [x.workspace_id ?? "Global", x.name]))
-    .render();
+  if (opts.schema) {
+    new Table()
+      .header(["Workspace", "Name", "Schema"])
+      .padding(2)
+      .border(true)
+      .body(res.map((x) => [x.workspace_id ?? "Global", x.name, JSON.stringify(x.schema, null, 2)]))
+      .render();
+  } else {
+    new Table()
+      .header(["Workspace", "Name"])
+      .padding(2)
+      .border(true)
+      .body(res.map((x) => [x.workspace_id ?? "Global", x.name]))
+      .render();
+  }
 }
 
 const command = new Command()
   .description("resource type related commands")
+  .action(() =>
+    log.info("2 actions available, list and push.")
+  )
+  .command("list", "list all resource types")
+  .option("--schema", "Show schema in the output")
   .action(list as any)
   .command(
     "push",
