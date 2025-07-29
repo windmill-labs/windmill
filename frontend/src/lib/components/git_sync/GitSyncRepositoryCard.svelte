@@ -17,6 +17,7 @@
 	const repo = $derived(gitSyncContext.getRepository(idx))
 	const validation = $derived(gitSyncContext.getValidation(idx))
 	const gitSyncTestJob = $derived(gitSyncContext.gitSyncTestJobs?.[idx])
+	let confirmingDelete = $state(false)
 
 	// Compute already-used repository paths to exclude from picker
 	const usedRepositoryPaths = $derived(
@@ -48,8 +49,24 @@
 		}
 	}
 
-	function handleRemove() {
-		gitSyncContext.removeRepository(idx)
+	function initiateDelete() {
+		confirmingDelete = true
+	}
+
+	async function confirmDelete() {
+		try {
+			await gitSyncContext.removeRepository(idx)
+			sendUserToast('Repository connection removed successfully')
+		} catch (error: any) {
+			console.error('Failed to remove repository:', error)
+			sendUserToast('Failed to remove repository: ' + error.message, true)
+		} finally {
+			confirmingDelete = false
+		}
+	}
+
+	function cancelDelete() {
+		confirmingDelete = false
 	}
 
 	function runGitSyncTestJob() {
@@ -132,14 +149,33 @@
 						</svg>
 					{/if}
 				</button>
-				<button
-					transition:fade|local={{ duration: 100 }}
-					class="rounded-full p-2 bg-surface-secondary duration-200 hover:bg-surface-hover"
-					aria-label="Remove repository"
-					onclick={handleRemove}
-				>
-					<Trash size={14} />
-				</button>
+				{#if !confirmingDelete}
+					<button
+						transition:fade|local={{ duration: 100 }}
+						class="rounded-full p-2 bg-surface-secondary duration-200 hover:bg-surface-hover"
+						aria-label="Remove repository"
+						onclick={initiateDelete}
+					>
+						<Trash size={14} />
+					</button>
+				{:else}
+					<div class="flex gap-1">
+						<button
+							transition:fade|local={{ duration: 100 }}
+							class="px-3 py-1 text-xs bg-red-500 text-white rounded duration-200 hover:bg-red-600"
+							onclick={confirmDelete}
+						>
+							Confirm delete
+						</button>
+						<button
+							transition:fade|local={{ duration: 100 }}
+							class="px-2 py-1 text-xs bg-surface-secondary rounded duration-200 hover:bg-surface-hover"
+							onclick={cancelDelete}
+						>
+							<XCircle size={12} />
+						</button>
+					</div>
+				{/if}
 			</div>
 		</div>
 		{#if !repo.collapsed}

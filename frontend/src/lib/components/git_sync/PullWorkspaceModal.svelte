@@ -3,7 +3,7 @@
 	import { Button, Alert, Badge } from '$lib/components/common'
 	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
-	import { JobService, WorkspaceService } from '$lib/gen'
+	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import hubPaths from '$lib/hubPaths.json'
@@ -58,43 +58,8 @@
 		if (!currentGitSyncSettings || repoIndex === undefined) return
 
 		try {
-			const workspace = $workspaceStore
-			if (!workspace) return
-
-			// Create a serialized version of repositories
-			const repositories = currentGitSyncSettings.repositories.map((repo: any) => {
-				const serialized: any = {
-					script_path: repo.script_path,
-					git_repo_resource_path: repo.git_repo_resource_path,
-					use_individual_branch: repo.use_individual_branch || false,
-					group_by_folder: repo.group_by_folder || false
-				}
-
-				// Add settings if they exist
-				if (repo.settings) {
-					serialized.settings = {
-						include_path: repo.settings.include_path || [],
-						exclude_path: repo.settings.exclude_path || [],
-						extra_include_path: repo.settings.extra_include_path || [],
-						include_type: repo.settings.include_type || []
-					}
-				}
-
-				// Add exclude_types_override if it exists
-				if (repo.exclude_types_override && repo.exclude_types_override.length > 0) {
-					serialized.exclude_types_override = repo.exclude_types_override
-				}
-
-				return serialized
-			})
-
-			await WorkspaceService.editWorkspaceGitSyncConfig({
-				workspace,
-				requestBody: {
-					git_sync_settings: { repositories }
-				}
-			})
-
+			// Save only the specific repository that was updated
+			await currentGitSyncSettings.saveRepository(repoIndex)
 			onSettingsSaved?.()
 		} catch (error) {
 			console.error('Failed to save settings:', error)

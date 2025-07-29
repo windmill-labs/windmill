@@ -168,7 +168,34 @@ export function createGitSyncContext(workspace: string) {
 		})
 	}
 
-	function removeRepository(idx: number) {
+	async function removeRepository(idx: number) {
+		const repo = repositories[idx]
+		if (!repo) return
+
+		// Check if this repository exists in the initial (saved) state
+		const existsInInitialState = initialRepositories.some(
+			initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+		)
+
+		// Only call backend API if repository exists in the saved state
+		if (existsInInitialState && repo.git_repo_resource_path) {
+			await WorkspaceService.deleteGitSyncRepository({
+				workspace,
+				requestBody: {
+					git_repo_resource_path: `$res:${repo.git_repo_resource_path}`
+				}
+			})
+
+			// Update initial state to remove the deleted repository
+			const initialIdx = initialRepositories.findIndex(
+				initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+			)
+			if (initialIdx !== -1) {
+				initialRepositories.splice(initialIdx, 1)
+			}
+		}
+
+		// Remove from local state
 		repositories.splice(idx, 1)
 		gitSyncTestJobs.splice(idx, 1)
 	}
@@ -307,46 +334,11 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	async function saveRepository(idx: number) {
-		const repo = repositories[idx]
-		if (!repo || !validateRepository(repo, idx)) {
-			throw new Error('Cannot save invalid repository')
-		}
-
-		const validRepos = repositories.filter((_, i) => validateRepository(repositories[i], i))
-
-		const updatedGitSync = {
-			repositories: validRepos.map(r => ({
-				git_repo_resource_path: r.git_repo_resource_path,
-				script_path: r.script_path,
-				use_individual_branch: r.use_individual_branch,
-				group_by_folder: r.group_by_folder,
-				settings: r.settings,
-				exclude_types_override: r.exclude_types_override
-			}))
-		}
-
-		await WorkspaceService.editWorkspaceGitSyncConfig({
-			workspace,
-			requestBody: { git_sync_settings: updatedGitSync }
-		})
-
-		// Update local state
-		if (repo.isUnsavedConnection) {
-			repo.isUnsavedConnection = false
-			repo.detectionState = undefined
-			repo.extractedSettings = undefined
-		}
-
-		initialRepositories.splice(0, initialRepositories.length, ...repositories.map(repo => ({ ...repo })))
-	}
-
-	async function saveAllRepositories() {
-		const validRepos = repositories.filter((_, idx) => validateRepository(repositories[idx], idx))
-
+	// Centralized save utility that handles the $res: prefix correctly
+	async function saveGitSyncSettings(repositoriesToSave: GitSyncRepository[]) {
 		const gitSyncConfig = {
-			repositories: validRepos.map(repo => ({
-				git_repo_resource_path: repo.git_repo_resource_path,
+			repositories: repositoriesToSave.map(repo => ({
+				git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
 				script_path: repo.script_path,
 				use_individual_branch: repo.use_individual_branch,
 				group_by_folder: repo.group_by_folder,
@@ -363,6 +355,40 @@ export function createGitSyncContext(workspace: string) {
 		// Update initial state for change tracking
 		initialRepositories.splice(0, initialRepositories.length, ...repositories.map(repo => ({ ...repo })))
 	}
+
+	async function saveRepository(idx: number) {
+		const repo = repositories[idx]
+		if (!repo || !validateRepository(repo, idx)) {
+			throw new Error('Cannot save invalid repository')
+		}
+
+		// Use the new individual repository API instead of saving all repositories
+		await WorkspaceService.editGitSyncRepository({
+			workspace,
+			requestBody: {
+				git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
+				repository: {
+					git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
+					script_path: repo.script_path,
+					use_individual_branch: repo.use_individual_branch,
+					group_by_folder: repo.group_by_folder,
+					settings: repo.settings,
+					exclude_types_override: repo.exclude_types_override
+				}
+			}
+		})
+
+		// Update initial state for this specific repository only
+		initialRepositories[idx] = { ...repo }
+
+		// Update local state
+		if (repo.isUnsavedConnection) {
+			repo.isUnsavedConnection = false
+			repo.detectionState = undefined
+			repo.extractedSettings = undefined
+		}
+	}
+
 
 
 	// Helper functions for original functionality
@@ -466,7 +492,7 @@ export function createGitSyncContext(workspace: string) {
 		closePullModal,
 		loadSettings,
 		saveRepository,
-		saveAllRepositories,
+		saveGitSyncSettings,
 	}
 }
 

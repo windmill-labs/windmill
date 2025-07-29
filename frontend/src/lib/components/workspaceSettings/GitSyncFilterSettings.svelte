@@ -1,10 +1,11 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter } from 'lucide-svelte'
+	import { Filter, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FilterList from './FilterList.svelte'
 	import { Tabs, Tab } from '$lib/components/common'
 	import type { GitSyncObjectType } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -37,6 +38,7 @@
 
 	// Component state
 	let collapsed = $state(false)
+	let showCliInstructions = $state(false)
 
 	// Determine if component should be editable or read-only
 	const isEditable = $derived(isInitialSetup || requiresMigration)
@@ -113,6 +115,11 @@
 		<div class="flex items-center gap-2">
 			<Filter size={18} class="text-primary" />
 			<span class="font-semibold text-sm">Git Sync filter settings</span>
+			{#if !isEditable}
+				<Tooltip documentationLink="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml">
+					These settings are controlled by the wmill.yaml file in your git repository. Click "Pull from repo" to check for settings drift and pull settings from repo.
+				</Tooltip>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2">
 			<button
@@ -374,6 +381,45 @@
 							{/each}
 						</div>
 					</div>
+				</div>
+
+				<!-- CLI Instructions (collapsible) -->
+				<div class="border-t pt-4 mt-4">
+					<button
+						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
+						onclick={() => showCliInstructions = !showCliInstructions}
+					>
+						<Terminal size={16} />
+						<span>Update settings with CLI</span>
+						{#if showCliInstructions}
+							<ChevronUp size={16} />
+						{:else}
+							<ChevronDown size={16} />
+						{/if}
+					</button>
+
+					{#if showCliInstructions}
+						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
+							<div class="text-xs text-tertiary mb-2">
+								These filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
+								To modify them, edit the file in your repository, commit the changes, and sync using these commands:
+							</div>
+							<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
+# Make sure your repo is up to date
+git pull
+
+# Edit wmill.yaml file
+vim wmill.yaml
+
+# Push changes to workspace
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}
+
+# Commit changes
+git add wmill.yaml
+git commit
+git push</pre>
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}

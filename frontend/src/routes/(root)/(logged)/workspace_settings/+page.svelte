@@ -818,7 +818,7 @@
 			<StorageSettings bind:s3ResourceSettings />
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
-				<GitSyncSection workspace={$workspaceStore} />
+				<GitSyncSection />
 			{:else}
 				<div class="flex items-center justify-center p-8">
 					<div class="text-sm text-secondary">Loading workspace...</div>

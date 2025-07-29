@@ -179,6 +179,7 @@
 	<div class="flex flex-col gap-4">
 		<!-- Description -->
 		<p class="text-sm text-secondary">Push your current workspace content to the connected Git repository based on the configured filters.</p>
+		<p class="text-sm text-tertiary">Note: This will not update git sync settings in wmill.yaml. Settings can only be pulled from the repository as it is the source of truth.</p>
 
 		<!-- Preview section -->
 		{#if !previewResult}

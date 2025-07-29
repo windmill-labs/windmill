@@ -1,41 +1,39 @@
 <script lang="ts">
-	import { Save, Plus, ExternalLink } from 'lucide-svelte'
+	import { Plus, ExternalLink } from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryList from './GitSyncRepositoryList.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { onMount } from 'svelte'
+	import { untrack } from 'svelte'
 
-	let { workspace } = $props<{ workspace: string }>()
 
-	// Create and set context
-	const gitSyncContext = setGitSyncContext(workspace)
+	// Create context reactively based on workspaceStore
+	const gitSyncContext = $derived($workspaceStore ? setGitSyncContext($workspaceStore) : null)
 
-	// Load settings on mount
-	onMount(async () => {
-		try {
-			await gitSyncContext.loadSettings()
-		} catch (error) {
-			console.error('Failed to load git sync settings:', error)
-			sendUserToast('Failed to load git sync settings', true)
+	// Load settings when workspace context changes
+	$effect(() => {
+		if (gitSyncContext) {
+			untrack(async () => {
+				try {
+					await gitSyncContext.loadSettings()
+				} catch (error) {
+					console.error('Failed to load git sync settings:', error)
+					sendUserToast('Failed to load git sync settings', true)
+				}
+			})
 		}
 	})
 
-	async function handleSaveAll() {
-		try {
-			await gitSyncContext.saveAllRepositories()
-			sendUserToast('Git sync settings saved successfully')
-		} catch (error: any) {
-			console.error('Failed to save git sync settings:', error)
-			sendUserToast('Failed to save git sync settings: ' + error.message, true)
-		}
-	}
 </script>
 
-{#if gitSyncContext.loading}
+{#if !gitSyncContext}
+	<div class="flex items-center justify-center p-8">
+		<div class="text-sm text-secondary">Loading workspace...</div>
+	</div>
+{:else if gitSyncContext.loading}
 	<div class="flex items-center justify-center p-8">
 		<div class="text-sm text-secondary">Loading git sync settings...</div>
 	</div>
@@ -64,21 +62,10 @@
 	{#if gitSyncContext.repositories != undefined}
 		<div class="flex mt-5 mb-5 gap-8">
 			<Button
-				startIcon={{ icon: Save }}
-				disabled={!$enterpriseLicense ||
-					!gitSyncContext.hasAnyChanges ||
-					!gitSyncContext.allRepositoriesValid ||
-					gitSyncContext.hasUnsavedConnections}
-				onclick={handleSaveAll}
-			>
-				Save all git sync settings {!$enterpriseLicense ? '(ee only)' : ''}
-			</Button>
-
-			<Button
 				color="dark"
 				target="_blank"
 				endIcon={{ icon: ExternalLink }}
-				href={`/runs?job_kinds=deploymentcallbacks&workspace=${workspace}`}
+				href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
 			>
 				See sync jobs
 			</Button>

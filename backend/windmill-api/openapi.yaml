@@ -2455,6 +2455,65 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/edit_git_sync_repository:
+    post:
+      summary: add or update individual git sync repository
+      operationId: editGitSyncRepository
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Git sync repository settings to add or update
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_repo_resource_path:
+                  type: string
+                  description: The resource path of the git repository to update
+                repository:
+                  $ref: "#/components/schemas/GitRepositorySettings"
+              required:
+                - git_repo_resource_path
+                - repository
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/delete_git_sync_repository:
+    delete:
+      summary: delete individual git sync repository
+      operationId: deleteGitSyncRepository
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Git sync repository to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_repo_resource_path:
+                  type: string
+                  description: The resource path of the git repository to delete
+              required:
+                - git_repo_resource_path
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/workspaces/edit_deploy_ui_config:
     post:
       summary: edit workspace deploy ui settings
