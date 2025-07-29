@@ -603,9 +603,9 @@ fn resolve_ts_interface_and_type_alias(
 
             // RESOURCE TYPES:
             // In some cases, when a type alias points to something unresolved:
-            //     type Postgresql = object
+            //     type Postgresql = Foo
             // might initially resolve to:
-            //     Typ::Resource("object")
+            //     Typ::Resource("Foo")
             //
             // This ensures backwards compatibility by updating that resource
             // name to the alias name, so it becomes:

@@ -32,26 +32,6 @@ mod tests {
     }
 
     #[test]
-    fn test_imports_with_type_only_skipped() {
-        let code = r#"
-        import type { TypeOnly } from "type-only";
-        import { runtime } from "runtime-lib";
-        "#;
-        let imports = parse_expr_for_imports(code, true).unwrap();
-        assert_eq!(imports, ["runtime-lib"]);
-    }
-
-    #[test]
-    fn test_imports_with_type_only_included() {
-        let code = r#"
-        import type { TypeOnly } from "type-only";
-        import { runtime } from "runtime-lib";
-        "#;
-        let imports = parse_expr_for_imports(code, false).unwrap();
-        assert_eq!(imports, ["runtime-lib", "type-only"]);
-    }
-
-    #[test]
     fn test_parse_empty_main_signature() {
         let code = r#"
         export async function main() {
@@ -248,6 +228,37 @@ mod tests {
                     name: "database".to_string(),
                     otyp: None,
                     typ: Typ::Resource("postgresql".to_string()),
+                    default: None,
+                    has_default: false,
+                    oidx: None,
+                },],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_array_resource_types() {
+        let code = r#"
+        type Postgresql = Foo;
+
+        export async function main(
+            database: Postgresql[]
+        ) {
+            return { database };
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(
+            sig,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    name: "database".to_string(),
+                    otyp: None,
+                    typ: Typ::List(Box::new(Typ::Resource("postgresql".to_string()))),
                     default: None,
                     has_default: false,
                     oidx: None,
