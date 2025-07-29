@@ -10,7 +10,6 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
 	import Description from '$lib/components/Description.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
@@ -28,6 +27,7 @@
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
+	import { isCloudHosted } from '$lib/cloud'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
@@ -245,7 +245,7 @@
 		}
 	})
 
-	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = $state(undefined)
+	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | 'email' | undefined = $state(undefined)
 	let channelCache = $state({
 		slack: undefined as string | undefined,
 		teams: undefined as string | undefined
@@ -310,7 +310,6 @@
 				'slack'
 			]).then((schema) => (slackHandlerSchema = schema))
 	})
-
 </script>
 
 <div>
@@ -574,41 +573,47 @@
 		{/if}
 	{/if}
 {:else if handlerSelected === 'email'}
-	<div class="flex flex-col gap-4 my-4">
-		<div class="flex flex-col gap-1">
-			<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
-			<Description>
-				Configure email addresses to receive notifications when trigger jobs fail. This feature
-				requires SMTP to be configured.
-			</Description>
+	{#if isCloudHosted()}
+		<Alert type="info" title="Email notifications are not available in Cloud">
+			Email notifications for trigger failures are only available in self-hosted Windmill instances.
+		</Alert>
+	{:else}
+		<div class="flex flex-col gap-4 my-4">
+			<div class="flex flex-col gap-1">
+				<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
+				<Description>
+					Configure email addresses to receive notifications when trigger jobs fail. This feature
+					requires SMTP to be configured.
+				</Description>
+			</div>
 		</div>
-	</div>
-	<div class="flex flex-col gap-2 my-4">
-		<Label>Email Recipients</Label>
-		<MultiSelect
-			items={[] as { label: string; value: string }[]}
-			bind:value={triggerFailureEmailRecipients}
-			placeholder="Enter email addresses..."
-			onCreateItem={(email) => {
-				const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
-				if (!emailRegex.test(email)) {
-					sendUserToast('Invalid email format', true)
-					return
-				}
-				if (triggerFailureEmailRecipients.includes(email)) {
-					sendUserToast('Email already added', true)
-					return
-				}
-				triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email]
-			}}
-			class="w-full"
-		/>
-		{#if triggerFailureEmailRecipients.length > 0}
-			<span class="text-sm text-tertiary">
-				{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1
-					? ''
-					: 's'} configured
-			</span>
-		{/if}
-	</div>
+		<div class="flex flex-col gap-2 my-4">
+			<Label>Email Recipients</Label>
+			<MultiSelect
+				items={[] as { label: string; value: string }[]}
+				bind:value={triggerFailureEmailRecipients}
+				placeholder="Enter email addresses..."
+				onCreateItem={(email) => {
+					const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+					if (!emailRegex.test(email)) {
+						sendUserToast('Invalid email format', true)
+						return
+					}
+					if (triggerFailureEmailRecipients.includes(email)) {
+						sendUserToast('Email already added', true)
+						return
+					}
+					triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email]
+				}}
+				class="w-full"
+			/>
+			{#if triggerFailureEmailRecipients.length > 0}
+				<span class="text-sm text-tertiary">
+					{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1
+						? ''
+						: 's'} configured
+				</span>
+			{/if}
+		</div>
+	{/if}
 {/if}

@@ -1487,6 +1487,15 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         }
     }
     else if !trigger_failure_email_recipients.is_empty() && queued_job.parent_job.is_none() {
+
+        if *CLOUD_HOSTED {
+            tracing::warn!(
+                "Workspace trigger failure email notification is not available for cloud hosted Windmill, skipping for job {}",
+                queued_job.id
+            );
+            return Ok(());
+        }
+
         #[cfg(feature = "smtp")]
         return send_workspace_trigger_failure_email_notification(
             queued_job,
