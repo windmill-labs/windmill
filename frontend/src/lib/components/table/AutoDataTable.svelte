@@ -282,7 +282,8 @@
 					on:change={(event) => {
 						currentPage = event.detail
 					}}
-					showNext={currentPage * perPage < objects.length}
+					showNext={objects.length > perPage}
+					hasMore={currentPage * perPage < objects.length}
 					rowCount={data.length}
 				>
 					<Head>
