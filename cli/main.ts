@@ -281,7 +281,7 @@ const command = new Command()
                 // Ask about cursor guidance files
                 const createCursor = await Confirm.prompt({
                     message: "Create Cursor IDE guidance files (.cursor/rules/)?",
-                    default: false,
+                    default: true,
                 });
 
                 if (createCursor) {
@@ -314,7 +314,7 @@ const command = new Command()
                 // Ask about claude guidance file
                 const createClaude = await Confirm.prompt({
                     message: "Create Claude guidance file (CLAUDE.md)?",
-                    default: false,
+                    default: true,
                 });
 
                 if (createClaude) {
