@@ -14,7 +14,7 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_common::workspaces::{DucklakeCatalogResourceType, DucklakeWithConnData};
+use windmill_common::workspaces::DucklakeCatalogResourceType;
 use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -700,13 +700,11 @@ impl Drop for UseBigQueryCredentialsFile {
 // Unfortunately it seems there is always a way to leak the password through errors,
 // e.g on connection error or on syntax error near the password.
 // The instance database is particularly sensitive so we treat it with maximum care
-pub struct UseInstancePgPassword {
-    password: String,
-}
+pub struct UseInstancePgPassword {}
 impl UseInstancePgPassword {
     pub fn new(password: String) -> Self {
         env::set_var("PGPASSWORD", &password);
-        Self { password }
+        Self {}
     }
 }
 impl Drop for UseInstancePgPassword {

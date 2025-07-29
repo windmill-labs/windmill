@@ -539,7 +539,7 @@ async fn create_database(
         ));
     }
 
-    let result = sqlx::query(&format!("CREATE DATABASE \"{name}\""))
+    sqlx::query(&format!("CREATE DATABASE \"{name}\""))
         .execute(&db)
         .await?;
     Ok(())
