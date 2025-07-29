@@ -46,7 +46,7 @@
 	async function getItemsFromOptions() {
 		return new Promise<{ label: string; value: any }[]>((resolve, reject) => {
 			let cb: Callbacks = {
-				doneResult({ result, success }) {
+				doneResult({ result }) {
 					if (!result || !Array.isArray(result)) {
 						if (result?.error?.message && result?.error?.name) {
 							reject(
