@@ -2,7 +2,7 @@
 	import { stopPropagation } from 'svelte/legacy'
 
 	import { type GridApi, createGrid } from 'ag-grid-community'
-	import { isObject, readFieldsRecursively, sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext, mount, onDestroy, unmount, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
@@ -557,7 +557,6 @@
 			untrack(() => clearActionOrder())
 	})
 	$effect(() => {
-		readFieldsRecursively(resolvedConfig)
 		api && resolvedConfig && updateOptions()
 	})
 	$effect(() => {
