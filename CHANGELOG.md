@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.515.1](https://github.com/windmill-labs/windmill/compare/v1.515.0...v1.515.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* improved logs for script ([2e7ab91](https://github.com/windmill-labs/windmill/commit/2e7ab919a7bce4f04d7b09f45db48b5465346846))
+
 ## [1.515.0](https://github.com/windmill-labs/windmill/compare/v1.514.1...v1.515.0) (2025-07-29)
 
 
