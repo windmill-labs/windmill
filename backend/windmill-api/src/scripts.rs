@@ -933,6 +933,7 @@ async fn create_script_internal<'c>(
     }
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
+    tracing::info!("creating script {hash:?} at path {script_path} on workspace {w_id}");
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
             Some(format!("{}:{}", &w_id, &ns.path,))
