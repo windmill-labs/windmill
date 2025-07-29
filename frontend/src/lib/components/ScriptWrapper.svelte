@@ -9,5 +9,5 @@
 </script>
 
 <AiChatLayout noPadding {disableAi}>
-	<ScriptBuilder {script} {disableAi} {...props} />
+	<ScriptBuilder bind:script {disableAi} {...props} />
 </AiChatLayout>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 
 	import type { AppViewerContext, HiddenRunnable } from '../../types'
@@ -32,7 +32,7 @@
 	})
 
 	let outputs = initOutput($worldStore, id, {
-		result: result,
+		result: untrack(() => result),
 		loading: false,
 		jobId: undefined
 	})

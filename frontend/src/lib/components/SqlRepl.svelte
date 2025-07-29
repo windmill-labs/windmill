@@ -35,6 +35,13 @@
 
 		return statements
 	}
+
+	function pruneComments(code: string) {
+		return code
+			.replace(/--.*?(\r?\n|$)/g, '')
+			.replace(/\/\*[\s\S]*?\*\//g, '')
+			.trim()
+	}
 </script>
 
 <script lang="ts">
@@ -73,7 +80,11 @@
 		if (isRunning || !$workspaceStore) return
 		isRunning = true
 		try {
-			const statements = splitSqlStatements(code)
+			const statements = splitSqlStatements(pruneComments(code))
+			if (statements.length === 0) {
+				sendUserToast('Nothing to run', true)
+				return
+			}
 
 			// Transform all to JSON in case of select. This fixes the issue of
 			// custom postgres enum type failing to convert to a rust type in the backend.

@@ -62,7 +62,7 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = $state(tabs[0])
-	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
 	let css = $state(initCss($app.css?.tabscomponent, customCss))
 
 	let tabHeight: number = $state(0)

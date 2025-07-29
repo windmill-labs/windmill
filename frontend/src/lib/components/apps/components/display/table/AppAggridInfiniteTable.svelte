@@ -11,6 +11,7 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import './theme/windmill-theme.css'
 
 	import { initCss } from '$lib/components/apps/utils'

@@ -323,7 +323,7 @@
 		const newRawValue =
 			value == undefined || value == null
 				? ''
-				: isObjectCat(inputCat)
+				: isObjectCat(inputCat) || (inputCat == 'list' && isListJson)
 					? JSON.stringify(value, null, 2)
 					: isRawStringEditor(inputCat)
 						? typeof value == 'string'

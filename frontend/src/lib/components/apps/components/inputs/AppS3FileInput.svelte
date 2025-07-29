@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -50,7 +50,7 @@
 
 	let value: { path: string; filename: string }[] | undefined = $state(undefined)
 	const outputs = initOutput($worldStore, id, {
-		result: value ?? ([] as { path: string; filename: string }[] | undefined),
+		result: untrack(() => value) ?? ([] as { path: string; filename: string }[] | undefined),
 		loading: false,
 		jobId: undefined
 	})

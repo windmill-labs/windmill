@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
+	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext, mount, unmount, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'

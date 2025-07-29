@@ -111,7 +111,7 @@
 		goto(`/scripts/edit/${e.path}`)
 	}}
 	searchParams={$page.url.searchParams}
-	{script}
+	bind:script
 	{showMeta}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >

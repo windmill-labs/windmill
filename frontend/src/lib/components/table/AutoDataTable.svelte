@@ -21,9 +21,10 @@
 	import DownloadCsv from './DownloadCsv.svelte'
 	interface Props {
 		objects?: Array<Record<string, any>>
+		class?: string
 	}
 
-	let { objects = [] }: Props = $props()
+	let { objects = [], class: className }: Props = $props()
 
 	let currentPage = $state(1)
 	let perPage = $state(25)
@@ -170,7 +171,7 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class="w-full" bind:clientWidth={wrapperWidth}>
+<div class={className} bind:clientWidth={wrapperWidth}>
 	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
@@ -281,7 +282,9 @@
 					on:change={(event) => {
 						currentPage = event.detail
 					}}
-					showNext={currentPage * perPage < objects.length}
+					showNext={objects.length > perPage}
+					showPrev={objects.length > perPage}
+					hasMore={currentPage * perPage < objects.length}
 					rowCount={data.length}
 				>
 					<Head>
@@ -333,7 +336,7 @@
 							{/each}
 						</tr>
 					</Head>
-					<tbody class="divide-y">
+					<tbody class="divide-y border-b">
 						{#each slicedData.filter((x) => x) as { _id, rowData }, index (index)}
 							<Row dividable selected={selection.includes(_id) && colSelection.length == 0}>
 								<Cell first={true} last={false} class="w-6">
