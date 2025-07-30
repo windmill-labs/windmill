@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.515.1](https://github.com/windmill-labs/windmill/compare/v1.515.0...v1.515.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* improved logs for script ([2e7ab91](https://github.com/windmill-labs/windmill/commit/2e7ab919a7bce4f04d7b09f45db48b5465346846))
+
+## [1.515.0](https://github.com/windmill-labs/windmill/compare/v1.514.1...v1.515.0) (2025-07-29)
+
+
+### Features
+
+* **cli:** generate cursor rules on init ([#6270](https://github.com/windmill-labs/windmill/issues/6270)) ([29c686d](https://github.com/windmill-labs/windmill/commit/29c686d62ae3597eb59371f5a3e9dadd9dc9557f))
+
+
+### Bug Fixes
+
+* add size limit to indexer queries on jobs table to avoid oom ([#6293](https://github.com/windmill-labs/windmill/issues/6293)) ([4d6a614](https://github.com/windmill-labs/windmill/commit/4d6a61403b51d84ea4039611cb007a42a26d24b6))
+* fix DynSelect ([55ba599](https://github.com/windmill-labs/windmill/commit/55ba599022ac2a6b513c4456747e4910f3188ec7))
+* improve docker logs collection in docker mode ([ce4177e](https://github.com/windmill-labs/windmill/commit/ce4177ebaed02df62aec676ca4624d77052f3e51))
+* resource types as arg in typescript handle imported defined types ([56671bc](https://github.com/windmill-labs/windmill/commit/56671bc75fe940f940f52ad47f5cf99c8329a0c3))
+* resource-type-ts-parser ([#6289](https://github.com/windmill-labs/windmill/issues/6289)) ([9931311](https://github.com/windmill-labs/windmill/commit/99313116509a5ebec33aa2ab813e0c189d4c4e24))
+
+## [1.514.1](https://github.com/windmill-labs/windmill/compare/v1.514.0...v1.514.1) (2025-07-28)
+
+
+### Bug Fixes
+
+* pin tokio to 1.46.1 and aws-sdks-ts ([1a85dc7](https://github.com/windmill-labs/windmill/commit/1a85dc7008d77cb4d51c488b4ba02a02cd08b05d))
+
+## [1.514.0](https://github.com/windmill-labs/windmill/compare/v1.513.1...v1.514.0) (2025-07-28)
+
+
+### Features
+
+* migrate audit log ids to bigints (blocking migration for EE) ([6e8f5a5](https://github.com/windmill-labs/windmill/commit/6e8f5a5b00056a324fa4fc27b740290338e672c9))
+
+
+### Bug Fixes
+
+* fix id renaming in apps ([a999bc7](https://github.com/windmill-labs/windmill/commit/a999bc7b28764e3583fdd843f13060c760627b51))
+* **mcp:** add proper check for mcp routes ([#6282](https://github.com/windmill-labs/windmill/issues/6282)) ([f892f7c](https://github.com/windmill-labs/windmill/commit/f892f7c9af1058b899c880160bd91d5e7b3ebcd6))
+
+## [1.513.1](https://github.com/windmill-labs/windmill/compare/v1.513.0...v1.513.1) (2025-07-25)
+
+
+### Bug Fixes
+
+* improve error handler behavior wrt to parrallel branchall & forloops ([#6273](https://github.com/windmill-labs/windmill/issues/6273)) ([3f784e3](https://github.com/windmill-labs/windmill/commit/3f784e3c07aa35ef2298bed301d581bf25300ba6))
+* jobLoader for flowstatusviewerinner work with public apps ([94e20a9](https://github.com/windmill-labs/windmill/commit/94e20a97e036fdb99e34c79b466e957b943cb26a))
+* **mcp:** allow mcp scopes to run scripts and flows ([#6278](https://github.com/windmill-labs/windmill/issues/6278)) ([e8f4c24](https://github.com/windmill-labs/windmill/commit/e8f4c2418b83af75be90b21ab2ab64537fef00eb))
+
 ## [1.513.0](https://github.com/windmill-labs/windmill/compare/v1.512.0...v1.513.0) (2025-07-24)
 
 

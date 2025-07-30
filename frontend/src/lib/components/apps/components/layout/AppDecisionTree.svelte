@@ -68,7 +68,7 @@
 	let currentNodeId = $state(getFirstNode(nodes)?.id ?? '')
 
 	let outputs = initOutput($worldStore, id, {
-		currentNodeId,
+		currentNodeId: untrack(() => currentNodeId),
 		currentNodeIndex: selectedConditionIndex
 	})
 

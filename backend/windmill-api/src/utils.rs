@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -54,10 +54,6 @@ where
             if !scope.starts_with("if_jobs:filter_tags:") {
                 if !is_scoped_token {
                     is_scoped_token = true;
-                }
-
-                if scope.starts_with("mcp:") {
-                    return Ok(());
                 }
 
                 match ScopeDefinition::from_scope_string(scope) {
@@ -228,7 +224,8 @@ where
     Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
-#[derive(Serialize)]
+#[cfg(feature = "enterprise")]
+#[derive(serde::Serialize)]
 pub struct CriticalAlert {
     id: i32,
     alert_type: String,
