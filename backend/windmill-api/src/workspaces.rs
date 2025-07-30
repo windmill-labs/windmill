@@ -2618,15 +2618,25 @@ pub async fn mute_critical_alerts() -> Error {
 
 #[derive(Deserialize, Serialize)]
 struct ChangeOperatorSettings {
+    #[serde(default)]
     runs: bool,
+    #[serde(default)]
     schedules: bool,
+    #[serde(default)]
     resources: bool,
+    #[serde(default)]
     variables: bool,
+    #[serde(default)]
     assets: bool,
+    #[serde(default)]
     triggers: bool,
+    #[serde(default)]
     audit_logs: bool,
+    #[serde(default)]
     groups: bool,
+    #[serde(default)]
     folders: bool,
+    #[serde(default)]
     workers: bool,
 }
 
