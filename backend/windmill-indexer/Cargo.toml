@@ -8,8 +8,12 @@ edition.workspace = true
 name = "windmill_indexer"
 path = "src/lib.rs"
 
+[[bin]]
+name = "windmill_indexer_debug"
+path = "./src/main.rs"
+
 [features]
-default = []
+default = ["enterprise", "private", "parquet"]
 parquet = ["dep:object_store"]
 private = []
 enterprise = []
@@ -33,3 +37,4 @@ tokio-tar.workspace = true
 lazy_static.workspace = true
 const_format.workspace = true
 flume.workspace = true
+gethostname.workspace = true
