@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "./gen_wm_client.sh && tsc",
+    "build-mac": "./gen_wm_client-mac.sh && tsc",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

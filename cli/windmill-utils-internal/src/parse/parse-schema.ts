@@ -227,13 +227,3 @@ export function argSigToJsonSchemaType(
 	Object.assign(oldS, newS)
 
 }
-
-function sortObject<T>(o: T & object): T {
-	return Object.keys(o)
-		.sort()
-		.reduce((obj, key) => {
-			// @ts-ignore
-			obj[key] = o[key]
-			return obj
-		}, {}) as T
-}
