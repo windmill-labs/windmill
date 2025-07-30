@@ -521,7 +521,7 @@
 				<DeployToSetting bind:workspaceToDeployTo bind:deployUiSettings />
 			{:else}
 				<div class="my-2"
-					><Alert type="error" title="Enterprise license required"
+					><Alert type="warning" title="Enterprise license required"
 						>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
 					></div
 				>
@@ -572,7 +572,7 @@
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
 						<div class="pt-4"></div>
-						<Alert type="info" title="Workspace Teams commands is an EE feature">
+						<Alert type="warning" title="Workspace Teams commands is an EE feature">
 							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
@@ -700,7 +700,7 @@
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
 				<div class="pt-4"></div>
-				<Alert type="info" title="Workspace error handler is an EE feature">
+				<Alert type="warning" title="Workspace error handler is an EE feature">
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
@@ -839,7 +839,7 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<Alert type="info" title="Windmill EE only feature">
+				<Alert type="warning" title="Windmill EE only feature">
 					Default app can only be set on Windmill Enterprise Edition.
 				</Alert>
 			{/if}
