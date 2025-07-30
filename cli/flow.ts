@@ -50,7 +50,7 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
-  replaceInlineScripts(
+  await replaceInlineScripts(
     localFlow.value.modules,
     async (path: string) => await Deno.readTextFile(localPath + path),
     log,
