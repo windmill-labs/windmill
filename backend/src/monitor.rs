@@ -279,6 +279,7 @@ pub async fn initial_load(
         reload_nuget_config_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
+        reload_ruby_repos_setting(&conn).await;
     }
 }
 
@@ -1075,6 +1076,7 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_maven_repos_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1084,6 +1086,7 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
     let value = load_value_from_global_settings_with_conn(
         conn,
@@ -1098,6 +1101,16 @@ pub async fn reload_no_default_maven_setting(conn: &Connection) {
         }
         _ => (),
     };
+}
+
+pub async fn reload_ruby_repos_setting(conn: &Connection) {
+    reload_url_list_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::RUBY_REPOS_SETTING,
+        "RUBY_REPOS",
+        windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
@@ -1261,6 +1274,89 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     {
         if value.is_none() {
             tracing::info!("Loaded {setting_name} setting to None");
+        }
+        let mut l = lock.write().await;
+        *l = value;
+    }
+
+    Ok(())
+}
+
+pub async fn reload_url_list_setting_with_tracing(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) {
+    if let Err(e) = reload_url_list_setting(conn, setting_name, std_env_var, lock.clone()).await {
+        tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
+    }
+}
+
+pub async fn reload_url_list_setting(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) -> error::Result<()> {
+    // Check for force environment variable
+    if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
+        let mut urls = Vec::new();
+        for url_str in force_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(e) => {
+                    return Err(error::Error::BadRequest(format!("Invalid URL in FORCE_{}: '{}': {}", std_env_var, url_str, e)));
+                }
+            }
+        }
+        let mut l = lock.write().await;
+        *l = if urls.is_empty() { None } else { Some(urls) };
+        return Ok(());
+    }
+
+    let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+
+    // Check regular environment variable
+    let mut value = if let Ok(env_value) = std::env::var(std_env_var) {
+        let mut urls = Vec::new();
+        for url_str in env_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(_) => {
+                    // Log error but continue, similar to force variable handling
+                    tracing::error!("Invalid URL in {}: '{}'", std_env_var, url_str);
+                }
+            }
+        }
+        if urls.is_empty() { None } else { Some(urls) }
+    } else {
+        None
+    };
+
+    // Check database setting
+    if let Some(q) = q {
+        if let Ok(repos_str) = serde_json::from_value::<String>(q.clone()) {
+            let mut urls = Vec::new();
+            for url_str in repos_str.trim().split_whitespace() {
+                match url::Url::parse(url_str) {
+                    Ok(url) => urls.push(url),
+                    Err(e) => {
+                        tracing::error!("Invalid URL in {}: '{}': {}", setting_name, url_str, e);
+                        // Continue with other URLs, just skip invalid ones
+                    }
+                }
+            }
+            tracing::info!("Loaded setting {} from db config: {} URLs", setting_name, urls.len());
+            value = if urls.is_empty() { None } else { Some(urls) };
+        } else {
+            tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
+        }
+    }
+
+    {
+        if value.is_none() {
+            tracing::info!("Loaded {} setting to None", setting_name);
         }
         let mut l = lock.write().await;
         *l = value;

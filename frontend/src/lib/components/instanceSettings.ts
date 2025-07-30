@@ -322,6 +322,15 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Ruby Gems repositories',
+			description: 'Add private Ruby repositories with credentials. Should end with /',
+			key: 'ruby_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@gems.foo.com/',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Alerts: [

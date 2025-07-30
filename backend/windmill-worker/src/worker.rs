@@ -339,6 +339,7 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
+    pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));

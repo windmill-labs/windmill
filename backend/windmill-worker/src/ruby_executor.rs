@@ -10,6 +10,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
+use url::Url;
 use uuid::Uuid;
 use windmill_common::{
     cache::Storage,
@@ -28,7 +29,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
     handle_child::{self, handle_child},
-    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -138,8 +139,16 @@ class GemfileProxy
     @gem_calls = []
   end
 
-  def source(*args, **kwargs)
-    # Handle source calls if needed
+  def source(arg = nil, &block)
+    if arg.is_a?(String) && block_given?
+        # Handle the case where the argument is a string and a block is given
+        gemfile(&block)
+    elsif arg.is_a?(String)
+        # Handle the case where the argument is a string and no block is given
+        # Do nothing in this case
+    else
+        raise ArgumentError, "Invalid argument or block"
+    end
   end
 
   def group(*args, **kwargs)
@@ -254,7 +263,9 @@ pub async fn resolve<'a>(
     w_id: &str,
 ) -> Result<String, Error> {
     lazy_static::lazy_static! {
-        static ref BUNDLER_RE: Regex = Regex::new(r"^\s*require\s*'bundler/inline'").unwrap();
+        static ref BUNDLER_RE: Regex = Regex::new(r#"(?m)^\s*require\s*['"]bundler/inline['"]"#).unwrap();
+        static ref UNSUPPORTED_SOURCE_RE: Regex = Regex::new(r#"(?m)(?<src>^\s*source\s*['"]\S+://(?<usr>\S+):(?<passwd>\S+)@.*['"]\s*\n)"#).unwrap();
+        static ref SOURCES_RE: Regex = Regex::new(r#"\S+://(?<creds>\S+:\S+)@(?<url>\S*)"#).unwrap();
     }
 
     if BUNDLER_RE.find(&inner_content).is_some() {
@@ -270,6 +281,19 @@ Your Gemfile syntax will continue to work as-is."
         .map(str::trim)
         .filter(|s| !s.is_empty() && !s.starts_with('#'))
         .join("\n");
+
+    if let Some(caps) = UNSUPPORTED_SOURCE_RE.captures(&gemfile) {
+        if let (Some(src_m), Some(usr_m), Some(passwd_m)) =
+            (caps.name("src"), caps.name("usr"), caps.name("passwd"))
+        {
+            let cause = src_m
+                .as_str()
+                .replace(usr_m.as_str(), "CENSORED_USERNAME")
+                .replace(passwd_m.as_str(), "CENSORED_PASSWORD");
+
+            return Err(anyhow!("!> {cause} - inline source credentials are not supported at the moment. Please set up credentials in instance settings, if you do not have access to it, contact your administrator. If you need this feature please let us know.").into());
+        }
+    }
 
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
     file.write_all(&gemfile.as_bytes()).await?;
@@ -300,6 +324,7 @@ Your Gemfile syntax will continue to work as-is."
         } else {
             BUNDLE_PATH.as_str()
         });
+
         cmd
             // .env_clear()
             .current_dir(job_dir.to_owned())
@@ -311,6 +336,53 @@ Your Gemfile syntax will continue to work as-is."
             ])
             .envs(PROXY_ENVS.clone());
 
+        for repo in RUBY_REPOS.read().await.clone().unwrap_or_default() {
+            if let (Some(url), usr, Some(passwd)) =
+                (repo.domain(), repo.username(), repo.password())
+            {
+                cmd.env(
+                    dbg!(format!(
+                        "BUNDLE_{}",
+                        url
+                            // Align with bundlers' format. Example:
+                            // BUNDLE_GEM1__SKYVO__ID
+                            .replace(".", "__")
+                            .to_uppercase()
+                            // Remove trailing slashes
+                            // TODO: Make work with urls like: https://admin:123@gem1.skyvo.id/sub-path
+                            .replace("/", "")
+                    )),
+                    // BUNDLE_GEM1__SKYVO__ID=admin:123
+                    format!("{usr}:{passwd}"),
+                );
+            }
+        }
+        // if let Some(repos) = &*RUBY_REPOS.read().await {
+        //     // for cap in SOURCES_RE.captures_iter(&repos) {
+        //     //     if let (Some(url_m), Some(creds_m)) = (cap.name("url"), cap.name("creds")) {
+        //     //         cmd.env(
+        //     //             dbg!(format!(
+        //     //                 "BUNDLE_{}",
+        //     //                 url_m
+        //     //                     .as_str()
+        //     //                     // Alight with bundlers' format. Example:
+        //     //                     // BUNDLE_GEM1__SKYVO__ID
+        //     //                     .replace(".", "__")
+        //     //                     .to_uppercase()
+        //     //                     // Remove trailing slashes
+        //     //                     // TODO: Make work with urls like: https://admin:123@gem1.skyvo.id/sub-path
+        //     //                     .replace("/", "")
+        //     //             )),
+        //     //             // BUNDLE_GEM1__SKYVO__ID=admin:123
+        //     //             dbg!(creds_m.as_str()),
+        //     //         );
+        //     //     }
+        //     // }
+        // }
+
+        // crate::RUBY_REPOS
+        //     .read()
+        //     .await
         // // Configure proxies
         // {
         //     let jps = parse_proxy()?;
@@ -518,6 +590,7 @@ async fn install<'a>(
 
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
+    let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
     par_install_language_dependencies(
         deps.clone(),
         "ruby",
@@ -557,6 +630,34 @@ async fn install<'a>(
             ]);
             // .envs(PROXY_ENVS.clone())
 
+            // Figure out source
+            let source = {
+                let source = match dependency.custom_payload.source {
+                    CurrentSource::GIT { .. } => return Err(anyhow!("GIT is not supported").into()),
+                    CurrentSource::GEM { remote } => remote.unwrap(), // TODO: No unwraps please
+                    CurrentSource::INIT => return Err(
+                        Error::InternalErr(
+                            "BUG on lockfile resolution stage: detected initial enum variant at the stage it was not supposed to be at. Please report this issue.".to_owned())),
+                }
+                .trim()
+                .to_owned();
+
+                let src_url = Url::parse(&source)?;
+                repos
+                    .iter()
+                    // TODO: Handle trailing slashes
+                    .find(|inst_url|
+                        (inst_url.domain(), inst_url.path()) == (src_url.domain(), src_url.path()) )
+                    .map(Url::to_string)
+                    .unwrap_or(source)
+            };
+
+            dbg!(&source);
+            dbg!(&source);
+            dbg!(&source);
+            dbg!(&source);
+            dbg!(&source);
+
             cmd.args(&[
                 "install",
                 &dependency.custom_payload.pkg,
@@ -574,15 +675,9 @@ async fn install<'a>(
                 "--clear-sources",
                 // Specify the one from lockfile
                 "--source",
-                match dependency.custom_payload.source {
-                    CurrentSource::GIT { remote, revision } => {
-                        return Err(anyhow!("GIT is not supported").into())
-                    }
-                    CurrentSource::GEM { remote } => remote.unwrap(),
-                    CurrentSource::INIT => todo!(),
-                }
-                .trim(),
+                source.as_str(),
             ])
+            // .args(&repos)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -808,6 +903,28 @@ mount {{
     )
     .await
 }
+async fn get_repos_mapped() -> Result<Vec<Url>, Error> {
+    Ok(crate::RUBY_REPOS.read().await.clone().unwrap_or_default())
+}
+// async fn get_repos() -> HashMap<String, String> {
+//     let mut hm = HashMap::new();
+//     // BUNDLE_GEM1__SKYVO__ID
+//     crate::RUBY_REPOS
+//         .read()
+//         .await
+//         .as_ref()
+//         .map(|repos| {
+//             repos
+//                 .trim()
+//                 .split_whitespace()
+//                 .into_iter()
+//                 .map(|el| vec!["--source".to_owned(), el.to_owned()])
+//                 .collect_vec()
+//         })
+//         .unwrap_or_default()
+//         .concat();
+//     hm
+// }
 fn wrap(inner_content: &str) -> Result<String, Error> {
     let sig = parse_ruby_signature(inner_content)?;
     let spread = sig
