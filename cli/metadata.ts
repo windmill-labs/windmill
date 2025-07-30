@@ -28,7 +28,7 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts } from "npm:centdix-utils";
+import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows, argSigToJsonSchemaType } from "npm:centdix-utils";

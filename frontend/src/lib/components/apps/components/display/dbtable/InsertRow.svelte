@@ -13,7 +13,7 @@
 
 	init(wasmUrl)
 
-	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
+	import { argSigToJsonSchemaType } from '../../../../../../../../cli/windmill-utils-internal/src/parse/parse-schema'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
 

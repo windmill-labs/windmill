@@ -12,7 +12,7 @@ import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
 import { Flow } from "./gen/types.gen.ts";
-import { replaceInlineScripts } from "npm:centdix-utils";
+import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
 
 
 export interface FlowFile {
