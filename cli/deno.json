@@ -1,6 +1,6 @@
 {
     "patch": [
-      "../../windmill-utils"
+      "../../centdix-utils"
     ],
     "nodeModulesDir": "auto",
     "unstable": ["npm-patch"],

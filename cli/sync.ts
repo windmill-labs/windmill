@@ -48,7 +48,7 @@ import {
 } from "./metadata.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { assignPath, extractInlineScripts as extractInlineScriptsForFlows, FlowModule } from "npm:centdix-utils";
+import { assignPath, extractInlineScripts as extractInlineScriptsForFlows } from "npm:centdix-utils";
 
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -390,7 +390,7 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules as FlowModule[]);
+            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
