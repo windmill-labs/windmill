@@ -1,4 +1,4 @@
-import { assignPath, SupportedLanguage } from "../path-utils";
+import { assignPath } from "../path-utils";
 import { SEP } from "../constants";
 import { FlowModule } from "windmill-client";
 
@@ -7,6 +7,15 @@ interface InlineScript {
   content: string;
 }
 
+/**
+ * Extracts inline scripts from flow modules and replaces their content with file references.
+ * Recursively processes nested modules in loops and branches.
+ * 
+ * @param modules - Array of flow modules to process
+ * @param mapping - Optional mapping of module IDs to custom file paths
+ * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @returns Array of extracted inline scripts with their paths and content
+ */
 export function extractInlineScripts(
   modules: FlowModule[],
   mapping: Record<string, string> = {},
@@ -51,6 +60,14 @@ export function extractInlineScripts(
   });
 }
 
+/**
+ * Extracts the current mapping of module IDs to file paths from existing inline script references.
+ * Used to maintain consistency when re-processing flows that already have inline scripts.
+ * 
+ * @param modules - Array of flow modules to analyze (can be undefined)
+ * @param mapping - Existing mapping to extend with discovered mappings
+ * @returns Updated mapping of module IDs to file paths
+ */
 export function extractCurrentMapping(
   modules: FlowModule[] | undefined,
   mapping: Record<string, string> = {}

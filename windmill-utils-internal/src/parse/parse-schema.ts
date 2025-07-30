@@ -34,6 +34,13 @@ export interface SchemaProperty {
 	originalType?: string
 }
 
+/**
+ * Converts argument signature types to JSON Schema properties.
+ * Updates the provided SchemaProperty object in-place with the converted type information.
+ * 
+ * @param t - The argument signature type to convert (string, resource, list, object, etc.)
+ * @param oldS - The existing SchemaProperty object to update in-place
+ */
 export function argSigToJsonSchemaType(
 	t:
 		| string

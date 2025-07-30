@@ -28,6 +28,13 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   bunnative: "ts"
 };
 
+/**
+ * Gets the file extension for a given programming language.
+ * 
+ * @param language - The programming language
+ * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @returns The file extension for the language
+ */
 export function getLanguageExtension(
   language: SupportedLanguage, 
   defaultTs: "bun" | "deno" = "bun"
@@ -38,6 +45,14 @@ export function getLanguageExtension(
   return LANGUAGE_EXTENSIONS[language] || "no_ext";
 }
 
+/**
+ * Assigns a file path and extension for an inline script based on its ID and language.
+ * 
+ * @param id - The unique identifier for the script
+ * @param language - The programming language of the script
+ * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @returns A tuple containing the base path and file extension
+ */
 export function assignPath(
   id: string,
   language: SupportedLanguage,
