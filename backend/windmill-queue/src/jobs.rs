@@ -739,7 +739,7 @@ pub async fn add_completed_job_error(
 
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
-    pub static ref MAX_RESULT_SIZE: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
+    pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -786,9 +786,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
         let result_size = result.size() / 1024 / 1024;
         if result_size > 2 {
-            if result_size > *MAX_RESULT_SIZE {
-                tracing::error!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE={}MB", queued_job.id, result_size, *MAX_RESULT_SIZE);
-                return Err(Error::ResultTooLarge(format!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE={}MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", queued_job.id, result_size, *MAX_RESULT_SIZE)));
+            if result_size > *MAX_RESULT_SIZE_MB {
+                tracing::error!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE_MB={}MB", queued_job.id, result_size, *MAX_RESULT_SIZE_MB);
+                return Err(Error::ResultTooLarge(format!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE_MB={}MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", queued_job.id, result_size, *MAX_RESULT_SIZE_MB)));
             }
             append_logs(
                 &queued_job.id,
