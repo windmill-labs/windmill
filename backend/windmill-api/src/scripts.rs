@@ -395,7 +395,7 @@ async fn create_snapshot_script(
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
-
+    let mut handle_deployment_metadata = None;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -403,7 +403,7 @@ async fn create_snapshot_script(
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
 
-            let (new_hash, ntx) = create_script_internal(
+            let (new_hash, ntx, hdm) = create_script_internal(
                 ns,
                 w_id.clone(),
                 authed.clone(),
@@ -415,6 +415,7 @@ async fn create_snapshot_script(
             let nh = new_hash.to_string();
             script_hash = Some(if is_tar { format!("{nh}.tar") } else { nh });
             tx = Some(ntx);
+            handle_deployment_metadata = hdm;
         }
         if name == "file" {
             let hash = script_hash.as_ref().ok_or_else(|| {
@@ -477,6 +478,9 @@ async fn create_snapshot_script(
     }
 
     tx.unwrap().commit().await?;
+    if let Some(hdm) = handle_deployment_metadata {
+        hdm.handle(&db).await?;
+    }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
 
@@ -506,9 +510,36 @@ async fn create_script(
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
-    let (hash, tx) = create_script_internal(ns, w_id, authed, db, user_db, webhook).await?;
+    let (hash, tx, hdm) =
+        create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
     tx.commit().await?;
+    if let Some(hdm) = hdm {
+        hdm.handle(&db).await?;
+    }
     Ok((StatusCode::CREATED, format!("{}", hash)))
+}
+
+struct HandleDeploymentMetadata {
+    email: String,
+    created_by: String,
+    w_id: String,
+    obj: DeployedObject,
+    deployment_message: Option<String>,
+}
+
+impl HandleDeploymentMetadata {
+    async fn handle(self, db: &DB) -> Result<()> {
+        handle_deployment_metadata(
+            &self.email,
+            &self.created_by,
+            &db,
+            &self.w_id,
+            self.obj,
+            self.deployment_message,
+            false,
+        )
+        .await
+    }
 }
 
 async fn create_script_internal<'c>(
@@ -518,7 +549,11 @@ async fn create_script_internal<'c>(
     db: sqlx::Pool<Postgres>,
     user_db: UserDB,
     webhook: WebhookShared,
-) -> Result<(ScriptHash, Transaction<'c, Postgres>)> {
+) -> Result<(
+    ScriptHash,
+    Transaction<'c, Postgres>,
+    Option<HandleDeploymentMetadata>,
+)> {
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     let codebase = ns.codebase.as_ref();
@@ -989,7 +1024,7 @@ async fn create_script_internal<'c>(
             Some(&authed.clone().into()),
         )
         .await?;
-        Ok((hash, new_tx))
+        Ok((hash, new_tx, None))
     } else {
         if codebase.is_none() {
             let db2 = db.clone();
@@ -1027,21 +1062,36 @@ async fn create_script_internal<'c>(
             });
         }
 
-        handle_deployment_metadata(
-            &authed.email,
-            &authed.username,
-            &db,
-            &w_id,
-            DeployedObject::Script {
-                hash: hash.clone(),
-                path: script_path.clone(),
-                parent_path: p_path_opt,
-            },
-            ns.deployment_message,
-            false,
-        )
-        .await?;
-        Ok((hash, tx))
+        // handle_deployment_metadata(
+        //     &authed.email,
+        //     &authed.username,
+        //     &db,
+        //     &w_id,
+        //     DeployedObject::Script {
+        //         hash: hash.clone(),
+        //         path: script_path.clone(),
+        //         parent_path: p_path_opt,
+        //     },
+        //     ns.deployment_message,
+        //     false,
+        // )
+        // .await?;
+
+        Ok((
+            hash,
+            tx,
+            Some(HandleDeploymentMetadata {
+                email: authed.email,
+                created_by: authed.username,
+                w_id,
+                obj: DeployedObject::Script {
+                    hash: hash.clone(),
+                    path: script_path.clone(),
+                    parent_path: p_path_opt,
+                },
+                deployment_message: ns.deployment_message,
+            }),
+        ))
     }
 }
 
