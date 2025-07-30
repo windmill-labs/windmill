@@ -48,8 +48,7 @@ import {
 } from "./metadata.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { assignPath, extractInlineScripts as extractInlineScriptsForFlows } from "npm:centdix-utils";
-
+import { assignPath, extractInlineScripts as extractInlineScriptsForFlows } from "npm:windmill-utils-internal";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(

@@ -1,9 +1,4 @@
 {
-    "patch": [
-      "../../centdix-utils"
-    ],
-    "nodeModulesDir": "auto",
-    "unstable": ["npm-patch"],
   "imports": {
     "@cliffy/ansi": "jsr:@windmill-labs/cliffy-ansi@^1.0.0-rc.5",
     "@cliffy/command": "jsr:@windmill-labs/cliffy-command@^1.0.0-rc.5",
