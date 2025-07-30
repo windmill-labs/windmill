@@ -13,33 +13,58 @@ import { FlowModule } from "../gen/types.gen.ts";
  */
 export async function replaceInlineScripts(
     modules: FlowModule[],
-    fileReader: (...args: any[]) => any,
+    fileReader: (path: string) => Promise<string>,
     logger: {
-      info: (...args: any[]) => void,
-      error: (...args: any[]) => void,
+      info: (message: string) => void,
+      error: (message: string) => void,
     } = {
       info: () => {},
       error: () => {},
     },
     localPath: string,
-    removeLocks?: string[]
+    removeLocks?: string[],
+    renamer?: (path: string, newPath: string) => void,
+    deleter?: (path: string) => void
   ): Promise<void> {
     await Promise.all(modules.map(async (module) => {
       if (!module.value) {
         throw new Error(`Module value is undefined for module ${module.id}`);
       }
   
-      if (module.value.type === "rawscript") {
-        if (module.value.content.startsWith("!inline")) {
+      if (module.value.type === "rawscript" && module.value.content && module.value.content.startsWith("!inline")) {
           const path = module.value.content.split(" ")[1];
           try {
             module.value.content = await fileReader(path);
           } catch {
             logger.error(`Script file ${path} not found`);
           }
+
+          const pathPrefix = path.split(".")[0];
+          // rename the file if the prefix is different from the module id (fix old naming)
+          if (pathPrefix != module.id && renamer) {
+            const pathSuffix = path.split(".").slice(1).join(".");
+            logger.info(`Renaming ${path} to ${module.id}.${pathSuffix}`);
+            renamer(localPath + path, localPath + module.id + "." + pathSuffix);
+          }
+
           const lock = module.value.lock;
           if (removeLocks && removeLocks.includes(path)) {
             module.value.lock = undefined;
+
+          // delete the file if the prefix is different from the module id (fix old naming)
+          if (lock && lock != "") {
+            const path = lock.split(" ")[1];
+            const pathPrefix = path.split(".")[0];
+            if (pathPrefix != module.id && deleter) {
+              logger.info(`Deleting ${path}`);
+              try {
+                deleter(localPath + path);
+              } catch {
+                logger.error(`Failed to delete ${path}`);
+              } 
+            }
+          }
+
           } else if (
             lock &&
             typeof lock == "string" &&
@@ -51,7 +76,6 @@ export async function replaceInlineScripts(
             } catch {
               logger.error(`Lock file ${path} not found`);
             }
-          }
         }
       } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {
         await replaceInlineScripts(module.value.modules, fileReader, logger, localPath, removeLocks);

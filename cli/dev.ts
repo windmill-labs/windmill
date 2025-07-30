@@ -75,7 +75,15 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
-        replaceInlineScripts(localFlow.value.modules, async (path: string) => await Deno.readTextFile(localPath + path), log, localPath);
+        replaceInlineScripts(
+          localFlow.value.modules,
+          async (path: string) => await Deno.readTextFile(localPath + path),
+          log,
+          localPath,
+          undefined,
+          (path: string, newPath: string) => Deno.renameSync(path, newPath),
+          (path: string) => Deno.removeSync(path),
+        );
         currentLastEdit = {
           type: "flow",
           flow: localFlow,

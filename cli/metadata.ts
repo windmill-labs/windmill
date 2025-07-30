@@ -177,7 +177,9 @@ export async function generateFlowLockInternal(
       async (path: string) => await Deno.readTextFile(folder + SEP + path),
       log,
       folder + SEP!,
-      changedScripts
+      changedScripts,
+      (path: string, newPath: string) => Deno.renameSync(path, newPath),
+      (path: string) => Deno.removeSync(path),
     );
 
     //removeChangedLocks
