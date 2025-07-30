@@ -644,13 +644,14 @@ async fn handle_non_flow_job_error(
     job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
-    err: Value,
+    err_string: String,
+    err_json: Value,
     worker_name: &str,
 ) -> Result<WrappedError, Error> {
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("Unexpected error during job execution:\n{err:#?}"),
+        format!("Unexpected error during job execution:\n{err_string}"),
         &db.into(),
     )
     .await;
@@ -659,7 +660,7 @@ async fn handle_non_flow_job_error(
         job,
         mem_peak,
         canceled_by,
-        err,
+        err_json,
         worker_name,
         false,
         None,
@@ -682,7 +683,9 @@ pub async fn handle_job_error(
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
-    let err = error_to_value(err);
+    let err_string = format!("{}: {}", err.name(), err.to_string());
+    let err_json = error_to_value(err);
+
 
     let update_job_future = || async {
         handle_non_flow_job_error(
@@ -690,7 +693,8 @@ pub async fn handle_job_error(
             job,
             mem_peak,
             canceled_by.clone(),
-            err.clone(),
+            err_string,
+            err_json.clone(),
             worker_name,
         )
         .await
@@ -709,8 +713,8 @@ pub async fn handle_job_error(
             (job.id, Uuid::nil())
         };
 
-        let wrapped_error = WrappedError { error: err.clone() };
-        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
+        let wrapped_error = WrappedError { error: err_json.clone() };
+        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,

@@ -40,6 +40,8 @@ pub enum Error {
     RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
+    #[error("{0}")]
+    ResultTooLarge(String),
     #[error("IoErr: {error:#} @{location:#}")]
     IoErr { error: io::Error, location: String },
     #[error("Utf8Err: {error:#} @{location:#}")]
@@ -82,6 +84,44 @@ pub enum Error {
     ArgumentErr(String),
     #[error("{1}")]
     Generic(StatusCode, String),
+}
+
+impl Error {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::ExecutionErr(_) => "ExecutionErr",
+            Self::ResultTooLarge(_) => "ResultTooLarge",
+            Self::BadRequest(_) => "BadRequest",
+            Self::QuotaExceeded(_) => "QuotaExceeded",
+            Self::InternalErr(_) => "InternalErr",
+            Self::InternalErrLoc { .. } => "InternalErr",
+            Self::InternalErrAt(_, _) => "InternalErr",
+            Self::Anyhow { .. } => "Anyhow",
+            Self::JsonErr(_) => "JsonErr",
+            Self::AIError(_) => "AIError",
+            Self::AlreadyCompleted(_) => "AlreadyCompleted",
+            Self::FindPythonError(_) => "FindPythonError",
+            Self::ArgumentErr(_) => "ArgumentErr",
+            Self::Generic(_, _) => "Generic",
+            Self::IoErr { .. } => "IoErr",
+            Self::Utf8Err { .. } => "Utf8Err",
+            Self::UuidErr { .. } => "UuidErr",
+            Self::SqlErr { .. } => "SqlErr",
+            Self::SerdeJson { .. } => "SerdeJson",
+            Self::HexErr { .. } => "HexErr",
+            Self::DatabaseMigration(_) => "DatabaseMigration",
+            Self::ExitStatus(_, _) => "ExitStatus",
+            Self::ExecutionRawError(_) => "ExecutionRawError",
+            Self::BadGateway(_) => "BadGateway",
+            Self::BadConfig(_) => "BadConfig",
+            Self::ConnectingToDatabase(_) => "ConnectingToDatabase",
+            Self::NotFound(_) => "NotFound",
+            Self::NotAuthorized(_) => "NotAuthorized",
+            Self::MetricNotFound(_) => "MetricNotFound",
+            Self::PermissionDenied(_) => "PermissionDenied",
+            _ => "InternalErr",
+        }
+    }
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {

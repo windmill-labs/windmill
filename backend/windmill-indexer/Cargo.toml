@@ -32,3 +32,4 @@ object_store = { workspace = true, optional = true}
 tokio-tar.workspace = true
 lazy_static.workspace = true
 const_format.workspace = true
+flume.workspace = true
