@@ -6,7 +6,6 @@ import {
     esMain,
     log,
     yamlStringify,
-    Confirm,
 } from "./deps.ts";
 import flow from "./flow.ts";
 import app from "./apps.ts";
@@ -275,74 +274,47 @@ const command = new Command()
                 }
             }
 
-            // Ask user about creating guidance files
+            // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
             try {
+                const scriptGuidanceContent = SCRIPT_GUIDANCE;
+                const flowGuidanceContent = FLOW_GUIDANCE;
+                                
+                // Create .cursor/rules directory
+                await Deno.mkdir(".cursor/rules", { recursive: true });
                 
-                // Ask about cursor guidance files
-                const createCursor = await Confirm.prompt({
-                    message: "Create Cursor IDE guidance files (.cursor/rules/)?",
-                    default: true,
-                });
-
-                if (createCursor) {
-                    try {
-                        const scriptGuidanceContent = SCRIPT_GUIDANCE;
-                        const flowGuidanceContent = FLOW_GUIDANCE;
-                                        
-                        // Create .cursor/rules directory
-                        await Deno.mkdir(".cursor/rules", { recursive: true });
-                        
-                        // Create windmill.mdc file
-                        if (!await Deno.stat(".cursor/rules/script.mdc").catch(() => null)) {
-                            await Deno.writeTextFile(".cursor/rules/script.mdc", scriptGuidanceContent);
-                            log.info(colors.green("Created .cursor/rules/script.mdc"));
-                        }
-
-                        if (!await Deno.stat(".cursor/rules/flow.mdc").catch(() => null)) {
-                            await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
-                            log.info(colors.green("Created .cursor/rules/flow.mdc"));
-                        }
-                    } catch (error) {
-                        if (error instanceof Error) {
-                            log.warn(`Could not create cursor guidance files: ${error.message}`);
-                        } else {
-                            log.warn(`Could not create cursor guidance files: ${error}`);
-                        }
-                    }
+                // Create windmill.mdc file
+                if (!await Deno.stat(".cursor/rules/script.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/script.mdc", scriptGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/script.mdc"));
                 }
 
-                // Ask about claude guidance file
-                const createClaude = await Confirm.prompt({
-                    message: "Create Claude guidance file (CLAUDE.md)?",
-                    default: true,
-                });
-
-                if (createClaude) {
-                    try {
-                        const scriptGuidanceContent = SCRIPT_GUIDANCE;
-                        const flowGuidanceContent = FLOW_GUIDANCE;
-
-                        if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
-                            await Deno.writeTextFile("CLAUDE.md", `You are a helpful assistant that can help with Windmill scripts and flows creation.
-                                ## Script Guidance
-                                ${scriptGuidanceContent}
-
-                                ## Flow Guidance
-                                ${flowGuidanceContent}
-                            `);
-                            log.info(colors.green("Created CLAUDE.md"));
-                        }
-                    } catch (error) {
-                        if (error instanceof Error) {
-                            log.warn(`Could not create claude guidance file: ${error.message}`);
-                        } else {
-                            log.warn(`Could not create claude guidance file: ${error}`);
-                        }
-                    }
+                if (!await Deno.stat(".cursor/rules/flow.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/flow.mdc"));
                 }
+                
+                // Create CLAUDE.md file
+                if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
+                    await Deno.writeTextFile("CLAUDE.md", `
+                        # Claude
+
+                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+
+                        ## Script Guidance
+                        ${scriptGuidanceContent}
+
+                        ## Flow Guidance
+                        ${flowGuidanceContent}
+                    `);
+                    log.info(colors.green("Created CLAUDE.md"));
+                }
+                
             } catch (error) {
-                // If prompts fail (e.g., non-interactive environment), skip guidance files
-                log.info("Skipping guidance files creation (non-interactive environment)");
+                if (error instanceof Error) {
+                    log.warn(`Could not create guidance files: ${error.message}`);
+                } else {
+                    log.warn(`Could not create guidance files: ${error}`);
+                }
             }
 
         },
