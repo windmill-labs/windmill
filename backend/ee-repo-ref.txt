@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 13c5789ccc1e6ebf990093786b5d5d48c5324815
+=======
+f71bb68f5e08399dba557fb95c2c1fb365312260
+>>>>>>> ff112e408 (handle_deployment_metadata in a task)
