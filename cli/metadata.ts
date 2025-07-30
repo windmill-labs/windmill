@@ -171,10 +171,9 @@ export async function generateFlowLockInternal(
     }
 
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
-    log.info(`Flow value: ${testing()}`);
-    replaceInlineScripts(
+    await replaceInlineScripts(
       flowValue.value.modules,
-      Deno.readTextFileSync,
+      Deno.readTextFile,
       log,
       folder + SEP!,
       changedScripts
@@ -189,6 +188,7 @@ export async function generateFlowLockInternal(
     );
 
     log.info(`Extracting inline scripts for flow ${remote_path}`);
+    log.info(`Flow value: ${JSON.stringify(flowValue.value.modules)}`);
     const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules);
     log.info(`Extracted ${inlineScripts.length} inline scripts`);
     log.info(`Inline scripts: ${JSON.stringify(inlineScripts)}`);
