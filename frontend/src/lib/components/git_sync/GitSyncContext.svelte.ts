@@ -52,6 +52,15 @@ export function createGitSyncContext(workspace: string) {
 	let loading = $state(false)
 	const activeModals = $state<ModalState>({ push: null, pull: null })
 
+	// Legacy workspace-level settings state
+	const legacyWorkspaceIncludePath = $state<string[]>([])
+	const legacyWorkspaceIncludeType = $state<GitSyncObjectType[]>([])
+
+	// Derived state for legacy detection
+	const hasWorkspaceLevelSettings = $derived(
+		legacyWorkspaceIncludePath.length > 0 || legacyWorkspaceIncludeType.length > 0
+	)
+
 	// Watch for changes to git repository paths and reset detection state
 	$effect(() => {
 		repositories.forEach((repo) => {
@@ -131,6 +140,10 @@ export function createGitSyncContext(workspace: string) {
 	function checkChanges(repo: GitSyncRepository, idx: number): boolean {
 		const initial = initialRepositories[idx]
 		if (!initial) return true
+
+		// Legacy repositories always have "changes" because they need migration
+		if (repo.legacyImported) return true
+
 		return JSON.stringify(serializeRepository(repo)) !== JSON.stringify(serializeRepository(initial))
 	}
 
@@ -313,18 +326,61 @@ export function createGitSyncContext(workspace: string) {
 		try {
 			const settings = await WorkspaceService.getSettings({ workspace })
 
-			if (settings.git_sync?.repositories) {
-				repositories.splice(0, repositories.length, ...settings.git_sync.repositories.map(repo => ({
-					...repo,
-					git_repo_resource_path: repo.git_repo_resource_path.replace('$res:', ''),
-					settings: {
-						include_path: repo.settings?.include_path || ['f/**'],
-						exclude_path: repo.settings?.exclude_path || [],
-						extra_include_path: repo.settings?.extra_include_path || [],
-						include_type: repo.settings?.include_type || ['script', 'flow', 'app']
-					},
-					exclude_types_override: repo.exclude_types_override || []
-				})))
+			if (settings.git_sync !== undefined && settings.git_sync !== null) {
+				// Detect workspace-level legacy settings (outside repositories)
+				const workspaceLegacyIncludePath: string[] = (settings.git_sync as any)?.include_path ?? []
+				const workspaceLegacyIncludeTypeRaw: GitSyncObjectType[] = (settings.git_sync as any)?.include_type ?? []
+				const workspaceLegacyIncludeType: GitSyncObjectType[] = [...workspaceLegacyIncludeTypeRaw]
+
+				// Update legacy workspace state
+				legacyWorkspaceIncludePath.splice(0, legacyWorkspaceIncludePath.length, ...workspaceLegacyIncludePath)
+				legacyWorkspaceIncludeType.splice(0, legacyWorkspaceIncludeType.length, ...workspaceLegacyIncludeType)
+
+				if (settings.git_sync.repositories) {
+					repositories.splice(0, repositories.length, ...settings.git_sync.repositories.map(repo => {
+						// Check if this is a legacy repo (no nested settings object)
+						const isRepoLegacy = !repo.settings
+						const repoExcludeTypesOverride = repo.exclude_types_override ?? []
+
+						// Determine default types - use workspace legacy or fallback
+						const defaultTypes: GitSyncObjectType[] = workspaceLegacyIncludeType.length > 0
+							? [...workspaceLegacyIncludeType]
+							: ['script', 'flow', 'app', 'folder']
+
+						let repoSettings: SettingsObject
+						if (isRepoLegacy) {
+							// Legacy repo: inherit from workspace-level settings and apply exclude_types_override
+							const inheritedIncludeType = repo.settings?.include_type ?? [...defaultTypes]
+							const effectiveIncludeType = repoExcludeTypesOverride.length > 0
+								? inheritedIncludeType.filter(type => !repoExcludeTypesOverride.includes(type))
+								: inheritedIncludeType
+
+							repoSettings = {
+								include_path: repo.settings?.include_path ?? [...workspaceLegacyIncludePath],
+								exclude_path: repo.settings?.exclude_path ?? [],
+								extra_include_path: repo.settings?.extra_include_path ?? [],
+								include_type: effectiveIncludeType
+							}
+						} else {
+							// New format: use repo's own settings
+							repoSettings = {
+								include_path: repo.settings?.include_path ?? ['f/**'],
+								exclude_path: repo.settings?.exclude_path ?? [],
+								extra_include_path: repo.settings?.extra_include_path ?? [],
+								include_type: repo.settings?.include_type ?? ['script', 'flow', 'app']
+							}
+						}
+
+						return {
+							...repo,
+							git_repo_resource_path: repo.git_repo_resource_path.replace('$res:', ''),
+							settings: repoSettings,
+							exclude_types_override: repoExcludeTypesOverride,
+							// Mark legacy repos for UI handling
+							legacyImported: isRepoLegacy
+						}
+					}))
+				}
 			}
 
 			// Store initial state for change tracking
@@ -334,26 +390,20 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	// Centralized save utility that handles the $res: prefix correctly
-	async function saveGitSyncSettings(repositoriesToSave: GitSyncRepository[]) {
-		const gitSyncConfig = {
-			repositories: repositoriesToSave.map(repo => ({
-				git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
-				script_path: repo.script_path,
-				use_individual_branch: repo.use_individual_branch,
-				group_by_folder: repo.group_by_folder,
-				settings: repo.settings,
-				exclude_types_override: repo.exclude_types_override
-			}))
+
+	// Migration utility for legacy repositories
+	function migrateLegacyRepository(repo: GitSyncRepository): GitSyncRepository {
+		if (!repo.legacyImported) {
+			return repo // Already migrated or not legacy
 		}
 
-		await WorkspaceService.editWorkspaceGitSyncConfig({
-			workspace,
-			requestBody: { git_sync_settings: gitSyncConfig }
-		})
-
-		// Update initial state for change tracking
-		initialRepositories.splice(0, initialRepositories.length, ...repositories.map(repo => ({ ...repo })))
+		// Create migrated repository - exclude_types_override should already be applied in settings.include_type
+		// from the loadSettings logic, so we just need to clear the override and mark as migrated
+		return {
+			...repo,
+			exclude_types_override: [], // Clear the override since it's now integrated into include_type
+			legacyImported: false // Mark as migrated
+		}
 	}
 
 	async function saveRepository(idx: number) {
@@ -362,30 +412,34 @@ export function createGitSyncContext(workspace: string) {
 			throw new Error('Cannot save invalid repository')
 		}
 
+		// Migrate legacy repository if needed
+		const repoToSave = repo.legacyImported ? migrateLegacyRepository(repo) : repo
+
 		// Use the new individual repository API instead of saving all repositories
 		await WorkspaceService.editGitSyncRepository({
 			workspace,
 			requestBody: {
-				git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
+				git_repo_resource_path: `$res:${repoToSave.git_repo_resource_path}`,
 				repository: {
-					git_repo_resource_path: `$res:${repo.git_repo_resource_path}`,
-					script_path: repo.script_path,
-					use_individual_branch: repo.use_individual_branch,
-					group_by_folder: repo.group_by_folder,
-					settings: repo.settings,
-					exclude_types_override: repo.exclude_types_override
+					git_repo_resource_path: `$res:${repoToSave.git_repo_resource_path}`,
+					script_path: repoToSave.script_path,
+					use_individual_branch: repoToSave.use_individual_branch,
+					group_by_folder: repoToSave.group_by_folder,
+					settings: repoToSave.settings,
+					exclude_types_override: repoToSave.exclude_types_override
 				}
 			}
 		})
 
-		// Update initial state for this specific repository only
-		initialRepositories[idx] = { ...repo }
+		// Update local state with migrated repository
+		repositories[idx] = repoToSave
+		initialRepositories[idx] = { ...repoToSave }
 
 		// Update local state
-		if (repo.isUnsavedConnection) {
-			repo.isUnsavedConnection = false
-			repo.detectionState = undefined
-			repo.extractedSettings = undefined
+		if (repoToSave.isUnsavedConnection) {
+			repoToSave.isUnsavedConnection = false
+			repoToSave.detectionState = undefined
+			repoToSave.extractedSettings = undefined
 		}
 	}
 
@@ -470,12 +524,15 @@ export function createGitSyncContext(workspace: string) {
 		get activeModals() { return activeModals },
 		get gitSyncTestJobs() { return gitSyncTestJobs },
 		get initialRepositories() { return initialRepositories },
+		get legacyWorkspaceIncludePath() { return legacyWorkspaceIncludePath },
+		get legacyWorkspaceIncludeType() { return legacyWorkspaceIncludeType },
 
 		// Computed states - use getter functions that compute on access
 		get validationStates() { return getValidationStates() },
 		get hasAnyChanges() { return getHasAnyChanges() },
 		get allRepositoriesValid() { return getAllRepositoriesValid() },
 		get hasUnsavedConnections() { return getHasUnsavedConnections() },
+		get hasWorkspaceLevelSettings() { return hasWorkspaceLevelSettings },
 
 		// Methods
 		addRepository,
@@ -486,13 +543,13 @@ export function createGitSyncContext(workspace: string) {
 		runTestJob,
 		resetDetectionState,
 		detectRepository,
+		migrateLegacyRepository,
 		showPushModal,
 		showPullModal,
 		closePushModal,
 		closePullModal,
 		loadSettings,
 		saveRepository,
-		saveGitSyncSettings,
 	}
 }
 

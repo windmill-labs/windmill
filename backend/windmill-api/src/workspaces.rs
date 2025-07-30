@@ -887,6 +887,28 @@ pub struct EditGitSyncRepository {
     pub repository: GitRepositorySettings,
 }
 
+#[cfg(feature = "enterprise")]
+fn cleanup_legacy_git_sync_settings_in_memory(
+    git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
+    workspace_id: &str,
+) {
+    // Check if all repositories are in new format (have settings field)
+    let all_repos_migrated = git_sync_settings.repositories.iter()
+        .all(|repo| repo.settings.is_some());
+
+    // If all repos are migrated and we still have legacy workspace-level settings
+    if all_repos_migrated && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some()) {
+        tracing::info!(
+            workspace_id = workspace_id,
+            "All git sync repositories migrated to new format, cleaning up legacy workspace-level settings"
+        );
+
+        // Remove workspace-level legacy fields
+        git_sync_settings.include_path = None;
+        git_sync_settings.include_type = None;
+    }
+}
+
 #[cfg(not(feature = "enterprise"))]
 async fn edit_git_sync_config(
     _authed: ApiAuthed,
@@ -923,7 +945,10 @@ async fn edit_git_sync_config(
     )
     .await?;
 
-    if let Some(git_sync_settings) = new_config.git_sync_settings {
+    if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Clean up legacy workspace-level settings if all repos are migrated
+        cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
+
         let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
             .map_err(|err| Error::internal_err(err.to_string()))?;
 
@@ -942,6 +967,7 @@ async fn edit_git_sync_config(
         .execute(&mut *tx)
         .await?;
     }
+
     tx.commit().await?;
 
     // Trigger git sync for git sync settings changes
@@ -1029,6 +1055,9 @@ async fn edit_git_sync_repository(
         // Repository doesn't exist, add it as a new repository
         git_sync_settings.repositories.push(new_config.repository);
     }
+
+    // Clean up legacy workspace-level settings if all repos are migrated
+    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
     // Save the updated configuration
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
@@ -1135,6 +1164,9 @@ async fn delete_git_sync_repository(
         Some([("repository_path", git_repo_resource_path)].into()),
     )
     .await?;
+
+    // Clean up legacy workspace-level settings if all repos are migrated
+    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
     // Save the updated configuration
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)

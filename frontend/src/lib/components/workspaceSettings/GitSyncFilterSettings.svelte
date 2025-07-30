@@ -115,7 +115,11 @@
 		<div class="flex items-center gap-2">
 			<Filter size={18} class="text-primary" />
 			<span class="font-semibold text-sm">Git Sync filter settings</span>
-			{#if !isEditable}
+			{#if isLegacyRepo}
+				<Tooltip>
+					This repository uses legacy configuration format and inherits settings from workspace-level defaults. Excluded types are filtered out from inherited types. Save to migrate to the new format.
+				</Tooltip>
+			{:else if !isEditable}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml">
 					These settings are controlled by the wmill.yaml file in your git repository. Click "Pull from repo" to check for settings drift and pull settings from repo.
 				</Tooltip>

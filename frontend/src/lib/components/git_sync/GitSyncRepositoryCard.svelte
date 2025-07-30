@@ -88,6 +88,11 @@
 		<div class="flex items-center justify-between min-h-10 px-4 py-1 border-b">
 			<div class="flex items-center gap-2">
 				<span class="font-semibold">Repository #{idx + 1}</span>
+				{#if repo.legacyImported}
+					<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200">
+						Legacy Configuration
+					</span>
+				{/if}
 				<span class="text-xs text-tertiary pt-1 pl-8">
 					{repo.git_repo_resource_path}
 				</span>
@@ -99,7 +104,7 @@
 						onclick={handleSave}
 						startIcon={{ icon: Save }}
 					>
-						Save changes
+						{repo.legacyImported ? 'Migrate and save' : 'Save changes'}
 					</Button>
 					{#if gitSyncContext.initialRepositories[idx] && !repo.legacyImported}
 						<Button
@@ -298,26 +303,28 @@
 									}}
 								/>
 
-								<div class="w-1/3 flex gap-2">
-									<Button
-										size="xs"
-										color="dark"
-										variant="border"
-										onclick={() => gitSyncContext.showPullModal(idx)}
-										startIcon={{ icon: Download }}
-									>
-										Pull from repo
-									</Button>
-									<Button
-										size="xs"
-										color="dark"
-										variant="border"
-										onclick={() => gitSyncContext.showPushModal(idx)}
-										startIcon={{ icon: Upload }}
-									>
-										Push to repo
-									</Button>
-								</div>
+								{#if !repo.legacyImported}
+									<div class="w-1/3 flex gap-2">
+										<Button
+											size="xs"
+											color="dark"
+											variant="border"
+											onclick={() => gitSyncContext.showPullModal(idx)}
+											startIcon={{ icon: Download }}
+										>
+											Pull from repo
+										</Button>
+										<Button
+											size="xs"
+											color="dark"
+											variant="border"
+											onclick={() => gitSyncContext.showPushModal(idx)}
+											startIcon={{ icon: Upload }}
+										>
+											Push to repo
+										</Button>
+									</div>
+								{/if}
 							{/if}
 
 						{/if}
