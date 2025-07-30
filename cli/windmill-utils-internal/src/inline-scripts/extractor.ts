@@ -1,6 +1,6 @@
-import { assignPath } from "../path-utils/path-assigner.ts";
-import { SEP } from "../constants.ts";
-import { FlowModule } from "../gen/types.gen.ts";
+import { assignPath } from "../path-utils/path-assigner";
+import { SEP } from "../constants";
+import { FlowModule } from "../gen/types.gen";
 
 /**
  * Represents an inline script extracted from a flow module

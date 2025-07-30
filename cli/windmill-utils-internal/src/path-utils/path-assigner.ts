@@ -1,4 +1,4 @@
-import { RawScript } from "../gen/types.gen.ts";
+import { RawScript } from "../gen/types.gen";
 
 /**
  * Union type of all supported programming languages in Windmill
