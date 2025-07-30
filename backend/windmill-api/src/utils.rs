@@ -7,6 +7,7 @@
  */
 
 use axum::{body::Body, response::Response};
+use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -450,4 +451,36 @@ pub struct ExpiringCacheEntry<T> {
 pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
     let mut w = lock.write().await;
     *w = value;
+}
+lazy_static::lazy_static! {
+    static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+}
+
+pub fn get_ducklake_instance_pg_password(pg_password: &str) -> error::Result<String> {
+    {
+        let cached_password: std::sync::RwLockReadGuard<'_, Option<String>> =
+            DUCKLAKE_INSTANCE_PG_PASSWORD.read().unwrap();
+        if let Some(password) = &*cached_password {
+            return Ok(password.clone());
+        }
+    }
+
+    let argon2 = argon2::Argon2::default();
+    let mut output = [0u8; 32];
+    argon2
+        .hash_password_into(pg_password.as_bytes(), b"wmill_ducklake", &mut output)
+        .map_err(|e| {
+            error::Error::InternalErr(format!(
+                "Failed to generate ducklake_user password: {}",
+                e.to_string()
+            ))
+        })?;
+    let new_pw = base64::engine::general_purpose::STANDARD.encode(output);
+
+    {
+        let mut cached_password = DUCKLAKE_INSTANCE_PG_PASSWORD.write().unwrap();
+        *cached_password = Some(new_pw.clone());
+    }
+
+    return Ok(new_pw);
 }

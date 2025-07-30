@@ -14,7 +14,7 @@ use crate::db::ApiAuthed;
 use crate::job_helpers_ee::duckdb_connection_settings_v2;
 use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
-use crate::utils::get_instance_username_or_create_pending;
+use crate::utils::{get_ducklake_instance_pg_password, get_instance_username_or_create_pending};
 use crate::BASE_URL;
 use crate::{
     db::DB,
@@ -62,7 +62,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::{get_ducklake_instance_pg_password, not_found_if_none};
+use windmill_common::utils::not_found_if_none;
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -952,7 +952,7 @@ async fn get_ducklake(
                     "port": pg_creds.port,
                     "user": "ducklake_user",
                     "sslmode": pg_creds.ssl_mode,
-                    "password": get_ducklake_instance_pg_password(&wm_pg_pwd),
+                    "password": get_ducklake_instance_pg_password(&wm_pg_pwd)?,
                 })
             }
             _ => get_resource_value_interpolated_internal(

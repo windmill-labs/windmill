@@ -861,12 +861,6 @@ impl Display for RunnableKind {
     }
 }
 
-pub fn get_ducklake_instance_pg_password(pg_password: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(pg_password);
-    hex::encode(hasher.finalize())
-}
-
 // build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
 pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
     args.iter()

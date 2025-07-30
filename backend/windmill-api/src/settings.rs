@@ -11,7 +11,10 @@ use std::time::Duration;
 use crate::{
     db::{ApiAuthed, DB},
     ee_oss::validate_license_key,
-    utils::{generate_instance_username_for_all_users, require_super_admin},
+    utils::{
+        generate_instance_username_for_all_users, get_ducklake_instance_pg_password,
+        require_super_admin,
+    },
     HTTP_CLIENT,
 };
 
@@ -40,7 +43,7 @@ use windmill_common::{
     },
     parse_postgres_url,
     server::Smtp,
-    utils::{build_arg_str, get_ducklake_instance_pg_password},
+    utils::build_arg_str,
 };
 
 #[cfg(feature = "parquet")]
@@ -567,7 +570,7 @@ async fn create_ducklake_database_inner(authed: ApiAuthed, db: &DB, dbname: &Str
     let Some(wm_pg_pwd) = pg_creds.password else {
         return Err(error::Error::BadRequest("Password not found".to_string()));
     };
-    let password = get_ducklake_instance_pg_password(&wm_pg_pwd);
+    let password = get_ducklake_instance_pg_password(&wm_pg_pwd)?;
 
     sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
         .execute(db)
