@@ -28,10 +28,9 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { replaceInlineScripts, extractInlineScripts as extractInlineScriptsForFlows, argSigToJsonSchemaType } from "./windmill-utils-internal";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows, argSigToJsonSchemaType } from "npm:centdix-utils";
 
 export class LockfileGenerationError extends Error {
   constructor(message: string) {
