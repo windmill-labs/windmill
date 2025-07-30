@@ -97,7 +97,6 @@
 		actionKind: ActionKind | undefined | 'all',
 		scope: undefined | 'all_workspaces' | 'instance'
 	): Promise<void> {
-	console.log("loading logs")
 		loading = true
 
 		if (username == 'all') {
@@ -131,7 +130,6 @@
 		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
-	console.log("loadede logs")
 	}
 
 	async function loadUsers() {
@@ -173,7 +171,7 @@
 			addQueryParam('workspace', 'admins')
 		}
 		const query = '?' + queryParams.join('&')
-		goto(query)
+		goto(query, { replaceState: true, keepFocus: true })
 
 		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 	}
@@ -352,13 +350,13 @@
 		</div>
 	{/if}
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">After</span>
-		<input type="text" value={after ?? 'After'} disabled />
+		<span class="text-xs absolute -top-4">From</span>
+		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
 			clearable
 			date={after}
 			placement="bottom-end"
-			label="After"
+			label="From"
 			on:change={({ detail }) => {
 				after = new Date(detail).toISOString()
 			}}
@@ -368,12 +366,12 @@
 		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Before</span>
-		<input type="text" value={before ?? 'Before'} disabled />
+		<span class="text-xs absolute -top-4">To</span>
+		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
 			clearable
 			bind:date={before}
-			label="Before"
+			label="To"
 			placement="bottom-end"
 			on:change={({ detail }) => {
 				before = new Date(detail).toISOString()
