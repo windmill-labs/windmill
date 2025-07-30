@@ -364,6 +364,8 @@ you to have it being synced automatically everyday.
 | DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
 | MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
+| RUN_UPDATE_CA_CERTIFICATE_AT_START  | false                  | If true, runs CA certificate update command at startup before other initialization                                                                                                                  | All                   |
+| RUN_UPDATE_CA_CERTIFICATE_PATH      | /usr/sbin/update-ca-certificates | Path to the CA certificate update command/script to run when RUN_UPDATE_CA_CERTIFICATE_AT_START is true                                                                                             | All                   |
 
 ## Run a local dev setup
 
