@@ -1,5 +1,16 @@
 import { FlowModule } from "../gen/types.gen.ts";
 
+/**
+ * Replaces inline script references with actual file content from the filesystem.
+ * This function recursively processes all flow modules and their nested structures.
+ * 
+ * @param modules - Array of flow modules to process
+ * @param fileReader - Function to read file content (typically fs.readFile or similar)
+ * @param logger - Optional logger object with info and error methods
+ * @param localPath - Base path for resolving relative file paths
+ * @param removeLocks - Optional array of paths for which to remove lock files
+ * @returns Promise that resolves when all inline scripts have been replaced
+ */
 export async function replaceInlineScripts(
     modules: FlowModule[],
     fileReader: (...args: any[]) => any,
