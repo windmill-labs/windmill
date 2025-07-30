@@ -33,7 +33,8 @@
 		excludes = $bindable([] as string[]),
 		extraIncludes = $bindable([] as string[]),
 		isInitialSetup = false,
-		requiresMigration = false
+		requiresMigration = false,
+		actions = undefined
 	} = $props()
 
 	// Component state
@@ -387,8 +388,15 @@
 					</div>
 				</div>
 
+				<!-- Actions slot for custom buttons -->
+				{#if actions}
+					<div class="flex justify-start mt-4">
+						{@render actions()}
+					</div>
+				{/if}
+
 				<!-- CLI Instructions (collapsible) -->
-				<div class="border-t pt-4 mt-4">
+				<div class="border-t pt-2 mt-4">
 					<button
 						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
 						onclick={() => showCliInstructions = !showCliInstructions}

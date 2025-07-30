@@ -13,7 +13,6 @@
 		open: boolean
 		gitRepoResourcePath: string
 		uiState: SettingsObject
-		onClose: () => void
 		onSuccess?: () => void
 		isNewConnection?: boolean
 		onSaveWithoutInit?: () => void
@@ -23,7 +22,6 @@
 		open = $bindable(false),
 		gitRepoResourcePath,
 		uiState,
-		onClose,
 		onSuccess,
 		isNewConnection = false,
 		onSaveWithoutInit
@@ -165,13 +163,6 @@
 		}
 	}
 
-	// Close modal handler
-	function handleClose() {
-		if (!isPreviewLoading && !isApplying) {
-			open = false
-			onClose()
-		}
-	}
 </script>
 
 
@@ -180,6 +171,22 @@
 		<!-- Description -->
 		<p class="text-sm text-secondary">Push your current workspace content to the connected Git repository based on the configured filters.</p>
 		<p class="text-sm text-tertiary">Note: This will not update git sync settings in wmill.yaml. Settings can only be pulled from the repository as it is the source of truth.</p>
+
+		<!-- Settings display for new connections -->
+		{#if isNewConnection}
+			<div class="bg-surface-secondary border border-border rounded-lg p-3">
+				<h4 class="text-sm font-medium text-primary mb-2">Settings that will be pushed to repository</h4>
+				<div class="text-xs text-secondary space-y-1">
+					<div><strong>Include paths:</strong> {uiState.include_path?.join(', ') || 'None'}</div>
+					<div><strong>Exclude paths:</strong> {uiState.exclude_path?.join(', ') || 'None'}</div>
+					{#if uiState.extra_include_path?.length > 0}
+						<div><strong>Extra include paths:</strong> {uiState.extra_include_path.join(', ')}</div>
+					{/if}
+					<div><strong>Include types:</strong> {uiState.include_type?.join(', ') || 'None'}</div>
+				</div>
+				<p class="text-xs text-tertiary mt-2">To modify these settings, cancel and configure them in the workspace settings.</p>
+			</div>
+		{/if}
 
 		<!-- Preview section -->
 		{#if !previewResult}
@@ -272,14 +279,6 @@
 							Save without initializing repo
 						</Button>
 					{/if}
-					<Button
-						size="md"
-						color="light"
-						onclick={handleClose}
-						disabled={isApplying}
-					>
-						Cancel
-					</Button>
 				</div>
 			</div>
 			{/if}

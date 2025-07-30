@@ -79,6 +79,10 @@
 		return !str || str.trim() === ''
 	}
 
+	function handlePullSettings() {
+		gitSyncContext.showPullModal(idx, true) // true for settingsOnly
+	}
+
 
 </script>
 
@@ -269,7 +273,7 @@
 							{:else}
 								<!-- Existing saved connection flow -->
 								<GitSyncFilterSettings
-									git_repo_resource_path={repo.git_repo_resource_path}
+									bind:git_repo_resource_path={repo.git_repo_resource_path}
 									bind:include_path={repo.settings.include_path}
 									bind:include_type={repo.settings.include_type}
 									bind:exclude_types_override={repo.exclude_types_override}
@@ -278,53 +282,72 @@
 									bind:extraIncludes={repo.settings.extra_include_path}
 									isInitialSetup={false}
 									requiresMigration={repo.legacyImported}
-								/>
+								>
+									{#snippet actions()}
+										<Button
+											size="md"
+											onclick={handlePullSettings}
+											startIcon={{ icon: Download }}
+										>
+											Pull settings
+										</Button>
+									{/snippet}
+								</GitSyncFilterSettings>
 							{/if}
 
 							{#if !repo.isUnsavedConnection}
-								<Toggle
-									disabled={emptyString(repo.git_repo_resource_path)}
-									bind:checked={repo.use_individual_branch}
-									options={{
-										right: 'Create one branch per deployed object',
-										rightTooltip:
-											"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-									}}
-								/>
+								<div class="flex justify-between items-start">
+									<div class="flex flex-col gap-4">
+										<Toggle
+											disabled={emptyString(repo.git_repo_resource_path)}
+											bind:checked={repo.use_individual_branch}
+											options={{
+												right: 'Create one branch per deployed object',
+												rightTooltip:
+													"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+											}}
+										/>
 
-								<Toggle
-									disabled={emptyString(repo.git_repo_resource_path) ||
-										!repo.use_individual_branch}
-									bind:checked={repo.group_by_folder}
-									options={{
-										right: 'Group deployed objects by folder',
-										rightTooltip:
-											'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-									}}
-								/>
-
-								{#if !repo.legacyImported}
-									<div class="w-1/3 flex gap-2">
-										<Button
-											size="xs"
-											color="dark"
-											variant="border"
-											onclick={() => gitSyncContext.showPullModal(idx)}
-											startIcon={{ icon: Download }}
-										>
-											Pull from repo
-										</Button>
-										<Button
-											size="xs"
-											color="dark"
-											variant="border"
-											onclick={() => gitSyncContext.showPushModal(idx)}
-											startIcon={{ icon: Upload }}
-										>
-											Push to repo
-										</Button>
+										<Toggle
+											disabled={emptyString(repo.git_repo_resource_path) ||
+												!repo.use_individual_branch}
+											bind:checked={repo.group_by_folder}
+											options={{
+												right: 'Group deployed objects by folder',
+												rightTooltip:
+													'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+											}}
+										/>
 									</div>
-								{/if}
+
+									<!-- Manual sync section for existing repos -->
+									{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
+										<div class="flex flex-col">
+											<div class="text-sm text-secondary mb-2">Manual workspace content sync</div>
+											<div class="flex gap-2">
+												<Button
+													size="xs"
+													color="dark"
+													variant="border"
+													onclick={() => gitSyncContext.showPullModal(idx)}
+													startIcon={{ icon: Download }}
+												>
+													Pull from repo
+												</Button>
+												<Button
+													size="xs"
+													color="dark"
+													variant="border"
+													onclick={() => gitSyncContext.showPushModal(idx)}
+													startIcon={{ icon: Upload }}
+												>
+													Push to repo
+												</Button>
+											</div>
+										</div>
+									{/if}
+								</div>
+
 							{/if}
 
 						{/if}

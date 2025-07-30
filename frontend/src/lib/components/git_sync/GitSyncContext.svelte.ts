@@ -33,8 +33,8 @@ export type GitSyncSettings = {
 
 export type ModalState = {
 	push: { idx: number, repo: GitSyncRepository, open: boolean } | null
-	pull: { idx: number, repo: GitSyncRepository, open: boolean } | null
-	success: { open: boolean } | null
+	pull: { idx: number, repo: GitSyncRepository, open: boolean, settingsOnly?: boolean } | null
+	success: { open: boolean, savedWithoutInit?: boolean } | null
 }
 
 export type ValidationState = {
@@ -225,10 +225,10 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	function showPullModal(idx: number) {
+	function showPullModal(idx: number, settingsOnly = false) {
 		const repo = repositories[idx]
 		if (repo) {
-			activeModals.pull = { idx, repo, open: true }
+			activeModals.pull = { idx, repo, open: true, settingsOnly }
 		}
 	}
 
@@ -249,8 +249,8 @@ export function createGitSyncContext(workspace: string) {
 		closeModal('pull')
 	}
 
-	function showSuccessModal() {
-		activeModals.success = { open: true }
+	function showSuccessModal(savedWithoutInit?: boolean) {
+		activeModals.success = { open: true, savedWithoutInit }
 	}
 
 	function closeSuccessModal() {
@@ -415,7 +415,7 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	async function saveRepository(idx: number) {
+	async function saveRepository(idx: number, savedWithoutInit = false) {
 		const repo = repositories[idx]
 		if (!repo || !validateRepository(repo, idx)) {
 			throw new Error('Cannot save invalid repository')
@@ -450,7 +450,7 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
-			showSuccessModal()
+			showSuccessModal(savedWithoutInit)
 		}
 	}
 

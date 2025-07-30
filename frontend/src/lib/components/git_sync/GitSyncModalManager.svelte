@@ -27,9 +27,6 @@
 		gitSyncContext.closePushModal()
 	}
 
-	function handlePushClose() {
-		gitSyncContext.closePushModal()
-	}
 
 	function handlePullSuccess() {
 		sendUserToast('Successfully pulled from git repository')
@@ -50,13 +47,10 @@
 		sendUserToast('Settings applied successfully')
 	}
 
-	function handlePullClose() {
-		gitSyncContext.closePullModal()
-	}
 
 	async function handleSaveWithoutInit(idx: number) {
 		try {
-			await gitSyncContext.saveRepository(idx)
+			await gitSyncContext.saveRepository(idx, true)
 			sendUserToast('Connection saved successfully without initializing repository')
 			gitSyncContext.closePushModal()
 		} catch (error: any) {
@@ -80,14 +74,13 @@
 		}}
 		isNewConnection={isNewConnection}
 		onSuccess={handlePushSuccess}
-		onClose={handlePushClose}
 		onSaveWithoutInit={isNewConnection ? () => handleSaveWithoutInit(idx) : undefined}
 	/>
 {/if}
 
 <!-- Pull Modal -->
 {#if gitSyncContext.activeModals.pull}
-	{@const { idx, repo } = gitSyncContext.activeModals.pull}
+	{@const { idx, repo, settingsOnly } = gitSyncContext.activeModals.pull}
 	<PullWorkspaceModal
 		bind:open={gitSyncContext.activeModals.pull.open}
 		gitRepoResourcePath={repo.git_repo_resource_path}
@@ -102,7 +95,7 @@
 		onFilterUpdate={(filters) => handleFilterUpdate(idx, filters)}
 		onSettingsSaved={handleSettingsSaved}
 		onSuccess={handlePullSuccess}
-		onClose={handlePullClose}
+		{settingsOnly}
 	/>
 {/if}
 
@@ -110,5 +103,6 @@
 {#if gitSyncContext.activeModals.success}
 	<GitSyncSuccessModal
 		bind:open={gitSyncContext.activeModals.success.open}
+		savedWithoutInit={gitSyncContext.activeModals.success.savedWithoutInit}
 	/>
 {/if}

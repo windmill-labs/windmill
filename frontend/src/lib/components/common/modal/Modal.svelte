@@ -2,7 +2,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import Badge from '../badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../CloseButton.svelte'
 
@@ -98,9 +97,7 @@
 								color="light"
 								size="sm"
 							>
-								<span class="inline-flex gap-2"
-									>{cancelText ?? 'Cancel'}<Badge color="dark-gray">Escape</Badge></span
-								>
+								{cancelText ?? 'Cancel'}
 							</Button>
 						</div>
 					{/if}

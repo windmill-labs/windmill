@@ -46,6 +46,10 @@
 				scripts, flows, and apps to the repository on each deploy.
 			</Description>
 		</div>
+		<Alert type="info" title="Only new updates trigger git sync">
+			Only new changes matching the filters will trigger a git sync. You still need to initialize
+			the repo to the desired state first.
+		</Alert>
 	</div>
 	{#if !$enterpriseLicense}
 		<div class="mb-2"></div>

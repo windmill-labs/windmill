@@ -4,15 +4,17 @@
 
 	interface Props {
 		open: boolean
+		savedWithoutInit?: boolean
 	}
 
 	let {
-		open = $bindable(false)
+		open = $bindable(false),
+		savedWithoutInit = false
 	}: Props = $props()
 
 </script>
 
-<Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl">
+<Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl" cancelText="Close">
 	<div class="flex flex-col gap-6 p-6">
 		<!-- Success header -->
 		<div class="flex items-center gap-3">
@@ -25,6 +27,15 @@
 			</div>
 		</div>
 
+		<!-- Info box for saved without init -->
+		{#if savedWithoutInit}
+			<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+				<h4 class="font-medium text-blue-900 mb-2">Repository saved without initialization</h4>
+				<p class="text-sm text-blue-800">
+					Only new changes will be pushed to this repository. Existing content in Windmill has not been initialized to the repository.
+				</p>
+			</div>
+		{/if}
 
 		<!-- Optional setup section -->
 		<div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
