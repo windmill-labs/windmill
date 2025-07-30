@@ -1,7 +1,3 @@
-export function testing() {
-	return 8;
-}
-
 export type EnumType = string[] | undefined
 
 export interface SchemaProperty {
