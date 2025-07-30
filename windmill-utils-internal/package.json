@@ -1,0 +1,29 @@
+{
+  "name": "centdix-utils",
+  "version": "1.0.15",
+  "description": "Shared utilities for Windmill CLI and VS Code extension",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "windmill",
+    "utilities",
+    "flow",
+    "scripts"
+  ],
+  "author": "Windmill Team",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*"
+  ],
+  "peerDependencies": {
+    "windmill-client": "^1.514.1"
+  }
+}
