@@ -1,21 +1,15 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import { Button } from '$lib/components/common'
 	import { CheckCircle2, ExternalLink, ArrowRight } from 'lucide-svelte'
 
 	interface Props {
 		open: boolean
-		onClose: () => void
 	}
 
 	let {
-		open = $bindable(false),
-		onClose
+		open = $bindable(false)
 	}: Props = $props()
 
-	function handleClose() {
-		onClose()
-	}
 </script>
 
 <Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl">

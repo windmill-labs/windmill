@@ -110,6 +110,5 @@
 {#if gitSyncContext.activeModals.success}
 	<GitSyncSuccessModal
 		bind:open={gitSyncContext.activeModals.success.open}
-		onClose={gitSyncContext.closeSuccessModal}
 	/>
 {/if}

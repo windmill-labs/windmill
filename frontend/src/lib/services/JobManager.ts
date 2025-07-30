@@ -32,7 +32,7 @@ export class JobManager {
 
 		const controller = new AbortController()
 		const jobId = await jobRunner()
-		
+
 		this.activeJobs.set(jobId, controller)
 
 		try {
@@ -57,7 +57,7 @@ export class JobManager {
 					}
 
 					onProgress?.(status)
-					
+
 					if (!success) {
 						throw new Error(status.error)
 					}
@@ -74,7 +74,7 @@ export class JobManager {
 					} catch (err) {
 						console.error('Failed to cancel job:', err)
 					}
-					
+
 					onProgress?.({ status: 'failure', error: timeoutMessage })
 					throw new Error(timeoutMessage)
 				},
