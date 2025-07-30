@@ -1,7 +1,7 @@
 {
-  "name": "centdix-utils",
-  "version": "1.0.15",
-  "description": "Shared utilities for Windmill CLI and VS Code extension",
+  "name": "windmill-utils-internal",
+  "version": "1.0.0",
+  "description": "Internal utility functions for Windmill",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -9,13 +9,10 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "windmill",
-    "utilities",
-    "flow",
-    "scripts"
+    "windmill"
   ],
-  "author": "Windmill Team",
-  "license": "Apache-2.0",
+  "author": "Ruben Fiszel",
+  "license": "Apache 2.0",
   "devDependencies": {
     "@types/node": "^24.1.0",
     "typescript": "^5.0.0"
