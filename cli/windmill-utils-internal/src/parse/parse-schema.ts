@@ -1,5 +1,11 @@
+/**
+ * Type alias for enum values - can be an array of strings or undefined
+ */
 export type EnumType = string[] | undefined
 
+/**
+ * Represents a property in a JSON schema with various validation and display options
+ */
 export interface SchemaProperty {
 	type: string | undefined
 	description?: string
@@ -34,6 +40,14 @@ export interface SchemaProperty {
 	originalType?: string
 }
 
+/**
+ * Converts argument signature types to JSON schema properties.
+ * This function handles various Windmill-specific types and converts them
+ * to standard JSON schema format while preserving existing property metadata.
+ * 
+ * @param t - The argument signature type definition (can be string or complex object types)
+ * @param oldS - Existing schema property to update with new type information
+ */
 export function argSigToJsonSchemaType(
 	t:
 		| string

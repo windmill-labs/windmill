@@ -4,7 +4,12 @@
  * Compatible with both Node.js and Deno environments
  */
 
-// Detect if we're on Windows platform
+/**
+ * Detects if the current platform is Windows by checking various environment indicators.
+ * Uses multiple fallback methods to ensure compatibility across Node.js, Deno, and browser environments.
+ * 
+ * @returns True if running on Windows, false otherwise
+ */
 const isWindows = (() => {
     // Try Node.js process.platform first (most reliable)
     if (typeof process !== "undefined" && process.platform) {
