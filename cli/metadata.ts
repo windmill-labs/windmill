@@ -28,7 +28,9 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts, extractInlineScripts as extractInlineScriptsForFlows, argSigToJsonSchemaType } from "./windmill-utils-internal";
+import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { argSigToJsonSchemaType } from "./windmill-utils-internal/src/parse/parse-schema.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 

@@ -48,7 +48,8 @@ import {
 } from "./metadata.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { assignPath, extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal";
+import { assignPath } from "./windmill-utils-internal/src/path-utils/path-assigner.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(

@@ -1,4 +1,4 @@
-import { RawScript } from "../gen/types.gen";
+import { RawScript } from "../gen/types.gen.ts";
 
 export type SupportedLanguage = RawScript["language"] | "frontend" | "bunnative" | "oracledb" | "rust" | "csharp" | "nu" | "ansible" | "java" | "duckdb";
 

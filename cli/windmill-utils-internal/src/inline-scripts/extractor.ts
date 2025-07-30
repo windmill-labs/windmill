@@ -1,6 +1,6 @@
-import { assignPath } from "../path-utils";
-import { SEP } from "../constants";
-import { FlowModule } from "../gen/types.gen";
+import { assignPath } from "../path-utils/path-assigner.ts";
+import { SEP } from "../constants.ts";
+import { FlowModule } from "../gen/types.gen.ts";
 
 interface InlineScript {
   path: string;
