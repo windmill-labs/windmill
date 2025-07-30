@@ -173,7 +173,7 @@ export async function generateFlowLockInternal(
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     await replaceInlineScripts(
       flowValue.value.modules,
-      Deno.readTextFile,
+      async (path: string) => await Deno.readTextFile(folder + SEP + path),
       log,
       folder + SEP!,
       changedScripts
