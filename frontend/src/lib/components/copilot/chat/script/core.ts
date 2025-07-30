@@ -75,8 +75,8 @@ const TS_WINDMILL_CLIENT_CONTEXT = `
 The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "windmill-client"\`. Key functions include:
 
 // Resource operations
-wmill.getResource(path?: string): Promise<any> // Get resource value by path
-wmill.setResource(value: any, path?: string): Promise<void> // Set resource value
+wmill.getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any> // Get resource value by path
+wmill.setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void> // Set resource value
 
 // State management (persistent across executions)  
 wmill.getState(): Promise<any> // Get shared state
@@ -84,37 +84,40 @@ wmill.setState(state: any): Promise<void> // Set shared state
 
 // Variables
 wmill.getVariable(path: string): Promise<string> // Get variable value
-wmill.setVariable(path: string, value: string): Promise<void> // Set variable value
+wmill.setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void> // Set variable value
 
 // Script execution
-wmill.runScript(path: string, args?: Record<string, any>): Promise<any> // Run script synchronously
-wmill.runScriptAsync(path: string, args?: Record<string, any>): Promise<string> // Run script async, returns job ID
-wmill.waitJob(jobId: string): Promise<any> // Wait for job completion and get result
+wmill.runScript(path?: string | null, hash_?: string | null, args?: Record<string, any> | null, verbose?: boolean): Promise<any> // Run script synchronously
+wmill.runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds?: number | null): Promise<string> // Run script async, returns job ID
+wmill.waitJob(jobId: string, verbose?: boolean): Promise<any> // Wait for job completion and get result
+wmill.getResult(jobId: string): Promise<any> // Get job result by ID
+wmill.getResultMaybe(jobId: string): Promise<any> // Get job result by ID, returns undefined if not found
+wmill.getRootJobId(jobId?: string): Promise<string> // Get root job ID from job ID
 
 // S3 file operations (if S3 is configured)
-wmill.loadS3File(s3object: S3Object | string): Promise<Uint8Array> // Load file content from S3
-wmill.writeS3File(s3object: S3Object | string, content: string | Blob): Promise<S3Object> // Write file to S3
+wmill.loadS3File(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Uint8Array | undefined> // Load file content from S3
+wmill.loadS3FileStream(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Blob | undefined> // Load file content from S3 as stream
+wmill.writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath?: string | undefined): Promise<S3Object> // Write file to S3
 
 // Flow operations
-wmill.setFlowUserState(key: string, value: any): Promise<void> // Set flow user state
-wmill.getFlowUserState(key: string): Promise<any> // Get flow user state
-wmill.getResumeUrls(): Promise<{approvalPage: string, resume: string, cancel: string}> // Get approval URLs
+wmill.setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void> // Set flow user state
+wmill.getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any> // Get flow user state
+wmill.getResumeUrls(approver?: string): Promise<{approvalPage: string, resume: string, cancel: string}> // Get approval URLs
 
-// Utilities
-wmill.getWorkspace(): string // Get current workspace
-wmill.databaseUrlFromResource(path: string): Promise<string> // Get database URL from resource`
+`
 
 const PYTHON_WINDMILL_CLIENT_CONTEXT = `
 
 The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import wmill\`. Key functions include:
 
 // Resource operations
-wmill.get_resource(path: str) -> dict | None  // Get resource value by path
+wmill.get_resource(path: str, none_if_undefined: bool = False) -> dict | None  // Get resource value by path
 wmill.set_resource(path: str, value: Any, resource_type: str = "any") -> None  // Set resource value
 
 // State management (persistent across executions)
 wmill.get_state() -> Any  // Get shared state (deprecated, use flow user state)
 wmill.set_state(value: Any) -> None  // Set shared state
+wmill.get_state_path() -> str  // Get state path
 wmill.get_flow_user_state(key: str) -> Any  // Get flow user state 
 wmill.set_flow_user_state(key: str, value: Any) -> None  // Set flow user state
 
@@ -123,22 +126,27 @@ wmill.get_variable(path: str) -> str  // Get variable value
 wmill.set_variable(path: str, value: str, is_secret: bool = False) -> None  // Set variable value
 
 // Script execution
-wmill.run_script(path: str, args: dict = None, timeout = None) -> Any  // Run script synchronously
-wmill.run_script_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str  // Run script async, returns job ID
-wmill.wait_job(job_id: str, timeout = None) -> Any  // Wait for job completion and get result
+wmill.run_script(path: str = None, hash_: str = None, args: dict = None, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any  // Run script synchronously
+wmill.run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str  // Run script async, returns job ID
+wmill.wait_job(job_id: str, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any  // Wait for job completion and get result
+wmill.get_result(job_id: str, assert_result_is_not_none: bool = True) -> Any  // Get job result by ID
+wmill.get_root_job_id(job_id: str | None = None) -> str  // Get root job ID from job ID
 
 // S3 file operations (if S3 is configured)
-wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str = None) -> bytes  // Load file content from S3
-wmill.write_s3_file(s3object: S3Object | str, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
+wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes  // Load file content from S3
+wmill.load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None = None) -> BufferedReader  // Load S3 file as stream reader
+wmill.write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None = None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object  // Write file to S3
 
 // Flow operations  
-wmill.run_flow_async(path: str, args: dict = None) -> str  // Run flow asynchronously
+wmill.run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str  // Run flow asynchronously
 wmill.get_resume_urls(approver: str = None) -> dict  // Get approval URLs for flow steps
 
 // Utilities
+wmill.get_workspace() -> str  // Get current workspace
 wmill.whoami() -> dict  // Get current user information
 wmill.get_job_status(job_id: str) -> str  // Get job status ("RUNNING" | "WAITING" | "COMPLETED")
-wmill.set_progress(value: int) -> None  // Set job progress (0-100)`
+wmill.set_progress(value: int, job_id: Optional[str] = None) -> None  // Set job progress (0-100)
+wmill.get_progress(job_id: Optional[str] = None) -> Any  // Get job progress`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
@@ -244,38 +252,37 @@ export function getLangContext(
 				PHP_RESOURCE_TYPE_SYSTEM +
 				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}` +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
-\`\`\`
-// require:
-// mylibrary/mylibrary
-// myotherlibrary/myotherlibrary@optionalversion
-\`\`\`
-Make sure to have one per line.
-No need to require autoload, it is already done.`
+					\`\`\`
+					// require:
+					// mylibrary/mylibrary
+					// myotherlibrary/myotherlibrary@optionalversion
+					\`\`\`
+					Make sure to have one per line.
+					No need to require autoload, it is already done.`
 			)
 		case 'rust':
 			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
-\`\`\`rust
-use anyhow::anyhow;
-use serde::Serialize;
+				\`\`\`rust
+				use anyhow::anyhow;
+				use serde::Serialize;
 
-#[derive(Serialize, Debug)]
-struct ReturnType {
-    // ...
-}
+				#[derive(Serialize, Debug)]
+				struct ReturnType {
+					// ...
+				}
 
-fn main(...) -> anyhow::Result<ReturnType>
-\`\`\`
-Arguments should be owned. Make sure the return type is serializable.
+				fn main(...) -> anyhow::Result<ReturnType>
+				\`\`\`
+				Arguments should be owned. Make sure the return type is serializable.
 
-Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! \`\`\'
-Serde is already included, no need to add it again.
+				Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
+				//! \`\`\`cargo
+				//! [dependencies]
+				//! anyhow = "1.0.86"
+				//! \`\`\'
+				Serde is already included, no need to add it again.
 
-If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.
-`
+				If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.`
 		case 'go':
 			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
 		case 'bash':

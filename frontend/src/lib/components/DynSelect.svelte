@@ -18,7 +18,7 @@
 	import type { Script } from '$lib/gen'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { deepEqual } from 'fast-equals'
-	import JobLoader from './JobLoader.svelte'
+	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import Select from './select/Select.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -45,25 +45,36 @@
 
 	async function getItemsFromOptions() {
 		return new Promise<{ label: string; value: any }[]>((resolve, reject) => {
-			let cb = {
-				done(res) {
-					if (!res || !Array.isArray(res)) {
-						reject('Result was not an array')
+			let cb: Callbacks = {
+				doneResult({ result }) {
+					if (!result || !Array.isArray(result)) {
+						if (result?.error?.message && result?.error?.name) {
+							reject(
+								'Error in DynSelect function execution: ' +
+									result?.error?.name +
+									' - ' +
+									result?.error?.message
+							)
+						} else {
+							reject('Result was not an array but ' + JSON.stringify(result, null, 2))
+						}
 						return
 					}
-					if (res.length == 0) resolve([])
-					if (res.every((x) => typeof x == 'string')) {
-						res = res.map((x) => ({ label: x, value: x }))
-					} else if (res.find((x) => validSelectObject(x) != undefined)) {
-						reject(validSelectObject(res.find((x) => validSelectObject(x) != undefined)))
+					if (result.length == 0) resolve([])
+					if (result.every((x) => typeof x == 'string')) {
+						result = result.map((x) => ({ label: x, value: x }))
+					} else if (result.find((x) => validSelectObject(x) != undefined)) {
+						reject(validSelectObject(result.find((x) => validSelectObject(x) != undefined)))
 					} else {
 						if (filterText != undefined && filterText != '')
-							res = res.filter((x) => x['label'].includes(filterText))
-						resolve(res)
+							result = result.filter((x) => x['label'].includes(filterText))
+						resolve(result)
 					}
 				},
 				cancel: () => reject(),
-				error: (err) => reject(err)
+				doneError({ id, error }) {
+					reject(error)
+				}
 			}
 			helperScript?.type == 'inline'
 				? resultJobLoader?.runPreview(
@@ -97,7 +108,7 @@
 </script>
 
 {#if helperScript}
-	<JobLoader bind:this={resultJobLoader} />
+	<JobLoader onlyResult bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
 		<Select
@@ -111,7 +122,7 @@
 		/>
 		{#if _items.error}
 			<div class="text-red-400 text-2xs">
-				error: <Tooltip>{JSON.stringify(_items.error)}</Tooltip>
+				error: <Tooltip>{_items.error}</Tooltip>
 			</div>
 		{/if}
 	</div>

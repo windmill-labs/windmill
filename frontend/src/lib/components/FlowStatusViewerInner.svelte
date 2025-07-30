@@ -87,6 +87,9 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		customUi?: {
+			tagLabel?: string | undefined
+		}
 	}
 
 	let {
@@ -115,7 +118,8 @@
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = writable({}),
-		localDurationStatuses = writable({})
+		localDurationStatuses = writable({}),
+		customUi
 	}: Props = $props()
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
@@ -908,7 +912,7 @@
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
 </script>
 
-<JobLoader noCode noLogs bind:this={jobLoader} />
+<JobLoader workspaceOverride={workspaceId} noCode noLogs bind:this={jobLoader} />
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you
@@ -1336,6 +1340,7 @@
 
 									{#if selectedNode == 'end'}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={job?.id}
 											filename={job.id}
@@ -1411,6 +1416,7 @@
 											</div>
 										{/if}
 										<FlowJobResult
+											tagLabel={customUi?.tagLabel}
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder

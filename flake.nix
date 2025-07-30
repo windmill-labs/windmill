@@ -127,6 +127,7 @@
 
             # Other languages
             deno
+            typescript
             nushell
             go
             bun

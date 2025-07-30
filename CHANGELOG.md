@@ -1,5 +1,100 @@
 # Changelog
 
+## [1.515.1](https://github.com/windmill-labs/windmill/compare/v1.515.0...v1.515.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* improved logs for script ([2e7ab91](https://github.com/windmill-labs/windmill/commit/2e7ab919a7bce4f04d7b09f45db48b5465346846))
+
+## [1.515.0](https://github.com/windmill-labs/windmill/compare/v1.514.1...v1.515.0) (2025-07-29)
+
+
+### Features
+
+* **cli:** generate cursor rules on init ([#6270](https://github.com/windmill-labs/windmill/issues/6270)) ([29c686d](https://github.com/windmill-labs/windmill/commit/29c686d62ae3597eb59371f5a3e9dadd9dc9557f))
+
+
+### Bug Fixes
+
+* add size limit to indexer queries on jobs table to avoid oom ([#6293](https://github.com/windmill-labs/windmill/issues/6293)) ([4d6a614](https://github.com/windmill-labs/windmill/commit/4d6a61403b51d84ea4039611cb007a42a26d24b6))
+* fix DynSelect ([55ba599](https://github.com/windmill-labs/windmill/commit/55ba599022ac2a6b513c4456747e4910f3188ec7))
+* improve docker logs collection in docker mode ([ce4177e](https://github.com/windmill-labs/windmill/commit/ce4177ebaed02df62aec676ca4624d77052f3e51))
+* resource types as arg in typescript handle imported defined types ([56671bc](https://github.com/windmill-labs/windmill/commit/56671bc75fe940f940f52ad47f5cf99c8329a0c3))
+* resource-type-ts-parser ([#6289](https://github.com/windmill-labs/windmill/issues/6289)) ([9931311](https://github.com/windmill-labs/windmill/commit/99313116509a5ebec33aa2ab813e0c189d4c4e24))
+
+## [1.514.1](https://github.com/windmill-labs/windmill/compare/v1.514.0...v1.514.1) (2025-07-28)
+
+
+### Bug Fixes
+
+* pin tokio to 1.46.1 and aws-sdks-ts ([1a85dc7](https://github.com/windmill-labs/windmill/commit/1a85dc7008d77cb4d51c488b4ba02a02cd08b05d))
+
+## [1.514.0](https://github.com/windmill-labs/windmill/compare/v1.513.1...v1.514.0) (2025-07-28)
+
+
+### Features
+
+* migrate audit log ids to bigints (blocking migration for EE) ([6e8f5a5](https://github.com/windmill-labs/windmill/commit/6e8f5a5b00056a324fa4fc27b740290338e672c9))
+
+
+### Bug Fixes
+
+* fix id renaming in apps ([a999bc7](https://github.com/windmill-labs/windmill/commit/a999bc7b28764e3583fdd843f13060c760627b51))
+* **mcp:** add proper check for mcp routes ([#6282](https://github.com/windmill-labs/windmill/issues/6282)) ([f892f7c](https://github.com/windmill-labs/windmill/commit/f892f7c9af1058b899c880160bd91d5e7b3ebcd6))
+
+## [1.513.1](https://github.com/windmill-labs/windmill/compare/v1.513.0...v1.513.1) (2025-07-25)
+
+
+### Bug Fixes
+
+* improve error handler behavior wrt to parrallel branchall & forloops ([#6273](https://github.com/windmill-labs/windmill/issues/6273)) ([3f784e3](https://github.com/windmill-labs/windmill/commit/3f784e3c07aa35ef2298bed301d581bf25300ba6))
+* jobLoader for flowstatusviewerinner work with public apps ([94e20a9](https://github.com/windmill-labs/windmill/commit/94e20a97e036fdb99e34c79b466e957b943cb26a))
+* **mcp:** allow mcp scopes to run scripts and flows ([#6278](https://github.com/windmill-labs/windmill/issues/6278)) ([e8f4c24](https://github.com/windmill-labs/windmill/commit/e8f4c2418b83af75be90b21ab2ab64537fef00eb))
+
+## [1.513.0](https://github.com/windmill-labs/windmill/compare/v1.512.0...v1.513.0) (2025-07-24)
+
+
+### Features
+
+* enable workspace exclusion in custom tags ([#6263](https://github.com/windmill-labs/windmill/issues/6263)) ([be3173d](https://github.com/windmill-labs/windmill/commit/be3173d048f8c3ee3681840b9880f509b754d779))
+
+
+### Bug Fixes
+
+* add windir env var to pwsh for legacy modules like AD ([#6271](https://github.com/windmill-labs/windmill/issues/6271)) ([7920583](https://github.com/windmill-labs/windmill/commit/79205839b6c3ba51a637f634d8cfba737b4dee1c))
+* fix webhook panel reactivity ([241be48](https://github.com/windmill-labs/windmill/commit/241be4897eb3377ccce097404fcd176e746c3015))
+* improve aggrid columnDefs reactivity ([f71104e](https://github.com/windmill-labs/windmill/commit/f71104e9f64bf6cb340d99ad91977c79651780c8))
+
+## [1.512.0](https://github.com/windmill-labs/windmill/compare/v1.511.0...v1.512.0) (2025-07-23)
+
+
+### Features
+
+* local type references parsing support for main function args ([#5995](https://github.com/windmill-labs/windmill/issues/5995)) ([10befb9](https://github.com/windmill-labs/windmill/commit/10befb995d07f50803213bcf177df8891fd920e1))
+
+
+### Bug Fixes
+
+* fix decision tree graph editor ([a57df1f](https://github.com/windmill-labs/windmill/commit/a57df1f78119b80ce764ddbff0ecb989cbb4c315))
+* include export from ts relative import tracking ([91849ba](https://github.com/windmill-labs/windmill/commit/91849baf3404c308f946f7c384ce679f2c89cbe7))
+* run autoscaling scripts with superadmin permissions ([86e14f8](https://github.com/windmill-labs/windmill/commit/86e14f8135eb8ccfad47f0340986464983019153))
+
+## [1.511.0](https://github.com/windmill-labs/windmill/compare/v1.510.1...v1.511.0) (2025-07-22)
+
+
+### Features
+
+* **aichat:** give completions to autocomplete for other languages than ts ([#6253](https://github.com/windmill-labs/windmill/issues/6253)) ([71b85df](https://github.com/windmill-labs/windmill/commit/71b85dfc42694f552a0572afd2072bbe528ac74b))
+* **aichat:** improve autocomplete with ata, editor diagnostic and deletion cues ([#6245](https://github.com/windmill-labs/windmill/issues/6245)) ([dc242c5](https://github.com/windmill-labs/windmill/commit/dc242c5a8df7d5d2ad710f3a5578dcb5fb4c9667))
+* periodic worker group script ([#6159](https://github.com/windmill-labs/windmill/issues/6159)) ([c4178c0](https://github.com/windmill-labs/windmill/commit/c4178c05be5cff4ef0617e31e0f05adc29e04f89))
+
+
+### Bug Fixes
+
+* add error name and message to job_postprocessing span ([34ccc8e](https://github.com/windmill-labs/windmill/commit/34ccc8e0f7487cf51370e0ff94546063ee7771ad))
+* scopes-run-and-webhook-token-display ([#6259](https://github.com/windmill-labs/windmill/issues/6259)) ([37b18f0](https://github.com/windmill-labs/windmill/commit/37b18f0661d797466423db021150c99398435c8b))
+
 ## [1.510.1](https://github.com/windmill-labs/windmill/compare/v1.510.0...v1.510.1) (2025-07-21)
 
 

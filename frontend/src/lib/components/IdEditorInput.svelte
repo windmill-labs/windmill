@@ -1,23 +1,39 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { ArrowRight } from 'lucide-svelte'
 	import { Button } from './common'
-	import { createEventDispatcher } from 'svelte'
+	import { untrack } from 'svelte'
 	import { forbiddenIds } from './flows/idUtils'
 	import { slide } from 'svelte/transition'
 
-	export let initialId: string
-	export let reservedIds: string[] = []
-	export let label: string = 'Component ID'
-	export let value = initialId
-	export let buttonText = ''
-	export let btnClasses = '!p-1 !w-[34px] !ml-1'
-	export let acceptUnderScores = false
+	interface Props {
+		initialId: string
+		reservedIds?: string[]
+		label?: string
+		value?: any
+		buttonText?: string
+		btnClasses?: string
+		acceptUnderScores?: boolean
+		onSave: ({ oldId, newId }: { oldId: string; newId: string }) => void
+		onClose?: () => void
+	}
 
-	let error = ''
-	const dispatch = createEventDispatcher()
+	let {
+		initialId,
+		reservedIds = [],
+		label = 'Component ID',
+		value = $bindable(initialId),
+		buttonText = '',
+		btnClasses = '!p-1 !w-[34px] !ml-1',
+		acceptUnderScores = false,
+		onSave,
+		onClose
+	}: Props = $props()
+
+	let error = $state('')
 	const regex = acceptUnderScores ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
-
-	$: validateId(value, reservedIds)
 
 	function validateId(id: string, reservedIds: string[]) {
 		if (id == initialId) {
@@ -35,9 +51,14 @@
 		}
 	}
 
-	let inputDiv: HTMLInputElement | undefined = undefined
+	let inputDiv: HTMLInputElement | undefined = $state(undefined)
 
-	$: inputDiv?.focus()
+	$effect(() => {
+		untrack(() => validateId(value, reservedIds))
+	})
+	$effect(() => {
+		inputDiv?.focus()
+	})
 </script>
 
 <label class="block text-primary">
@@ -50,15 +71,17 @@
 			type="text"
 			bind:value
 			class="!w-auto grow"
-			on:click|stopPropagation={() => {}}
-			on:keydown|stopPropagation={({ key }) => {
+			onclick={stopPropagation(() => {})}
+			onkeydown={(e) => {
+				e.stopPropagation()
+				let key = e.key
 				if (key === 'Enter' && error === '' && value !== initialId) {
-					dispatch('save', value)
+					onSave({ oldId: initialId, newId: value })
 				} else if (key == 'Escape') {
-					dispatch('close')
+					onClose?.()
 				}
 			}}
-			on:keypress|stopPropagation
+			onkeypress={stopPropagation(bubble('keypress'))}
 		/>
 		<Button
 			size="xs"
@@ -67,8 +90,8 @@
 			{btnClasses}
 			aria-label="Save ID"
 			disabled={error != '' || value === initialId}
-			on:click={() => {
-				dispatch('save', value)
+			onclick={() => {
+				onSave({ oldId: initialId, newId: value })
 			}}
 		>
 			{buttonText}<ArrowRight size={18} />

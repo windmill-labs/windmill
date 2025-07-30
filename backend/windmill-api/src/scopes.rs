@@ -283,6 +283,7 @@ pub enum ScopeDomain {
     Acls,         // Granular access control lists
     RawApps,      // Raw application data
     AgentWorkers, // Agent workers management
+    Mcp,          // MCP
 }
 
 impl ScopeDomain {
@@ -328,6 +329,7 @@ impl ScopeDomain {
             Self::Indexer => "indexer",
             Self::Teams => "teams",
             Self::GitSync => "git_sync",
+            Self::Mcp => "mcp",
         }
     }
 
@@ -373,6 +375,7 @@ impl ScopeDomain {
             "acls" => Some(Self::Acls),
             "raw_apps" => Some(Self::RawApps),
             "agent_workers" => Some(Self::AgentWorkers),
+            "mcp" => Some(Self::Mcp),
             _ => None,
         }
     }
@@ -415,7 +418,8 @@ impl ScopeAction {
     }
 }
 
-pub fn check_route_access(
+pub fn 
+check_route_access(
     token_scopes: &[String],
     route_path: &str,
     http_method: &str,
@@ -424,7 +428,13 @@ pub fn check_route_access(
     let required_action = map_http_method_to_action(http_method, route_path);
 
     // Find the domain and kind for this route
-    let (required_domain, required_kind) = extract_domain_from_route(route_path)?;
+    let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
+
+    // Backward compatibility: MCP handlers expect unusual scope actions: all, favorites, hub.
+    if required_domain == ScopeDomain::Mcp {
+        return Ok(());
+    }
+
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
@@ -435,6 +445,7 @@ pub fn check_route_access(
                     required_domain,
                     required_action,
                     required_kind.as_deref(),
+                    route_suffix.as_deref(),
                 )? {
                     return Ok(());
                 }
@@ -527,30 +538,36 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
     None
 }
 
-fn extract_domain_from_route(route_path: &str) -> Result<(ScopeDomain, Option<String>)> {
+fn extract_domain_from_route(
+    route_path: &str,
+) -> Result<(ScopeDomain, Option<String>, Option<String>)> {
     // Examples:
     // - /api/w/workspace/jobs/123 -> jobs domain (workspaced)
     // - /api/teams/sync -> teams domain (global)
     // - /api/srch/index/search -> indexer domain (global)
     let parts: Vec<&str> = route_path.split('/').collect();
 
-    let (domain, kind) = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
+    let (domain, kind, route_suffix) = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
         let domain_part = parts[4];
         let route_suffix = &parts[4..].join("/");
 
         let domain = ScopeDomain::from_str(domain_part);
 
-        let kind = determine_kind_from_route(route_suffix);
+        let kind = determine_kind_from_route(&route_suffix);
 
-        (domain, kind)
+        (domain, kind, Some(route_suffix.to_owned()))
     } else if parts.len() >= 3 && parts[1] == "api" {
-        (ScopeDomain::from_str(parts[2]), None)
+        (
+            ScopeDomain::from_str(parts[2]),
+            None,
+            Some(parts[2..].join("/")),
+        )
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     if let Some(domain) = domain {
-        return Ok((domain, kind));
+        return Ok((domain, kind, route_suffix));
     }
 
     Err(Error::BadRequest(format!(
@@ -559,11 +576,34 @@ fn extract_domain_from_route(route_path: &str) -> Result<(ScopeDomain, Option<St
     )))
 }
 
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 19] = [
+    "jobs_u/get_flow/",
+    "jobs_u/get_root_job_id/",
+    "jobs_u/get/",
+    "jobs_u/get_logs/",
+    "jobs_u/get_args/",
+    "jobs_u/get_flow_debug_info/",
+    "jobs_u/completed/get/",
+    "jobs_u/completed/get_result/",
+    "jobs_u/completed/get_result_maybe/",
+    "jobs_u/getupdate/",
+    "jobs_u/getupdate_sse/",
+    "jobs_u/get_log_file/",
+    "jobs/result_by_id/",
+    "jobs/resume_urls/",
+    "jobs/flow/user_states/",
+    "jobs/job_signature/",
+    "jobs/completed/get/",
+    "jobs/completed/get_result/",
+    "jobs/completed/get_result_maybe/",
+];
+
 fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
     required_action: ScopeAction,
     required_kind: Option<&str>,
+    route_path: Option<&str>,
 ) -> Result<bool> {
     // Check domain match
     let scope_domain = ScopeDomain::from_str(&scope.domain)
@@ -577,11 +617,19 @@ fn scope_grants_access(
     let scope_action = ScopeAction::from_str(&scope.action)
         .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
 
-    if !scope_action.includes(&required_action) {
+    if !scope_action.includes(&required_action)
+        && !(scope_domain == ScopeDomain::Jobs
+            && required_action == ScopeAction::Read
+            && route_path.is_some_and(|p| {
+                RUN_WHITELISTED_GET_PATHS
+                    .iter()
+                    .any(|path| p.starts_with(path))
+            }))
+    {
         return Ok(false);
     }
 
-    if required_domain == ScopeDomain::Jobs && required_action == ScopeAction::Run {
+    if scope_domain == ScopeDomain::Jobs && required_action == ScopeAction::Run {
         match (&scope.kind, required_kind) {
             (Some(scope_kind), Some(req_kind)) => {
                 if scope_kind != req_kind {
@@ -672,14 +720,17 @@ mod tests {
 
     #[test]
     fn test_route_domain_extraction() {
-        let (domain, kind) = extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
+        let (domain, kind, route_suffix) =
+            extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
         assert_eq!(domain, ScopeDomain::Jobs);
         assert_eq!(kind, None);
+        assert_eq!(route_suffix, Some("jobs/123".to_string()));
 
-        let (domain, kind) =
+        let (domain, kind, route_suffix) =
             extract_domain_from_route("/api/w/test_workspace/scripts/test_script").unwrap();
         assert_eq!(domain, ScopeDomain::Scripts);
         assert_eq!(kind, None);
+        assert_eq!(route_suffix, Some("scripts/test_script".to_string()));
     }
 
     #[test]

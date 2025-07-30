@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::PgExecutor;
-use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
+use sqlx::{types::Json, Pool, Postgres, Transaction};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -401,6 +401,13 @@ pub async fn append_logs(
     }
 }
 
+pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
+pub const INIT_SCRIPT_TAG: &str = "init_script";
+pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
+pub const PERIODIC_SCRIPT_PATH_PREFIX: &str = "periodic_script_";
+
+
+
 pub async fn push_init_job<'c>(
     db: &Pool<Postgres>,
     content: String,
@@ -415,7 +422,7 @@ pub async fn push_init_job<'c>(
         windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
             hash: None,
             content,
-            path: Some(format!("init_script_{worker_name}")),
+            path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
             custom_concurrency_key: None,
@@ -438,7 +445,56 @@ pub async fn push_init_job<'c>(
         true,
         None,
         true,
-        Some("init_script".to_string()),
+        Some(INIT_SCRIPT_TAG.to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    inner_tx.commit().await?;
+    Ok(uuid)
+}
+
+pub async fn push_periodic_bash_job<'c>(
+    db: &Pool<Postgres>,
+    content: String,
+    worker_name: &str,
+) -> error::Result<Uuid> {
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let ehm = HashMap::new();
+    let timestamp = chrono::Utc::now().timestamp();
+    let (uuid, inner_tx) = push(
+        &db,
+        tx,
+        "admins",
+        windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+            hash: None,
+            content,
+            path: Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{}_{}", worker_name, timestamp)),
+            language: ScriptLang::Bash,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        }),
+        PushArgs::from(&ehm),
+        worker_name,
+        "worker@windmill.dev",
+        SUPERADMIN_SECRET_EMAIL.to_string(),
+        Some("worker_periodic_script_job"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        true,
+        None,
+        true,
+        Some(PERIODIC_SCRIPT_TAG.to_string()),
         None,
         None,
         None,
@@ -1487,12 +1543,6 @@ pub async fn handle_maybe_scheduled_job<'c>(
     }
 }
 
-#[derive(Clone, Serialize, FromRow)]
-struct CompletedJobSubset {
-    success: bool,
-    result: Option<sqlx::types::Json<Box<RawValue>>>,
-    started_at: chrono::DateTime<chrono::Utc>,
-}
 
 #[cfg(feature = "enterprise")]
 async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
@@ -4694,7 +4744,7 @@ async fn restarted_flows_resolution(
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,

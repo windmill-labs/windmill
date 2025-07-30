@@ -129,7 +129,23 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
 export async function runScript(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  if (path && hash_) {
+    throw new Error("path and hash_ are mutually exclusive");
+  }
+  return _runScriptInternal(path, hash_, args, verbose);
+}
+
+async function _runScriptInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
@@ -138,11 +154,31 @@ export async function runScript(
   args = args || {};
 
   if (verbose) {
-    console.info(`running \`${path}\` synchronously with args:`, args);
+    if (path) {
+      console.info(`running \`${path}\` synchronously with args:`, args);
+    } else if (hash_) {
+      console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+    }
   }
 
-  const jobId = await runScriptAsync(path, hash_, args);
+  const jobId = await _runScriptAsyncInternal(path, hash_, args);
   return await waitJob(jobId, verbose);
+}
+
+export async function runScriptByPath(
+  path: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(path, null, args, verbose);
+}
+
+export async function runScriptByHash(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(null, hash_, args, verbose);
 }
 
 export async function runFlow(
@@ -243,16 +279,30 @@ export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
   };
 }
 
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
 export async function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
+  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
+  return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds);
+}
+
+async function _runScriptAsyncInternal(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
   args = args || {};
   const params: Record<string, any> = {};
 
@@ -278,6 +328,7 @@ export async function runScriptAsync(
   } else {
     throw new Error("path or hash_ must be provided");
   }
+  
   let url = new URL(OpenAPI.BASE + endpoint);
   url.search = new URLSearchParams(params).toString();
 
@@ -289,6 +340,22 @@ export async function runScriptAsync(
     },
     body: JSON.stringify(args),
   }).then((res) => res.text());
+}
+
+export async function runScriptByPathAsync(
+  path: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds);
+}
+
+export async function runScriptByHashAsync(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds);
 }
 
 export async function runFlowAsync(

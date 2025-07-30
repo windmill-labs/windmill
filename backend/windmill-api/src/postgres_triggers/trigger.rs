@@ -372,7 +372,7 @@ impl PostgresConfig {
         }
     }
 
-    fn retrieve_info(&self) -> PgInfo {
+    fn retrieve_info(&self) -> PgInfo<'_> {
         let postgres_resource_path;
         let publication_name;
         let replication_slot_name;

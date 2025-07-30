@@ -149,13 +149,13 @@ export function transformColumnDefs({
 	if (onDelete) {
 		r.push({
 			field: 'delete',
-			headerName: 'Delete',
+			headerName: '',
 			cellRenderer: cellRendererFactory((c, p) => {
 				const btnComponent = mount(Button, {
 					target: c.eGui,
 					props: {
-						btnClasses: 'w-12',
-						wrapperClasses: 'flex justify-end items-center h-full',
+						btnClasses: 'w-12 bg-transparent rounded-none h-full hover:bg-red-500',
+						wrapperClasses: 'flex justify-center items-center absolute inset-0 h-full',
 						color: 'light',
 						size: 'sm',
 						variant: 'contained',
@@ -181,7 +181,10 @@ export function transformColumnDefs({
 			lockPosition: 'right',
 			editable: false,
 			flex: 0,
-			width: 100
+			width: 50,
+			minWidth: 50,
+			resizable: false,
+			pinned: 'right'
 		})
 	}
 

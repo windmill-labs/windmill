@@ -96,6 +96,11 @@
 			></span
 		>
 		<span class="text-2xs text-tertiary"
+			>To exclude 'workspace1' and 'workspace2' from a tag, use <pre
+				class="inline">tag(^workspace1^workspace2)</pre
+			></span
+		>
+		<span class="text-2xs text-tertiary"
 			>For dynamic tags based on the workspace, use <pre class="inline">$workspace</pre>, e.g:
 			<pre class="inline">tag-$workspace</pre></span
 		>

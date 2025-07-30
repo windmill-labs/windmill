@@ -437,7 +437,6 @@
 											bind:this={editor}
 											class="h-full relative"
 											code={flowModule.value.content}
-											lang={scriptLangToEditorLang(flowModule?.value?.language)}
 											scriptLang={flowModule?.value?.language}
 											automaticLayout={true}
 											cmdEnterAction={async () => {
@@ -882,6 +881,7 @@
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
 											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											tagLabel={customUi?.tagLabel}
 										/>
 									</Pane>
 								{/if}
