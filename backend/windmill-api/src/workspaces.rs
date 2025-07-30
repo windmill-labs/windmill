@@ -881,6 +881,47 @@ pub struct EditGitSyncRepository {
 }
 
 #[cfg(feature = "enterprise")]
+#[derive(Deserialize, Debug)]
+pub struct DeleteGitSyncRepositoryRequest {
+    pub git_repo_resource_path: String,
+}
+
+#[cfg(feature = "enterprise")]
+fn validate_git_repo_resource_path(path: &str) -> Result<()> {
+    // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
+    if path.is_empty() {
+        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+    }
+
+    // Must start with $res: prefix
+    if !path.starts_with("$res:") {
+        return Err(Error::BadRequest("Resource path must start with '$res:'".to_string()));
+    }
+
+    // Extract the actual path after $res:
+    let actual_path = &path[5..]; // Remove "$res:" prefix
+
+    // Basic validation: must start with f/ or u/ and contain at least one slash
+    if !actual_path.starts_with("f/") && !actual_path.starts_with("u/") {
+        return Err(Error::BadRequest("Resource path must start with '$res:f/' or '$res:u/'".to_string()));
+    }
+
+    // Must have at least 3 parts (type, folder/user, name)
+    let parts: Vec<&str> = actual_path.split('/').collect();
+    if parts.len() < 3 || parts.iter().any(|part| part.is_empty()) {
+        return Err(Error::BadRequest("Invalid resource path format".to_string()));
+    }
+
+    // Resource name validation (last part)
+    let resource_name = parts.last().unwrap();
+    if !resource_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return Err(Error::BadRequest("Resource name can only contain alphanumeric characters, underscores, and hyphens".to_string()));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
 fn cleanup_legacy_git_sync_settings_in_memory(
     git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
     workspace_id: &str,
@@ -1000,6 +1041,9 @@ async fn edit_git_sync_repository(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Validate the resource path format
+    validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
     let mut tx = db.begin().await?;
 
     // First, get the current git sync settings
@@ -1106,13 +1150,12 @@ async fn delete_git_sync_repository(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(request): Json<serde_json::Value>,
+    Json(request): Json<DeleteGitSyncRepositoryRequest>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    let git_repo_resource_path = request.get("git_repo_resource_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::BadRequest("Missing git_repo_resource_path".to_string()))?;
+    // Validate the resource path format
+    validate_git_repo_resource_path(&request.git_repo_resource_path)?;
 
     let mut tx = db.begin().await?;
 
@@ -1137,12 +1180,12 @@ async fn delete_git_sync_repository(
 
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
-    git_sync_settings.repositories.retain(|repo| repo.git_repo_resource_path != git_repo_resource_path);
+    git_sync_settings.repositories.retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
 
     if git_sync_settings.repositories.len() == original_count {
         return Err(Error::BadRequest(format!(
             "Repository with path '{}' not found in git sync configuration",
-            git_repo_resource_path
+            request.git_repo_resource_path
         )));
     }
 
@@ -1154,7 +1197,7 @@ async fn delete_git_sync_repository(
         ActionKind::Delete,
         &w_id,
         Some(&authed.email),
-        Some([("repository_path", git_repo_resource_path)].into()),
+        Some([("repository_path", request.git_repo_resource_path.as_str())].into()),
     )
     .await?;
 
@@ -1182,12 +1225,12 @@ async fn delete_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' deleted", git_repo_resource_path)),
+        Some(format!("Git sync repository '{}' deleted", request.git_repo_resource_path)),
         false,
     )
     .await?;
 
-    Ok(format!("Deleted git sync repository '{}' from workspace {}", git_repo_resource_path, &w_id))
+    Ok(format!("Deleted git sync repository '{}' from workspace {}", request.git_repo_resource_path, &w_id))
 }
 
 #[derive(Debug, Deserialize)]

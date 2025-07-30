@@ -15,8 +15,48 @@ export interface JobOptions {
 	timeoutMessage?: string
 }
 
+interface JobEntry {
+	controller: AbortController
+	startTime: number
+}
+
 export class JobManager {
-	private activeJobs = new Map<string, AbortController>()
+	private activeJobs = new Map<string, JobEntry>()
+	private cleanupInterval: NodeJS.Timeout | null = null
+	private readonly STALE_TIMEOUT = 300000 // 5 minutes
+	private readonly CLEANUP_INTERVAL = 60000 // 1 minute
+
+	constructor() {
+		this.startCleanupTimer()
+	}
+
+	private startCleanupTimer() {
+		if (typeof window !== 'undefined') {
+			this.cleanupInterval = setInterval(() => {
+				this.cleanup()
+			}, this.CLEANUP_INTERVAL)
+		}
+	}
+
+	private cleanup() {
+		const now = Date.now()
+		const staleJobs: string[] = []
+
+		for (const [jobId, entry] of this.activeJobs.entries()) {
+			if (now - entry.startTime > this.STALE_TIMEOUT) {
+				entry.controller.abort()
+				staleJobs.push(jobId)
+			}
+		}
+
+		staleJobs.forEach(jobId => {
+			this.activeJobs.delete(jobId)
+		})
+
+		if (staleJobs.length > 0) {
+			console.warn(`Cleaned up ${staleJobs.length} stale job controllers`)
+		}
+	}
 
 	async runWithProgress<T>(
 		jobRunner: () => Promise<string>,
@@ -33,7 +73,10 @@ export class JobManager {
 		const controller = new AbortController()
 		const jobId = await jobRunner()
 
-		this.activeJobs.set(jobId, controller)
+		this.activeJobs.set(jobId, {
+			controller,
+			startTime: Date.now()
+		})
 
 		try {
 			onProgress?.({ status: 'running' })
@@ -89,15 +132,15 @@ export class JobManager {
 	}
 
 	cancel(jobId: string) {
-		const controller = this.activeJobs.get(jobId)
-		if (controller) {
-			controller.abort()
+		const entry = this.activeJobs.get(jobId)
+		if (entry) {
+			entry.controller.abort()
 			this.activeJobs.delete(jobId)
 		}
 	}
 
 	cancelAll() {
-		this.activeJobs.forEach(controller => controller.abort())
+		this.activeJobs.forEach(entry => entry.controller.abort())
 		this.activeJobs.clear()
 	}
 
@@ -107,6 +150,14 @@ export class JobManager {
 
 	get activeJobCount(): number {
 		return this.activeJobs.size
+	}
+
+	destroy() {
+		if (this.cleanupInterval) {
+			clearInterval(this.cleanupInterval)
+			this.cleanupInterval = null
+		}
+		this.cancelAll()
 	}
 }
 
