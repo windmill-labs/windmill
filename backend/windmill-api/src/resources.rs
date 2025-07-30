@@ -1069,6 +1069,18 @@ async fn create_resource_type(
     .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resource_types.create",
+        ActionKind::Create,
+        &w_id,
+        Some(&resource_type.name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1082,18 +1094,6 @@ async fn create_resource_type(
         true,
     )
     .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "resource_types.create",
-        ActionKind::Create,
-        &w_id,
-        Some(&resource_type.name),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
 
     webhook.send_message(
         w_id.clone(),
