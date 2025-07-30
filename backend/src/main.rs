@@ -135,6 +135,36 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn update_ca_certificates_if_requested() {
+    if std::env::var("RUN_UPDATE_CA_CERTIFICATE_AT_START")
+        .ok()
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
+        let ca_cert_path = std::env::var("RUN_UPDATE_CA_CERTIFICATE_PATH")
+            .unwrap_or_else(|_| "/usr/sbin/update-ca-certificates".to_string());
+
+        println!("RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running: {}", ca_cert_path);
+
+        let output = std::process::Command::new(&ca_cert_path)
+            .output();
+
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    println!("Successfully updated CA certificates");
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    println!("Failed to update CA certificates, but continuing startup: {}", stderr.trim());
+                }
+            }
+            Err(e) => {
+                println!("Could not run update-ca-certificates command, but continuing startup: {}", e);
+            }
+        }
+    }
+}
+
 #[inline(always)]
 fn create_and_run_current_thread_inner<F, R>(future: F) -> R
 where
@@ -263,12 +293,14 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
+    update_ca_certificates_if_requested();
+
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
     }
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
-        tracing::error!("Failed to install rustls crypto provider");
+        println!("Failed to install rustls crypto provider");
     }
 
     #[cfg(feature = "enterprise")]
@@ -280,9 +312,9 @@ async fn windmill_main() -> anyhow::Result<()> {
             .arg("iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP")
             .status()
         {
-            tracing::warn!("Failed to run iptables to block metadata endpoint: {e}");
+            println!("Failed to run iptables to block metadata endpoint: {e}");
         } else {
-            tracing::info!("Successfully blocked metadata endpoint using iptables");
+            println!("Successfully blocked metadata endpoint using iptables");
         }
     }
 
@@ -377,7 +409,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
-        tracing::info!(
+        println!(
             "PostgreSQL version: {} (windmill require PG >= 14)",
             num_version
                 .ok()
@@ -386,7 +418,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         );
         load_otel(&db).await;
 
-        tracing::info!("Database connected");
+        println!("Database connected");
         (Connection::Sql(db), None)
     };
 
