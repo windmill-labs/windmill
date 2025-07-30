@@ -15,7 +15,6 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::workspaces::DucklakeCatalogResourceType;
-use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -567,23 +566,28 @@ async fn transform_attach_ducklake(
         .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
         .unwrap_or("".to_string());
 
+    // TODO : Fix credentials leak and uncomment the block
     let (ducklake, instance_pg_password) = {
-        let mut c = client.get_ducklake(ducklake_name).await?;
-        let mut instance_pg_password = None;
+        let c = client.get_ducklake(ducklake_name).await?;
+        let instance_pg_password = None;
         // If the ducklake catalog is the windmill instance db, find out its connection settings
         if matches!(
             c.catalog.resource_type,
             DucklakeCatalogResourceType::Instance
         ) {
-            let components = parse_postgres_url(&get_database_url().await?)?;
-            c.catalog_resource = json!({
-                "dbname": c.catalog.resource_path,
-                "host": components.host,
-                "port": components.port,
-                "user": components.username,
-                "sslmode": components.ssl_mode,
-            });
-            instance_pg_password = components.password.map(|p| UseInstancePgPassword::new(p));
+            return Err(Error::ExecutionErr(
+                "Ducklake with instance catalogs are not available yet due to security concerns"
+                    .to_string(),
+            ));
+            // let components = parse_postgres_url(&get_database_url().await?)?;
+            // c.catalog_resource = json!({
+            //     "dbname": c.catalog.resource_path,
+            //     "host": components.host,
+            //     "port": components.port,
+            //     "user": components.username,
+            //     "sslmode": components.ssl_mode,
+            // });
+            // instance_pg_password = components.password.map(|p| UseInstancePgPassword::new(p));
         }
         (c, instance_pg_password)
     };
@@ -702,6 +706,7 @@ impl Drop for UseBigQueryCredentialsFile {
 // The instance database is particularly sensitive so we treat it with maximum care
 pub struct UseInstancePgPassword {}
 impl UseInstancePgPassword {
+    #[allow(dead_code)]
     pub fn new(password: String) -> Self {
         env::set_var("PGPASSWORD", &password);
         Self {}

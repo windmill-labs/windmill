@@ -81,7 +81,8 @@
 	}
 	let { ducklakeSettings = $bindable() }: Props = $props()
 
-	let isWmDbEnabled = $derived($superadmin && !isCloudHosted())
+	// Disabled for now. Need to fix security issues instance db credentials leaking
+	let isWmDbEnabled = false // $derived($superadmin && !isCloudHosted())
 
 	function onNewDucklake() {
 		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
