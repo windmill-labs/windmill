@@ -23,7 +23,7 @@ import { exts, findGlobalDeps, removeExtensionToPath } from "./script.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts } from "npm:windmill-utils-internal";
+import { replaceInlineScripts } from "npm:centdix-utils";
 import { parseMetadataFile } from "./metadata.ts";
 
 const PORT = 3001;
