@@ -1303,7 +1303,7 @@ pub async fn par_install_language_dependencies<
                     os,
                     path.clone(),
                     language_name.to_owned(),
-                    custom_name.clone(),
+                    s3_handle.clone(),
                     platform_agnostic,
                 ))
             } else {
@@ -1367,7 +1367,7 @@ pub async fn par_install_language_dependencies<
                     tracing::info!(
                         workspace_id = %w_id_2,
                         "No tarball was found for {:?} on S3 or different problem occured {job_id_2}:\n{e}",
-                        &custom_name.clone().unwrap_or(path)
+                        &s3_handle.clone().unwrap_or(path)
                     );
                 } else {
                     // TODO: Refactor
