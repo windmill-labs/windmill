@@ -15,7 +15,6 @@
 </script>
 
 <script lang="ts">
-	import type { Script } from '$lib/gen'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { deepEqual } from 'fast-equals'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
@@ -23,13 +22,11 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { readFieldsRecursively } from '$lib/utils'
+	import { readFieldsRecursively, type DynamicSelect } from '$lib/utils'
 
 	interface Props {
 		value?: any
-		helperScript?:
-			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-			| { type: 'hash'; hash: string }
+		helperScript?: DynamicSelect.HelperScript
 		entrypoint: string
 		args?: Record<string, any>
 		name: string
@@ -52,20 +49,21 @@
 						return
 					}
 					if (result.length == 0) resolve([])
+
 					if (result.every((x) => typeof x == 'string')) {
 						result = result.map((x) => ({ label: x, value: x }))
-					} else if (result.find((x) => validSelectObject(x) != undefined)) {
+					} else if (result.find((x) =>  validSelectObject(x) != undefined)) {
 						reject(validSelectObject(result.find((x) => validSelectObject(x) != undefined)))
-					} else {
-						if (filterText != undefined && filterText != '')
-							result = result.filter((x) => x['label'].includes(filterText))
-						resolve(result)
+						return
+					} else if (filterText != undefined && filterText != '') {
+						result = result.filter((x) => x['label'].includes(filterText))
 					}
+					resolve(result)
 				},
 				cancel: () => reject(),
 				doneError({ id, error }) {
 					reject(error)
-				},
+				}
 			}
 			helperScript?.type == 'inline'
 				? resultJobLoader?.runPreview(

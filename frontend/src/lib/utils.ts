@@ -584,6 +584,29 @@ export type InputCat =
 	| 'oneOf'
 	| 'dynselect'
 
+export namespace DynamicSelect {
+	export type HelperScript =
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+	
+	export const DEFAULT_DYNSELECT_TYPESCRIPT = `	
+export function main() {
+	return [
+		{ label: 'Foo', value: 'foo' },
+		{ label: 'Bar', value: 'bar' }
+	];
+}
+`
+	export const DEFAULT_DYNSELECT_PYTHON = `
+def main():
+	return [
+		{"label": "Foo", "value": "foo"},
+		{"label": "Bar", "value": "bar"}
+	]
+`
+
+}
+
 export function setInputCat(
 	type: string | undefined,
 	format: string | undefined,
@@ -599,7 +622,7 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format?.startsWith('dynselect-')) {
+	} else if (type == 'object' && (format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))) {
 		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'

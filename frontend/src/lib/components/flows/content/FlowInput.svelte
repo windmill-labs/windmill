@@ -40,7 +40,7 @@
 	} from '$lib/components/schema/schemaUtils.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
-	import { isObjectTooBig } from '$lib/utils'
+	import { isObjectTooBig, DynamicSelect } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
@@ -76,6 +76,15 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
+
+	$effect.pre(() => {
+		if (!flowStore.val.dynselect_code) {
+			flowStore.val.dynselect_code = DynamicSelect.DEFAULT_DYNSELECT_TYPESCRIPT
+		}
+		if (!flowStore.val.dynselect_lang) {
+			flowStore.val.dynselect_lang = 'bun'
+		}
+	})
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -406,6 +415,8 @@
 					resetArgs()
 				}}
 				bind:isValid
+				bind:dynSelectCode={flowStore.val.dynselect_code}
+				bind:dynSelectLang={flowStore.val.dynselect_lang}
 			>
 				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>

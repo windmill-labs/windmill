@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { VariableService, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -27,6 +27,8 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import Section from './Section.svelte'
+	import Editor from './Editor.svelte'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -64,6 +66,8 @@
 		customUi?: EditableSchemaFormUi | undefined
 		pannelExtraButtonWidth?: number
 		class?: string
+		dynSelectCode?: string | undefined
+		dynSelectLang?: ScriptLang | undefined
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
@@ -96,6 +100,8 @@
 		customUi = undefined,
 		pannelExtraButtonWidth = 0,
 		class: clazz = '',
+		dynSelectCode = $bindable(),
+		dynSelectLang = $bindable(),
 		openEditTab,
 		addProperty,
 		runButton,
@@ -105,6 +111,12 @@
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		if (dynSelectLang === undefined) {
+			dynSelectLang = 'bun'
+		}
+		if (dynSelectCode === undefined) {
+			dynSelectCode = ''
 		}
 	})
 
@@ -299,6 +311,22 @@
 	$effect(() => {
 		!!editTab ? openEditTabFn() : closeEditTab()
 	})
+
+	let dynSelectFunctions = $derived(
+		Object.entries(schema?.properties ?? {})
+			.filter(([_, property]) => {
+				const props = property as any
+				return (
+					props.type === 'object' &&
+					(props.format?.startsWith('dynselect-') || props.format?.startsWith('dynselect_'))
+				)
+			})
+			.map(([fieldName, _]) => fieldName.toLowerCase().replace(/\s+/g, '_'))
+	)
+
+	$effect(() => {
+		console.log(dynSelectFunctions)
+	})
 </script>
 
 <div class="w-full h-full">
@@ -357,6 +385,11 @@
 								}
 								tick().then(() => dispatch('change', schema))
 							}}
+							helperScript={{
+								type: 'inline',
+								code: dynSelectCode!,
+								lang: dynSelectLang!
+							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -371,6 +404,43 @@
 						/>
 
 						{@render runButton?.()}
+
+						<div class="h-full">
+							<Section collapsable={true}>
+								<div class="flex flex-col gap-2 h-full">
+									{#if dynSelectFunctions.length > 0}
+										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+												Expected Functions for Dynamic Select Fields:
+											</div>
+											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+												{#each dynSelectFunctions as functionName}
+													<li class="font-mono bg-blue-100 dark:bg-blue-800/30 px-2 py-1 rounded">
+														{functionName}()
+													</li>
+												{/each}
+											</ul>
+										</div>
+									{/if}
+									<ToggleButtonGroup bind:selected={dynSelectLang}>
+										{#snippet children({ item })}
+											<ToggleButton value="bun" label="Typescript (Bun)" {item} />
+											<ToggleButton value="python3" label="Python" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+									<div class="border w-full h-full">
+										<Editor
+											class="flex flex-1 grow h-80 w-full"
+											automaticLayout
+											scriptLang={dynSelectLang}
+											useWebsockets={false}
+											fixedOverflowWidgets={false}
+											bind:code={dynSelectCode}
+										/>
+									</div>
+								</div>
+							</Section>
+						</div>
 					</div>
 				</div>
 			</Pane>
@@ -562,7 +632,9 @@
 																						schema.properties[argName] = {
 																							...emptyProperty,
 																							type: 'object',
-																							format: 'dynselect-main'
+																							format:
+																								'dynselect-' +
+																								argName.toLowerCase().replace(/\s+/g, '_')
 																						}
 																					} else if (isOneOf) {
 																						schema.properties[argName] = {
