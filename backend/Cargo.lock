@@ -14993,6 +14993,7 @@ dependencies = [
  "bytes",
  "chrono",
  "const_format",
+ "flume",
  "futures",
  "lazy_static",
  "object_store",
