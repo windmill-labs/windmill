@@ -96,7 +96,6 @@ pub async fn do_duckdb(
 ) -> Result<Box<RawValue>> {
     let result_f = async {
         let mut bigquery_credentials = None;
-        let mut instance_pg_password = None;
         let mut duckdb_connection_settings_cache =
             HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
 
@@ -170,10 +169,7 @@ pub async fn do_duckdb(
                     )
                     .await?
                     {
-                        Some((ducklake_query, _instance_pg_password)) => {
-                            v.extend(ducklake_query);
-                            instance_pg_password = _instance_pg_password;
-                        }
+                        Some(ducklake_query) => v.extend(ducklake_query),
                         None => v.push(query_block.to_string()),
                     },
                 };
@@ -215,7 +211,6 @@ pub async fn do_duckdb(
         .map_err(to_anyhow)??;
 
         drop(bigquery_credentials);
-        drop(instance_pg_password);
 
         *column_order_ref = column_order;
         Ok(result)
@@ -552,7 +547,7 @@ async fn transform_attach_ducklake(
     query: &str,
     client: &AuthedClient,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
-) -> Result<Option<(Vec<String>, Option<UseInstancePgPassword>)>> {
+) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
     }
@@ -566,31 +561,7 @@ async fn transform_attach_ducklake(
         .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
         .unwrap_or("".to_string());
 
-    // TODO : Fix credentials leak and uncomment the block
-    let (ducklake, instance_pg_password) = {
-        let c = client.get_ducklake(ducklake_name).await?;
-        let instance_pg_password = None;
-        // If the ducklake catalog is the windmill instance db, find out its connection settings
-        if matches!(
-            c.catalog.resource_type,
-            DucklakeCatalogResourceType::Instance
-        ) {
-            return Err(Error::ExecutionErr(
-                "Ducklake with instance catalogs are not available yet due to security concerns"
-                    .to_string(),
-            ));
-            // let components = parse_postgres_url(&get_database_url().await?)?;
-            // c.catalog_resource = json!({
-            //     "dbname": c.catalog.resource_path,
-            //     "host": components.host,
-            //     "port": components.port,
-            //     "user": components.username,
-            //     "sslmode": components.ssl_mode,
-            // });
-            // instance_pg_password = components.password.map(|p| UseInstancePgPassword::new(p));
-        }
-        (c, instance_pg_password)
-    };
+    let ducklake = client.get_ducklake(ducklake_name).await?;
     let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
         _ => ducklake.catalog.resource_type.as_ref(),
@@ -611,14 +582,11 @@ async fn transform_attach_ducklake(
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some((
-        vec![
-            "INSTALL ducklake;".to_string(),
-            install_db_ext_str.to_string(),
-            attach_str,
-        ],
-        instance_pg_password,
-    )))
+    Ok(Some(vec![
+        "INSTALL ducklake;".to_string(),
+        install_db_ext_str.to_string(),
+        attach_str,
+    ]))
 }
 
 // Replaces all s3 URIs in the windmill syntax with the actual S3 network URIs
@@ -696,25 +664,6 @@ impl Drop for UseBigQueryCredentialsFile {
         if matches!(std::fs::exists(&self.path), Ok(true)) {
             let _ = std::fs::remove_file(&self.path);
         }
-    }
-}
-
-// When using a ducklake that uses the instance database, we use the PGPASSWORD
-// feature of duckdb to avoid writing the password in clear in the code.
-// Unfortunately it seems there is always a way to leak the password through errors,
-// e.g on connection error or on syntax error near the password.
-// The instance database is particularly sensitive so we treat it with maximum care
-pub struct UseInstancePgPassword {}
-impl UseInstancePgPassword {
-    #[allow(dead_code)]
-    pub fn new(password: String) -> Self {
-        env::set_var("PGPASSWORD", &password);
-        Self {}
-    }
-}
-impl Drop for UseInstancePgPassword {
-    fn drop(&mut self) {
-        env::remove_var("PGPASSWORD");
     }
 }
 

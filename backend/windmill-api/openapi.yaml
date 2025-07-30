@@ -752,10 +752,10 @@ paths:
                 items:
                   type: string
 
-  /settings/create_database/{name}:
+  /settings/create_ducklake_database/{name}:
     post:
-      summary: Runs CREATE DATABASE on the Windmill Postgres
-      operationId: createDatabase
+      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
+      operationId: createDucklakeDatabase
       tags:
         - setting
       parameters:

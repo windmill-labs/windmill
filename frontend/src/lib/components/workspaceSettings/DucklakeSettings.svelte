@@ -81,8 +81,7 @@
 	}
 	let { ducklakeSettings = $bindable() }: Props = $props()
 
-	// Disabled for now. Need to fix security issues instance db credentials leaking
-	let isWmDbEnabled = false // $derived($superadmin && !isCloudHosted())
+	let isWmDbEnabled = $derived($superadmin && !isCloudHosted())
 
 	function onNewDucklake() {
 		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
@@ -126,7 +125,9 @@
 						</span>`
 					})
 					if (!confirmed) return
-					await Promise.all(nonExistentDbs.map((name) => SettingService.createDatabase({ name })))
+					await Promise.all(
+						nonExistentDbs.map((name) => SettingService.createDucklakeDatabase({ name }))
+					)
 				}
 			}
 			const settings = convertDucklakeSettingsToBackend(ducklakeSettings)
@@ -167,13 +168,15 @@
 	</div>
 </div>
 
-<Alert title="Resource details are shared" class="mb-4" type="warning">
-	Using a database resource as a catalog will share the database credentials with all users in the
-	workspace.
-	<br />
-	This is not the case for catalogs of type Instance, which use Windmill's own PostgreSQL instance. These
-	credentials are never exposed.
-</Alert>
+{#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type !== 'instance')}
+	<Alert title="Resource details are shared" class="mb-4" type="warning">
+		Using a database resource as a catalog will share the database credentials with all users in the
+		workspace.
+		<br />
+		This is not the case for catalogs of type Instance, which use Windmill's own PostgreSQL instance.
+		These credentials are never exposed.
+	</Alert>
+{/if}
 
 <DataTable>
 	<Head>

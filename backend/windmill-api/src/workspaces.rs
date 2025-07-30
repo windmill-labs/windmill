@@ -52,6 +52,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -61,7 +62,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::not_found_if_none;
+use windmill_common::utils::{get_ducklake_instance_pg_password, not_found_if_none};
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -941,10 +942,18 @@ async fn get_ducklake(
     let catalog_resource = {
         match ducklake.catalog.resource_type {
             DucklakeCatalogResourceType::Instance => {
-                // type Instance uses the Windmill database directly
-                // Credentials are resolved by the worker directly
-                // to avoid leaking the windmill database credentials
-                json!("SECRET")
+                let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+                let Some(wm_pg_pwd) = pg_creds.password else {
+                    return Err(Error::BadRequest("Password not found".to_string()));
+                };
+                json!({
+                    "dbname": ducklake.catalog.resource_path,
+                    "host": pg_creds.host,
+                    "port": pg_creds.port,
+                    "user": "ducklake_user",
+                    "sslmode": pg_creds.ssl_mode,
+                    "password": get_ducklake_instance_pg_password(&wm_pg_pwd),
+                })
             }
             _ => get_resource_value_interpolated_internal(
                 &authed,

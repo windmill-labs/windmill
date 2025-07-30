@@ -19,6 +19,7 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
+use itertools::Itertools;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
@@ -857,5 +858,44 @@ impl Display for RunnableKind {
             RunnableKind::Flow => "flow",
         };
         write!(f, "{}", runnable_kind)
+    }
+}
+
+pub fn get_ducklake_instance_pg_password(pg_password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(pg_password);
+    hex::encode(hasher.finalize())
+}
+
+// build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
+pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
+    args.iter()
+        .filter_map(|(k, v)| {
+            if let Some(value) = v {
+                Some(format!("{}{}{}", k, eq, value))
+            } else {
+                None
+            }
+        })
+        .join(sep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_build_arg_str() {
+        let r = build_arg_str(
+            &[
+                ("host", Some("localhost")),
+                ("port", Some("5432")),
+                ("password", None),
+                ("user", Some("postgres")),
+                ("dbname", Some("test_db")),
+            ],
+            " ",
+            "=",
+        );
+        assert_eq!(r, "host=localhost port=5432 user=postgres dbname=test_db");
     }
 }

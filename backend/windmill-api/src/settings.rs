@@ -33,11 +33,14 @@ use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalEr
 use windmill_common::{
     email_oss::send_email,
     error::{self, JsonResult, Result},
+    get_database_url,
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
         ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
+    parse_postgres_url,
     server::Smtp,
+    utils::{build_arg_str, get_ducklake_instance_pg_password},
 };
 
 #[cfg(feature = "parquet")]
@@ -68,7 +71,10 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route("/databases_exist", post(databases_exist))
-        .route("/create_database/:name", post(create_database))
+        .route(
+            "/create_ducklake_database/:name",
+            post(create_ducklake_database),
+        )
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
@@ -522,25 +528,95 @@ async fn databases_exist(
     Ok(Json(result))
 }
 
-async fn create_database(
+async fn create_ducklake_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(name): Path<String>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    let r = create_ducklake_database_inner(authed, &db, &name).await;
+    match r {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // We cannot create databases in transactions, so we need to clean up
+            let _ = sqlx::query(&format!("DROP DATABASE \"{name}\""))
+                .execute(&db)
+                .await;
+            Err(error::Error::internal_err(format!(
+                "Failed to create database: {}",
+                e
+            )))
+        }
+    }
+}
+
+async fn create_ducklake_database_inner(authed: ApiAuthed, db: &DB, dbname: &String) -> Result<()> {
+    require_super_admin(db, &authed.email).await?;
+
+    let username = "ducklake_user";
 
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
-    let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_-]+$")
+    let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_]+$")
         .map_err(|_| error::Error::internal_err("Failed to compile regex".to_string()))?;
-    if !valid_name.is_match(&name) {
+    if !valid_name.is_match(dbname) {
         return Err(error::Error::BadRequest(
             "Invalid database name".to_string(),
         ));
     }
+    let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+    let Some(wm_pg_pwd) = pg_creds.password else {
+        return Err(error::Error::BadRequest("Password not found".to_string()));
+    };
+    let password = get_ducklake_instance_pg_password(&wm_pg_pwd);
 
-    sqlx::query(&format!("CREATE DATABASE \"{name}\""))
-        .execute(&db)
+    sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
+        .execute(db)
         .await?;
+    let _ = sqlx::query(&format!(
+        "CREATE USER \"{username}\" WITH PASSWORD '{password}'"
+    ))
+    .execute(db)
+    .await; // Might already exist, ignore the error
+    sqlx::query(&format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO \"{username}\""
+    ))
+    .execute(db)
+    .await?;
+
+    // We have to connect to the newly created database as admin to grant permissions
+    let conn_str: String = build_arg_str(
+        &[
+            ("host", Some(&pg_creds.host)),
+            ("port", pg_creds.port.map(|p| p.to_string()).as_deref()),
+            ("password", Some(&wm_pg_pwd)),
+            ("user", pg_creds.username.as_deref()),
+            ("dbname", Some(dbname)),
+        ],
+        " ",
+        "=",
+    );
+    let (client, connection) = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
+    )
+    .await
+    .map_err(to_anyhow)?
+    .map_err(to_anyhow)?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    client
+        .batch_execute(&format!(
+            "GRANT USAGE ON SCHEMA public TO \"{username}\";
+            GRANT CREATE ON SCHEMA public TO \"{username}\";
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{username}\";"
+        ))
+        .await
+        .map_err(to_anyhow)?;
     Ok(())
 }
