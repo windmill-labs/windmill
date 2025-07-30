@@ -80,8 +80,6 @@
 		}
 	}
 
-	// Note: Escape key is handled by the Modal component itself
-
 	// Auto-save settings after successful pull with settings updates
 	async function saveUpdatedSettings() {
 		if (!currentGitSyncSettings || repoIndex === undefined) return
