@@ -1,31 +1,11 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter, Save, Eye, Loader2, CheckCircle2, XCircle, Check } from 'lucide-svelte'
+	import { Filter, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import yaml from 'js-yaml'
-	import hubPaths from '$lib/hubPaths.json'
-	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { Button } from '$lib/components/common'
-	import { sendUserToast } from '$lib/toast'
 	import FilterList from './FilterList.svelte'
 	import { Tabs, Tab } from '$lib/components/common'
-
-	type ObjectType =
-		| 'script'
-		| 'flow'
-		| 'app'
-		| 'folder'
-		| 'resource'
-		| 'variable'
-		| 'secret'
-		| 'resourcetype'
-		| 'schedule'
-		| 'user'
-		| 'group'
-		| 'trigger'
-		| 'settings'
-		| 'key'
+	import type { GitSyncObjectType } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -44,53 +24,25 @@
 		key: boolean
 	}
 
-	type PreviewResult = {
-		diff?: { [key: string]: { from: any; to: any } }
-		hasChanges?: boolean
-		isInitialSetup?: boolean
-		message?: string
-		local?: {
-			include_path: string[]
-			exclude_path: string[]
-			extra_include_path: string[]
-			include_type: ObjectType[]
-		}
-		backend?: {
-			include_path: string[]
-			exclude_path: string[]
-			extra_include_path: string[]
-			include_type: ObjectType[]
-		}
-	}
-
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
-		include_type = $bindable(['script', 'flow', 'app', 'folder'] as ObjectType[]),
-		exclude_types_override = $bindable([] as ObjectType[]),
+		include_type = $bindable(['script', 'flow', 'app', 'folder'] as GitSyncObjectType[]),
+		exclude_types_override = $bindable([] as GitSyncObjectType[]),
 		isLegacyRepo = false,
-		yamlText = $bindable(''),
-		onSettingsChange = (settings: { yaml: string }) => {},
 		excludes = $bindable([] as string[]),
-		extraIncludes = $bindable([] as string[])
+		extraIncludes = $bindable([] as string[]),
+		isInitialSetup = false,
+		requiresMigration = false,
+		actions = undefined
 	} = $props()
 
 	// Component state
 	let collapsed = $state(false)
-	let editAsYaml = $state(false)
-	let yamlError = $state('')
-	let isPullMode = $state(false)
+	let showCliInstructions = $state(false)
 
-	// Preview/Push state
-	let previewResult = $state<PreviewResult | null>(null)
-	let previewJobId = $state<string | null>(null)
-	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
-	let pushJobId = $state<string | null>(null)
-	let pushJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
-	let isPreviewLoading = $state(false)
-	let isPushing = $state(false)
-	let previewError = $state('')
-	let previewSettingsSnapshot = $state<string | null>(null)
+	// Determine if component should be editable or read-only
+	const isEditable = $derived(isInitialSetup || requiresMigration)
 
 	// Compute effective include types (include_type minus exclude_types_override for legacy repos only)
 	const effectiveIncludeTypes = $derived(
@@ -122,7 +74,7 @@
 
 	function updateIncludeType(key: keyof GitSyncTypeMap, value: boolean) {
 		const newTypes = new Set(include_type)
-		const typeMap: Record<keyof GitSyncTypeMap, ObjectType> = {
+		const typeMap: Record<keyof GitSyncTypeMap, GitSyncObjectType> = {
 			scripts: 'script',
 			flows: 'flow',
 			apps: 'app',
@@ -155,369 +107,7 @@
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
 
-	// Simple JSON-based UI state helper
-	function getUIState() {
-		return {
-			include_path,
-			exclude_path: excludes,
-			extra_include_path: extraIncludes,
-			include_type
-		}
-	}
 
-	// Apply settings from backend format (used by both local git repo and backend settings)
-	function fromBackendFormat(settings: {
-		include_path: string[]
-		exclude_path: string[]
-		extra_include_path: string[]
-		include_type: ObjectType[]
-	}) {
-		include_path = settings.include_path || []
-		excludes = settings.exclude_path || []
-		extraIncludes = settings.extra_include_path || []
-		include_type = settings.include_type || []
-	}
-
-	// Simplified YAML parsing for manual editing
-	function fromYaml(yamlStr: string) {
-		yamlError = ''
-		try {
-			const parsed = yaml.load(yamlStr)
-			if (!parsed || typeof parsed !== 'object') {
-				throw new Error('Invalid YAML structure')
-			}
-
-			const obj: any = parsed
-			yamlText = yamlStr
-
-			// Extract includes - reset to default if not present
-			if (obj.includes && Array.isArray(obj.includes)) {
-				include_path = obj.includes.map((p: any) => {
-					if (typeof p !== 'string') {
-						throw new Error('includes must contain only strings')
-					}
-					// Handle quoted strings
-					if (/^['"].*['"]$/.test(p)) {
-						return p.slice(1, -1).replace(/''/g, "'")
-					}
-					return p
-				})
-			} else {
-				// Reset to default if includes is not present
-				include_path = ['f/**']
-			}
-
-			// Build the type set based on the YAML flags
-			const newTypes = new Set<ObjectType>()
-
-			// Always include core types (these are fundamental and not controlled by flags)
-			newTypes.add('script')
-			newTypes.add('flow')
-			newTypes.add('app')
-			newTypes.add('folder')
-
-			// Handle skip flags (if skipX is false or undefined, include the type)
-			if (obj.skipResourceTypes !== true) newTypes.add('resourcetype')
-			if (obj.skipResources !== true) newTypes.add('resource')
-			if (obj.skipVariables !== true) newTypes.add('variable')
-			if (obj.skipSecrets !== true) newTypes.add('secret')
-
-			// Handle include flags (if includeX is true, include the type)
-			if (obj.includeSchedules === true) newTypes.add('schedule')
-			if (obj.includeTriggers === true) newTypes.add('trigger')
-			if (obj.includeUsers === true) newTypes.add('user')
-			if (obj.includeGroups === true) newTypes.add('group')
-			if (obj.includeSettings === true) newTypes.add('settings')
-			if (obj.includeKey === true) newTypes.add('key')
-
-			// Apply business rule: secrets can only be included if variables are included
-			// This matches the UI behavior where turning off variables also turns off secrets
-			if (!newTypes.has('variable')) {
-				newTypes.delete('secret')
-			}
-
-			include_type = Array.from(newTypes)
-		} catch (e) {
-			yamlError = e.message || 'Invalid YAML'
-			console.error('Error parsing YAML:', e)
-		}
-	}
-
-	// Simple YAML generation for manual editing mode
-	function generateYamlFromUI() {
-		try {
-			const validIncludePath = include_path
-			const validExcludePath = excludes
-			const validExtraInclude = extraIncludes
-
-			// Basic YAML structure - let the CLI handle the proper normalization
-			let config: any = {
-				includes: validIncludePath,
-				excludes: validExcludePath,
-				extraIncludes: validExtraInclude,
-				codebases: []
-			}
-
-			// Let the CLI handle the optimization of skip/include flags
-			// Just convert the UI state directly
-			if (!include_type.includes('variable')) config.skipVariables = true
-			if (!include_type.includes('resource')) config.skipResources = true
-			if (!include_type.includes('secret')) config.skipSecrets = true
-			if (!include_type.includes('resourcetype')) config.skipResourceTypes = true
-
-			if (include_type.includes('schedule')) config.includeSchedules = true
-			if (include_type.includes('trigger')) config.includeTriggers = true
-			if (include_type.includes('user')) config.includeUsers = true
-			if (include_type.includes('group')) config.includeGroups = true
-			if (include_type.includes('settings')) config.includeSettings = true
-			if (include_type.includes('key')) config.includeKey = true
-
-			return yaml.dump(config, {
-				indent: 2,
-				lineWidth: -1,
-				quotingType: '"',
-				forceQuotes: false,
-				noRefs: true
-			})
-		} catch (e) {
-			console.warn('Failed to generate YAML:', e)
-			yamlError = e.message || 'Failed to generate YAML'
-			return `includes:
-  - f/**
-excludes: []
-extraIncludes: []
-codebases: []`
-		}
-	}
-
-	function switchToYaml() {
-		yamlText = generateYamlFromUI()
-		yamlError = ''
-		editAsYaml = true
-	}
-
-	function switchToUI() {
-		fromYaml(yamlText)
-		if (!yamlError) {
-			editAsYaml = false
-		}
-	}
-
-	// Simplified preview function - always uses JSON approach
-	async function previewFiltersToGitRepo() {
-		isPreviewLoading = true
-		previewError = ''
-		previewResult = null
-		previewJobId = null
-		previewJobStatus = undefined
-
-		// Take a snapshot of current settings
-		previewSettingsSnapshot = JSON.stringify({
-			include_path,
-			excludes,
-			extraIncludes,
-			include_type
-		})
-
-		try {
-			const workspace = $workspaceStore
-			if (!workspace) return
-
-			// Always pass UI state as JSON - the backend now handles this uniformly
-			const payloadObj = {
-				workspace_id: workspace,
-				repo_url_resource_path: git_repo_resource_path,
-				only_wmill_yaml: true,
-				dry_run: true,
-				pull: isPullMode,
-				settings_json: JSON.stringify(getUIState())
-			}
-
-			const jobId = await JobService.runScriptByPath({
-				workspace,
-				path: hubPaths.gitInitRepo,
-				requestBody: payloadObj,
-				skipPreprocessor: true
-			})
-
-			previewJobId = jobId
-			previewJobStatus = 'running'
-			let jobSuccess = false
-			let result: PreviewResult = {}
-
-			await (
-				await import('$lib/utils')
-			).tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-					if (jobSuccess) {
-						const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-						result = jobResult as PreviewResult
-					}
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: 'Preview job timed out after 5s' }
-						})
-					} catch (err) {}
-				},
-				interval: 500,
-				timeout: 10000
-			})
-
-			previewJobStatus = jobSuccess ? 'success' : 'failure'
-			if (jobSuccess) {
-				previewResult = result
-			} else {
-				previewError = 'Preview failed'
-			}
-		} catch (e) {
-			previewJobStatus = 'failure'
-			previewError = e?.message || 'Preview failed'
-			previewResult = null
-		} finally {
-			isPreviewLoading = false
-		}
-	}
-
-	// Simplified push function - always uses JSON approach
-	async function pushFiltersToGitRepo() {
-		if (isPullMode) {
-			// In pull mode, apply the local settings (from git repo) to UI
-			if (previewResult?.local) {
-				try {
-					fromBackendFormat(previewResult.local)
-					yamlText = generateYamlFromUI()
-					onSettingsChange({ yaml: yamlText })
-					sendUserToast('Changes applied - remember to save repository settings to persist changes')
-
-					// Clear the preview state after applying settings
-					previewResult = null
-					previewJobId = null
-					previewJobStatus = undefined
-					previewError = ''
-				} catch (e) {
-					previewError = 'Failed to apply pulled settings: ' + e.message
-				}
-			}
-			return
-		}
-
-		// Push mode - send current UI state as JSON
-		isPushing = true
-		pushJobId = null
-		pushJobStatus = undefined
-
-		try {
-			const workspace = $workspaceStore
-			if (!workspace) return
-
-			const payloadObj = {
-				workspace_id: workspace,
-				repo_url_resource_path: git_repo_resource_path,
-				dry_run: false,
-				pull: isPullMode,
-				only_wmill_yaml: true,
-				settings_json: JSON.stringify(getUIState())
-			}
-
-			const jobId = await JobService.runScriptByPath({
-				workspace,
-				path: hubPaths.gitInitRepo,
-				requestBody: payloadObj,
-				skipPreprocessor: true
-			})
-
-			pushJobId = jobId
-			pushJobStatus = 'running'
-			let jobSuccess = false
-
-			await (
-				await import('$lib/utils')
-			).tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: 'Push job timed out after 5s' }
-						})
-					} catch (err) {}
-				},
-				interval: 500,
-				timeout: 10000
-			})
-
-			pushJobStatus = jobSuccess ? 'success' : 'failure'
-			if (jobSuccess) {
-				// Reset preview state after successful push
-				previewResult = null
-				previewJobId = null
-				previewJobStatus = undefined
-				previewError = ''
-			}
-		} catch (e) {
-			pushJobStatus = 'failure'
-		} finally {
-			isPushing = false
-		}
-	}
-
-	// Simplified export function for backward compatibility
-	export function toYaml() {
-		return generateYamlFromUI()
-	}
-
-	export function setSettings(settings: { yaml: string }) {
-		yamlText = settings.yaml
-		fromYaml(settings.yaml)
-	}
-
-	$effect(() => {
-		// Reset preview state when switching modes
-		if (isPullMode !== undefined) {
-			previewResult = null
-			previewJobId = null
-			previewJobStatus = undefined
-			pushJobId = null
-			pushJobStatus = undefined
-			isPreviewLoading = false
-			isPushing = false
-			previewError = ''
-		}
-	})
-
-	// Reset preview state when settings change (making preview stale)
-	$effect(() => {
-		// Track all the settings that affect the preview
-		const currentSettings = JSON.stringify({
-			include_path,
-			excludes,
-			extraIncludes,
-			include_type
-		})
-
-		// If we have an existing preview result and settings have changed from snapshot, clear it
-		if (
-			previewResult !== null &&
-			previewSettingsSnapshot !== null &&
-			currentSettings !== previewSettingsSnapshot
-		) {
-			previewResult = null
-			previewJobId = null
-			previewJobStatus = undefined
-			previewError = ''
-			previewSettingsSnapshot = null
-		}
-	})
 </script>
 
 <div class="rounded-lg shadow-sm border p-0 w-full">
@@ -526,18 +116,19 @@ codebases: []`
 		<div class="flex items-center gap-2">
 			<Filter size={18} class="text-primary" />
 			<span class="font-semibold text-sm">Git Sync filter settings</span>
+			{#if isLegacyRepo}
+				<Tooltip>
+					This repository uses legacy configuration format and inherits settings from workspace-level defaults. Excluded types are filtered out from inherited types. Save to migrate to the new format.
+				</Tooltip>
+			{:else if !isEditable}
+				<Tooltip documentationLink="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml">
+					These settings are controlled by the wmill.yaml file in your git repository. Click "Pull from repo" to check for settings drift and pull settings from repo.
+				</Tooltip>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2">
-			{#if !collapsed}
-				<button
-					class="text-xs px-2 py-1 rounded border border-gray-300 bg-surface-primary hover:bg-surface-secondary"
-					onclick={editAsYaml ? switchToUI : switchToYaml}
-				>
-					{editAsYaml ? 'Edit in UI' : 'Edit as YAML'}
-				</button>
-			{/if}
 			<button
-				class="text-gray-500 hover:text-primary focus:outline-none"
+				class="text-secondary hover:text-primary focus:outline-none"
 				onclick={() => (collapsed = !collapsed)}
 				aria-label="Toggle collapse"
 			>
@@ -576,18 +167,8 @@ codebases: []`
 		</div>
 	</div>
 	{#if !collapsed}
-		{#if editAsYaml}
-			<div class="px-4 py-4">
-				<textarea
-					class="w-full h-64 font-mono text-xs border rounded p-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
-					spellcheck="false"
-					bind:value={yamlText}
-				></textarea>
-				{#if yamlError}
-					<div class="text-xs text-red-600 mt-2">{yamlError}</div>
-				{/if}
-			</div>
-		{:else}
+		{#if isEditable}
+			<!-- Editable mode -->
 			<div class="px-4 py-2">
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-32">
 					<div class="flex flex-col gap-2">
@@ -753,124 +334,105 @@ codebases: []`
 					</div>
 				</div>
 			</div>
-			<div class="mt-6 flex flex-col gap-2 p-2">
-				<div class="flex flex-col gap-2 mb-2">
-					<Toggle
-						size="sm"
-						bind:checked={isPullMode}
-						options={{
-							left: 'Push',
-							right: 'Pull'
-						}}
-					/>
-					<span class="text-xs text-tertiary">
-						{isPullMode ? 'Pull settings from Git repository' : 'Push settings to Git repository'}
-					</span>
+			<div class="mt-6 p-2 border-t">
+				<div class="text-xs text-tertiary mb-2">
+					{isInitialSetup ? 'Configure initial sync settings' : 'Review migration settings'}
 				</div>
-				<div class="flex gap-2 items-center">
-					<Button
-						size="sm"
-						on:click={previewFiltersToGitRepo}
-						disabled={isPreviewLoading || isPushing}
-						startIcon={{
-							icon: isPreviewLoading ? Loader2 : Eye,
-							classes: isPreviewLoading ? 'animate-spin' : ''
-						}}
+			</div>
+		{:else}
+			<!-- Read-only view -->
+			<div class="px-4 py-2">
+				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
+					<div class="flex flex-col gap-3">
+						<div>
+							<h4 class="font-semibold text-sm mb-1">Include Paths</h4>
+							{#if include_path.length > 0}
+								<div class="flex flex-wrap gap-1 text-xs">
+									{#each include_path as path}
+										<span class="bg-surface-secondary text-primary rounded-full px-2 py-1">{path}</span>
+									{/each}
+								</div>
+							{:else}
+								<div class="text-tertiary text-xs">No include paths configured</div>
+							{/if}
+						</div>
+
+						<div>
+							<h4 class="font-semibold text-sm mb-1">Exclude Paths</h4>
+							{#if excludes.length > 0}
+								<div class="flex flex-wrap gap-1 text-xs">
+									{#each excludes as path}
+										<span class="bg-red-100 text-red-800 rounded-full px-2 py-1">{path}</span>
+									{/each}
+								</div>
+							{:else}
+								<div class="text-tertiary text-xs">No exclude paths configured</div>
+							{/if}
+						</div>
+					</div>
+
+					<div class="flex flex-col gap-2">
+						<h4 class="font-semibold text-sm">Included Types</h4>
+						<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+							{#each Object.entries(typeToggles) as [key, enabled]}
+								<div class="flex items-center gap-1">
+									<div class={enabled ? 'text-green-600' : 'text-gray-400'}>
+										{enabled ? '✓' : '✗'}
+									</div>
+									<span class={enabled ? 'text-primary' : 'text-tertiary'}>
+										{capitalize(key)}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<!-- Actions slot for custom buttons -->
+				{#if actions}
+					<div class="flex justify-start mt-4">
+						{@render actions()}
+					</div>
+				{/if}
+
+				<!-- CLI Instructions (collapsible) -->
+				<div class="border-t pt-2 mt-4">
+					<button
+						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
+						onclick={() => showCliInstructions = !showCliInstructions}
 					>
-						{isPreviewLoading ? 'Previewing...' : 'Preview'}
-					</Button>
-					{#if previewResult?.hasChanges && (previewResult?.isInitialSetup || (previewResult?.diff && Object.keys(previewResult.diff).length > 0))}
-						<Button
-							size="sm"
-							on:click={pushFiltersToGitRepo}
-							disabled={isPushing || isPreviewLoading}
-							color={isPullMode ? 'dark' : 'red'}
-							startIcon={{
-								icon: isPushing ? Loader2 : isPullMode ? Check : Save,
-								classes: isPushing ? 'animate-spin' : ''
-							}}
-						>
-							{isPushing
-								? isPullMode
-									? 'Applying...'
-									: 'Pushing...'
-								: isPullMode
-									? 'Apply'
-									: 'Push Settings to Git'}
-						</Button>
+						<Terminal size={16} />
+						<span>Update settings with CLI</span>
+						{#if showCliInstructions}
+							<ChevronUp size={16} />
+						{:else}
+							<ChevronDown size={16} />
+						{/if}
+					</button>
+
+					{#if showCliInstructions}
+						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
+							<div class="text-xs text-tertiary mb-2">
+								These filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
+								To modify them, edit the file in your repository, commit the changes, and sync using these commands:
+							</div>
+							<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
+# Make sure your repo is up to date
+git pull
+
+# Edit wmill.yaml file
+vim wmill.yaml
+
+# Push changes to workspace
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}
+
+# Commit changes
+git add wmill.yaml
+git commit
+git push</pre>
+						</div>
 					{/if}
 				</div>
-				{#if previewError}
-					<div class="text-xs text-red-600 mt-2">{previewError}</div>
-				{/if}
-				{#if previewJobId}
-					<div class="flex items-center gap-2 text-xs text-tertiary mt-1">
-						{#if previewJobStatus === 'running'}
-							<Loader2 class="animate-spin" size={14} />
-						{:else if previewJobStatus === 'success'}
-							<CheckCircle2 size={14} class="text-green-600" />
-						{:else if previewJobStatus === 'failure'}
-							<XCircle size={14} class="text-red-700" />
-						{/if}
-						Preview job:
-						<a
-							target="_blank"
-							class="underline"
-							href={`/run/${previewJobId}?workspace=${$workspaceStore}`}>{previewJobId}</a
-						>
-					</div>
-				{/if}
-				{#if previewResult}
-					<div
-						class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary mt-2"
-					>
-						<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-						{#if previewResult.isInitialSetup}
-							<div class="mt-2 text-green-600">
-								{previewResult.message || 'wmill.yaml will be created with repository settings'}
-							</div>
-						{:else if previewResult.hasChanges && previewResult.diff && Object.keys(previewResult.diff).length > 0}
-							<div class="mt-2 space-y-1">
-								{#each Object.entries(previewResult.diff) as [field, change]}
-									<div class="flex items-start gap-2 text-2xs">
-										<span class="font-mono text-tertiary min-w-0 flex-shrink-0">{field}:</span>
-										<div class="min-w-0 flex-1">
-											{#if Array.isArray(change.from) || Array.isArray(change.to)}
-												<div class="space-y-0.5">
-													<div class="text-red-600">- {JSON.stringify(change.from)}</div>
-													<div class="text-green-600">+ {JSON.stringify(change.to)}</div>
-												</div>
-											{:else}
-												<span class="text-red-600">{JSON.stringify(change.from)}</span>
-												<span class="text-tertiary"> → </span>
-												<span class="text-green-600">{JSON.stringify(change.to)}</span>
-											{/if}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<div class="mt-2 text-tertiary">No changes found! The file is up to date.</div>
-						{/if}
-					</div>
-				{/if}
-				{#if pushJobId}
-					<div class="flex items-center gap-2 text-xs text-tertiary mt-1">
-						{#if pushJobStatus === 'running'}
-							<Loader2 class="animate-spin" size={14} />
-						{:else if pushJobStatus === 'success'}
-							<CheckCircle2 size={14} class="text-green-600" />
-						{:else if pushJobStatus === 'failure'}
-							<XCircle size={14} class="text-red-700" />
-						{/if}
-						Push job:
-						<a
-							target="_blank"
-							class="underline"
-							href={`/run/${pushJobId}?workspace=${$workspaceStore}`}>{pushJobId}</a
-						>
-					</div>
-				{/if}
 			</div>
 		{/if}
 	{/if}
