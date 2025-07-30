@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-brew install gnu-sed
+# only install gnu-sed if not already installed
+if ! command -v gsed &> /dev/null; then
+    brew install gnu-sed
+fi
 
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 output_dirpath="${script_dirpath}/src/gen"

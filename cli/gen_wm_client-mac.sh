@@ -2,7 +2,10 @@
 set -eou pipefail
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-brew install gnu-sed
+# only install gnu-sed if not already installed
+if ! command -v gsed &> /dev/null; then
+    brew install gnu-sed
+fi
 
 rm -rf "${script_dirpath}/gen"
 
