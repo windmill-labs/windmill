@@ -28,7 +28,7 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
-import { replaceInlineScripts } from "npm:centdix-utils";
+import { replaceInlineScripts, testing } from "npm:centdix-utils";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows, argSigToJsonSchemaType } from "npm:centdix-utils";
@@ -171,11 +171,13 @@ export async function generateFlowLockInternal(
     }
 
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    log.info(`Flow value: ${testing()}`);
     replaceInlineScripts(
       flowValue.value.modules,
       Deno.readTextFileSync,
+      log,
       folder + SEP!,
-      { removeLocks: changedScripts }
+      changedScripts
     );
 
     //removeChangedLocks
@@ -186,7 +188,10 @@ export async function generateFlowLockInternal(
       rawReqs
     );
 
+    log.info(`Extracting inline scripts for flow ${remote_path}`);
     const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules);
+    log.info(`Extracted ${inlineScripts.length} inline scripts`);
+    log.info(`Inline scripts: ${JSON.stringify(inlineScripts)}`);
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
@@ -345,6 +350,7 @@ export async function updateScriptSchema(
     metadataContent.schema,
     path
   );
+  metadataContent.schema = result.schema;
   if (result.has_preprocessor) {
     metadataContent.has_preprocessor = result.has_preprocessor;
   } else {

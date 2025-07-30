@@ -50,7 +50,7 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
-  replaceInlineScripts(localFlow.value.modules, Deno.readTextFileSync, localPath);
+  replaceInlineScripts(localFlow.value.modules, Deno.readTextFileSync, log, localPath);
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
