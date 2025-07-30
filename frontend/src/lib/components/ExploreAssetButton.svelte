@@ -4,6 +4,7 @@
 		_resourceMetadata?: { resource_type?: string }
 	): boolean {
 		return (
+			asset.kind === 'ducklake' ||
 			asset.kind === 's3object' ||
 			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
 		)
@@ -19,6 +20,7 @@
 	import { userStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File } from 'lucide-svelte'
+	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 
 	const {
 		asset,
@@ -53,9 +55,15 @@
 	{btnClasses}
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
-			dbManagerDrawer?.openDrawer(_resourceMetadata.resource_type, asset.path)
+			dbManagerDrawer?.openDrawer({
+				type: 'database',
+				resourceType: _resourceMetadata.resource_type,
+				resourcePath: asset.path
+			})
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
+		} else if (asset.kind === 'ducklake') {
+			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake: asset.path })
 		}
 		onClick?.()
 	}}
@@ -64,5 +72,7 @@
 		<span class:hidden={noText}>Explore</span> <File size={18} />
 	{:else if asset.kind === 'resource'}
 		<span class:hidden={noText}>Manage</span> <Database size={18} />
+	{:else if asset.kind === 'ducklake'}
+		<span class:hidden={noText}>Manage</span> <DucklakeIcon size={18} />
 	{/if}
 </Button>

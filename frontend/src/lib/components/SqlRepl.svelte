@@ -55,14 +55,15 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { getDbType, wrapDucklakeQuery, type DbInput } from './dbOps'
 
 	type Props = {
-		resourceType: string
-		resourcePath: string
+		input: DbInput
 		onData: (data: Record<string, any>[]) => void
 		placeholderTableName?: string
 	}
-	let { resourcePath, resourceType, onData, placeholderTableName }: Props = $props()
+	let { input, onData, placeholderTableName }: Props = $props()
+	let dbType = $derived(getDbType(input))
 
 	const DEFAULT_SQL = 'SELECT * FROM _'
 	let code = $state(DEFAULT_SQL)
@@ -100,16 +101,19 @@
 					})
 					.join(';')
 			}
+			const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+
+			if (input?.type === 'ducklake') {
+				transformedCode = wrapDucklakeQuery(transformedCode, input.ducklake)
+			}
 
 			let { job, result } = (await runScriptAndPollResult(
 				{
 					workspace: $workspaceStore,
 					requestBody: {
-						language: getLanguageByResourceType(resourceType),
+						language: getLanguageByResourceType(dbType),
 						content: transformedCode,
-						args: {
-							database: '$res:' + resourcePath
-						}
+						args: dbArg
 					}
 				},
 				{ withJobData: true }
@@ -142,7 +146,7 @@
 			else sendUserToast('Query executed')
 		} catch (e) {
 			console.error(e)
-			if (resourceType === 'postgresql' && !doPostgresRowToJsonFix) {
+			if (dbType === 'postgresql' && !doPostgresRowToJsonFix) {
 				console.error('Error running query, trying with row_to_json fix')
 				isRunning = false
 				return await run({ doPostgresRowToJsonFix: true })

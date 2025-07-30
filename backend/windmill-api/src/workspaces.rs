@@ -9,9 +9,12 @@
 use std::collections::HashMap;
 
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
+use crate::auth::Tokened;
 use crate::db::ApiAuthed;
+use crate::job_helpers_ee::duckdb_connection_settings_v2;
+use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
-use crate::utils::get_instance_username_or_create_pending;
+use crate::utils::{get_ducklake_instance_pg_password, get_instance_username_or_create_pending};
 use crate::BASE_URL;
 use crate::{
     db::DB,
@@ -29,11 +32,12 @@ use chrono::Utc;
 
 use regex::Regex;
 
+use serde_json::json;
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::s3_helpers::LargeFileStorage;
+use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, LargeFileStorage};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
@@ -41,12 +45,14 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType, DucklakeWithConnData};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -112,6 +118,9 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route("/edit_ducklake_config", post(edit_ducklake_config))
+        .route("/get_ducklake/:name", get(get_ducklake))
+        .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
@@ -225,6 +234,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
@@ -292,9 +303,19 @@ struct LargeFileStorageWithSecondary {
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDucklakeConfig {
+    settings: DucklakeSettings,
 }
 
 #[derive(Deserialize)]
@@ -435,7 +456,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, ducklake, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_optional(&mut *tx)
@@ -861,6 +882,169 @@ async fn edit_large_file_storage_config(
         "Edit large file storage config for workspace {}",
         &w_id
     ))
+}
+
+async fn list_ducklakes(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(ducklakes))
+}
+
+async fn get_ducklake(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<DucklakeWithConnData> {
+    let ducklake = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?
+    .ok_or_else(|| Error::internal_err(format!("ducklake {name} not found")))?;
+
+    let ducklake = serde_json::from_value::<Ducklake>(ducklake)
+        .map_err(|err| Error::internal_err(format!("parsing ducklake {name}: {err}")))?;
+
+    let catalog_resource = {
+        match ducklake.catalog.resource_type {
+            DucklakeCatalogResourceType::Instance => {
+                let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+                let Some(wm_pg_pwd) = pg_creds.password else {
+                    return Err(Error::BadRequest("Password not found".to_string()));
+                };
+                json!({
+                    "dbname": ducklake.catalog.resource_path,
+                    "host": pg_creds.host,
+                    "port": pg_creds.port,
+                    "user": "ducklake_user",
+                    "sslmode": pg_creds.ssl_mode,
+                    "password": get_ducklake_instance_pg_password(&wm_pg_pwd)?,
+                })
+            }
+            _ => get_resource_value_interpolated_internal(
+                &authed,
+                None, // Never check permissions for the catalog resource
+                &db,
+                &w_id,
+                &ducklake.catalog.resource_path,
+                None,
+                &token,
+            )
+            .await?
+            .ok_or_else(|| {
+                Error::internal_err(format!("Ducklake {name}: Catalog resource not found"))
+            })?,
+        }
+    };
+
+    let Json(storage_settings) = duckdb_connection_settings_v2(
+        authed.clone(),
+        Extension(db),
+        Extension(user_db),
+        Tokened { token },
+        Path(w_id.clone()),
+        Json(DuckdbConnectionSettingsQueryV2 {
+            storage: ducklake.storage.storage.clone(),
+            s3_resource_path: None,
+        }),
+    )
+    .await?;
+
+    let ducklake = DucklakeWithConnData {
+        catalog: ducklake.catalog,
+        storage: ducklake.storage,
+        catalog_resource,
+        storage_settings,
+    };
+
+    Ok(Json(ducklake))
+}
+
+async fn edit_ducklake_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDucklakeConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_ducklake_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("ducklake", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that all ducklake catalog resources exist to prevent
+    // exploiting the shared property to see any resource
+    for dl in new_config.settings.ducklakes.values() {
+        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+            continue;
+        }
+        let catalog_res = sqlx::query_scalar!(
+            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &dl.catalog.resource_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if catalog_res.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Ducklake catalog resource {} not found in workspace {}",
+                dl.catalog.resource_path, &w_id
+            )));
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET ducklake = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit ducklake config for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]

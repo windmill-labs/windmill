@@ -23,16 +23,12 @@ type CreateTableValuesColumn = {
 	datatype_length?: number // e.g varchar(255)
 }
 
-export function makeCreateTableQuery(
-	values: CreateTableValues,
-	resourceType: DbType,
-	schema?: string
-) {
+export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, schema?: string) {
 	const pkCount = values.columns.reduce((p, c) => p + (c.primaryKey ? 1 : 0), 0)
 
 	function transformColumn(c: CreateTableValuesColumn): string {
 		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
-		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, resourceType)
+		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)
 
 		let str = `  ${c.name} ${datatype}`
 		if (c.not_null) str += ' NOT NULL'
@@ -57,7 +53,7 @@ export function makeCreateTableQuery(
 		return l
 	}
 
-	const useSchema = dbSupportsSchemas(resourceType)
+	const useSchema = dbSupportsSchemas(dbType)
 
 	const lines = values.columns.map(transformColumn)
 	lines.push(...values.foreignKeys.map(transformFk))

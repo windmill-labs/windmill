@@ -243,7 +243,7 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
-duckdb = { version = "1.2.2", features = ["bundled"] }
+duckdb = { version = "1.3.2", features = ["bundled"] }
 
 v8 = "=130.0.7"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
 deno_fetch = "0.214.0"

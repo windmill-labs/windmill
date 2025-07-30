@@ -20,6 +20,8 @@ export function formatAsset(asset: Asset): string {
 			return `res://${asset.path}`
 		case 's3object':
 			return `s3://${asset.path}`
+		case 'ducklake':
+			return `ducklake://${asset.path}`
 	}
 }
 
@@ -68,6 +70,8 @@ export function formatAssetKind(asset: {
 			}
 		case 's3object':
 			return 'S3 Object'
+		case 'ducklake':
+			return 'Ducklake'
 	}
 }
 
