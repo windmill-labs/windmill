@@ -171,7 +171,7 @@
 			addQueryParam('workspace', 'admins')
 		}
 		const query = '?' + queryParams.join('&')
-		goto(query)
+		goto(query, { replaceState: true, keepFocus: true })
 
 		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 	}
