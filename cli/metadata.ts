@@ -187,11 +187,7 @@ export async function generateFlowLockInternal(
       rawReqs
     );
 
-    log.info(`Extracting inline scripts for flow ${remote_path}`);
-    log.info(`Flow value: ${JSON.stringify(flowValue.value.modules)}`);
     const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules);
-    log.info(`Extracted ${inlineScripts.length} inline scripts`);
-    log.info(`Inline scripts: ${JSON.stringify(inlineScripts)}`);
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
