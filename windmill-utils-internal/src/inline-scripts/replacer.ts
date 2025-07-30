@@ -33,7 +33,6 @@ export async function replaceInlineScripts(
           const path = module.value.content.split(" ")[1];
           try {
             module.value.content = await fileReader(path);
-            logger.info(`Replaced inline script ${path} with ${module.value.content}`);
           } catch {
             logger.error(`Script file ${path} not found`);
           }
@@ -48,7 +47,6 @@ export async function replaceInlineScripts(
             const path = lock.split(" ")[1];
             try {
               module.value.lock = await fileReader(path);
-              logger.info(`Replaced inline lock ${path} with ${module.value.lock}`);
             } catch {
               logger.error(`Lock file ${path} not found`);
             }
