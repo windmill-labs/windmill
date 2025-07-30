@@ -46,8 +46,9 @@ use windmill_common::{
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
-    workspaces::GitRepositorySettings,
 };
+#[cfg(feature = "enterprise")]
+use windmill_common::workspaces::GitRepositorySettings;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -881,6 +882,7 @@ pub struct EditGitSyncConfig {
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct EditGitSyncRepository {
     pub git_repo_resource_path: String,
@@ -990,7 +992,7 @@ async fn edit_git_sync_repository(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
-    Json(_new_config): Json<EditGitSyncRepository>,
+    Json(_new_config): Json<serde_json::Value>,
 ) -> Result<String> {
     return Err(Error::BadRequest(
         "Git sync is only available on Windmill Enterprise Edition".to_string(),

@@ -34,6 +34,7 @@ export type GitSyncSettings = {
 export type ModalState = {
 	push: { idx: number, repo: GitSyncRepository, open: boolean } | null
 	pull: { idx: number, repo: GitSyncRepository, open: boolean } | null
+	success: { open: boolean } | null
 }
 
 export type ValidationState = {
@@ -50,7 +51,7 @@ export function createGitSyncContext(workspace: string) {
 	const initialRepositories = $state<GitSyncRepository[]>([])
 	const gitSyncTestJobs = $state<GitSyncTestJob[]>([])
 	let loading = $state(false)
-	const activeModals = $state<ModalState>({ push: null, pull: null })
+	const activeModals = $state<ModalState>({ push: null, pull: null, success: null })
 
 	// Legacy workspace-level settings state
 	const legacyWorkspaceIncludePath = $state<string[]>([])
@@ -231,7 +232,7 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	function closeModal(type: 'push' | 'pull') {
+	function closeModal(type: 'push' | 'pull' | 'success') {
 		if (activeModals[type]) {
 			activeModals[type]!.open = false
 		}
@@ -246,6 +247,14 @@ export function createGitSyncContext(workspace: string) {
 
 	function closePullModal() {
 		closeModal('pull')
+	}
+
+	function showSuccessModal() {
+		activeModals.success = { open: true }
+	}
+
+	function closeSuccessModal() {
+		closeModal('success')
 	}
 
 	function getValidation(idx: number): ValidationState {
@@ -440,6 +449,8 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.isUnsavedConnection = false
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
+			// Show success modal for new connections
+			showSuccessModal()
 		}
 	}
 
@@ -548,6 +559,8 @@ export function createGitSyncContext(workspace: string) {
 		showPullModal,
 		closePushModal,
 		closePullModal,
+		showSuccessModal,
+		closeSuccessModal,
 		loadSettings,
 		saveRepository,
 	}

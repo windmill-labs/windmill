@@ -2,6 +2,7 @@
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import PushWorkspaceModal from '$lib/components/git_sync/PushWorkspaceModal.svelte'
 	import PullWorkspaceModal from '$lib/components/git_sync/PullWorkspaceModal.svelte'
+	import GitSyncSuccessModal from '$lib/components/git_sync/GitSyncSuccessModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	const gitSyncContext = getGitSyncContext()
@@ -102,5 +103,13 @@
 		onSettingsSaved={handleSettingsSaved}
 		onSuccess={handlePullSuccess}
 		onClose={handlePullClose}
+	/>
+{/if}
+
+<!-- Success Modal -->
+{#if gitSyncContext.activeModals.success}
+	<GitSyncSuccessModal
+		bind:open={gitSyncContext.activeModals.success.open}
+		onClose={gitSyncContext.closeSuccessModal}
 	/>
 {/if}
