@@ -128,7 +128,7 @@
 		</div>
 		<div class="flex items-center gap-2">
 			<button
-				class="text-gray-500 hover:text-primary focus:outline-none"
+				class="text-secondary hover:text-primary focus:outline-none"
 				onclick={() => (collapsed = !collapsed)}
 				aria-label="Toggle collapse"
 			>
@@ -349,7 +349,7 @@
 							{#if include_path.length > 0}
 								<div class="flex flex-wrap gap-1 text-xs">
 									{#each include_path as path}
-										<span class="bg-gray-100 text-gray-800 rounded-full px-2 py-1">{path}</span>
+										<span class="bg-surface-secondary text-primary rounded-full px-2 py-1">{path}</span>
 									{/each}
 								</div>
 							{:else}
