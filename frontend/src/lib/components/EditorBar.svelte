@@ -651,7 +651,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	<ItemPicker
 		bind:this={ducklakePicker}
 		pickCallback={async (_, name) => {
-			editor?.insertAtCursor(`ATTACH 'ducklake://${name}' AS dl;\nUSE dl;\n`)
+			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl;\nUSE dl;\n`)
 		}}
 		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
