@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::auth::Tokened;
 use crate::db::ApiAuthed;
+#[cfg(all(feature = "enterprise", feature = "private"))]
 use crate::job_helpers_ee::duckdb_connection_settings_v2;
 use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
@@ -37,7 +38,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, LargeFileStorage};
+use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
@@ -913,6 +914,7 @@ async fn list_ducklakes(
     Ok(Json(ducklakes))
 }
 
+#[allow(unused_variables)]
 async fn get_ducklake(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -969,27 +971,36 @@ async fn get_ducklake(
         }
     };
 
-    let Json(storage_settings) = duckdb_connection_settings_v2(
-        authed.clone(),
-        Extension(db),
-        Extension(user_db),
-        Tokened { token },
-        Path(w_id.clone()),
-        Json(DuckdbConnectionSettingsQueryV2 {
-            storage: ducklake.storage.storage.clone(),
-            s3_resource_path: None,
-        }),
-    )
-    .await?;
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    return Err(Error::BadRequest(
+        "Ducklake is only available on EE".to_string(),
+    ));
 
-    let ducklake = DucklakeWithConnData {
-        catalog: ducklake.catalog,
-        storage: ducklake.storage,
-        catalog_resource,
-        storage_settings,
-    };
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
+        let Json(storage_settings) = duckdb_connection_settings_v2(
+            authed.clone(),
+            Extension(db),
+            Extension(user_db),
+            Tokened { token },
+            Path(w_id.clone()),
+            Json(DuckdbConnectionSettingsQueryV2 {
+                storage: ducklake.storage.storage.clone(),
+                s3_resource_path: None,
+            }),
+        )
+        .await?;
 
-    Ok(Json(ducklake))
+        let ducklake = DucklakeWithConnData {
+            catalog: ducklake.catalog,
+            storage: ducklake.storage,
+            catalog_resource,
+            storage_settings,
+        };
+
+        Ok(Json(ducklake))
+    }
 }
 
 async fn edit_ducklake_config(

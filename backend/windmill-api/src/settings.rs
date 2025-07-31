@@ -33,6 +33,7 @@ use crate::utils::require_devops_role;
 use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+use windmill_common::error::to_anyhow;
 use windmill_common::{
     email_oss::send_email,
     error::{self, JsonResult, Result},
@@ -45,9 +46,6 @@ use windmill_common::{
     server::Smtp,
     utils::build_arg_str,
 };
-
-#[cfg(feature = "parquet")]
-use windmill_common::error::to_anyhow;
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
