@@ -265,8 +265,9 @@ const command = new Command()
                         }
                     } catch (error) {
                         // If there's an error checking backend settings, just continue with defaults
+                        const errorMessage = error instanceof Error ? error.message : String(error);
                         log.warn(
-                            `Could not check backend for git-sync settings: ${error.message}`,
+                            `Could not check backend for git-sync settings: ${errorMessage}`,
                         );
                         log.info("Continuing with default settings");
                     }
@@ -373,7 +374,7 @@ const command = new Command()
         "upgrade",
         new UpgradeCommand({
             provider: new NpmProvider({ package: "windmill-cli" }),
-        }).error((e) => {
+        }).error((e: any) => {
             log.error(e);
             log.info(
                 "Try running with sudo and otherwise check the result of the command: npm uninstall windmill-cli && npm install -g windmill-cli",

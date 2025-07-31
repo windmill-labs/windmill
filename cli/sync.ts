@@ -4,7 +4,6 @@ import {
   colors,
   Command,
   Confirm,
-  Input,
   Select,
   ensureDir,
   minimatch,
@@ -37,8 +36,8 @@ import {
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings } from "./conf.ts";
 import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
@@ -47,9 +46,10 @@ import {
   generateScriptMetadataInternal,
   readLockfile,
 } from "./metadata.ts";
-import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { OpenFlow } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-
+import { assignPath } from "./windmill-utils-internal/src/path-utils/path-assigner.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(
@@ -310,56 +310,8 @@ export interface InlineScript {
   content: string;
 }
 
-export function extractInlineScriptsForFlows(
-  modules: FlowModule[],
-  pathAssigner: PathAssigner
-): InlineScript[] {
-  return modules.flatMap((m) => {
-    if (m.value.type == "rawscript") {
-      const [basePath, ext] = pathAssigner.assignPath(
-        m.summary,
-        m.value.language
-      );
-      const path = basePath + ext;
-      const content = m.value.content;
-      const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replaceAll(SEP, "/");
-      const lock = m.value.lock;
-      if (lock && lock != "") {
-        const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
-        r.push({ path: lockPath, content: lock });
-      }
-      return r;
-    } else if (m.value.type == "forloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchall") {
-      return m.value.branches.flatMap((b) =>
-        extractInlineScriptsForFlows(b.modules, pathAssigner)
-      );
-    } else if (m.value.type == "whileloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchone") {
-      return [
-        ...m.value.branches.flatMap((b) =>
-          extractInlineScriptsForFlows(b.modules, pathAssigner)
-        ),
-        ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
-      ];
-    } else {
-      return [];
-    }
-  });
-}
-
-interface PathAssigner {
-  assignPath(summary: string | undefined, language: string): [string, string];
-}
-const INLINE_SCRIPT = "inline_script";
-
 export function extractInlineScriptsForApps(
   rec: any,
-  pathAssigner: PathAssigner
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -368,8 +320,7 @@ export function extractInlineScriptsForApps(
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const [basePath, ext] = assignPath(rec["id"], o["language"]);
         const r = [];
         if (o["content"]) {
           const content = o["content"];
@@ -389,69 +340,13 @@ export function extractInlineScriptsForApps(
         }
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
+        return extractInlineScriptsForApps(v);
       }
     });
   }
   return [];
 }
 
-export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
-  let counter = 0;
-  const seen_names = new Set<string>();
-  function assignPath(
-    summary: string | undefined,
-    language: RawScript["language"] | "frontend" | "bunnative"
-  ): [string, string] {
-    let name;
-
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
-
-    let original_name = name;
-
-    if (name == "") {
-      original_name = INLINE_SCRIPT;
-      name = `${INLINE_SCRIPT}_0`;
-    }
-
-    while (seen_names.has(name)) {
-      counter++;
-      name = `${original_name}_${counter}`;
-    }
-    seen_names.add(name);
-
-    let ext;
-    if (language == "python3") ext = "py";
-    else if (language == defaultTs || language == "bunnative") ext = "ts";
-    else if (language == "bun") ext = "bun.ts";
-    else if (language == "deno") ext = "deno.ts";
-    else if (language == "go") ext = "go";
-    else if (language == "bash") ext = "sh";
-    else if (language == "powershell") ext = "ps1";
-    else if (language == "postgresql") ext = "pg.sql";
-    else if (language == "mysql") ext = "my.sql";
-    else if (language == "bigquery") ext = "bq.sql";
-    else if (language == "oracledb") ext = "odb.sql";
-    else if (language == "snowflake") ext = "sf.sql";
-    else if (language == "mssql") ext = "ms.sql";
-    else if (language == "graphql") ext = "gql";
-    else if (language == "nativets") ext = "native.ts";
-    else if (language == "frontend") ext = "frontend.js";
-    else if (language == "php") ext = "php";
-    else if (language == "rust") ext = "rs";
-    else if (language == "csharp") ext = "cs";
-    else if (language == "nu") ext = "nu";
-    else if (language == "ansible") ext = "playbook.yml";
-    else if (language == "java") ext = "java";
-    else if (language == "duckdb") ext = "duckdb.sql";
-    // for related places search: ADD_NEW_LANG
-    else ext = "no_ext";
-
-    return [`${name}.inline_script.`, ext];
-  }
-
-  return { assignPath };
-}
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
@@ -495,10 +390,7 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules,
-              newPathAssigner(defaultTs)
-            );
+            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules, {}, SEP);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -522,10 +414,7 @@ function ZipFSElement(
             };
           } else if (kind == "app") {
             const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(
-              app?.["value"],
-              newPathAssigner(defaultTs)
-            );
+            const inlineScripts = extractInlineScriptsForApps(app?.["value"]);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,

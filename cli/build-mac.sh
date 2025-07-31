@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 
-# Set script to exit on any error
-set -e
-
 # Generate client files
-./gen_wm_client.sh
+./gen_wm_client-mac.sh
 
 # Generate utils client files
-./windmill-utils-internal/gen_wm_client.sh
+./windmill-utils-internal/gen_wm_client-mac.sh
 
 # Function to add .ts extensions to relative imports
 add_ts_extensions() {

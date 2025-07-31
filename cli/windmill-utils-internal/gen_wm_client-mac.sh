@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-brew install gnu-sed
+# only install gnu-sed if not already installed
+if ! command -v gsed &> /dev/null; then
+    brew install gnu-sed
+fi
 
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 output_dirpath="${script_dirpath}/src/gen"
@@ -20,7 +23,3 @@ EOF
 gsed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' "${output_dirpath}/core/OpenAPI.ts"
 gsed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' "${output_dirpath}/core/OpenAPI.ts"
 gsed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" "${output_dirpath}/core/OpenAPI.ts"
-
-find "${output_dirpath}" -name "*.ts" -exec gsed -i -E "s/(import.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
-
-find "${output_dirpath}" -name "*.ts" -exec gsed -i -E "s/(export.*from[[:space:]]*['\"][^'\"]+)(['\"])/\1.ts\2/g" {} \;
