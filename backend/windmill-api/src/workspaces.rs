@@ -12,7 +12,7 @@ use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::auth::Tokened;
 use crate::db::ApiAuthed;
 #[cfg(all(feature = "enterprise", feature = "private"))]
-use crate::job_helpers_ee::duckdb_connection_settings_v2;
+use crate::job_helpers_ee::duckdb_connection_settings_v2_inner;
 use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
 use crate::utils::{
@@ -977,16 +977,16 @@ async fn get_ducklake(
     #[cfg(all(feature = "enterprise", feature = "private"))]
     {
         use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
-        let Json(storage_settings) = duckdb_connection_settings_v2(
+        let storage_settings = duckdb_connection_settings_v2_inner(
             authed.clone(),
-            Extension(db),
-            Extension(user_db),
-            Tokened { token },
-            Path(w_id.clone()),
-            Json(DuckdbConnectionSettingsQueryV2 {
+            db,
+            user_db,
+            token,
+            w_id.clone(),
+            DuckdbConnectionSettingsQueryV2 {
                 storage: ducklake.storage.storage.clone(),
                 s3_resource_path: None,
-            }),
+            },
         )
         .await?;
 
