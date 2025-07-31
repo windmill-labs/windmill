@@ -10,6 +10,61 @@ import {
   SyncOptions,
 } from "./conf.ts";
 import { deepEqual, Repository, selectRepository } from "./utils.ts";
+import { getCurrentGitBranch, isGitRepository } from "./git.ts";
+
+// Helper to get or create branch configuration
+function getOrCreateBranchConfig(config: SyncOptions, branchName: string): {
+  config: SyncOptions;
+  branchKey: string;
+} {
+  if (!config.branches) {
+    config.branches = {};
+  }
+
+  if (!config.branches[branchName]) {
+    config.branches[branchName] = {};
+  }
+
+  return {
+    config,
+    branchKey: branchName
+  };
+}
+
+// Helper to apply backend settings to branch configuration
+function applyBackendSettingsToBranch(
+  config: SyncOptions,
+  branchName: string,
+  backendSettings: SyncOptions
+): SyncOptions {
+  const { config: updatedConfig } = getOrCreateBranchConfig(config, branchName);
+
+  // Get the base settings (top-level + defaults) to compare against
+  const { branches, overrides, ...topLevelSettings } = config;
+  const baseSettings = { ...DEFAULT_SYNC_OPTIONS, ...topLevelSettings };
+
+  // Only store fields that differ from the base settings
+  Object.keys(backendSettings).forEach(key => {
+    if (key !== 'branches' && key !== 'overrides' && backendSettings[key as keyof SyncOptions] !== undefined) {
+      const backendValue = backendSettings[key as keyof SyncOptions];
+      const baseValue = baseSettings[key as keyof SyncOptions];
+
+      // Only store if different from base (use deep comparison for arrays)
+      const isDifferent = Array.isArray(backendValue) && Array.isArray(baseValue)
+        ? !arraysEqual(backendValue, baseValue)
+        : backendValue !== baseValue;
+
+      if (isDifferent) {
+        if (!updatedConfig.branches![branchName].overrides) {
+          updatedConfig.branches![branchName].overrides = {};
+        }
+        (updatedConfig.branches![branchName].overrides as any)[key] = backendValue;
+      }
+    }
+  });
+
+  return updatedConfig;
+}
 
 // Constants for git-sync fields to avoid duplication
 const GIT_SYNC_FIELDS = [
@@ -126,9 +181,8 @@ function getCurrentSettings(
       ...localConfig.overrides[overrideKey],
     };
   } else {
-    // For "replace" mode, exclude overrides since they're never accessed
-    const { overrides, ...configWithoutOverrides } = localConfig;
-    return { ...DEFAULT_SYNC_OPTIONS, ...configWithoutOverrides };
+    const effectiveSettings = getEffectiveSettings(localConfig, "", "", "");
+    return { ...DEFAULT_SYNC_OPTIONS, ...effectiveSettings };
   }
 }
 
@@ -586,11 +640,15 @@ async function pullGitSyncSettings(
     const backendSyncOptions: SyncOptions = {
       includes: selectedRepo.settings.include_path || [],
       excludes: selectedRepo.settings.exclude_path || [],
-      extraIncludes: selectedRepo.settings.extra_include_path || [],
       ...includeTypeToSyncOptions(
         selectedRepo.settings.include_type || [],
       ),
     };
+
+    // Only include extraIncludes if it has actual content
+    if (selectedRepo.settings.extra_include_path && selectedRepo.settings.extra_include_path.length > 0) {
+      backendSyncOptions.extraIncludes = selectedRepo.settings.extra_include_path;
+    }
 
     // Check if wmill.yaml exists - require it for git-sync settings commands
     try {
@@ -638,8 +696,8 @@ async function pullGitSyncSettings(
       // Use same logic as diff to determine if there's a real conflict
       const currentSettings = getCurrentSettings(
         localConfig,
-        "replace", // Check against replace mode
-        undefined,
+        writeMode,
+        overrideKey,
       );
 
       const gitSyncBackend = extractGitSyncFields(
@@ -856,8 +914,6 @@ async function pullGitSyncSettings(
     if (writeMode === "replace") {
       // Preserve existing local config and update only git-sync fields
       updatedConfig = { ...localConfig };
-      // Clear overrides since we're in replace mode, but keep empty object for consistency
-      updatedConfig.overrides = {};
       // Update with backend git-sync settings
       Object.assign(updatedConfig, backendSyncOptions);
     } else if (writeMode === "override" && overrideKey) {
@@ -898,6 +954,29 @@ async function pullGitSyncSettings(
       Object.assign(updatedConfig, topLevelSettings);
     }
 
+    // For replace mode, add empty branch structure if in Git repo
+    if (writeMode === "replace" && isGitRepository()) {
+      const currentBranch = getCurrentGitBranch();
+      if (currentBranch) {
+        log.info(`Detected Git repository, adding empty branch structure for: ${currentBranch}`);
+        if (!updatedConfig.branches) {
+          updatedConfig.branches = {};
+        }
+        if (!updatedConfig.branches[currentBranch]) {
+          updatedConfig.branches[currentBranch] = { overrides: {} };
+        }
+      }
+    }
+
+    // For override mode, write to branch overrides
+    if (writeMode === "override" && isGitRepository()) {
+      const currentBranch = getCurrentGitBranch();
+      if (currentBranch) {
+        log.info(`Detected Git repository, writing settings to branch: ${currentBranch}`);
+        updatedConfig = applyBackendSettingsToBranch(localConfig, currentBranch, backendSyncOptions);
+      }
+    }
+
     // Write updated configuration
     await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
 
@@ -923,8 +1002,6 @@ async function pullGitSyncSettings(
           ),
         );
       } else if (writeMode === "replace") {
-        log.info(colors.gray(`Settings written as simple configuration`));
-      } else {
         log.info(colors.gray(`Settings written to top-level defaults`));
       }
     }

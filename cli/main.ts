@@ -133,22 +133,22 @@ const command = new Command()
                 const { DEFAULT_SYNC_OPTIONS } = await import("./conf.ts");
 
                 // Create initial config with defaults
-                const initialConfig = {
-                    defaultTs: DEFAULT_SYNC_OPTIONS.defaultTs,
-                    includes: DEFAULT_SYNC_OPTIONS.includes,
-                    excludes: DEFAULT_SYNC_OPTIONS.excludes,
-                    codebases: DEFAULT_SYNC_OPTIONS.codebases,
-                    skipVariables: DEFAULT_SYNC_OPTIONS.skipVariables,
-                    skipResources: DEFAULT_SYNC_OPTIONS.skipResources,
-                    skipSecrets: DEFAULT_SYNC_OPTIONS.skipSecrets,
-                    skipScripts: DEFAULT_SYNC_OPTIONS.skipScripts,
-                    skipFlows: DEFAULT_SYNC_OPTIONS.skipFlows,
-                    skipApps: DEFAULT_SYNC_OPTIONS.skipApps,
-                    skipFolders: DEFAULT_SYNC_OPTIONS.skipFolders,
-                    includeSchedules: DEFAULT_SYNC_OPTIONS.includeSchedules,
-                    includeTriggers: DEFAULT_SYNC_OPTIONS.includeTriggers,
-                    overrides: {},
-                };
+                const initialConfig = { ...DEFAULT_SYNC_OPTIONS };
+
+                // Add branch structure
+                const { isGitRepository, getCurrentGitBranch } = await import("./git.ts");
+                if (isGitRepository()) {
+                    const currentBranch = getCurrentGitBranch();
+                    if (currentBranch) {
+                        initialConfig.branches = {
+                            [currentBranch]: { overrides: {} }
+                        };
+                    } else {
+                        initialConfig.branches = {};
+                    }
+                } else {
+                    initialConfig.branches = {};
+                }
 
                 await Deno.writeTextFile(
                     "wmill.yaml",

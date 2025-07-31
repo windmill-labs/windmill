@@ -1,4 +1,5 @@
 import { log, yamlParseFile } from "./deps.ts";
+import { getCurrentGitBranch, isGitRepository } from "./git.ts";
 
 export interface SyncOptions {
   stateful?: boolean;
@@ -32,6 +33,7 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   overrides?: { [key: string]: Partial<SyncOptions> };
+  branches?: { [branchName: string]: SyncOptions & { overrides?: Partial<SyncOptions>; promotionOverrides?: Partial<SyncOptions> } };
 }
 
 export interface Codebase {
@@ -51,6 +53,16 @@ export interface Codebase {
 export async function readConfigFile(): Promise<SyncOptions> {
   try {
     const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
+
+    // Check for obsolete overrides format - warn but don't error for now
+    if (conf?.overrides && !conf.branches) {
+      log.warn(
+        "⚠️  The 'overrides' field is deprecated and will be removed in a future version.\n" +
+        "   Please migrate to the new 'branches' format.\n" +
+        "   See documentation for migration guide."
+      );
+    }
+
     if (conf?.defaultTs == undefined) {
       log.warn(
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
@@ -58,6 +70,9 @@ export async function readConfigFile(): Promise<SyncOptions> {
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
+    if (e instanceof Error && e.message.includes("Obsolete configuration format")) {
+      throw e; // Re-throw the specific obsolete format error
+    }
     log.warn(
       "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
     );
@@ -99,23 +114,49 @@ export async function mergeConfigWithConfigFile<T>(
   return Object.assign(configFile ?? {}, opts);
 }
 
-// Get effective settings by merging top-level settings and overrides
+// Get effective settings by merging top-level settings and overrides/branches
 export function getEffectiveSettings(
   config: SyncOptions,
   baseUrl: string,
   workspaceId: string,
   repo: string
 ): SyncOptions {
-  // Start with empty object - no defaults
-  let effective = {} as SyncOptions;
+  // Start with top-level settings from config (like old override system)
+  const { overrides, branches, ...topLevelSettings } = config;
+  let effective = { ...topLevelSettings };
 
-  // Merge top-level settings from config (which contains user's chosen defaults)
-  Object.keys(config).forEach(key => {
-    if (key !== 'overrides' && config[key as keyof SyncOptions] !== undefined) {
-      (effective as any)[key] = config[key as keyof SyncOptions];
+  // Check if we're in a Git repository and have branch-based configuration
+  if (config.branches && isGitRepository()) {
+    const currentBranch = getCurrentGitBranch();
+
+    if (currentBranch && config.branches[currentBranch]) {
+      const branchConfig = config.branches[currentBranch];
+
+      // Apply branch-level settings first
+      Object.keys(branchConfig).forEach(key => {
+        if (key !== 'overrides' && key !== 'promotionOverrides' && branchConfig[key as keyof SyncOptions] !== undefined) {
+          (effective as any)[key] = branchConfig[key as keyof SyncOptions];
+        }
+      });
+
+      // Apply branch overrides if they exist
+      if (branchConfig.overrides) {
+        Object.assign(effective, branchConfig.overrides);
+      }
+
+      // Apply promotion overrides if they exist
+      if (branchConfig.promotionOverrides) {
+        // Object.assign(effective, branchConfig.promotionOverrides);
+      }
+
+      log.info(`Applied settings for Git branch: ${currentBranch}`);
+      return effective;
+    } else if (currentBranch) {
+      log.info(`No settings found for Git branch '${currentBranch}', using top-level settings`);
     }
-  });
+  }
 
+  // Fallback to existing override logic for backward compatibility
   if (!config.overrides) {
     if (repo) {
       log.info(`No overrides found in wmill.yaml, using top-level settings (repository flag ignored)`);
