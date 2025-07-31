@@ -1,0 +1,24 @@
+{
+  "name": "windmill-utils-internal",
+  "version": "1.0.0",
+  "description": "Internal utility functions for Windmill",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "./gen_wm_client.sh && tsc",
+    "build-mac": "./gen_wm_client-mac.sh && tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "windmill"
+  ],
+  "author": "Ruben Fiszel",
+  "license": "Apache 2.0",
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*"
+  ]
+}
