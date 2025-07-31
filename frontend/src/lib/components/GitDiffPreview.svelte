@@ -1,35 +1,26 @@
 <script lang="ts">
-	type DiffResult = {
-		added: string[]
-		deleted: string[]
-		modified: string[]
-		repoWmillYaml?: string
-		yamlModified?: boolean
-	}
+	import type { SyncResponse } from '$lib/git-sync'
 
 	let { previewResult } = $props<{
-		previewResult: DiffResult | undefined
+		previewResult: SyncResponse | undefined
 	}>()
+
+	let added = $derived(previewResult?.changes?.filter(c => c.type === 'added').map(c => c.path) || [])
+	let deleted = $derived(previewResult?.changes?.filter(c => c.type === 'deleted').map(c => c.path) || [])
+	let edited = $derived(previewResult?.changes?.filter(c => c.type === 'edited').map(c => c.path) || [])
 </script>
 
 <div class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary">
 	<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-	{#if !previewResult?.added?.length && !previewResult?.deleted?.length && !previewResult?.modified?.length && !previewResult?.yamlModified}
+
+	{#if !added.length && !deleted.length && !edited.length}
 		<div class="mt-2 text-tertiary">No changes found! The workspace is up to date.</div>
 	{:else}
-		{#if previewResult?.yamlModified}
-			<div class="mt-2">
-				<div class="text-yellow-600">Modified:</div>
-				<ul class="list-disc list-inside">
-					<li>wmill.yaml (Git sync settings)</li>
-				</ul>
-			</div>
-		{/if}
-		{#if previewResult?.added?.length}
+		{#if added.length}
 			<div class="mt-2">
 				<div class="text-green-600">Added:</div>
 				<ul class="list-disc list-inside">
-					{#each previewResult.added as file}
+					{#each added as file}
 						<li>
 							{file}{!file.includes('.') ? ' (dir)' : ''}
 						</li>
@@ -37,11 +28,11 @@
 				</ul>
 			</div>
 		{/if}
-		{#if previewResult?.deleted?.length}
+		{#if deleted.length}
 			<div class="mt-2">
 				<div class="text-red-600">Deleted:</div>
 				<ul class="list-disc list-inside">
-					{#each previewResult.deleted as file}
+					{#each deleted as file}
 						<li>
 							{file}{!file.includes('.') ? ' (dir)' : ''}
 						</li>
@@ -49,11 +40,11 @@
 				</ul>
 			</div>
 		{/if}
-		{#if previewResult?.modified?.length}
+		{#if edited.length}
 			<div class="mt-2">
-				<div class="text-yellow-600">Modified:</div>
+				<div class="text-yellow-600">Edited:</div>
 				<ul class="list-disc list-inside">
-					{#each previewResult.modified as file}
+					{#each edited as file}
 						<li>
 							{file}{!file.includes('.') ? ' (dir)' : ''}
 						</li>

@@ -583,7 +583,7 @@
 <div class="mt-6"></div>
 
 {#if !$enterpriseLicense}
-	<Alert type="error" title="Enterprise license required"
+	<Alert type="warning" title="Enterprise license required"
 		>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
 	>
 {:else if notSet == true}
