@@ -1,5 +1,9 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 13c5789ccc1e6ebf990093786b5d5d48c5324815
 =======
 1391ce425d7523876c17d04667f703a58d1e23aa
 >>>>>>> 2e7ab919a (fix: improved logs for script)
+=======
+64d97ca2f45ef50429cb18cbad254250b6274cfb
+>>>>>>> 6971dcdb0 (better indexer tracings)
