@@ -596,6 +596,19 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
     }
 }
 
+// build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
+pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
+    args.iter()
+        .filter_map(|(k, v)| {
+            if let Some(value) = v {
+                Some(format!("{}{}{}", k, eq, value))
+            } else {
+                None
+            }
+        })
+        .join(sep)
+}
+
 pub enum ScheduleType {
     Croner(Cron),
     Cron(cron::Schedule),
@@ -859,19 +872,6 @@ impl Display for RunnableKind {
         };
         write!(f, "{}", runnable_kind)
     }
-}
-
-// build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
-pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
-    args.iter()
-        .filter_map(|(k, v)| {
-            if let Some(value) = v {
-                Some(format!("{}{}{}", k, eq, value))
-            } else {
-                None
-            }
-        })
-        .join(sep)
 }
 
 #[cfg(test)]
