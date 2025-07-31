@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::sync::{Arc, Mutex};
 
 use duckdb::types::TimeUnit;
 use duckdb::{params_from_iter, Row};
@@ -13,6 +14,7 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
+use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::workspaces::DucklakeCatalogResourceType;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
@@ -94,7 +96,10 @@ pub async fn do_duckdb(
     column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
+    let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
+
     let result_f = async {
+        let mut hidden_passwords = hidden_passwords.clone();
         let mut bigquery_credentials = None;
         let mut duckdb_connection_settings_cache =
             HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
@@ -153,7 +158,13 @@ pub async fn do_duckdb(
                 match parse_attach_db_resource(query_block) {
                     Some(parsed) => {
                         v.extend(
-                            transform_attach_db_resource_query(&parsed, &job.id, client).await?,
+                            transform_attach_db_resource_query(
+                                &parsed,
+                                &job.id,
+                                client,
+                                &mut hidden_passwords,
+                            )
+                            .await?,
                         );
                         if parsed.db_type == "bigquery" {
                             bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
@@ -166,6 +177,7 @@ pub async fn do_duckdb(
                         &query_block,
                         client,
                         &mut duckdb_connection_settings_cache,
+                        &mut hidden_passwords,
                     )
                     .await?
                     {
@@ -185,6 +197,10 @@ pub async fn do_duckdb(
             for DuckdbConnectionSettingsResponse { connection_settings_str, .. } in
                 duckdb_connection_settings_cache.values()
             {
+                hidden_passwords
+                    .lock()
+                    .unwrap()
+                    .push(connection_settings_str.clone());
                 conn.execute_batch(&connection_settings_str)
                     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
             }
@@ -228,9 +244,21 @@ pub async fn do_duckdb(
         &mut Some(occupancy_metrics),
         Box::pin(futures::stream::once(async { 0 })),
     )
-    .await?;
+    .await;
 
-    Ok(result)
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            // Passwords might appear in the error message
+            let mut err_str = e.to_string();
+            for pwd in hidden_passwords.lock().unwrap().iter() {
+                if let Some(sanitized) = sanitize_string_from_password(&err_str, &pwd.clone()) {
+                    err_str = sanitized;
+                }
+            }
+            Err(Error::ExecutionErr(err_str))
+        }
+    }
 }
 
 fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>> {
@@ -523,10 +551,14 @@ async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
     client: &AuthedClient,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
 ) -> Result<Vec<String>> {
     let db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
+    if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
         format_attach_db_conn_str(db_resource, parsed.db_type)?,
@@ -547,6 +579,7 @@ async fn transform_attach_ducklake(
     query: &str,
     client: &AuthedClient,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -566,6 +599,14 @@ async fn transform_attach_ducklake(
         DucklakeCatalogResourceType::Instance => "postgres",
         _ => ducklake.catalog.resource_type.as_ref(),
     };
+
+    if let Some(pwd) = ducklake
+        .catalog_resource
+        .get("password")
+        .and_then(|p| p.as_str())
+    {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
 

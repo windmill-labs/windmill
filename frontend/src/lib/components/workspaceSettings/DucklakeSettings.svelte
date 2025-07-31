@@ -188,13 +188,6 @@
 	</div>
 </div>
 
-{#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type !== 'instance')}
-	<Alert title="Resource details are shared" class="mb-4" type="warning">
-		Using a database resource as a catalog will share the database credentials with all users in the
-		workspace.
-	</Alert>
-{/if}
-
 {#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'instance')}
 	<Alert title="Instance catalogs use the Windmill database" class="mb-4" type="info">
 		Using an instance catalog is the fastest way to get started with Ducklake. They are public to

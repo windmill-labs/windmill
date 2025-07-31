@@ -609,6 +609,17 @@ pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> Stri
         .join(sep)
 }
 
+// Some errors (duckdb) leak the password in the error message
+pub fn sanitize_string_from_password(s: &str, passwd: &str) -> Option<String> {
+    if s.contains(passwd) {
+        return Some(s.replace(passwd, "******"));
+    }
+    // Do NOT check substrings
+    // In the case the user finds a string and notices that it gets substituted,
+    // He can very easily find the next character in O(1) and thus the entire password
+    None
+}
+
 pub enum ScheduleType {
     Croner(Cron),
     Cron(cron::Schedule),
