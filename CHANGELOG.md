@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.516.0](https://github.com/windmill-labs/windmill/compare/v1.515.1...v1.516.0) (2025-07-31)
+
+
+### Features
+
+* add CA certificate update at startup via environment variable ([#6280](https://github.com/windmill-labs/windmill/issues/6280)) ([a460e13](https://github.com/windmill-labs/windmill/commit/a460e131c71a0105fb14812ea2fabaa6bea1e0df))
+* prevent too large results (&gt;500Mb) from OOMing database ([4b9683f](https://github.com/windmill-labs/windmill/commit/4b9683f1462e9c8a577cc9e65a79fcdcd3894da0))
+
+
+### Bug Fixes
+
+* indexer collection of job logs before indexing ([#6300](https://github.com/windmill-labs/windmill/issues/6300)) ([77c8f17](https://github.com/windmill-labs/windmill/commit/77c8f17fdf88821951af36786e28aed9a270d476))
+* no process relative imports for scripts with codebase ([576156b](https://github.com/windmill-labs/windmill/commit/576156b0cc89c8a6ccb94234c59307ab8c41fed4))
+* sqs oidc authentication disconnect [#6307](https://github.com/windmill-labs/windmill/issues/6307) ([993e809](https://github.com/windmill-labs/windmill/commit/993e80955b23098d7075ed5279e3f18cd8a633b9))
+
 ## [1.515.1](https://github.com/windmill-labs/windmill/compare/v1.515.0...v1.515.1) (2025-07-29)
 
 
