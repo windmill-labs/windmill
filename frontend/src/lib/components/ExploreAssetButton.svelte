@@ -31,7 +31,8 @@
 		class: className = '',
 		noText = false,
 		buttonVariant = 'border',
-		btnClasses = ''
+		btnClasses = '',
+		disabled = false
 	}: {
 		asset: Asset
 		_resourceMetadata?: { resource_type?: string }
@@ -42,12 +43,13 @@
 		noText?: boolean
 		buttonVariant?: ButtonType.Variant
 		btnClasses?: string
+		disabled?: boolean
 	} = $props()
 	const assetUri = $derived(formatAsset(asset))
 </script>
 
 <Button
-	disabled={$userStore?.operator}
+	disabled={$userStore?.operator || disabled}
 	size="xs"
 	variant={buttonVariant}
 	spacingSize="xs2"

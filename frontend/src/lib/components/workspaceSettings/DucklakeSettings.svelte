@@ -71,15 +71,18 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { pluralize } from '$lib/utils'
+	import { clone, pluralize } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
+	import { deepEqual } from 'fast-equals'
+	import Popover from '../meltComponents/Popover.svelte'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
+		ducklakeSavedSettings: DucklakeSettingsType
 	}
-	let { ducklakeSettings = $bindable() }: Props = $props()
+	let { ducklakeSettings = $bindable(), ducklakeSavedSettings = $bindable() }: Props = $props()
 
 	let isWmDbEnabled = $derived($superadmin && !isCloudHosted())
 
@@ -110,6 +113,16 @@
 			.map((d) => d.catalog.resource_path ?? '')
 	)
 
+	const ducklakeIsDirty: Record<string, boolean> = $derived(
+		Object.fromEntries(
+			ducklakeSettings.ducklakes.map((d) => {
+				const saved = ducklakeSavedSettings.ducklakes.find((saved) => saved.name === d.name)
+				console.log('ducklakeIsDirty', d.name, saved, d)
+				return [d.name, !deepEqual(saved, d)] as const
+			})
+		)
+	)
+
 	async function onSave() {
 		try {
 			if (windmillDbNames.length) {
@@ -135,6 +148,7 @@
 				workspace: $workspaceStore!,
 				requestBody: { settings }
 			})
+			ducklakeSavedSettings = clone(ducklakeSettings)
 			sendUserToast('Ducklake settings saved successfully')
 		} catch (e) {
 			sendUserToast(e, true)
@@ -272,7 +286,12 @@
 								{ value: undefined, label: 'Default storage' },
 								...(secondaryStorageNames.value?.map((value) => ({ value })) ?? [])
 							]}
-							bind:value={ducklake.storage.storage}
+							bind:value={
+								() => ducklake.storage.storage,
+								(s) => {
+									if (s) ducklake.storage.storage = s
+								}
+							}
 							class="w-48"
 							inputClass="!placeholder-primary"
 						/>
@@ -280,7 +299,27 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<ExploreAssetButton asset={{ kind: 'ducklake', path: ducklake.name }} {dbManagerDrawer} />
+					{#if ducklakeIsDirty[ducklake.name]}
+						<Popover
+							openOnHover
+							contentClasses="p-2 text-sm text-secondary italic"
+							class="cursor-not-allowed"
+						>
+							<svelte:fragment slot="trigger">
+								<ExploreAssetButton
+									asset={{ kind: 'ducklake', path: ducklake.name }}
+									{dbManagerDrawer}
+									disabled
+								/>
+							</svelte:fragment>
+							<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+						</Popover>
+					{:else}
+						<ExploreAssetButton
+							asset={{ kind: 'ducklake', path: ducklake.name }}
+							{dbManagerDrawer}
+						/>
+					{/if}
 				</Cell>
 				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDucklake(ducklakeIndex)} />

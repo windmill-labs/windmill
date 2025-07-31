@@ -29,7 +29,7 @@
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString } from '$lib/utils'
+	import { clone, emptyString } from '$lib/utils'
 	import { RotateCw, Save } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -88,6 +88,7 @@
 	let ducklakeSettings: DucklakeSettingsType = $state({
 		ducklakes: []
 	})
+	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
 	let workspaceEncryptionKey: string | undefined = $state(undefined)
@@ -265,6 +266,7 @@
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
+		ducklakeSavedSettings = clone(ducklakeSettings)
 
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
@@ -818,7 +820,7 @@
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings bind:s3ResourceSettings />
 		{:else if tab == 'ducklake'}
-			<DucklakeSettings bind:ducklakeSettings />
+			<DucklakeSettings bind:ducklakeSettings bind:ducklakeSavedSettings />
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
