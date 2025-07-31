@@ -3265,7 +3265,7 @@ mount {{
             .into());
 
             #[cfg(feature = "java")]
-            handle_java_job(JobHandlerInputRuby {
+            handle_java_job(JobHandlerInputJava {
                 mem_peak,
                 canceled_by,
                 job,

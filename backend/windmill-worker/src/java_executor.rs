@@ -21,8 +21,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
-        read_result, start_child_process, OccupancyMetrics, RequiredDependency,
+        create_args_and_out_file, get_reserved_variables,
+        par_install_language_dependencies_all_at_once, read_result, start_child_process,
+        OccupancyMetrics, RequiredDependency,
     },
     handle_child, COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
     JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
@@ -275,14 +276,15 @@ async fn install<'a>(
                     );
                     Ok(RequiredDependency {
                         path,
-                        custom_name: Some(format!("{group_id}:{artifact_id}:{version}")),
-                        short_name: Some(format!("{artifact_id}:{version}")),
+                        s3_handle: format!("{group_id}:{artifact_id}:{version}"),
+                        display_name: format!("{artifact_id}:{version}"),
+                        custom_payload: (),
                     })
                 }
                 _ => anyhow::bail!("{line} is not parsable"),
             }
         })
-        .collect::<anyhow::Result<Vec<RequiredDependency>>>()?;
+        .collect::<anyhow::Result<Vec<RequiredDependency<_>>>>()?;
 
     let classpath = deps
         .clone()
@@ -307,14 +309,14 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let fetch_dir = format!("{JAVA_CACHE_DIR}/tmp-fetch-{}", Uuid::new_v4());
     let fetch_dir2 = fetch_dir.clone();
-    par_install_language_dependencies(
+    par_install_language_dependencies_all_at_once(
         deps,
         "java",
         "java",
         true,
         *JAVA_CONCURRENT_DOWNLOADS,
         true,
-        crate::common::InstallStrategy::AllAtOnce(Arc::new(move |dependencies| {
+        move |dependencies| {
             let mut cmd = Command::new(if cfg!(windows) {
                 "java"
             } else {
@@ -322,12 +324,8 @@ async fn install<'a>(
             });
             let artifacts = dependencies
                 .into_iter()
-                .map(|e| {
-                    e.custom_name.ok_or(anyhow::anyhow!(
-                        "Internal Error: Artifact name should be Some!"
-                    ))
-                })
-                .collect::<anyhow::Result<Vec<String>>>()?;
+                .map(|e| e.s3_handle)
+                .collect::<Vec<String>>();
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
@@ -385,7 +383,7 @@ async fn install<'a>(
             }
 
             Ok(cmd)
-        })),
+        },
         async move |_| {
             move_to_repository(&fetch_dir2, 0).await?;
             remove_dir_all(&fetch_dir2).await?;
@@ -419,6 +417,7 @@ async fn install<'a>(
         &job.id,
         &job.workspace_id,
         worker_name,
+        !*DISABLE_NSJAIL,
         conn,
     )
     .await?;

@@ -15145,10 +15145,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.508.0"
+version = "1.510.0"
 dependencies = [
  "anyhow",
+ "lazy_static",
  "libc",
+ "regex",
  "serde_json",
  "tree-sitter",
  "tree-sitter-ruby",

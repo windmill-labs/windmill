@@ -1,21 +1,19 @@
-use std::{collections::HashMap, fs::read_to_string, process::Stdio, str::FromStr, sync::Arc};
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
-use anyhow::{anyhow, bail};
-use async_recursion::async_recursion;
+use anyhow::anyhow;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::{
-    fs::{self, remove_dir_all, File},
+    fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
 use url::Url;
 use uuid::Uuid;
 use windmill_common::{
-    cache::Storage,
     client::AuthedClient,
-    error::{self, Error},
+    error::Error,
     utils::calculate_hash,
     worker::{write_file, Connection},
 };
@@ -25,10 +23,10 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
+        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies_seq,
         read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    handle_child::{self, handle_child},
+    handle_child::{self},
     DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
@@ -288,8 +286,8 @@ Your Gemfile syntax will continue to work as-is."
         {
             let cause = src_m
                 .as_str()
-                .replace(usr_m.as_str(), "CENSORED_USERNAME")
-                .replace(passwd_m.as_str(), "CENSORED_PASSWORD");
+                .replace(usr_m.as_str(), "REDACTED")
+                .replace(passwd_m.as_str(), "REDACTED");
 
             return Err(anyhow!("!> {cause} - inline source credentials are not supported at the moment. Please set up credentials in instance settings, if you do not have access to it, contact your administrator. If you need this feature please let us know.").into());
         }
@@ -485,40 +483,51 @@ async fn install<'a>(
         INIT,
     }
 
+    #[derive(Debug, Clone)]
+    enum FinalSource {
+        #[allow(dead_code)]
+        GIT {
+            remote: String,
+            revision: String,
+        },
+        GEM {
+            remote: String,
+        },
+    }
+
     #[derive(Clone, Debug)]
     struct CustomPayload {
-        source: CurrentSource,
+        source: FinalSource,
         version: String,
         pkg: String,
     }
 
     let mut deps = vec![];
-    let mut current_source = CurrentSource::INIT;
+    let mut last_source = CurrentSource::INIT;
     'lock_lines: for line in lockfile.lines() {
         // Trimed line
         let tl = line.trim_start();
         if tl.starts_with("GIT") {
-            current_source = CurrentSource::GIT { remote: None, revision: None };
+            last_source = CurrentSource::GIT { remote: None, revision: None };
             continue 'lock_lines;
         } else if tl.starts_with("GEM") {
-            current_source = CurrentSource::GEM { remote: None };
+            last_source = CurrentSource::GEM { remote: None };
             continue 'lock_lines;
         }
 
         const REMOTE: &str = "remote: ";
         if line.contains(REMOTE) {
-            match &mut current_source {
+            match &mut last_source {
                 CurrentSource::GIT { remote, .. } => remote.replace(tl.replace(REMOTE, "")),
                 CurrentSource::GEM { remote } => remote.replace(tl.replace(REMOTE, "")),
-                // TODO: Add more descriptive error
-                CurrentSource::INIT => return Err(anyhow!("Malformed Gemfile.lock").into()),
+                CurrentSource::INIT => return Err(Error::InternalErr("BUG on installation stage: detected initial enum variant at the stage it was not supposed to be at. Please report this issue.".to_owned())),
             };
             continue 'lock_lines;
         }
 
         const REVISION: &str = "revision: ";
         if line.contains(REVISION) {
-            if let CurrentSource::GIT { revision, .. } = &mut current_source {
+            if let CurrentSource::GIT { revision, .. } = &mut last_source {
                 revision.replace(tl.replace(REVISION, ""));
             }
             continue 'lock_lines;
@@ -555,16 +564,24 @@ async fn install<'a>(
             continue 'lock_lines;
         }
 
-        // TODO: Test for safety
         let buf = tl.replace(['(', ')'], "");
         let &[pkg, version, ..] = buf.split_whitespace().collect_vec().as_slice() else {
-            todo!();
+            return Err(anyhow!("Cannot deterimine version and package name for: {}", tl).into());
         };
 
         let custom_payload = CustomPayload {
-            source: current_source.clone(),
             version: version.into(),
             pkg: pkg.into(),
+            source: match last_source.clone() {
+                CurrentSource::GIT { remote, revision } => FinalSource::GIT {
+                    remote: remote.unwrap_or_default(),
+                    revision: revision.unwrap_or_default(),
+                },
+                CurrentSource::GEM { remote } => {
+                    FinalSource::GEM { remote: remote.unwrap_or_default() }
+                },
+                CurrentSource::INIT => return Err(Error::InternalErr("BUG on installation stage: detected initial enum variant at the stage it was not supposed to be at. Please report this issue.".to_owned())),
+            },
         };
 
         // Calculate hash based on source
@@ -582,8 +599,8 @@ async fn install<'a>(
 
         deps.push(dbg!(RequiredDependency {
             path,
-            s3_handle: Some(handle),
-            short_name: Some(tl.to_owned()),
+            s3_handle: handle,
+            display_name: tl.to_owned(),
             custom_payload,
         }));
     }
@@ -591,14 +608,15 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
     let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
-    par_install_language_dependencies(
+    par_install_language_dependencies_seq(
         deps.clone(),
         "ruby",
         "gem",
         false,
         *RUBY_CONCURRENT_DOWNLOADS,
-        false,
-        crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
+        true,
+        // crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
+        move |dependency| {
             let mut cmd = if jailed {
                 std::fs::create_dir_all(&dependency.path)?;
                 let nsjail_proto = format!("{}.download.config.proto", Uuid::new_v4());
@@ -606,14 +624,14 @@ async fn install<'a>(
                     &job_dir,
                     &nsjail_proto,
                     &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
-                        // .replace("{JOB_DIR}", &job_dir)
                         .replace("{TARGET}", &dependency.path)
-                        // .replace("{CARGO_HOME}", CARGO_HOME.as_str())
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                         .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
-                cmd.args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
+                // TODO: Check there is env_clear everywhere
+                cmd.env_clear()
+                    .args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
                 cmd
             } else {
                 Command::new(if cfg!(windows) {
@@ -628,16 +646,12 @@ async fn install<'a>(
                 // This way we keep everything clean, organized and maintable
                 ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
             ]);
-            // .envs(PROXY_ENVS.clone())
 
             // Figure out source
             let source = {
                 let source = match dependency.custom_payload.source {
-                    CurrentSource::GIT { .. } => return Err(anyhow!("GIT is not supported").into()),
-                    CurrentSource::GEM { remote } => remote.unwrap(), // TODO: No unwraps please
-                    CurrentSource::INIT => return Err(
-                        Error::InternalErr(
-                            "BUG on lockfile resolution stage: detected initial enum variant at the stage it was not supposed to be at. Please report this issue.".to_owned())),
+                    FinalSource::GIT { .. } => return Err(anyhow!("GIT is not supported").into()),
+                    FinalSource::GEM { remote } => remote,
                 }
                 .trim()
                 .to_owned();
@@ -645,18 +659,14 @@ async fn install<'a>(
                 let src_url = Url::parse(&source)?;
                 repos
                     .iter()
-                    // TODO: Handle trailing slashes
-                    .find(|inst_url|
-                        (inst_url.domain(), inst_url.path()) == (src_url.domain(), src_url.path()) )
+                    .find(|inst_url| {
+                        inst_url.domain().is_some()
+                            && (inst_url.domain(), inst_url.path())
+                                == (src_url.domain(), src_url.path())
+                    })
                     .map(Url::to_string)
                     .unwrap_or(source)
             };
-
-            dbg!(&source);
-            dbg!(&source);
-            dbg!(&source);
-            dbg!(&source);
-            dbg!(&source);
 
             cmd.args(&[
                 "install",
@@ -677,7 +687,6 @@ async fn install<'a>(
                 "--source",
                 source.as_str(),
             ])
-            // .args(&repos)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -692,7 +701,7 @@ async fn install<'a>(
             }
 
             Ok(cmd)
-        })),
+        },
         async move |_| Ok(()),
         &job.id,
         &job.workspace_id,
@@ -752,7 +761,6 @@ async fn run<'a>(
             conn,
         )
         .await;
-        dbg!(&rubylib);
         let shared_deps = top_level_paths
             .into_iter()
             .map(|pp| {
@@ -845,13 +853,6 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(envs);
-        // .envs(reserved_variables);
-        // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
-        //     cmd.args(&[
-        //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
-        //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
-        //     ]);
-        // }
         // Configure proxies
         // {
         //     let jps = parse_proxy()?;
@@ -903,28 +904,6 @@ mount {{
     )
     .await
 }
-async fn get_repos_mapped() -> Result<Vec<Url>, Error> {
-    Ok(crate::RUBY_REPOS.read().await.clone().unwrap_or_default())
-}
-// async fn get_repos() -> HashMap<String, String> {
-//     let mut hm = HashMap::new();
-//     // BUNDLE_GEM1__SKYVO__ID
-//     crate::RUBY_REPOS
-//         .read()
-//         .await
-//         .as_ref()
-//         .map(|repos| {
-//             repos
-//                 .trim()
-//                 .split_whitespace()
-//                 .into_iter()
-//                 .map(|el| vec!["--source".to_owned(), el.to_owned()])
-//                 .collect_vec()
-//         })
-//         .unwrap_or_default()
-//         .concat();
-//     hm
-// }
 fn wrap(inner_content: &str) -> Result<String, Error> {
     let sig = parse_ruby_signature(inner_content)?;
     let spread = sig

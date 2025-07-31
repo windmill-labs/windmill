@@ -141,6 +141,13 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<url::ParseError> for Error {
+    #[track_caller]
+    fn from(e: url::ParseError) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided url. \ne: {e}"))
+    }
+}
+
 impl Error {
     /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
     pub fn alt(&self) -> String {

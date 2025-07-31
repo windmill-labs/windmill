@@ -203,4 +203,14 @@ pub fn parse_assets_py(code: &str) -> String {
     }
 }
 
+#[cfg(feature = "ruby-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_ruby(code: &str) -> String {
+    if let Ok(r) = windmill_parser_ruby::parse_assets(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
 // for related places search: ADD_NEW_LANG
