@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.517.0](https://github.com/windmill-labs/windmill/compare/v1.516.0...v1.517.0) (2025-07-31)
+
+
+### Features
+
+* **cli:** wmill-lock.yaml v2 for easier git merge diffs ([ef3e235](https://github.com/windmill-labs/windmill/commit/ef3e2353a76d096847b3f10b1daa6767fc4baa0d))
+
+
+### Bug Fixes
+
+* use with_capacity back presusre for tantivy directory multipart writes ([#6313](https://github.com/windmill-labs/windmill/issues/6313)) ([8887707](https://github.com/windmill-labs/windmill/commit/8887707d41456889371e471c996773e605088a88))
+
 ## [1.516.0](https://github.com/windmill-labs/windmill/compare/v1.515.1...v1.516.0) (2025-07-31)
 
 
