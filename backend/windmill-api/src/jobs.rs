@@ -17,6 +17,7 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use windmill_common::result_stream::extract_stream_from_logs;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -5997,7 +5998,7 @@ fn get_job_update_sse_stream(
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
 
-fn extract_stream_from_logs(logs: Option<String>) -> (Option<String>, Option<String>) {
+fn extract_logs_stream(logs: Option<String>) -> (Option<String>, Option<String>) {
     match logs {
         Some(log_content) => {
             let mut regular_logs = Vec::new();
@@ -6168,7 +6169,7 @@ async fn get_job_update_data(
             None
         };
 
-        let (filtered_logs, stream) = extract_stream_from_logs(record.logs);
+        let (filtered_logs, stream) = extract_logs_stream(record.logs);
         
         Ok(JobUpdate {
             running: record.running,
