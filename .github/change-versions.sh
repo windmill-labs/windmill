@@ -12,6 +12,7 @@ sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" ${root_dirpath}/be
 sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/backend/windmill-api/openapi.yaml
 sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/package.json
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/cli/windmill-utils-internal/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/jsr.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
