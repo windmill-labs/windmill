@@ -114,7 +114,7 @@ export async function mergeConfigWithConfigFile<T>(
 }
 
 // Get effective settings by merging top-level settings with branch-specific overrides
-export function getEffectiveSettings(config: SyncOptions): SyncOptions {
+export function getEffectiveSettings(config: SyncOptions, promotion?: string): SyncOptions {
   // Start with top-level settings from config
   const { branches, ...topLevelSettings } = config;
   let effective = { ...topLevelSettings };
@@ -122,7 +122,23 @@ export function getEffectiveSettings(config: SyncOptions): SyncOptions {
   if (isGitRepository()) {
     const currentBranch = getCurrentGitBranch();
 
-    if (currentBranch && branches && branches[currentBranch] && branches[currentBranch].overrides) {
+    // If promotion is specified, use that branch's promotionOverrides or overrides
+    if (promotion && branches && branches[promotion]) {
+      const targetBranch = branches[promotion];
+
+      // First try promotionOverrides, then fall back to overrides
+      if (targetBranch.promotionOverrides) {
+        Object.assign(effective, targetBranch.promotionOverrides);
+        log.info(`Applied promotion settings from branch: ${promotion}`);
+      } else if (targetBranch.overrides) {
+        Object.assign(effective, targetBranch.overrides);
+        log.info(`Applied settings from branch: ${promotion} (no promotionOverrides found)`);
+      } else {
+        log.debug(`No promotion or regular overrides found for branch '${promotion}', using top-level settings`);
+      }
+    }
+    // Otherwise use current branch overrides (existing behavior)
+    else if (currentBranch && branches && branches[currentBranch] && branches[currentBranch].overrides) {
       Object.assign(effective, branches[currentBranch].overrides);
       log.info(`Applied settings for Git branch: ${currentBranch}`);
     } else if (currentBranch) {

@@ -61,9 +61,9 @@ function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { 
 }
 
 // Resolve effective sync options using branch-based configuration
-async function resolveEffectiveSyncOptions(workspace: Workspace): Promise<SyncOptions> {
+async function resolveEffectiveSyncOptions(workspace: Workspace, promotion?: string): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
-  return getEffectiveSettings(localConfig);
+  return getEffectiveSettings(localConfig, promotion);
 }
 
 type DynFSElement = {
@@ -1154,7 +1154,7 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string; promotion?: string }) {
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1163,7 +1163,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace);
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.promotion);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1469,7 +1469,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace);
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.promotion);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -2056,6 +2056,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+  )
+  .option(
+    "--promotion <branch:string>",
+    "Use promotionOverrides from the specified branch instead of regular overrides"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
