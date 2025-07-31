@@ -21,7 +21,7 @@ impl Default for TantivyIndexerSettings {
     fn default() -> Self {
         TantivyIndexerSettings {
             writer_memory_budget: 300_000_000,
-            commit_job_max_batch_size: 100_000,
+            commit_job_max_batch_size: 50_000,
             commit_log_max_batch_size: 10_000,
             refresh_index_period: 300,
             refresh_log_index_period: 300,
