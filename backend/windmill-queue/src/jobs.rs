@@ -20,7 +20,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
-use sqlx::PgExecutor;
+use sqlx::{Encode, PgExecutor};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
@@ -573,6 +573,7 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
+    fn size(&self) -> usize;
 }
 
 #[derive(serde::Deserialize)]
@@ -588,6 +589,10 @@ impl ValidableJson for WrappedError {
     fn wm_labels(&self) -> Option<Vec<String>> {
         None
     }
+
+    fn size(&self) -> usize {
+        0
+    }
 }
 
 impl ValidableJson for Box<RawValue> {
@@ -600,6 +605,10 @@ impl ValidableJson for Box<RawValue> {
             .ok()
             .map(|r| r.wm_labels)
     }
+
+    fn size(&self) -> usize {
+        self.get().len()
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Arc<T> {
@@ -609,6 +618,10 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         T::wm_labels(&self)
+    }
+
+    fn size(&self) -> usize {
+        T::size(&self)
     }
 }
 
@@ -622,6 +635,10 @@ impl ValidableJson for serde_json::Value {
             .ok()
             .map(|r| r.wm_labels)
     }
+
+    fn size(&self) -> usize {
+        self.size_hint()
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Json<T> {
@@ -631,6 +648,10 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         self.0.wm_labels()
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
     }
 }
 
@@ -718,6 +739,7 @@ pub async fn add_completed_job_error(
 
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
+    pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -753,15 +775,34 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         let job_id = queued_job.id;
         // tracing::error!("1 {:?}", start.elapsed());
 
-        tracing::debug!(
-            "completed job {} {}",
-            queued_job.id,
-            serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
-        );
+        // tracing::debug!(
+        //     "completed job {} {}",
+        //     queued_job.id,
+        //     serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
+        // );
 
         let mem_peak = mem_peak;
         // add_time!(bench, "add_completed_job query START");
 
+        let result_size = result.size() / 1024 / 1024;
+        if result_size > 2 {
+            if result_size > *MAX_RESULT_SIZE_MB {
+                tracing::error!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE_MB={}MB", queued_job.id, result_size, *MAX_RESULT_SIZE_MB);
+                return Err(Error::ResultTooLarge(format!("Result of job {} is too large: {}MB > MAX_RESULT_SIZE_MB={}MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", queued_job.id, result_size, *MAX_RESULT_SIZE_MB)));
+            }
+            append_logs(
+                &queued_job.id,
+                &queued_job.workspace_id,
+                format!("Warning: Result of job {} is large: {}MB.\nRecommended max size is 2MB.\nPrefer using external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", queued_job.id, result_size),
+                &db.into(),
+            )
+            .await;
+            if *CLOUD_HOSTED {
+                return Err(Error::ResultTooLarge(format!("Result of job {} is too large for multi-tenant cloud: {}MB (max 2MB).\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", queued_job.id, result_size)));
+            } else {
+                tracing::warn!("Result of job {} is larger than 2MB: {}MB. Not recommended.", queued_job.id, result_size);
+            }
+        } 
         let _duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
                     ( workspace_id
@@ -1052,7 +1093,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .with_max_times(5)
             .build(),
     )
-    .when(|err| !matches!(err, Error::QuotaExceeded(_)))
+    .when(|err| !matches!(err, Error::QuotaExceeded(_)) && !matches!(err, Error::ResultTooLarge(_)))
     .notify(|err, dur| {
         tracing::error!(
             "Could not insert completed job, retrying in {dur:#?}, err: {err:#?}"
