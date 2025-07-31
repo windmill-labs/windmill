@@ -60,89 +60,10 @@ function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { 
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options with smart repository detection
-async function resolveEffectiveSyncOptions(
-  workspace: Workspace,
-  repositoryPath?: string
-): Promise<SyncOptions> {
+// Resolve effective sync options using branch-based configuration
+async function resolveEffectiveSyncOptions(workspace: Workspace): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
-
-  // If repository path is already specified, use it directly
-  if (repositoryPath) {
-    return getEffectiveSettings(
-      localConfig,
-      workspace.remote,
-      workspace.workspaceId,
-      repositoryPath
-    );
-  }
-
-  // Auto-detect repository from overrides if not specified
-  if (localConfig.overrides) {
-    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
-    const applicableRepos: string[] = [];
-
-    // Find all repository-specific overrides for this workspace
-    for (const key of Object.keys(localConfig.overrides)) {
-      if (key.startsWith(prefix) && !key.endsWith(':*')) {
-        const repo = key.substring(prefix.length);
-        if (repo) {
-          applicableRepos.push(repo);
-        }
-      }
-    }
-
-    if (applicableRepos.length === 1) {
-      // Single repository found - auto-select it
-      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
-      return getEffectiveSettings(
-        localConfig,
-        workspace.remote,
-        workspace.workspaceId,
-        applicableRepos[0]
-      );
-    } else if (applicableRepos.length > 1) {
-      // Multiple repositories found - prompt for selection
-      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-
-      if (isInteractive) {
-        const choices = [
-          { name: "Use top-level settings (no repository-specific override)", value: "" },
-          ...applicableRepos.map(repo => ({ name: repo, value: repo }))
-        ];
-
-        const selectedRepo = await Select.prompt({
-          message: "Multiple repository overrides found. Select which to use:",
-          options: choices
-        });
-
-        if (selectedRepo) {
-          log.info(`Selected repository: ${selectedRepo}`);
-        }
-
-        return getEffectiveSettings(
-          localConfig,
-          workspace.remote,
-          workspace.workspaceId,
-          selectedRepo
-        );
-      } else {
-        // Non-interactive mode - list options and use top-level
-        log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
-        log.warn(`Running in non-interactive mode. Use --repository flag to specify which one to use.`);
-        log.info(`Falling back to top-level settings (no repository-specific overrides applied)`);
-      }
-    }
-  }
-
-  // No repository overrides found or selected - use top-level settings
-  log.info(`No repository overrides found, using top-level settings`);
-  return getEffectiveSettings(
-    localConfig,
-    workspace.remote,
-    workspace.workspaceId,
-    ""
-  );
+  return getEffectiveSettings(localConfig);
 }
 
 type DynFSElement = {
@@ -1241,8 +1162,8 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+  // Resolve effective sync options with branch awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1547,8 +1468,8 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+  // Resolve effective sync options with branch awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(workspace);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);

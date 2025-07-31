@@ -1,15 +1,13 @@
 import { log } from "./deps.ts";
+import { execSync } from "node:child_process";
 
 export function getCurrentGitBranch(): string | null {
   try {
-    const command = new Deno.Command("git", {
-      args: ["rev-parse", "--abbrev-ref", "HEAD"],
-      stdout: "piped",
-      stderr: "piped",
+    const result = execSync("git rev-parse --abbrev-ref HEAD", {
+      encoding: "utf8",
+      stdio: "pipe"
     });
-    const { code, stdout } = command.outputSync();
-    if (code !== 0) return null;
-    const branch = new TextDecoder().decode(stdout).trim();
+    const branch = result.trim();
     return branch || null;
   } catch (error) {
     log.debug(`Failed to get Git branch: ${error}`);
@@ -19,13 +17,11 @@ export function getCurrentGitBranch(): string | null {
 
 export function isGitRepository(): boolean {
   try {
-    const command = new Deno.Command("git", {
-      args: ["rev-parse", "--git-dir"],
-      stdout: "piped",
-      stderr: "piped",
+    execSync("git rev-parse --git-dir", {
+      encoding: "utf8",
+      stdio: "pipe"
     });
-    const { code } = command.outputSync();
-    return code === 0;
+    return true;
   } catch (error) {
     log.debug(`Failed to check Git repository: ${error}`);
     return false;
