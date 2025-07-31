@@ -151,7 +151,13 @@
 		secondaryStorageNames.refresh()
 	})
 
-	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', '']
+	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', ''] as const
+
+	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
+		Name: "Ducklakes are referenced in DuckDB scripts with the <code class='px-1 py-0.5 border rounded-md'>ATTACH 'ducklake://name'</code> syntax",
+		Catalog: 'Ducklake needs an SQL database to store metadata about the data',
+		'Workspace storage': 'Where the data is actually stored, in parquet format'
+	}
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let confirmationModal = createAsyncConfirmationModal()
@@ -161,9 +167,8 @@
 	<div class="flex flex-col gap-1">
 		<div class="text-primary text-lg font-semibold">Ducklake</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ducklake">
-			Windmill has first class support for Ducklake. You can reference a ducklake in your DuckDB
-			scripts with the
-			<code>ATTACH 'ducklake:name'</code> syntax
+			Windmill has first class support for Ducklake. You can use and explore ducklakes like a normal
+			SQL database, even through the data is actually stored in parquet files in S3 !
 		</Description>
 	</div>
 </div>
@@ -186,7 +191,14 @@
 	<Head>
 		<tr>
 			{#each tableHeadNames as name, i}
-				<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>{name}</Cell>
+				<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>
+					{name}
+					{#if tableHeadTooltips[name]}
+						<Tooltip>
+							{@html tableHeadTooltips[name]}
+						</Tooltip>
+					{/if}
+				</Cell>
 			{/each}
 		</tr>
 	</Head>
@@ -200,29 +212,43 @@
 		{/if}
 		{#each ducklakeSettings.ducklakes as ducklake, ducklakeIndex}
 			<Row>
-				<Cell first class="w-48">
+				<Cell first class="w-48 relative">
+					{#if ducklake.name === 'main'}
+						<Tooltip wrapperClass="absolute mt-2.5 right-4" placement="bottom-start">
+							The <i>main</i> ducklake can be accessed with the
+							<br />
+							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake'</code> shorthand
+						</Tooltip>
+					{/if}
 					<input bind:value={ducklake.name} placeholder="Name" />
 				</Cell>
 				<Cell>
 					<div class="flex gap-4">
-						<Select
-							items={[
-								{ value: 'postgresql', label: 'PostgreSQL' },
-								{ value: 'mysql', label: 'MySQL' },
-								...(isWmDbEnabled ? [{ value: 'instance', label: 'Instance' }] : [])
-							]}
-							bind:value={
-								() => ducklake.catalog.resource_type,
-								(resource_type) => {
-									ducklake.catalog = {
-										resource_type,
-										resource_path:
-											resource_type === 'instance' ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+						<div class="relative">
+							{#if ducklake.catalog.resource_type === 'instance'}
+								<Tooltip wrapperClass="absolute mt-2.5 right-2 z-20" placement="bottom-start">
+									Use Windmill's PostgreSQL instance as a catalog
+								</Tooltip>
+							{/if}
+							<Select
+								items={[
+									{ value: 'postgresql', label: 'PostgreSQL' },
+									{ value: 'mysql', label: 'MySQL' },
+									...(isWmDbEnabled ? [{ value: 'instance', label: 'Instance' }] : [])
+								]}
+								bind:value={
+									() => ducklake.catalog.resource_type,
+									(resource_type) => {
+										ducklake.catalog = {
+											resource_type,
+											resource_path:
+												resource_type === 'instance' ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+										}
 									}
 								}
-							}
-							class="w-28"
-						/>
+								class="w-28"
+							/>
+						</div>
 						<div class="flex items-center gap-1 w-80">
 							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
@@ -234,7 +260,6 @@
 									bind:value={ducklake.catalog.resource_path}
 									placeholder="PostgreSQL database name"
 								/>
-								<Tooltip>Use Windmill's PostgreSQL instance as a catalog</Tooltip>
 							{/if}
 						</div>
 					</div>
