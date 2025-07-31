@@ -364,7 +364,7 @@ pub async fn install_bun_lockfile(
             occupancy_metrics,
             None,
         )
-        .await?
+        .await?;
     } else {
         Box::into_pin(child_process.wait()).await?;
     }
