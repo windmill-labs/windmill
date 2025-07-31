@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { GridApi, createGrid } from 'ag-grid-community'
+	import { type GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext, mount, onDestroy, unmount, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -24,6 +24,7 @@
 	import SyncColumnDefs from './SyncColumnDefs.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import './theme/windmill-theme.css'
 
 	import {
@@ -94,9 +95,11 @@
 	let prevUid: string | undefined = undefined
 
 	let value: any[] = $state(
-		Array.isArray(result)
-			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
-			: [{ error: 'input was not an array' }]
+		untrack(() =>
+			Array.isArray(result)
+				? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
+				: [{ error: 'input was not an array' }]
+		)
 	)
 
 	let loaded = $state(false)
@@ -556,7 +559,7 @@
 			untrack(() => clearActionOrder())
 	})
 	$effect(() => {
-		api && resolvedConfig && untrack(() => updateOptions())
+		api && resolvedConfig && updateOptions()
 	})
 	$effect(() => {
 		value && untrack(() => updateValue())

@@ -12,6 +12,7 @@ import app from "./apps.ts";
 import script from "./script.ts";
 import workspace, { getActiveWorkspace } from "./workspace.ts";
 import resource from "./resource.ts";
+import resourceType from "./resource-type.ts";
 import user from "./user.ts";
 import variable from "./variable.ts";
 import hub from "./hub.ts";
@@ -22,6 +23,7 @@ import sync from "./sync.ts";
 import gitsyncSettings from "./gitsync-settings.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
+import { SCRIPT_GUIDANCE } from "./script_guidance.ts";
 
 import dev from "./dev.ts";
 import { fetchVersion } from "./context.ts";
@@ -35,6 +37,7 @@ import { add as workspaceAdd } from "./workspace.ts";
 import workers from "./workers.ts";
 import queues from "./queues.ts";
 import { readLockfile } from "./metadata.ts";
+import { FLOW_GUIDANCE } from "./flow_guidance.ts";
 
 export {
     flow,
@@ -42,6 +45,7 @@ export {
     script,
     workspace,
     resource,
+    resourceType,
     user,
     variable,
     hub,
@@ -65,7 +69,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.512.0";
+export const VERSION = "1.516.0";
 
 const command = new Command()
     .name("wmill")
@@ -268,6 +272,50 @@ const command = new Command()
                     }
                 }
             }
+
+            // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
+            try {
+                const scriptGuidanceContent = SCRIPT_GUIDANCE;
+                const flowGuidanceContent = FLOW_GUIDANCE;
+                                
+                // Create .cursor/rules directory
+                await Deno.mkdir(".cursor/rules", { recursive: true });
+                
+                // Create windmill.mdc file
+                if (!await Deno.stat(".cursor/rules/script.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/script.mdc", scriptGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/script.mdc"));
+                }
+
+                if (!await Deno.stat(".cursor/rules/flow.mdc").catch(() => null)) {
+                    await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
+                    log.info(colors.green("Created .cursor/rules/flow.mdc"));
+                }
+                
+                // Create CLAUDE.md file
+                if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
+                    await Deno.writeTextFile("CLAUDE.md", `
+                        # Claude
+
+                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+
+                        ## Script Guidance
+                        ${scriptGuidanceContent}
+
+                        ## Flow Guidance
+                        ${flowGuidanceContent}
+                    `);
+                    log.info(colors.green("Created CLAUDE.md"));
+                }
+                
+            } catch (error) {
+                if (error instanceof Error) {
+                    log.warn(`Could not create guidance files: ${error.message}`);
+                } else {
+                    log.warn(`Could not create guidance files: ${error}`);
+                }
+            }
+
         },
     )
     .command("app", app)
@@ -275,6 +323,7 @@ const command = new Command()
     .command("script", script)
     .command("workspace", workspace)
     .command("resource", resource)
+    .command("resource-type", resourceType)
     .command("user", user)
     .command("variable", variable)
     .command("hub", hub)

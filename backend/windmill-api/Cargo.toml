@@ -32,7 +32,7 @@ http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_e
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
-sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:aws-config", "dep:backon"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
@@ -139,13 +139,17 @@ rust_decimal = { workspace = true, optional = true }
 rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true } 
-aws-config = { workspace = true, optional = true }
+aws-sdk-sso = { workspace = true, optional = true }
+aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+rustls = { workspace = true }
+
+aws-config = { workspace = true, optional = true }
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
 tonic = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
-
+backon = {workspace = true, optional = true}
 [build-dependencies]
 deno_core = { workspace = true, optional = true }

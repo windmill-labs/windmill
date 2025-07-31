@@ -372,6 +372,7 @@ async fn handle_docker_job(
             .await;
             loop {
                 tokio::select! {
+                    biased;
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
@@ -466,21 +467,22 @@ async fn handle_docker_job(
         rm_container(&client, &container_id).await;
 
         return Err(e);
+    } else {
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), logs).await;
+        rm_container(&client, &container_id).await;
+
+        let result = result.unwrap();
+
+        if result.is_some_and(|x| x > 0) {
+            return Err(Error::ExecutionErr(format!(
+                "Docker job completed with unsuccessful exit status: {}",
+                result.unwrap()
+            )));
+        }
+        return Ok(to_raw_value(&json!(format!(
+            "Docker job completed with success exit status"
+        ))));
     }
-
-    rm_container(&client, &container_id).await;
-
-    let result = result.unwrap();
-
-    if result.is_some_and(|x| x > 0) {
-        return Err(Error::ExecutionErr(format!(
-            "Docker job completed with unsuccessful exit status: {}",
-            result.unwrap()
-        )));
-    }
-    return Ok(to_raw_value(&json!(format!(
-        "Docker job completed with success exit status"
-    ))));
 }
 
 #[cfg(feature = "dind")]
@@ -742,7 +744,10 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX))
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -808,6 +813,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         #[cfg(windows)]
         {
             cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("WINDIR", SYSTEM_ROOT.as_str())
                 .env(
                     "LOCALAPPDATA",
                     std::env::var("LOCALAPPDATA")

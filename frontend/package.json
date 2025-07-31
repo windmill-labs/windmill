@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.512.0",
+	"version": "1.516.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -149,7 +149,7 @@
 		"windmill-parser-wasm-py": "1.510.1",
 		"windmill-parser-wasm-regex": "1.512.0",
 		"windmill-parser-wasm-rust": "1.510.1",
-		"windmill-parser-wasm-ts": "1.510.1",
+		"windmill-parser-wasm-ts": "1.514.1",
 		"windmill-parser-wasm-yaml": "1.510.1",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
 		"xterm": "^5.3.0",

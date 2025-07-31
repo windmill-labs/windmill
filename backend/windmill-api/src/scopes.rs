@@ -283,6 +283,7 @@ pub enum ScopeDomain {
     Acls,         // Granular access control lists
     RawApps,      // Raw application data
     AgentWorkers, // Agent workers management
+    Mcp,          // MCP
 }
 
 impl ScopeDomain {
@@ -328,6 +329,7 @@ impl ScopeDomain {
             Self::Indexer => "indexer",
             Self::Teams => "teams",
             Self::GitSync => "git_sync",
+            Self::Mcp => "mcp",
         }
     }
 
@@ -373,6 +375,7 @@ impl ScopeDomain {
             "acls" => Some(Self::Acls),
             "raw_apps" => Some(Self::RawApps),
             "agent_workers" => Some(Self::AgentWorkers),
+            "mcp" => Some(Self::Mcp),
             _ => None,
         }
     }
@@ -415,7 +418,8 @@ impl ScopeAction {
     }
 }
 
-pub fn check_route_access(
+pub fn 
+check_route_access(
     token_scopes: &[String],
     route_path: &str,
     http_method: &str,
@@ -425,6 +429,12 @@ pub fn check_route_access(
 
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
+
+    // Backward compatibility: MCP handlers expect unusual scope actions: all, favorites, hub.
+    if required_domain == ScopeDomain::Mcp {
+        return Ok(());
+    }
+
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {

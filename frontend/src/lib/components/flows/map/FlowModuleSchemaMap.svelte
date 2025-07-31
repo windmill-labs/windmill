@@ -408,6 +408,7 @@
 					}
 					refreshStateStore(flowStore)
 					onDelete?.(id)
+					delete $flowStateStore[id]
 				}
 
 				if (Object.keys(dependents).length > 0) {
@@ -536,6 +537,7 @@
 			}}
 			onChangeId={(detail) => {
 				let { id, newId, deps } = detail
+
 				dfs(flowStore.val.value.modules, (mod) => {
 					if (deps[mod.id]) {
 						deps[mod.id].forEach((dep) => {
@@ -568,6 +570,9 @@
 						mod.id = newId
 					}
 				})
+				$flowStateStore[newId] = $flowStateStore[id]
+				delete $flowStateStore[id]
+				$flowStateStore = $flowStateStore
 				refreshStateStore(flowStore)
 				$selectedId = newId
 			}}
