@@ -153,7 +153,7 @@
 								{@render children?.()}
 								{#if previewJob != undefined && 'result' in previewJob}
 									<div class="relative w-full h-full p-2">
-										<div class="relative">
+										<div class="relative h-full">
 											<DisplayResult
 												bind:forceJson
 												workspaceId={previewJob?.workspace_id}
@@ -161,6 +161,7 @@
 												result={previewJob.result}
 												customUi={customUi?.displayResult}
 												language={lang}
+												fixTableSizingToParent
 											>
 												{#snippet copilot_fix()}
 													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
