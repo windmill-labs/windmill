@@ -33,18 +33,31 @@ export async function replaceInlineScripts(
   
       if (module.value.type === "rawscript" && module.value.content && module.value.content.startsWith("!inline")) {
           const path = module.value.content.split(" ")[1];
+          const pathPrefix = path.split(".")[0];
+          const pathSuffix = path.split(".").slice(1).join(".");
+          // new path is the module id with the same suffix
+          const newPath = module.id + "." + pathSuffix;
+
           try {
             module.value.content = await fileReader(path);
           } catch {
             logger.error(`Script file ${path} not found`);
+            // try new path
+            try {
+              module.value.content = await fileReader(newPath);
+            } catch {
+              logger.error(`Script file ${newPath} not found`);
+            }
           }
 
-          const pathPrefix = path.split(".")[0];
           // rename the file if the prefix is different from the module id (fix old naming)
           if (pathPrefix != module.id && renamer) {
-            const pathSuffix = path.split(".").slice(1).join(".");
             logger.info(`Renaming ${path} to ${module.id}.${pathSuffix}`);
-            renamer(localPath + path, localPath + module.id + "." + pathSuffix);
+            try {
+              renamer(localPath + path, localPath + module.id + "." + pathSuffix);
+            } catch {
+              logger.info(`Failed to rename ${path} to ${module.id}.${pathSuffix}`);
+            }
           }
 
           const lock = module.value.lock;
