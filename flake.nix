@@ -48,6 +48,8 @@
           nodejs
           postgresql
           pkg-config
+          glibc.dev
+          clang
           cmake
         ];
         coursier = pkgs.fetchFromGitHub {
