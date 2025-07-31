@@ -56,9 +56,6 @@ export async function pushFlow(
     log,
     localPath,
     SEP,
-    undefined,
-    (path: string, newPath: string) => Deno.renameSync(path, newPath),
-    (path: string) => Deno.removeSync(path),
   );
 
   if (flow) {
