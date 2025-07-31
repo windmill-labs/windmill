@@ -52,10 +52,9 @@ import { assignPath } from "./windmill-utils-internal/src/path-utils/path-assign
 import { extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
-function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(
-  cliOpts: T,
-  effectiveOpts: SyncOptions
-): T {
+function mergeCliWithEffectiveOptions<
+  T extends GlobalOptions & SyncOptions & { repository?: string }
+>(cliOpts: T, effectiveOpts: SyncOptions): T {
   // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
@@ -84,7 +83,7 @@ async function resolveEffectiveSyncOptions(
 
     // Find all repository-specific overrides for this workspace
     for (const key of Object.keys(localConfig.overrides)) {
-      if (key.startsWith(prefix) && !key.endsWith(':*')) {
+      if (key.startsWith(prefix) && !key.endsWith(":*")) {
         const repo = key.substring(prefix.length);
         if (repo) {
           applicableRepos.push(repo);
@@ -107,13 +106,16 @@ async function resolveEffectiveSyncOptions(
 
       if (isInteractive) {
         const choices = [
-          { name: "Use top-level settings (no repository-specific override)", value: "" },
-          ...applicableRepos.map(repo => ({ name: repo, value: repo }))
+          {
+            name: "Use top-level settings (no repository-specific override)",
+            value: "",
+          },
+          ...applicableRepos.map((repo) => ({ name: repo, value: repo })),
         ];
 
         const selectedRepo = await Select.prompt({
           message: "Multiple repository overrides found. Select which to use:",
-          options: choices
+          options: choices,
         });
 
         if (selectedRepo) {
@@ -128,9 +130,15 @@ async function resolveEffectiveSyncOptions(
         );
       } else {
         // Non-interactive mode - list options and use top-level
-        log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
-        log.warn(`Running in non-interactive mode. Use --repository flag to specify which one to use.`);
-        log.info(`Falling back to top-level settings (no repository-specific overrides applied)`);
+        log.warn(
+          `Multiple repository overrides found: ${applicableRepos.join(", ")}`
+        );
+        log.warn(
+          `Running in non-interactive mode. Use --repository flag to specify which one to use.`
+        );
+        log.info(
+          `Falling back to top-level settings (no repository-specific overrides applied)`
+        );
       }
     }
   }
@@ -280,6 +288,7 @@ export async function FSFSElement(
 }
 
 function prioritizeName(name: string): string {
+  if (name == "version") return "aaa";
   if (name == "id") return "aa";
   if (name == "type") return "ab";
   if (name == "summary") return "ad";
@@ -292,6 +301,7 @@ function prioritizeName(name: string): string {
   if (name == "failure_module") return "ak";
   if (name == "input_transforms") return "al";
   if (name == "lock") return "az";
+  if (name == "locks") return "azz";
 
   return name;
 }
@@ -310,9 +320,7 @@ export interface InlineScript {
   content: string;
 }
 
-export function extractInlineScriptsForApps(
-  rec: any,
-): InlineScript[] {
+export function extractInlineScriptsForApps(rec: any): InlineScript[] {
   if (!rec) {
     return [];
   }
@@ -390,7 +398,11 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules, {}, SEP);
+            const inlineScripts = extractInlineScriptsForFlows(
+              flow.value.modules,
+              {},
+              SEP
+            );
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -1020,7 +1032,8 @@ export async function ignoreF(wmillconf: {
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
             wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
-          (!wmillconf.extraIncludes || wmillconf.extraIncludes.length === 0 ||
+          (!wmillconf.extraIncludes ||
+            wmillconf.extraIncludes.length === 0 ||
             wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
@@ -1122,7 +1135,9 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+export async function pull(
+  opts: GlobalOptions & SyncOptions & { repository?: string }
+) {
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1131,7 +1146,10 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   await requireLogin(opts);
 
   // Resolve effective sync options with repository awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.repository
+  );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1195,12 +1213,14 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
       success: true,
-      changes: changes.map(change => ({
+      changes: changes.map((change) => ({
         type: change.name,
         path: change.path,
-        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        ...(change.name === "edited" && change.codebase
+          ? { codebase_changed: true }
+          : {}),
       })),
-      total: changes.length
+      total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -1361,12 +1381,14 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
       const result = {
         success: true,
         message: `All ${changes.length} changes applied locally and wmill-lock.yaml updated`,
-        changes: changes.map(change => ({
+        changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
-          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+          ...(change.name === "edited" && change.codebase
+            ? { codebase_changed: true }
+            : {}),
         })),
-        total: changes.length
+        total: changes.length,
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -1377,7 +1399,13 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
       );
     }
   } else if (opts.jsonOutput) {
-    console.log(JSON.stringify({ success: true, message: "No changes to apply", total: 0 }, null, 2));
+    console.log(
+      JSON.stringify(
+        { success: true, message: "No changes to apply", total: 0 },
+        null,
+        2
+      )
+    );
   }
 }
 
@@ -1432,12 +1460,17 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-export async function push(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+export async function push(
+  opts: GlobalOptions & SyncOptions & { repository?: string }
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   // Resolve effective sync options with repository awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.repository
+  );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1574,12 +1607,14 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
       success: true,
-      changes: changes.map(change => ({
+      changes: changes.map((change) => ({
         type: change.name,
         path: change.path,
-        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        ...(change.name === "edited" && change.codebase
+          ? { codebase_changed: true }
+          : {}),
       })),
-      total: changes.length
+      total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -1953,26 +1988,38 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
       const result = {
         success: true,
         message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
-        changes: changes.map(change => ({
+        changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
-          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+          ...(change.name === "edited" && change.codebase
+            ? { codebase_changed: true }
+            : {}),
         })),
         total: changes.length,
-        duration_ms: Math.round(performance.now() - start)
+        duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
       log.info(
         colors.bold.green.underline(
-          `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+          `\nDone! All ${
+            changes.length
+          } changes pushed to the remote workspace ${
             workspace.workspaceId
-          } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
+          } named ${workspace.name} (${(performance.now() - start).toFixed(
+            0
+          )}ms)`
         )
       );
     }
   } else if (opts.jsonOutput) {
-    console.log(JSON.stringify({ success: true, message: "No changes to push", total: 0 }, null, 2));
+    console.log(
+      JSON.stringify(
+        { success: true, message: "No changes to push", total: 0 },
+        null,
+        2
+      )
+    );
   }
 }
 

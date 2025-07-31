@@ -20,11 +20,7 @@ import {
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
-import {
-  FSFSElement,
-  findCodebase,
-  yamlOptions,
-} from "./sync.ts";
+import { FSFSElement, findCodebase, yamlOptions } from "./sync.ts";
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "./flow.ts";
@@ -180,7 +176,7 @@ export async function generateFlowLockInternal(
       SEP,
       changedScripts,
       (path: string, newPath: string) => Deno.renameSync(path, newPath),
-      (path: string) => Deno.removeSync(path),
+      (path: string) => Deno.removeSync(path)
     );
 
     //removeChangedLocks
@@ -191,7 +187,11 @@ export async function generateFlowLockInternal(
       rawReqs
     );
 
-    const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules, {}, SEP);
+    const inlineScripts = extractInlineScriptsForFlows(
+      flowValue.value.modules,
+      {},
+      SEP
+    );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
@@ -531,9 +531,7 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
-    const { parse_python } = await import(
-      "./wasm/py/windmill_parser_wasm.js"
-    );
+    const { parse_python } = await import("./wasm/py/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
     const { parse_deno } = await import("./wasm/ts/windmill_parser_wasm.js");
@@ -601,7 +599,9 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_duckdb } = await import("./wasm/regex/windmill_parser_wasm.js");
+    const { parse_duckdb } = await import(
+      "./wasm/regex/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
     const { parse_graphql } = await import(
@@ -816,6 +816,7 @@ export async function parseMetadataFile(
 }
 
 interface Lock {
+  version?: "v2";
   locks?: { [path: string]: string | { [subpath: string]: string } };
 }
 
@@ -829,7 +830,7 @@ export async function readLockfile(): Promise<Lock> {
       throw new Error("Invalid lockfile");
     }
   } catch {
-    const lock = { locks: {} };
+    const lock = { locks: {}, version: "v2" as const };
     await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
     log.info(colors.green("wmill-lock.yaml created"));
 
@@ -837,6 +838,13 @@ export async function readLockfile(): Promise<Lock> {
   }
 }
 
+function v2LockPath(path: string, subpath?: string) {
+  if (subpath) {
+    return `${path}+${subpath}`;
+  } else {
+    return path;
+  }
+}
 export async function checkifMetadataUptodate(
   path: string,
   hash: string,
@@ -849,9 +857,16 @@ export async function checkifMetadataUptodate(
   if (!conf.locks) {
     return false;
   }
-  const obj = conf.locks?.[path];
-  const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
-  return current == hash;
+  const isV2 = conf?.version == "v2";
+
+  if (isV2) {
+    const current = conf.locks?.[v2LockPath(path, subpath)];
+    return current == hash;
+  } else {
+    const obj = conf.locks?.[path];
+    const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
+    return current == hash;
+  }
 }
 
 export async function generateScriptHash(
@@ -873,16 +888,21 @@ export async function updateMetadataGlobalLock(
   if (!conf?.locks) {
     conf.locks = {};
   }
+  const isV2 = conf?.version == "v2";
 
-  if (subpath) {
-    let prev: any = conf.locks[path];
-    if (!prev || typeof prev != "object") {
-      prev = {};
-      conf.locks[path] = prev;
-    }
-    prev[subpath] = hash;
+  if (isV2) {
+    conf.locks[v2LockPath(path, hash)] = hash;
   } else {
-    conf.locks[path] = hash;
+    if (subpath) {
+      let prev: any = conf.locks[path];
+      if (!prev || typeof prev != "object") {
+        prev = {};
+        conf.locks[path] = prev;
+      }
+      prev[subpath] = hash;
+    } else {
+      conf.locks[path] = hash;
+    }
   }
   await Deno.writeTextFile(
     WMILL_LOCKFILE,
