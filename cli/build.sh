@@ -16,7 +16,7 @@ add_ts_extensions() {
         cp "$file" "$file.orig"
         
         # Add .ts to relative imports that don't already have extensions
-        gsed -E \
+        sed -E \
             -e 's/(from[[:space:]]+["'"'"'])(\.[^"'"'"']*[^./][^"'"'"']*)(["'"'"'])/\1\2.ts\3/g' \
             -e 's/(import[[:space:]]+["'"'"'])(\.[^"'"'"']*[^./][^"'"'"']*)(["'"'"'])/\1\2.ts\3/g' \
             "$file.orig" > "$file"
