@@ -506,12 +506,10 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
 }
 
 async fn databases_exist(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(database_names): Json<Vec<String>>,
 ) -> JsonResult<Vec<String>> {
-    require_super_admin(&db, &authed.email).await?;
-
     let result = sqlx::query_scalar!(
         r#"SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem)
         WHERE elem NOT IN (SELECT datname FROM pg_catalog.pg_database);"#,
