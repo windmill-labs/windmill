@@ -36,11 +36,11 @@ export function extractInlineScripts(
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replace(separator, "/");
+      m.value.content = "!inline " + path.replaceAll(separator, "/");
       const lock = m.value.lock;
       if (lock && lock != "") {
         const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replace(separator, "/");
+        m.value.lock = "!inline " + lockPath.replaceAll(separator, "/");
         r.push({ path: lockPath, content: lock });
       }
       return r;

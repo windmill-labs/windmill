@@ -86,7 +86,7 @@ export async function replaceInlineScripts(
           ) {
             const path = lock.split(" ")[1];
             try {
-              module.value.lock = await fileReader(path.replace("/", separator));
+              module.value.lock = await fileReader(path.replaceAll("/", separator));
             } catch {
               logger.error(`Lock file ${path} not found`);
             }
