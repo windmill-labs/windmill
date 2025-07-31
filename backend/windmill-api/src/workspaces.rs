@@ -15,7 +15,9 @@ use crate::db::ApiAuthed;
 use crate::job_helpers_ee::duckdb_connection_settings_v2;
 use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
-use crate::utils::{get_ducklake_instance_pg_password, get_instance_username_or_create_pending};
+use crate::utils::{
+    get_ducklake_instance_pg_catalog_password, get_instance_username_or_create_pending,
+};
 use crate::BASE_URL;
 use crate::{
     db::DB,
@@ -913,7 +915,6 @@ async fn list_ducklakes(
 
     Ok(Json(ducklakes))
 }
-
 #[allow(unused_variables)]
 async fn get_ducklake(
     authed: ApiAuthed,
@@ -943,16 +944,13 @@ async fn get_ducklake(
         match ducklake.catalog.resource_type {
             DucklakeCatalogResourceType::Instance => {
                 let pg_creds = parse_postgres_url(&get_database_url().await?)?;
-                let Some(wm_pg_pwd) = pg_creds.password else {
-                    return Err(Error::BadRequest("Password not found".to_string()));
-                };
                 json!({
                     "dbname": ducklake.catalog.resource_path,
                     "host": pg_creds.host,
                     "port": pg_creds.port,
                     "user": "ducklake_user",
                     "sslmode": pg_creds.ssl_mode,
-                    "password": get_ducklake_instance_pg_password(&wm_pg_pwd)?,
+                    "password": get_ducklake_instance_pg_catalog_password(&db).await?,
                 })
             }
             _ => get_resource_value_interpolated_internal(

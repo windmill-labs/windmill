@@ -11,10 +11,7 @@ use std::time::Duration;
 use crate::{
     db::{ApiAuthed, DB},
     ee_oss::validate_license_key,
-    utils::{
-        generate_instance_username_for_all_users, get_ducklake_instance_pg_password,
-        require_super_admin,
-    },
+    utils::{generate_instance_username_for_all_users, require_super_admin},
     HTTP_CLIENT,
 };
 
@@ -532,66 +529,42 @@ async fn databases_exist(
 async fn create_ducklake_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path(name): Path<String>,
+    Path(dbname): Path<String>,
 ) -> Result<()> {
-    let r = create_ducklake_database_inner(authed, &db, &name).await;
-    match r {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            // We cannot create databases in transactions, so we need to clean up
-            let _ = sqlx::query(&format!("DROP DATABASE \"{name}\""))
-                .execute(&db)
-                .await;
-            Err(error::Error::internal_err(format!(
-                "Failed to create database: {}",
-                e
-            )))
-        }
-    }
-}
-
-async fn create_ducklake_database_inner(authed: ApiAuthed, db: &DB, dbname: &String) -> Result<()> {
-    require_super_admin(db, &authed.email).await?;
-
-    let username = "ducklake_user";
+    require_super_admin(&db, &authed.email).await?;
 
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
     let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_]+$")
         .map_err(|_| error::Error::internal_err("Failed to compile regex".to_string()))?;
-    if !valid_name.is_match(dbname) {
+    if !valid_name.is_match(&dbname) {
         return Err(error::Error::BadRequest(
             "Invalid database name".to_string(),
         ));
     }
+
+    sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
+        .execute(&db)
+        .await?;
+
+    sqlx::query(&format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user"
+    ))
+    .execute(&db)
+    .await?;
+
+    // We have to connect to the newly created database as admin to grant permissions
     let pg_creds = parse_postgres_url(&get_database_url().await?)?;
     let Some(wm_pg_pwd) = pg_creds.password else {
         return Err(error::Error::BadRequest("Password not found".to_string()));
     };
-    let password = get_ducklake_instance_pg_password(&wm_pg_pwd)?;
-
-    sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
-        .execute(db)
-        .await?;
-    let _ = sqlx::query(&format!(
-        "CREATE USER \"{username}\" WITH PASSWORD '{password}'"
-    ))
-    .execute(db)
-    .await; // Might already exist, ignore the error
-    sqlx::query(&format!(
-        "GRANT CONNECT ON DATABASE \"{dbname}\" TO \"{username}\""
-    ))
-    .execute(db)
-    .await?;
-
-    // We have to connect to the newly created database as admin to grant permissions
     let conn_str: String = build_arg_str(
         &[
             ("host", Some(&pg_creds.host)),
             ("port", pg_creds.port.map(|p| p.to_string()).as_deref()),
             ("password", Some(&wm_pg_pwd)),
             ("user", pg_creds.username.as_deref()),
-            ("dbname", Some(dbname)),
+            ("dbname", Some(&dbname)),
         ],
         " ",
         "=",
@@ -612,12 +585,13 @@ async fn create_ducklake_database_inner(authed: ApiAuthed, db: &DB, dbname: &Str
 
     client
         .batch_execute(&format!(
-            "GRANT USAGE ON SCHEMA public TO \"{username}\";
-            GRANT CREATE ON SCHEMA public TO \"{username}\";
+            "GRANT USAGE ON SCHEMA public TO ducklake_user;
+            GRANT CREATE ON SCHEMA public TO ducklake_user;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{username}\";"
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
         ))
         .await
         .map_err(to_anyhow)?;
+
     Ok(())
 }
