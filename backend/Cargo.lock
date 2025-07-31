@@ -5308,12 +5308,12 @@ dependencies = [
 
 [[package]]
 name = "fs4"
-version = "0.8.4"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7e180ac76c23b45e767bd7ae9579bc0bb458618c4bc71835926e098e61d15f8"
+checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
 dependencies = [
- "rustix 0.38.44",
- "windows-sys 0.52.0",
+ "rustix 1.0.8",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9013,8 +9013,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fbd56f7631767e61784dc43f8580f403f4475bd4aaa4da003e6295e1bab4a7e"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -12818,9 +12817,8 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
 name = "tantivy"
-version = "0.24.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64a966cb0e76e311f09cf18507c9af192f15d34886ee43d7ba7c7e3803660c43"
+version = "0.24.0"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -12871,8 +12869,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1adc286a39e089ae9938935cd488d7d34f14502544a36607effd2239ff0e2494"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "bitpacking",
 ]
@@ -12880,8 +12877,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6300428e0c104c4f7db6f95b466a6f5c1b9aece094ec57cdd365337908dc7344"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -12896,8 +12892,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91b6ea6090ce03dc72c27d0619e77185d26cc3b20775966c346c6d4f7e99d7f"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -12920,8 +12915,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e810cdeeebca57fc3f7bfec5f85fdbea9031b2ac9b990eb5ff49b371d52bbe6a"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "nom 7.1.3",
  "serde",
@@ -12931,8 +12925,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709f22c08a4c90e1b36711c1c6cad5ae21b20b093e535b69b18783dd2cb99416"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -12945,8 +12938,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bcdebb267671311d1e8891fd9d1301803fdb8ad21ba22e0a30d0cab49ba59c1"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "murmurhash32",
  "rand_distr 0.4.3",
@@ -12956,8 +12948,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfa942fcee81e213e09715bbce8734ae2180070b97b33839a795ba1de201547d"
+source = "git+https://github.com/windmill-labs/tantivy?rev=6a24621231202ccd77bec90d8787e2281fb94e4e#6a24621231202ccd77bec90d8787e2281fb94e4e"
 dependencies = [
  "serde",
 ]
