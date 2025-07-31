@@ -22,6 +22,7 @@ export async function replaceInlineScripts(
       error: () => {},
     },
     localPath: string,
+    separator: string = "/",
     removeLocks?: string[],
     renamer?: (path: string, newPath: string) => void,
     deleter?: (path: string) => void
@@ -85,22 +86,22 @@ export async function replaceInlineScripts(
           ) {
             const path = lock.split(" ")[1];
             try {
-              module.value.lock = await fileReader(path);
+              module.value.lock = await fileReader(path.replace("/", separator));
             } catch {
               logger.error(`Lock file ${path} not found`);
             }
         }
       } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {
-        await replaceInlineScripts(module.value.modules, fileReader, logger, localPath, removeLocks);
+        await replaceInlineScripts(module.value.modules, fileReader, logger, localPath, separator, removeLocks);
       } else if (module.value.type === "branchall") {
         await Promise.all(module.value.branches.map(async (branch) => {
-          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, removeLocks);
+          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks);
         }));
       } else if (module.value.type === "branchone") {
         await Promise.all(module.value.branches.map(async (branch) => {
-          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, removeLocks);
+          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks);
         }));
-        await replaceInlineScripts(module.value.default, fileReader, logger, localPath, removeLocks);
+        await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks);
       }
     }));
   }

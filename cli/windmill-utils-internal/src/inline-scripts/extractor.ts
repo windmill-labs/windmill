@@ -1,5 +1,4 @@
 import { assignPath } from "../path-utils/path-assigner";
-import { SEP } from "../constants";
 import { FlowModule } from "../gen/types.gen";
 
 /**
@@ -24,6 +23,7 @@ interface InlineScript {
 export function extractInlineScripts(
   modules: FlowModule[],
   mapping: Record<string, string> = {},
+  separator: string = "/",
   defaultTs?: "bun" | "deno"
 ): InlineScript[] {
   return modules.flatMap((m) => {
@@ -36,28 +36,28 @@ export function extractInlineScripts(
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replace(SEP, "/");
+      m.value.content = "!inline " + path.replace(separator, "/");
       const lock = m.value.lock;
       if (lock && lock != "") {
         const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replace(SEP, "/");
+        m.value.lock = "!inline " + lockPath.replace(separator, "/");
         r.push({ path: lockPath, content: lock });
       }
       return r;
     } else if (m.value.type == "forloopflow") {
-      return extractInlineScripts(m.value.modules, mapping, defaultTs);
+      return extractInlineScripts(m.value.modules, mapping, separator, defaultTs);
     } else if (m.value.type == "branchall") {
       return m.value.branches.flatMap((b) =>
-        extractInlineScripts(b.modules, mapping, defaultTs)
+        extractInlineScripts(b.modules, mapping, separator, defaultTs)
       );
     } else if (m.value.type == "whileloopflow") {
-      return extractInlineScripts(m.value.modules, mapping, defaultTs);
+      return extractInlineScripts(m.value.modules, mapping, separator, defaultTs);
     } else if (m.value.type == "branchone") {
       return [
         ...m.value.branches.flatMap((b) =>
-          extractInlineScripts(b.modules, mapping, defaultTs)
+          extractInlineScripts(b.modules, mapping, separator, defaultTs)
         ),
-        ...extractInlineScripts(m.value.default, mapping, defaultTs),
+        ...extractInlineScripts(m.value.default, mapping, separator, defaultTs),
       ];
     } else {
       return [];

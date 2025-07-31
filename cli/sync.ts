@@ -390,7 +390,7 @@ function ZipFSElement(
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules);
+            const inlineScripts = extractInlineScriptsForFlows(flow.value.modules, {}, SEP);
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,

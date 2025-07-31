@@ -177,6 +177,7 @@ export async function generateFlowLockInternal(
       async (path: string) => await Deno.readTextFile(folder + SEP + path),
       log,
       folder + SEP!,
+      SEP,
       changedScripts,
       (path: string, newPath: string) => Deno.renameSync(path, newPath),
       (path: string) => Deno.removeSync(path),
@@ -190,7 +191,7 @@ export async function generateFlowLockInternal(
       rawReqs
     );
 
-    const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules);
+    const inlineScripts = extractInlineScriptsForFlows(flowValue.value.modules, {}, SEP);
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {

@@ -55,6 +55,7 @@ export async function pushFlow(
     async (path: string) => await Deno.readTextFile(localPath + path),
     log,
     localPath,
+    SEP,
     undefined,
     (path: string, newPath: string) => Deno.renameSync(path, newPath),
     (path: string) => Deno.removeSync(path),
