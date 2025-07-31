@@ -168,9 +168,10 @@
 	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', ''] as const
 
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
-		Name: "Ducklakes are referenced in DuckDB scripts with the <code class='px-1 py-0.5 border rounded-md'>ATTACH 'ducklake://name'</code> syntax",
+		Name: "Ducklakes are referenced in DuckDB scripts with the <code class='px-1 py-0.5 border rounded-md'>ATTACH 'ducklake://name' AS dl;</code> syntax",
 		Catalog: 'Ducklake needs an SQL database to store metadata about the data',
-		'Workspace storage': 'Where the data is actually stored, in parquet format'
+		'Workspace storage':
+			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
@@ -231,7 +232,7 @@
 						<Tooltip wrapperClass="absolute mt-2.5 right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
 							<br />
-							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake'</code> shorthand
+							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
 						</Tooltip>
 					{/if}
 					<input bind:value={ducklake.name} placeholder="Name" />
