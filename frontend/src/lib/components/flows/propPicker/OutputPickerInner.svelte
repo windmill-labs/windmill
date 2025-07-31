@@ -652,6 +652,7 @@
 							jobId={undefined}
 							result={mock?.return_value}
 							externalToolbarAvailable
+							fixTableSizingToParent
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocationMock = detail
 							}}
@@ -679,6 +680,7 @@
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
 								externalToolbarAvailable
+								fixTableSizingToParent
 								on:toolbar-location-changed={({ detail }) => {
 									toolbarLocationJob = detail
 								}}

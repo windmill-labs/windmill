@@ -39,7 +39,7 @@ import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.w
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
-import { argSigToJsonSchemaType } from './inferArgSig.js'
+import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
 
 const loadSchemaLastRun =
