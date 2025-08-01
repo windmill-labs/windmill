@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["ES2017", "ES2020.BigInt"],
+    "module": "commonjs",
+    "declaration": true,
+    "noImplicitAny": false,
+    "moduleResolution": "node",
+    "removeComments": true,
+    "sourceMap": true,
+    "outDir":"dist/"
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

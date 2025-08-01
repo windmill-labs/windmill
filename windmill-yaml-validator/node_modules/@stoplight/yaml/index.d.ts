@@ -1,0 +1,10 @@
+export * from './buildJsonPath';
+export * from './dereferenceAnchor';
+export * from './getJsonPathForPosition';
+export * from './getLocationForJsonPath';
+export * from './lineForPosition';
+export { parse } from './parse';
+export { parseWithPointers } from './parseWithPointers';
+export * from './safeStringify';
+export * from './types';
+export * from './trapAccess';

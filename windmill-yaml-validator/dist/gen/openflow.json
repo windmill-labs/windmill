@@ -1,0 +1,833 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "version": "1.517.0",
+        "title": "OpenFlow Spec",
+        "contact": {
+            "name": "Ruben Fiszel",
+            "email": "ruben@windmill.dev",
+            "url": "https://windmill.dev"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+    },
+    "paths": {},
+    "externalDocs": {
+        "description": "documentation portal",
+        "url": "https://windmill.dev"
+    },
+    "components": {
+        "schemas": {
+            "OpenFlow": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "$ref": "#/components/schemas/FlowValue"
+                    },
+                    "schema": {
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "summary",
+                    "value"
+                ]
+            },
+            "FlowValue": {
+                "type": "object",
+                "properties": {
+                    "modules": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FlowModule"
+                        }
+                    },
+                    "failure_module": {
+                        "$ref": "#/components/schemas/FlowModule"
+                    },
+                    "preprocessor_module": {
+                        "$ref": "#/components/schemas/FlowModule"
+                    },
+                    "same_worker": {
+                        "type": "boolean"
+                    },
+                    "concurrent_limit": {
+                        "type": "number"
+                    },
+                    "concurrency_key": {
+                        "type": "string"
+                    },
+                    "concurrency_time_window_s": {
+                        "type": "number"
+                    },
+                    "skip_expr": {
+                        "type": "string"
+                    },
+                    "cache_ttl": {
+                        "type": "number"
+                    },
+                    "priority": {
+                        "type": "number"
+                    },
+                    "early_return": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "modules"
+                ]
+            },
+            "Retry": {
+                "type": "object",
+                "properties": {
+                    "constant": {
+                        "type": "object",
+                        "properties": {
+                            "attempts": {
+                                "type": "integer"
+                            },
+                            "seconds": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "exponential": {
+                        "type": "object",
+                        "properties": {
+                            "attempts": {
+                                "type": "integer"
+                            },
+                            "multiplier": {
+                                "type": "integer"
+                            },
+                            "seconds": {
+                                "type": "integer"
+                            },
+                            "random_factor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100
+                            }
+                        }
+                    }
+                }
+            },
+            "StopAfterIf": {
+                "type": "object",
+                "properties": {
+                    "skip_if_stopped": {
+                        "type": "boolean"
+                    },
+                    "expr": {
+                        "type": "string"
+                    },
+                    "error_message": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "expr"
+                ]
+            },
+            "FlowModule": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "$ref": "#/components/schemas/FlowModuleValue"
+                    },
+                    "stop_after_if": {
+                        "$ref": "#/components/schemas/StopAfterIf"
+                    },
+                    "stop_after_all_iters_if": {
+                        "$ref": "#/components/schemas/StopAfterIf"
+                    },
+                    "skip_if": {
+                        "type": "object",
+                        "properties": {
+                            "expr": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "expr"
+                        ]
+                    },
+                    "sleep": {
+                        "$ref": "#/components/schemas/InputTransform"
+                    },
+                    "cache_ttl": {
+                        "type": "number"
+                    },
+                    "timeout": {
+                        "type": "number"
+                    },
+                    "delete_after_use": {
+                        "type": "boolean"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "mock": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {
+                                "type": "boolean"
+                            },
+                            "return_value": {}
+                        }
+                    },
+                    "suspend": {
+                        "type": "object",
+                        "properties": {
+                            "required_events": {
+                                "type": "integer"
+                            },
+                            "timeout": {
+                                "type": "integer"
+                            },
+                            "resume_form": {
+                                "type": "object",
+                                "properties": {
+                                    "schema": {
+                                        "type": "object"
+                                    }
+                                }
+                            },
+                            "user_auth_required": {
+                                "type": "boolean"
+                            },
+                            "user_groups_required": {
+                                "$ref": "#/components/schemas/InputTransform"
+                            },
+                            "self_approval_disabled": {
+                                "type": "boolean"
+                            },
+                            "hide_cancel": {
+                                "type": "boolean"
+                            },
+                            "continue_on_disapprove_timeout": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "priority": {
+                        "type": "number"
+                    },
+                    "continue_on_error": {
+                        "type": "boolean"
+                    },
+                    "retry": {
+                        "$ref": "#/components/schemas/Retry"
+                    }
+                },
+                "required": [
+                    "value",
+                    "id"
+                ]
+            },
+            "InputTransform": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/StaticTransform"
+                    },
+                    {
+                        "$ref": "#/components/schemas/JavascriptTransform"
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "StaticTransform": {
+                "type": "object",
+                "properties": {
+                    "value": {},
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "static"
+                        ]
+                    }
+                },
+                "required": [
+                    "value",
+                    "type"
+                ]
+            },
+            "JavascriptTransform": {
+                "type": "object",
+                "properties": {
+                    "expr": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "javascript"
+                        ]
+                    }
+                },
+                "required": [
+                    "expr",
+                    "type"
+                ]
+            },
+            "FlowModuleValue": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/RawScript"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PathScript"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PathFlow"
+                    },
+                    {
+                        "$ref": "#/components/schemas/ForloopFlow"
+                    },
+                    {
+                        "$ref": "#/components/schemas/WhileloopFlow"
+                    },
+                    {
+                        "$ref": "#/components/schemas/BranchOne"
+                    },
+                    {
+                        "$ref": "#/components/schemas/BranchAll"
+                    },
+                    {
+                        "$ref": "#/components/schemas/Identity"
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "RawScript": {
+                "type": "object",
+                "properties": {
+                    "input_transforms": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/InputTransform"
+                        }
+                    },
+                    "content": {
+                        "type": "string"
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": [
+                            "deno",
+                            "bun",
+                            "python3",
+                            "go",
+                            "bash",
+                            "powershell",
+                            "postgresql",
+                            "mysql",
+                            "bigquery",
+                            "snowflake",
+                            "mssql",
+                            "oracledb",
+                            "graphql",
+                            "nativets",
+                            "php"
+                        ]
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "lock": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "rawscript"
+                        ]
+                    },
+                    "tag": {
+                        "type": "string"
+                    },
+                    "concurrent_limit": {
+                        "type": "number"
+                    },
+                    "concurrency_time_window_s": {
+                        "type": "number"
+                    },
+                    "custom_concurrency_key": {
+                        "type": "string"
+                    },
+                    "is_trigger": {
+                        "type": "boolean"
+                    },
+                    "assets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "path",
+                                "kind"
+                            ],
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                        "s3object",
+                                        "resource"
+                                    ]
+                                },
+                                "access_type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "r",
+                                        "w",
+                                        "rw"
+                                    ]
+                                },
+                                "alt_access_type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "r",
+                                        "w",
+                                        "rw"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "required": [
+                    "type",
+                    "content",
+                    "language",
+                    "input_transforms"
+                ]
+            },
+            "PathScript": {
+                "type": "object",
+                "properties": {
+                    "input_transforms": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/InputTransform"
+                        }
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "hash": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "script"
+                        ]
+                    },
+                    "tag_override": {
+                        "type": "string"
+                    },
+                    "is_trigger": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "type",
+                    "path",
+                    "input_transforms"
+                ]
+            },
+            "PathFlow": {
+                "type": "object",
+                "properties": {
+                    "input_transforms": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/InputTransform"
+                        }
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "flow"
+                        ]
+                    }
+                },
+                "required": [
+                    "type",
+                    "path",
+                    "input_transforms"
+                ]
+            },
+            "ForloopFlow": {
+                "type": "object",
+                "properties": {
+                    "modules": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FlowModule"
+                        }
+                    },
+                    "iterator": {
+                        "$ref": "#/components/schemas/InputTransform"
+                    },
+                    "skip_failures": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "forloopflow"
+                        ]
+                    },
+                    "parallel": {
+                        "type": "boolean"
+                    },
+                    "parallelism": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "modules",
+                    "iterator",
+                    "skip_failures",
+                    "type"
+                ]
+            },
+            "WhileloopFlow": {
+                "type": "object",
+                "properties": {
+                    "modules": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FlowModule"
+                        }
+                    },
+                    "skip_failures": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "whileloopflow"
+                        ]
+                    },
+                    "parallel": {
+                        "type": "boolean"
+                    },
+                    "parallelism": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "modules",
+                    "skip_failures",
+                    "type"
+                ]
+            },
+            "BranchOne": {
+                "type": "object",
+                "properties": {
+                    "branches": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "summary": {
+                                    "type": "string"
+                                },
+                                "expr": {
+                                    "type": "string"
+                                },
+                                "modules": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/FlowModule"
+                                    }
+                                }
+                            },
+                            "required": [
+                                "modules",
+                                "expr"
+                            ]
+                        }
+                    },
+                    "default": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FlowModule"
+                        },
+                        "required": [
+                            "modules"
+                        ]
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "branchone"
+                        ]
+                    }
+                },
+                "required": [
+                    "branches",
+                    "default",
+                    "type"
+                ]
+            },
+            "BranchAll": {
+                "type": "object",
+                "properties": {
+                    "branches": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "summary": {
+                                    "type": "string"
+                                },
+                                "skip_failure": {
+                                    "type": "boolean"
+                                },
+                                "modules": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/FlowModule"
+                                    }
+                                }
+                            },
+                            "required": [
+                                "modules"
+                            ]
+                        }
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "branchall"
+                        ]
+                    },
+                    "parallel": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "branches",
+                    "type"
+                ]
+            },
+            "Identity": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "identity"
+                        ]
+                    },
+                    "flow": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "type"
+                ]
+            },
+            "FlowStatus": {
+                "type": "object",
+                "properties": {
+                    "step": {
+                        "type": "integer"
+                    },
+                    "modules": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FlowStatusModule"
+                        }
+                    },
+                    "user_states": {
+                        "additionalProperties": true
+                    },
+                    "preprocessor_module": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/FlowStatusModule"
+                            }
+                        ]
+                    },
+                    "failure_module": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/FlowStatusModule"
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "parent_module": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "retry": {
+                        "type": "object",
+                        "properties": {
+                            "fail_count": {
+                                "type": "integer"
+                            },
+                            "failed_jobs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                }
+                            }
+                        }
+                    }
+                },
+                "required": [
+                    "step",
+                    "modules",
+                    "failure_module"
+                ]
+            },
+            "FlowStatusModule": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "WaitingForPriorSteps",
+                            "WaitingForEvents",
+                            "WaitingForExecutor",
+                            "InProgress",
+                            "Success",
+                            "Failure"
+                        ]
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "job": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "count": {
+                        "type": "integer"
+                    },
+                    "progress": {
+                        "type": "integer"
+                    },
+                    "iterator": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer"
+                            },
+                            "itered": {
+                                "type": "array",
+                                "items": {}
+                            },
+                            "args": {}
+                        }
+                    },
+                    "flow_jobs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "flow_jobs_success": {
+                        "type": "array",
+                        "items": {
+                            "type": "boolean"
+                        }
+                    },
+                    "branch_chosen": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "branch",
+                                    "default"
+                                ]
+                            },
+                            "branch": {
+                                "type": "integer"
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ]
+                    },
+                    "branchall": {
+                        "type": "object",
+                        "properties": {
+                            "branch": {
+                                "type": "integer"
+                            },
+                            "len": {
+                                "type": "integer"
+                            }
+                        },
+                        "required": [
+                            "branch",
+                            "len"
+                        ]
+                    },
+                    "approvers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "resume_id": {
+                                    "type": "integer"
+                                },
+                                "approver": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "resume_id",
+                                "approver"
+                            ]
+                        }
+                    },
+                    "failed_retries": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "skipped": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "type"
+                ]
+            }
+        }
+    }
+}

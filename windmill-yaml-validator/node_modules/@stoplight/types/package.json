@@ -1,0 +1,81 @@
+{
+  "name": "@stoplight/types",
+  "version": "14.1.1",
+  "description": "Common typings for the Stoplight ecosystem.",
+  "keywords": [],
+  "sideEffects": false,
+  "homepage": "https://github.com/stoplightio/types",
+  "bugs": "https://github.com/stoplightio/types/issues",
+  "author": "Stoplight <support@stoplight.io>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stoplightio/types.git"
+  },
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "license": "Apache-2.0",
+  "files": [
+    "dist/*"
+  ],
+  "engines": {
+    "node": "^12.20 || >=14.13"
+  },
+  "scripts": {
+    "build": "rollup -c && tsc --emitDeclarationOnly",
+    "postbuild": "cp ./dist/index.mjs ./dist/index.esm.js",
+    "commit": "git-cz",
+    "lint": "tslint -c tslint.json 'src/**/*.ts?'",
+    "lint.fix": "yarn lint --fix",
+    "release": "semantic-release",
+    "test": "jest",
+    "test.prod": "yarn lint && yarn test --coverage --no-cache",
+    "test.update": "yarn test --updateSnapshot",
+    "test.watch": "yarn test --watch"
+  },
+  "dependencies": {
+    "@types/json-schema": "^7.0.4",
+    "utility-types": "^3.10.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^8.2.1",
+    "@types/jest": "^25.1.4",
+    "jest": "^25.1.0",
+    "rollup": "^2.70.1",
+    "semantic-release": "^17.0.4",
+    "ts-jest": "^25.2.1",
+    "tslint": "^6.1.0",
+    "tslint-config-stoplight": "^1.4.0",
+    "typescript": "3.8.3"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "tslint -c tslint.json --fix",
+      "git add"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS",
+      "pre-commit": "lint-staged"
+    }
+  },
+  "config": {
+    "commitizen": {
+      "path": "node_modules/cz-conventional-changelog"
+    }
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  }
+}

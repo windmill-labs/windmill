@@ -1,0 +1,33 @@
+{
+  "name": "@stoplight/yaml",
+  "version": "4.3.0",
+  "description": "Useful functions when working with YAML.",
+  "keywords": [
+    "yaml",
+    "yaml parser",
+    "yaml.parse",
+    "parser",
+    "sourcemap"
+  ],
+  "main": "index.js",
+  "sideEffects": false,
+  "files": [
+    "**/*"
+  ],
+  "author": "Stoplight <support@stoplight.io>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stoplightio/yaml"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=10.8"
+  },
+  "dependencies": {
+    "@stoplight/ordered-object-literal": "^1.0.5",
+    "@stoplight/types": "^14.1.1",
+    "@stoplight/yaml-ast-parser": "0.0.50",
+    "tslib": "^2.2.0"
+  },
+  "typings": "index.d.ts"
+}
