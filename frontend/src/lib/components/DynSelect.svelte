@@ -45,7 +45,16 @@
 			let cb: Callbacks = {
 				doneResult({ result }) {
 					if (!result || !Array.isArray(result)) {
-						reject('Result was not an array')
+						if (result?.error?.message && result?.error?.name) {
+							reject(
+								'Error in DynSelect function execution: ' +
+									result?.error?.name +
+									' - ' +
+									result?.error?.message
+							)
+						} else {
+							reject('Result was not an array but ' + JSON.stringify(result, null, 2))
+						}
 						return
 					}
 					if (result.length == 0) resolve([])
@@ -111,7 +120,7 @@
 		/>
 		{#if _items.error}
 			<div class="text-red-400 text-2xs">
-				error: <Tooltip>{JSON.stringify(_items.error)}</Tooltip>
+				error: <Tooltip>{_items.error}</Tooltip>
 			</div>
 		{/if}
 	</div>
