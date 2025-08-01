@@ -1,12 +1,11 @@
 {
-  "name": "windmill-utils-internal",
+  "name": "windmill-yaml-validator",
   "version": "1.0.0",
-  "description": "Internal utility functions for Windmill",
+  "description": "YAML validator for Windmill",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "./gen_wm_client.sh && tsc",
-    "build-mac": "./gen_wm_client-mac.sh && tsc",
+    "build": "./gen_openflow_schema.sh && tsc",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -20,5 +19,9 @@
   },
   "files": [
     "dist/**/*"
-  ]
+  ],
+  "dependencies": {
+    "@stoplight/yaml": "^4.3.0",
+    "ajv": "^8.17.1"
+  }
 }

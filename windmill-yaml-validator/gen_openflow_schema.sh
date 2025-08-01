@@ -3,7 +3,8 @@
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 output_dirpath="${script_dirpath}/src/gen"
 
-npx @redocly/openapi-cli@latest bundle "${script_dirpath}/../../openflow.openapi.yaml" --ext json > "${output_dirpath}/openflow.json"
+mkdir -p "${output_dirpath}"
+npx @redocly/openapi-cli@latest bundle "${script_dirpath}/../openflow.openapi.yaml" --ext json > "${output_dirpath}/openflow.json"
 
 # Remove discriminator mapping from openflow.json as it's not supported by ajv
 node -e "

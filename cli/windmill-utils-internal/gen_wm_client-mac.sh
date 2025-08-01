@@ -23,5 +23,3 @@ EOF
 gsed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' "${output_dirpath}/core/OpenAPI.ts"
 gsed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' "${output_dirpath}/core/OpenAPI.ts"
 gsed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" "${output_dirpath}/core/OpenAPI.ts"
-
-"${script_dirpath}/gen_openflow_schema.sh"
