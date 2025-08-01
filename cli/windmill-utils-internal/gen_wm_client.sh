@@ -19,4 +19,4 @@ sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' "${output_dirpath}/c
 sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' "${output_dirpath}/core/OpenAPI.ts"
 sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" "${output_dirpath}/core/OpenAPI.ts"
 
-npx @redocly/openapi-cli@latest bundle "${script_dirpath}/../../openflow.openapi.yaml" --ext json > "${output_dirpath}/openflow.json"
+"${script_dirpath}/gen_openflow_schema.sh"

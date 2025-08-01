@@ -3,18 +3,6 @@ import { parseWithPointers, YamlParserResult } from '@stoplight/yaml';
 import openFlowSchema from '../gen/openflow.json';
 
 /**
- * Recursively removes discriminator mapping from a schema object.
- * This is necessary because AJV doesn't support discriminator mapping.
- * @param obj - The schema object to process
- */
-function removeMapping(obj: any) {
-  if (obj && typeof obj === 'object') {
-    if (obj.discriminator?.mapping) delete obj.discriminator.mapping;
-    for (const v of Object.values(obj)) removeMapping(v);
-  }
-}
-
-/**
  * Flow validator class that initializes AJV once and reuses it for validation.
  */
 export class FlowValidator {
@@ -22,10 +10,8 @@ export class FlowValidator {
 
   constructor() {
     const ajv = new Ajv({ strict: false, allErrors: true, discriminator: true });
-    const sanitizedSchema = JSON.parse(JSON.stringify(openFlowSchema));
-    removeMapping(sanitizedSchema);
     
-    for (const [n, s] of Object.entries(sanitizedSchema.components.schemas)) {
+    for (const [n, s] of Object.entries(openFlowSchema.components.schemas)) {
       ajv.addSchema(s as AnySchema, `#/components/schemas/${n}`);
     }
     
