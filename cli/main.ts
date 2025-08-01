@@ -140,14 +140,14 @@ const command = new Command()
                 if (isGitRepository()) {
                     const currentBranch = getCurrentGitBranch();
                     if (currentBranch) {
-                        initialConfig.branches = {
+                        initialConfig.git_branches = {
                             [currentBranch]: { overrides: {} }
                         };
                     } else {
-                        initialConfig.branches = {};
+                        initialConfig.git_branches = {};
                     }
                 } else {
-                    initialConfig.branches = {};
+                    initialConfig.git_branches = {};
                 }
 
                 await Deno.writeTextFile(

@@ -30,12 +30,12 @@ export function getOrCreateBranchConfig(config: SyncOptions, branchName: string)
   config: SyncOptions;
   branchKey: string;
 } {
-  if (!config.branches) {
-    config.branches = {};
+  if (!config.git_branches) {
+    config.git_branches = {};
   }
 
-  if (!config.branches[branchName]) {
-    config.branches[branchName] = {};
+  if (!config.git_branches[branchName]) {
+    config.git_branches[branchName] = {};
   }
 
   return {
@@ -53,12 +53,12 @@ export function applyBackendSettingsToBranch(
   const { config: updatedConfig } = getOrCreateBranchConfig(config, branchName);
 
   // Get the base settings (top-level + defaults) to compare against
-  const { branches, ...topLevelSettings } = config;
+  const { git_branches, ...topLevelSettings } = config;
   const baseSettings: Partial<SyncOptions> = { ...DEFAULT_SYNC_OPTIONS, ...topLevelSettings };
 
   // Only store fields that differ from the base settings
   Object.keys(backendSettings).forEach(key => {
-    if (key !== 'branches' && backendSettings[key as keyof SyncOptions] !== undefined) {
+    if (key !== 'git_branches' && backendSettings[key as keyof SyncOptions] !== undefined) {
       const backendValue = backendSettings[key as keyof SyncOptions];
       const baseValue = baseSettings[key as keyof SyncOptions];
 
@@ -66,10 +66,10 @@ export function applyBackendSettingsToBranch(
       const isDifferent = GitSyncSettingsConverter.isDifferent(backendValue, baseValue);
 
       if (isDifferent) {
-        if (!updatedConfig.branches![branchName].overrides) {
-          updatedConfig.branches![branchName].overrides = {};
+        if (!updatedConfig.git_branches![branchName].overrides) {
+          updatedConfig.git_branches![branchName].overrides = {};
         }
-        (updatedConfig.branches![branchName].overrides as any)[key] = backendValue;
+        (updatedConfig.git_branches![branchName].overrides as any)[key] = backendValue;
       }
     }
   });

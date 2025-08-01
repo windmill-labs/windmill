@@ -32,7 +32,7 @@ export interface SyncOptions {
   codebases?: Codebase[];
   parallel?: number;
   jsonOutput?: boolean;
-  branches?: { [branchName: string]: SyncOptions & { overrides?: Partial<SyncOptions>; promotionOverrides?: Partial<SyncOptions> } };
+  git_branches?: { [branchName: string]: SyncOptions & { overrides?: Partial<SyncOptions>; promotionOverrides?: Partial<SyncOptions> } };
   promotion?: string;
 }
 
@@ -121,26 +121,26 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
   }
 
   const config = await readConfigFile();
-  const { branches } = config;
+  const { git_branches } = config;
   const currentBranch = getCurrentGitBranch();
 
-  // In a git repository, branches section is mandatory
-  if (!branches || Object.keys(branches).length === 0) {
+  // In a git repository, git_branches section is mandatory
+  if (!git_branches || Object.keys(git_branches).length === 0) {
     log.error(
-      "❌ In a Git repository, the 'branches' section is mandatory in wmill.yaml.\n" +
-      "   Please add a branches section with configuration for your Git branches.\n" +
+      "❌ In a Git repository, the 'git_branches' section is mandatory in wmill.yaml.\n" +
+      "   Please add a git_branches section with configuration for your Git branches.\n" +
       "   Run 'wmill init' to recreate the configuration file with proper branch setup."
     );
     Deno.exit(1);
   }
 
-  // Current branch must be defined in branches config
-  if (currentBranch && !branches[currentBranch]) {
+  // Current branch must be defined in git_branches config
+  if (currentBranch && !git_branches[currentBranch]) {
     // In interactive mode, offer to create the branch
     if (Deno.stdin.isTerminal()) {
-      const availableBranches = Object.keys(branches).join(', ');
+      const availableBranches = Object.keys(git_branches).join(', ');
       log.info(
-        `Current Git branch '${currentBranch}' is not defined in the branches configuration.\n` +
+        `Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
         `Available branches: ${availableBranches}`
       );
 
@@ -153,10 +153,10 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
         // Read current config, add branch, and write it back
         const currentConfig = await readConfigFile();
 
-        if (!currentConfig.branches) {
-          currentConfig.branches = {};
+        if (!currentConfig.git_branches) {
+          currentConfig.git_branches = {};
         }
-        currentConfig.branches[currentBranch] = { overrides: {} };
+        currentConfig.git_branches[currentBranch] = { overrides: {} };
 
         await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
 
@@ -167,9 +167,9 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
       }
     } else {
       log.error(
-        `❌ Current Git branch '${currentBranch}' is not defined in the branches configuration.\n` +
-        `   Please add configuration for branch '${currentBranch}' in the branches section of wmill.yaml.\n` +
-        `   Available branches: ${Object.keys(branches).join(', ')}`
+        `❌ Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
+        `   Please add configuration for branch '${currentBranch}' in the git_branches section of wmill.yaml.\n` +
+        `   Available branches: ${Object.keys(git_branches).join(', ')}`
       );
       Deno.exit(1);
     }
@@ -179,15 +179,15 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
 // Get effective settings by merging top-level settings with branch-specific overrides
 export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean): Promise<SyncOptions> {
   // Start with top-level settings from config
-  const { branches, ...topLevelSettings } = config;
+  const { git_branches, ...topLevelSettings } = config;
   let effective = { ...topLevelSettings };
 
   if (isGitRepository()) {
     const currentBranch = getCurrentGitBranch();
 
     // If promotion is specified, use that branch's promotionOverrides or overrides
-    if (promotion && branches && branches[promotion]) {
-      const targetBranch = branches[promotion];
+    if (promotion && git_branches && git_branches[promotion]) {
+      const targetBranch = git_branches[promotion];
 
       // First try promotionOverrides, then fall back to overrides
       if (targetBranch.promotionOverrides) {
@@ -201,8 +201,8 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
       }
     }
     // Otherwise use current branch overrides (existing behavior)
-    else if (currentBranch && branches && branches[currentBranch] && branches[currentBranch].overrides) {
-      Object.assign(effective, branches[currentBranch].overrides);
+    else if (currentBranch && git_branches && git_branches[currentBranch] && git_branches[currentBranch].overrides) {
+      Object.assign(effective, git_branches[currentBranch].overrides);
       log.info(`Applied settings for Git branch: ${currentBranch}`);
     } else if (currentBranch) {
       log.debug(`No branch-specific overrides found for '${currentBranch}', using top-level settings`);
