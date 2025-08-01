@@ -656,7 +656,8 @@ impl PyV {
             occupancy_metrics,
             None,
         )
-        .await
+        .await?;
+        Ok(())
     }
     async fn find_python(&self) -> error::Result<Option<String>> {
         #[cfg(windows)]
