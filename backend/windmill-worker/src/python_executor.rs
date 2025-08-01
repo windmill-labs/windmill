@@ -858,7 +858,7 @@ mount {{
         start_child_process(python_cmd, &python_path).await?
     };
 
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -892,7 +892,7 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn prepare_wrapper(

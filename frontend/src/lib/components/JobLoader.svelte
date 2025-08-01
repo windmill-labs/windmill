@@ -27,7 +27,7 @@
 
 	interface Props {
 		isLoading?: boolean
-		job?: Job | undefined
+		job?: (Job & { result_stream?: string }) | undefined
 		noCode?: boolean
 		noLogs?: boolean
 		workspaceOverride?: string | undefined
@@ -334,7 +334,7 @@
 
 	function updateJobFromProgress(
 		previewJobUpdates: GetJobUpdatesResponse,
-		job: Job,
+		job: Job & { result_stream?: string },
 		callbacks: Callbacks | undefined
 	) {
 		// Clamp number between two values with the following line:
@@ -355,6 +355,15 @@
 			} else {
 				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 			}
+		}
+
+		if (previewJobUpdates.result_stream) {
+			if (!job.result_stream) {
+				job.result_stream = previewJobUpdates.result_stream
+			} else {
+				job.result_stream = job.result_stream.concat(previewJobUpdates.result_stream)
+			}
+			console.log('job.result_stream', job.result_stream)
 		}
 
 		if (previewJobUpdates.log_offset) {
@@ -611,8 +620,9 @@
 									})
 									clearCurrentId()
 								} else {
-									const njob = previewJobUpdates.job as Job
+									const njob = previewJobUpdates.job as Job & { result_stream?: string }
 									njob.logs = job?.logs ?? ''
+									njob.result_stream = job?.result_stream ?? ''
 									job = njob
 									onJobCompleted(id, job, callbacks)
 								}

@@ -7,6 +7,7 @@ use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::result_stream::extract_stream_from_logs;
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -87,6 +88,10 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
     }
 }
 
+pub struct HandleChildResult {
+    pub result_stream: Option<String>,
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -109,7 +114,7 @@ pub async fn handle_child(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Do not print logs to output, but instead save to string.
     pipe_stdout: Option<&mut String>,
-) -> error::Result<()> {
+) -> error::Result<HandleChildResult> {
     let start = Instant::now();
 
     let pid = child.id();
@@ -296,6 +301,7 @@ pub async fn handle_child(
         }
     };
 
+    let mut stream_result = Vec::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -308,6 +314,7 @@ pub async fn handle_child(
         pipe_stdout,
         &mut rx2,
         child_name,
+        &mut stream_result,
     )
     .instrument(trace_span!("child_lines"));
 
@@ -322,7 +329,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(&child_name, status),
+        Ok(Ok(status)) => process_status(&child_name, status, stream_result),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -346,6 +353,7 @@ pub async fn write_lines(
     pipe_stdout: Option<&mut String>,
     rx2: &mut broadcast::Receiver<()>,
     child_name: &str,
+    stream_result: &mut Vec<String>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -406,6 +414,9 @@ pub async fn write_lines(
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
+                    }
+                    if let Some(stream) = extract_stream_from_logs(&line) {
+                        stream_result.push(stream);
                     }
                     append_with_limit(&mut joined, &line, &mut log_remaining);
                     if log_remaining == 0 {
@@ -762,9 +773,15 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-pub fn process_status(program: &str, status: ExitStatus) -> error::Result<()> {
+pub fn process_status(program: &str, status: ExitStatus, stream_result: Vec<String>) -> error::Result<HandleChildResult> {
     if status.success() {
-        Ok(())
+        Ok(HandleChildResult {
+            result_stream: if stream_result.is_empty() {
+                None
+            } else {
+                Some(stream_result.join("\n"))
+            },
+        })
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
     } else {

@@ -39,6 +39,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -89,6 +90,7 @@
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		result_stream?: string | undefined
 		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -111,6 +113,7 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		result_stream = undefined,
 		fixTableSizingToParent = false,
 		copilot_fix,
 		children
@@ -487,7 +490,13 @@
 </script>
 
 <HighlightTheme />
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex items-center gap-2 text-tertiary">
+		<Loader2 class="animate-spin" size={16} /> Streaming result...
+	</div>
+	<ResultStreamDisplay {result_stream} />
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">

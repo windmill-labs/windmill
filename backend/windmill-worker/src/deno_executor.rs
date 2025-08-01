@@ -408,7 +408,7 @@ try {{
     };
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -445,7 +445,7 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn build_import_map(

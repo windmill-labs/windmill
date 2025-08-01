@@ -17,6 +17,7 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use windmill_common::result_stream::extract_stream_from_logs;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -5690,6 +5691,7 @@ pub struct JobUpdate {
     pub running: Option<bool>,
     pub completed: Option<bool>,
     pub new_logs: Option<String>,
+    pub result_stream: Option<String>,
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
     pub progress: Option<i32>,
@@ -5996,6 +5998,38 @@ fn get_job_update_sse_stream(
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
 
+fn extract_logs_stream(logs: Option<String>) -> (Option<String>, Option<String>) {
+    match logs {
+        Some(log_content) => {
+            let mut regular_logs = Vec::new();
+            let mut stream_lines = Vec::new();
+            
+            for line in log_content.lines() {
+                if let Some(stream) = extract_stream_from_logs(line) {
+                    stream_lines.push(stream);
+                } else {
+                    regular_logs.push(line.to_string());
+                }
+            }
+            
+            let filtered_logs = if regular_logs.is_empty() {
+                None
+            } else {
+                Some(regular_logs.join("\n"))
+            };
+            
+            let stream = if stream_lines.is_empty() {
+                None
+            } else {
+                Some(stream_lines.join(""))
+            };
+            
+            (filtered_logs, stream)
+        }
+        None => (None, None),
+    }
+}
+
 async fn get_job_update_data(
     opt_authed: &Option<ApiAuthed>,
     opt_tokened: &OptTokened,
@@ -6078,6 +6112,7 @@ async fn get_job_update_data(
             completed: if result.0.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
+            result_stream: None,
             mem_peak: None,
             progress: None,
             job: None,
@@ -6134,11 +6169,14 @@ async fn get_job_update_data(
             None
         };
 
+        let (filtered_logs, stream) = extract_logs_stream(record.logs);
+        
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
             log_offset: record.log_offset,
-            new_logs: record.logs,
+            new_logs: filtered_logs,
+            result_stream: stream,
             mem_peak: record.mem_peak,
             progress: record.progress,
             workflow_as_code_status: record
