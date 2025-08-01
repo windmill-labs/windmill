@@ -1,0 +1,102 @@
+summary: Complex Invalid Flow
+description: A flow with multiple validation errors across different components
+value:
+  modules:
+    # Module with missing required fields
+    - id: invalid_module_1
+      value:
+        type: rawscript
+        # Missing required input_transforms
+        # Missing required content
+        # Missing required language
+    
+    # Module with invalid language enum
+    - id: invalid_module_2
+      value:
+        type: rawscript
+        input_transforms: {}
+        content: "console.log('hello');"
+        language: invalid_language
+    
+    # Invalid forloop structure
+    - id: invalid_forloop_1
+      value:
+        type: forloopflow
+        # Missing required modules
+        # Missing required iterator
+        # Missing required skip_failures
+        parallelism: "not_a_number"
+    
+    # Forloop with invalid iterator
+    - id: invalid_forloop_2
+      value:
+        type: forloopflow
+        modules: []
+        iterator:
+          type: invalid_transform_type
+        skip_failures: "not_a_boolean"
+    
+    # Invalid branch one structure
+    - id: invalid_branch_1
+      value:
+        type: branchone
+        # Missing required branches
+        # Missing required default
+        invalid_field: "should not be here"
+    
+    # Branch one with invalid branches structure
+    - id: invalid_branch_2
+      value:
+        type: branchone
+        branches:
+          - summary: "Branch 1"
+            # Missing required expr
+            # Missing required modules
+            modules: "not_an_array"
+        default: "not_an_array"
+    
+    # Invalid branch all structure
+    - id: invalid_branch_all
+      value:
+        type: branchall
+        branches:
+          - summary: 123  # should be string
+            skip_failure: "not_a_boolean"
+            modules: []
+          - # Missing required modules
+            summary: "Branch 2"
+        parallel: "not_a_boolean"
+    
+    # Invalid while loop
+    - id: invalid_while_loop
+      value:
+        type: whileloopflow
+        modules: "not_an_array"
+        skip_failures: 42  # should be boolean
+        # Missing required condition
+    
+    # Invalid script path reference
+    - id: invalid_script_path
+      value:
+        type: script
+        # Missing required path
+        # Missing required input_transforms
+        invalid_hash: "not_valid"
+    
+    # Invalid flow path reference
+    - id: invalid_flow_path
+      value:
+        type: flow
+        path: 123  # should be string
+        # Missing required input_transforms
+    
+    # Module with invalid ID type
+    - 123:  # ID should be string, not number
+      value:
+        type: identity
+
+  # Invalid top-level flow properties
+  invalid_property: "should not be here"
+  concurrent_limit: "not_a_number"
+  cache_ttl: -1  # should be positive
+  priority: "not_a_number"

@@ -1,0 +1,24 @@
+summary: New flow
+description: ""
+value:
+  modules:
+    - id: k
+      value:
+        type: rawscript
+        content: "!inline k.inline_script.ts"
+        language: invalid
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.k
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - k
+  properties:
+    k:
+      type: string
+      description: ""
+      default: ""
+  required: []
