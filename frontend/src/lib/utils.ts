@@ -95,6 +95,15 @@ export function isJobSelectable(selectionType: RunsSelectionMode) {
 	return f
 }
 
+export function escapeHtml(unsafe: string) {
+	return unsafe
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#039;')
+}
+
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
 		return 'username can only contain letters and numbers and must start with a letter'
@@ -131,7 +140,7 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 
 export function retrieveCommonWorkerPrefix(workerName: string): string {
 	const lastDashIndex = workerName.lastIndexOf('-')
-	
+
 	return workerName.substring(0, lastDashIndex)
 }
 

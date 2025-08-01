@@ -9,7 +9,7 @@
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { classNames, emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -264,7 +264,7 @@
 	}
 
 	$effect(() => {
-		error && sendUserToast(error, true)
+		error && sendUserToast(escapeHtml(error), true)
 	})
 </script>
 
