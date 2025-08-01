@@ -32,7 +32,14 @@ export interface SyncOptions {
   codebases?: Codebase[];
   parallel?: number;
   jsonOutput?: boolean;
-  git_branches?: { [branchName: string]: SyncOptions & { overrides?: Partial<SyncOptions>; promotionOverrides?: Partial<SyncOptions> } };
+  git_branches?: {
+    [branchName: string]: SyncOptions & {
+      overrides?: Partial<SyncOptions>;
+      promotionOverrides?: Partial<SyncOptions>;
+      baseUrl?: string;
+      workspaceId?: string;
+    }
+  };
   promotion?: string;
 }
 

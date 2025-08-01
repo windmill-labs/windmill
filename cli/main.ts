@@ -6,6 +6,7 @@ import {
     esMain,
     log,
     yamlStringify,
+    Confirm,
 } from "./deps.ts";
 import flow from "./flow.ts";
 import app from "./apps.ts";
@@ -112,6 +113,14 @@ const command = new Command()
         "--repository <repo:string>",
         "Specify repository path (e.g., u/user/repo) when using backend settings",
     )
+    .option(
+        "--bind-profile",
+        "Automatically bind active workspace profile to current Git branch",
+    )
+    .option(
+        "--no-bind-profile",
+        "Skip workspace profile binding prompt",
+    )
     .action(
         async (
             opts: {
@@ -124,6 +133,7 @@ const command = new Command()
                 token?: string;
                 baseUrl?: string;
                 configDir?: string;
+                bindProfile?: boolean;
             },
         ) => {
             if (await Deno.stat("wmill.yaml").catch(() => null)) {
@@ -160,6 +170,52 @@ const command = new Command()
 
                 // Create lock file
                 await readLockfile();
+
+                // Offer to bind workspace profile to current branch
+                if (isGitRepository()) {
+                    const { getActiveWorkspace } = await import("./workspace.ts");
+                    const activeWorkspace = await getActiveWorkspace(opts as GlobalOptions);
+                    const currentBranch = getCurrentGitBranch();
+
+                    if (activeWorkspace && currentBranch) {
+                        // Determine binding behavior based on flags
+                        const shouldBind = opts.bindProfile === true;
+                        const shouldPrompt = opts.bindProfile === undefined && Deno.stdin.isTerminal();
+                        const shouldSkip = opts.bindProfile === false || (!Deno.stdin.isTerminal() && opts.bindProfile === undefined);
+
+                        if (shouldSkip) {
+                            return;
+                        }
+
+                        // Show workspace info if we're binding or prompting
+                        if (shouldBind || shouldPrompt) {
+                            log.info(colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`));
+                            log.info(colors.yellow(`Active workspace profile: ${colors.bold(activeWorkspace.name)}`));
+                            log.info(colors.yellow(`  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`));
+                        }
+
+                        if (shouldBind || (shouldPrompt && await Confirm.prompt({
+                            message: "Bind workspace profile to current Git branch?",
+                            default: true,
+                        }))) {
+                            // Update the config with workspace binding
+                            const currentConfig = await import("./conf.ts").then(m => m.readConfigFile());
+                            if (!currentConfig.git_branches) {
+                                currentConfig.git_branches = {};
+                            }
+                            if (!currentConfig.git_branches[currentBranch]) {
+                                currentConfig.git_branches[currentBranch] = { overrides: {} };
+                            }
+
+                            currentConfig.git_branches[currentBranch].baseUrl = activeWorkspace.remote;
+                            currentConfig.git_branches[currentBranch].workspaceId = activeWorkspace.workspaceId;
+
+                            await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+
+                            log.info(colors.green(`✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`));
+                        }
+                    }
+                }
 
                 // Check for backend git-sync settings unless --use-default is specified
                 if (!opts.useDefault) {
@@ -277,10 +333,10 @@ const command = new Command()
             try {
                 const scriptGuidanceContent = SCRIPT_GUIDANCE;
                 const flowGuidanceContent = FLOW_GUIDANCE;
-                                
+
                 // Create .cursor/rules directory
                 await Deno.mkdir(".cursor/rules", { recursive: true });
-                
+
                 // Create windmill.mdc file
                 if (!await Deno.stat(".cursor/rules/script.mdc").catch(() => null)) {
                     await Deno.writeTextFile(".cursor/rules/script.mdc", scriptGuidanceContent);
@@ -291,7 +347,7 @@ const command = new Command()
                     await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
                     log.info(colors.green("Created .cursor/rules/flow.mdc"));
                 }
-                
+
                 // Create CLAUDE.md file
                 if (!await Deno.stat("CLAUDE.md").catch(() => null)) {
                     await Deno.writeTextFile("CLAUDE.md", `
@@ -307,7 +363,7 @@ const command = new Command()
                     `);
                     log.info(colors.green("Created CLAUDE.md"));
                 }
-                
+
             } catch (error) {
                 if (error instanceof Error) {
                     log.warn(`Could not create guidance files: ${error.message}`);
