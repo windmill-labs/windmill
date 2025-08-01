@@ -133,7 +133,7 @@ const command = new Command()
                 const { DEFAULT_SYNC_OPTIONS } = await import("./conf.ts");
 
                 // Create initial config with defaults
-                const initialConfig = { ...DEFAULT_SYNC_OPTIONS };
+                const initialConfig = { ...DEFAULT_SYNC_OPTIONS } as any;
 
                 // Add branch structure
                 const { isGitRepository, getCurrentGitBranch } = await import("./git.ts");

@@ -1,9 +1,24 @@
 import { colors, log } from "../deps.ts";
 import { deepEqual, selectRepository } from "../utils.ts";
-import { SyncOptions, DEFAULT_SYNC_OPTIONS, getEffectiveSettings } from "../conf.ts";
-import { getCurrentGitBranch, isGitRepository } from "../git.ts";
-import { GitSyncRepository, WriteMode, GIT_SYNC_FIELDS } from "./types.ts";
+import { SyncOptions, getEffectiveSettings, DEFAULT_SYNC_OPTIONS } from "../conf.ts";
+import { GitSyncRepository, GIT_SYNC_FIELDS } from "./types.ts";
 import { GitSyncSettingsConverter } from "./converter.ts";
+
+// Helper for consistent output handling between JSON and regular modes
+export function outputResult(opts: { jsonOutput?: boolean }, result: {
+  success: boolean;
+  message?: string;
+  error?: string;
+  [key: string]: any;
+}): void {
+  if (opts.jsonOutput) {
+    console.log(JSON.stringify(result));
+  } else if (result.success && result.message) {
+    log.info(colors.green(result.message));
+  } else if (!result.success && result.error) {
+    log.error(colors.red(result.error));
+  }
+}
 
 // Helper to normalize repository path by removing $res: prefix
 export function normalizeRepoPath(path: string): string {
@@ -63,9 +78,8 @@ export function applyBackendSettingsToBranch(
 }
 
 // Helper function to get current effective settings
-export function getCurrentSettings(localConfig: SyncOptions): SyncOptions {
-  const effectiveSettings = getEffectiveSettings(localConfig);
-  return { ...DEFAULT_SYNC_OPTIONS, ...effectiveSettings };
+export async function getCurrentSettings(localConfig: SyncOptions): Promise<SyncOptions> {
+  return await getEffectiveSettings(localConfig, undefined, true); // Skip branch validation for gitsync-settings
 }
 
 // Select repository interactively if multiple exist
@@ -119,12 +133,16 @@ export function generateStructuredDiff(
   return diff;
 }
 
-// Helper to generate changes between two normalized SyncOptions objects
+// Helper to generate changes between two SyncOptions objects (normalizes automatically)
 export function generateChanges(
-  normalizedCurrent: SyncOptions,
-  normalizedNew: SyncOptions,
+  current: SyncOptions,
+  new_: SyncOptions,
 ): { [key: string]: { from: any; to: any } } {
   const changes: { [key: string]: { from: any; to: any } } = {};
+
+  // Normalize both inputs for consistent comparison
+  const normalizedCurrent = GitSyncSettingsConverter.normalize(current);
+  const normalizedNew = GitSyncSettingsConverter.normalize(new_);
 
   for (const field of GIT_SYNC_FIELDS) {
     const currentValue = (normalizedCurrent as any)[field];

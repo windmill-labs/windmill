@@ -1,4 +1,4 @@
-import { log, yamlParseFile } from "./deps.ts";
+import { log, yamlParseFile, Confirm, yamlParseContent, yamlStringify } from "./deps.ts";
 import { getCurrentGitBranch, isGitRepository } from "./git.ts";
 
 export interface SyncOptions {
@@ -33,6 +33,7 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   branches?: { [branchName: string]: SyncOptions & { overrides?: Partial<SyncOptions>; promotionOverrides?: Partial<SyncOptions> } };
+  promotion?: string;
 }
 
 export interface Codebase {
@@ -113,8 +114,70 @@ export async function mergeConfigWithConfigFile<T>(
   return Object.assign(configFile ?? {}, opts);
 }
 
+// Validate branch configuration early in the process
+export async function validateBranchConfiguration(skipValidation?: boolean): Promise<void> {
+  if (skipValidation || !isGitRepository()) {
+    return;
+  }
+
+  const config = await readConfigFile();
+  const { branches } = config;
+  const currentBranch = getCurrentGitBranch();
+
+  // In a git repository, branches section is mandatory
+  if (!branches || Object.keys(branches).length === 0) {
+    log.error(
+      "❌ In a Git repository, the 'branches' section is mandatory in wmill.yaml.\n" +
+      "   Please add a branches section with configuration for your Git branches.\n" +
+      "   Run 'wmill init' to recreate the configuration file with proper branch setup."
+    );
+    Deno.exit(1);
+  }
+
+  // Current branch must be defined in branches config
+  if (currentBranch && !branches[currentBranch]) {
+    // In interactive mode, offer to create the branch
+    if (Deno.stdin.isTerminal()) {
+      const availableBranches = Object.keys(branches).join(', ');
+      log.info(
+        `Current Git branch '${currentBranch}' is not defined in the branches configuration.\n` +
+        `Available branches: ${availableBranches}`
+      );
+
+      const shouldCreate = await Confirm.prompt({
+        message: `Create empty branch configuration for '${currentBranch}'?`,
+        default: true,
+      });
+
+      if (shouldCreate) {
+        // Read current config, add branch, and write it back
+        const currentConfig = await readConfigFile();
+
+        if (!currentConfig.branches) {
+          currentConfig.branches = {};
+        }
+        currentConfig.branches[currentBranch] = { overrides: {} };
+
+        await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+
+        log.info(`✅ Created empty branch configuration for '${currentBranch}'`);
+      } else {
+        log.info("Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration.");
+        Deno.exit(1);
+      }
+    } else {
+      log.error(
+        `❌ Current Git branch '${currentBranch}' is not defined in the branches configuration.\n` +
+        `   Please add configuration for branch '${currentBranch}' in the branches section of wmill.yaml.\n` +
+        `   Available branches: ${Object.keys(branches).join(', ')}`
+      );
+      Deno.exit(1);
+    }
+  }
+}
+
 // Get effective settings by merging top-level settings with branch-specific overrides
-export function getEffectiveSettings(config: SyncOptions, promotion?: string): SyncOptions {
+export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { branches, ...topLevelSettings } = config;
   let effective = { ...topLevelSettings };

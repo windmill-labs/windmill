@@ -38,7 +38,7 @@ import {
 
 import { handleFile } from "./script.ts";
 import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
+import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings, validateBranchConfiguration } from "./conf.ts";
 import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
@@ -63,7 +63,7 @@ function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { 
 // Resolve effective sync options using branch-based configuration
 async function resolveEffectiveSyncOptions(workspace: Workspace, promotion?: string): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
-  return getEffectiveSettings(localConfig, promotion);
+  return await getEffectiveSettings(localConfig, promotion);
 }
 
 type DynFSElement = {
@@ -1155,6 +1155,9 @@ async function buildTracker(changes: Change[]) {
 }
 
 export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string; promotion?: string }) {
+  // Validate branch configuration early
+  await validateBranchConfiguration();
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1465,6 +1468,9 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+  // Validate branch configuration early
+  await validateBranchConfiguration();
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

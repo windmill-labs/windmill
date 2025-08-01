@@ -3,7 +3,7 @@ import { GlobalOptions } from "../types.ts";
 import { requireLogin } from "../auth.ts";
 import { resolveWorkspace } from "../context.ts";
 import * as wmill from "../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings } from "../conf.ts";
+import { SyncOptions, readConfigFile, validateBranchConfiguration } from "../conf.ts";
 import { deepEqual } from "../utils.ts";
 
 import { GitSyncRepository } from "./types.ts";
@@ -12,9 +12,11 @@ import { handleLegacyRepositoryMigration } from "./legacySettings.ts";
 import {
   selectAndLogRepository,
   generateStructuredDiff,
+  getCurrentSettings,
   generateChanges,
   displayChanges,
-  normalizeRepoPath
+  normalizeRepoPath,
+  outputResult
 } from "./utils.ts";
 
 export async function pushGitSyncSettings(
@@ -26,6 +28,9 @@ export async function pushGitSyncSettings(
     yes?: boolean;
   },
 ) {
+  // Validate branch configuration like sync commands
+  await validateBranchConfiguration();
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -86,21 +91,10 @@ export async function pushGitSyncSettings(
         };
       } catch (parseError) {
         const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-        if (opts.jsonOutput) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              error:
-                `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
-            }),
-          );
-        } else {
-          log.error(
-            colors.red(
-              `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
-            ),
-          );
-        }
+        outputResult(opts, {
+          success: false,
+          error: `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
+        });
         return;
       }
     } else {
@@ -172,7 +166,7 @@ export async function pushGitSyncSettings(
 
     // Get effective settings for this workspace/repo
     const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-    const effectiveSettings = getEffectiveSettings(localConfig);
+    const effectiveSettings = await getCurrentSettings(localConfig);
 
     // Convert to backend format
     const backendFormat = GitSyncSettingsConverter.toBackendFormat(effectiveSettings);
@@ -211,8 +205,8 @@ export async function pushGitSyncSettings(
         if (hasChanges) {
           log.info("Changes that would be pushed to Windmill:");
           const changes = generateChanges(
-            normalizedCurrent,
-            normalizedEffective,
+            currentSyncOptions,
+            effectiveSettings,
           );
 
           if (Object.keys(changes).length === 0) {
@@ -231,8 +225,8 @@ export async function pushGitSyncSettings(
     if (hasChanges) {
       if (!opts.jsonOutput) {
         const changes = generateChanges(
-          normalizedCurrent,
-          normalizedEffective,
+          currentSyncOptions,
+          effectiveSettings,
         );
 
         if (Object.keys(changes).length === 0) {

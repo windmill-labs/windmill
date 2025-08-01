@@ -17,7 +17,8 @@ import {
   displayChanges,
   getCurrentSettings,
   applyBackendSettingsToBranch,
-  normalizeRepoPath
+  normalizeRepoPath,
+  outputResult
 } from "./utils.ts";
 
 export async function pullGitSyncSettings(
@@ -43,7 +44,7 @@ export async function pullGitSyncSettings(
       try {
         const parsedSettings = JSON.parse(opts.withBackendSettings);
 
-        // Validate the structure matches expected test format (raw settings object)
+        // Validate the structure matches expected format (raw settings object)
         if (
           !parsedSettings.include_path ||
           !Array.isArray(parsedSettings.include_path)
@@ -78,21 +79,10 @@ export async function pullGitSyncSettings(
         };
       } catch (parseError) {
         const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-        if (opts.jsonOutput) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              error:
-                `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
-            }),
-          );
-        } else {
-          log.error(
-            colors.red(
-              `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
-            ),
-          );
-        }
+        outputResult(opts, {
+          success: false,
+          error: `Failed to parse --with-backend-settings JSON: ${errorMessage}`,
+        });
         return;
       }
     } else {
@@ -103,20 +93,10 @@ export async function pullGitSyncSettings(
         });
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
-        if (opts.jsonOutput) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              error: `Failed to fetch workspace settings: ${errorMessage}`,
-            }),
-          );
-        } else {
-          log.error(
-            colors.red(
-              `Failed to fetch workspace settings: ${errorMessage}`,
-            ),
-          );
-        }
+        outputResult(opts, {
+          success: false,
+          error: `Failed to fetch workspace settings: ${errorMessage}`,
+        });
         return;
       }
     }
@@ -125,20 +105,10 @@ export async function pullGitSyncSettings(
       !settings.git_sync?.repositories ||
       settings.git_sync.repositories.length === 0
     ) {
-      if (opts.jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            error: "No git-sync repositories configured",
-          }),
-        );
-      } else {
-        log.error(
-          colors.red(
-            "No git-sync repositories configured in workspace",
-          ),
-        );
-      }
+      outputResult(opts, {
+        success: false,
+        error: "No git-sync repositories configured",
+      });
       return;
     }
 
@@ -175,6 +145,9 @@ export async function pullGitSyncSettings(
     // Read current local configuration
     const localConfig = await readConfigFile();
 
+    // Calculate current settings once and reuse throughout
+    const currentSettings = await getCurrentSettings(localConfig);
+
     // Determine write mode for branch-based configuration
     let writeMode: WriteMode = "replace";
 
@@ -186,8 +159,6 @@ export async function pullGitSyncSettings(
     } else {
       // Default behavior for existing files with no explicit flags
       // Use same logic as diff to determine if there's a real conflict
-      const currentSettings = getCurrentSettings(localConfig);
-
       const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
         GitSyncSettingsConverter.normalize(backendSyncOptions),
       );
@@ -206,8 +177,6 @@ export async function pullGitSyncSettings(
 
     if (opts.diff) {
       // Show differences between local and backend
-      const currentSettings = getCurrentSettings(localConfig);
-
       const normalizedCurrent = GitSyncSettingsConverter.normalize(currentSettings);
       const normalizedBackend = GitSyncSettingsConverter.normalize(backendSyncOptions);
       const gitSyncCurrent = GitSyncSettingsConverter.extractGitSyncFields(normalizedCurrent);
@@ -235,7 +204,7 @@ export async function pullGitSyncSettings(
       } else {
         if (hasChanges) {
           log.info("Changes that would be applied locally:");
-          const changes = generateChanges(normalizedCurrent, normalizedBackend);
+          const changes = generateChanges(currentSettings, backendSyncOptions);
 
           if (Object.keys(changes).length === 0) {
             log.info(colors.green("No differences found"));
@@ -258,8 +227,6 @@ export async function pullGitSyncSettings(
       !opts.override
     ) {
       // Use the same logic as diff to determine current settings
-      const currentSettings = getCurrentSettings(localConfig);
-
       const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
         GitSyncSettingsConverter.normalize(backendSyncOptions),
       );
@@ -325,16 +292,53 @@ export async function pullGitSyncSettings(
     }
 
     // Check if there are actually any changes before writing
-    const currentSettingsForCheck = getCurrentSettings(localConfig);
     const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
       GitSyncSettingsConverter.normalize(backendSyncOptions),
     );
     const gitSyncCurrent = GitSyncSettingsConverter.extractGitSyncFields(
-      GitSyncSettingsConverter.normalize(currentSettingsForCheck),
+      GitSyncSettingsConverter.normalize(currentSettings),
     );
     const hasActualChanges = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
     if (!hasActualChanges) {
+      // Even if no changes, check if we need to create empty branch structure
+      let needsBranchStructure = false;
+      if (isGitRepository()) {
+        const currentBranch = getCurrentGitBranch();
+        if (currentBranch && (!localConfig.branches || !localConfig.branches[currentBranch])) {
+          needsBranchStructure = true;
+
+          // Create empty branch structure
+          const updatedConfig = { ...localConfig };
+          if (!updatedConfig.branches) {
+            updatedConfig.branches = {};
+          }
+          if (!updatedConfig.branches[currentBranch]) {
+            updatedConfig.branches[currentBranch] = { overrides: {} };
+          }
+
+          // Write updated configuration
+          await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
+
+          if (opts.jsonOutput) {
+            console.log(
+              JSON.stringify({
+                success: true,
+                message: `Created empty branch structure for: ${currentBranch}`,
+                repository: selectedRepo.git_repo_resource_path,
+              }),
+            );
+          } else {
+            log.info(
+              colors.green(
+                `Created empty branch structure for: ${currentBranch}`,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       if (opts.jsonOutput) {
         console.log(
           JSON.stringify({

@@ -78,13 +78,27 @@ export class GitSyncSettingsConverter {
     return result;
   }
 
-  // Normalize SyncOptions for semantic comparison - treat undefined arrays as empty arrays
+  // Normalize SyncOptions for semantic comparison - treat undefined values as their defaults
   static normalize(opts: SyncOptions): SyncOptions {
     return {
       ...opts,
       includes: opts.includes || [],
       excludes: opts.excludes || [],
       extraIncludes: opts.extraIncludes || [],
+      skipVariables: opts.skipVariables ?? false,
+      skipResources: opts.skipResources ?? false,
+      skipResourceTypes: opts.skipResourceTypes ?? false,
+      skipSecrets: opts.skipSecrets ?? true,
+      skipScripts: opts.skipScripts ?? false,
+      skipFlows: opts.skipFlows ?? false,
+      skipApps: opts.skipApps ?? false,
+      skipFolders: opts.skipFolders ?? false,
+      includeSchedules: opts.includeSchedules ?? false,
+      includeTriggers: opts.includeTriggers ?? false,
+      includeUsers: opts.includeUsers ?? false,
+      includeGroups: opts.includeGroups ?? false,
+      includeSettings: opts.includeSettings ?? false,
+      includeKey: opts.includeKey ?? false,
     };
   }
 
