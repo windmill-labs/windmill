@@ -575,7 +575,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
 
-
                     let branches = current_module
                         .and_then(|x| x.get_branches_skip_failures().ok())
                         .map(|x| {
@@ -601,8 +600,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         jobs.as_slice()
                     };
-        
-
 
                     let new_status = if skip_loop_failures
                          || sqlx::query_scalar!(
@@ -837,9 +834,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
         };
-
-
-
 
         let step_counter = if inc_step_counter {
             sqlx::query!(
@@ -1152,18 +1146,12 @@ pub async fn update_flow_status_after_job_completion_internal(
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
 
-
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             false if unrecoverable => false,
-            false
-                if skip_seq_branch_failure
-                    || skip_loop_failures
-                    || continue_on_error =>
-            {
-
+            false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
             false
@@ -1227,9 +1215,12 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
-                format!("Flow job completed with error, and error handler was triggered.\n It completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
+                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
             } else {
-                format!("Flow job completed with {}\n", if success { "success" } else { "error" })
+                format!(
+                    "Flow job completed with {}\n",
+                    if success { "success" } else { "error" }
+                )
             };
             append_logs(&flow_job.id, w_id, logs, &db.into()).await;
         }
@@ -1279,7 +1270,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             }
         }
-        
+
         if flow_job.is_canceled() {
             add_completed_job_error(
                 db,

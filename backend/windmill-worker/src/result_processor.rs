@@ -29,8 +29,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
-    INIT_SCRIPT_TAG,
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
+    WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -79,6 +79,7 @@ async fn process_jc(
             parent_job = field::Empty,
             otel.name = field::Empty,
             success = %success,
+            labels = field::Empty,
         )
     } else {
         tracing::span!(
@@ -94,6 +95,7 @@ async fn process_jc(
             success = %success,
             error.message = field::Empty,
             error.name = field::Empty,
+            labels = field::Empty,
         )
     };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
@@ -101,6 +103,12 @@ async fn process_jc(
     } else {
         jc.job.id
     };
+
+    if let Some(labels) = jc.result.wm_labels() {
+        if !labels.is_empty() {
+            span.record("labels", labels.join(","));
+        }
+    }
     windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
@@ -685,7 +693,6 @@ pub async fn handle_job_error(
 ) {
     let err_string = format!("{}: {}", err.name(), err.to_string());
     let err_json = error_to_value(err);
-
 
     let update_job_future = || async {
         handle_non_flow_job_error(
