@@ -192,7 +192,7 @@ export function createGitSyncContext(workspace: string) {
 		)
 
 		// Only call backend API if repository exists in the saved state
-		if (existsInInitialState && repo.git_repo_resource_path) {
+		if (existsInInitialState) {
 			await WorkspaceService.deleteGitSyncRepository({
 				workspace,
 				requestBody: {
