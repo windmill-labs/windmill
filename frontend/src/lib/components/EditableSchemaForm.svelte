@@ -68,6 +68,7 @@
 		class?: string
 		dynSelectCode?: string | undefined
 		dynSelectLang?: ScriptLang | undefined
+		showDynSelectOpt?: boolean
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
@@ -102,6 +103,7 @@
 		class: clazz = '',
 		dynSelectCode = $bindable(),
 		dynSelectLang = $bindable(),
+		showDynSelectOpt = false,
 		openEditTab,
 		addProperty,
 		runButton,
@@ -324,9 +326,19 @@
 			.map(([fieldName, _]) => fieldName.toLowerCase().replace(/\s+/g, '_'))
 	)
 
-	$effect(() => {
-		console.log(dynSelectFunctions)
-	})
+	let typeOptionns = [
+		['String', 'string'],
+		['Number', 'number'],
+		['Integer', 'integer'],
+		['Object', 'object'],
+		['OneOf', 'oneOf'],
+		['Array', 'array'],
+		['Boolean', 'boolean'],
+		['S3 Object', 'S3']
+	]
+	if (showDynSelectOpt) {
+		typeOptionns.push(['DynSelect', 'dynselect'])
+	}
 </script>
 
 <div class="w-full h-full">
@@ -685,7 +697,7 @@
 																			}}
 																		>
 																			{#snippet children({ item })}
-																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3'], ['DynSelect', 'dynselect']] as x}
+																				{#each typeOptionns as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
 																			{/snippet}

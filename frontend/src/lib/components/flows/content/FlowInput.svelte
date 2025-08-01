@@ -50,7 +50,6 @@
 	}
 
 	let { noEditor, disabled, onTestFlow }: Props = $props()
-
 	const {
 		flowStore,
 		previewArgs,
@@ -375,6 +374,7 @@
 				on:delete={(e) => {
 					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
+				showDynSelectOpt
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
