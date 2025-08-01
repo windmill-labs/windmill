@@ -1279,6 +1279,7 @@ async fn restart_job_if_perpetual_inner(
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 async fn has_failure_module(db: &Pool<Postgres>, job: &MiniPulledJob) -> bool {
     if let Ok(flow) = cache::job::fetch_flow(db, job.kind, job.runnable_id).await {
         return flow.value().failure_module.is_some();
