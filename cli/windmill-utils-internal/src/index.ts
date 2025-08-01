@@ -11,4 +11,5 @@
 export * from "./inline-scripts";
 export * from "./path-utils";
 export * from "./parse";
+export * from "./validation";
 export { SEP, DELIMITER } from "./constants";

@@ -20,5 +20,9 @@
   },
   "files": [
     "dist/**/*"
-  ]
+  ],
+  "dependencies": {
+    "@stoplight/yaml": "^4.3.0",
+    "ajv": "^8.17.1"
+  }
 }
