@@ -326,7 +326,7 @@
 			.map(([fieldName, _]) => fieldName.toLowerCase().replace(/\s+/g, '_'))
 	)
 
-	let typeOptionns = [
+	let typeOptions = [
 		['String', 'string'],
 		['Number', 'number'],
 		['Integer', 'integer'],
@@ -337,7 +337,7 @@
 		['S3 Object', 'S3']
 	]
 	if (showDynSelectOpt) {
-		typeOptionns.push(['DynSelect', 'dynselect'])
+		typeOptions.push(['DynSelect', 'dynselect'])
 	}
 </script>
 
@@ -697,7 +697,7 @@
 																			}}
 																		>
 																			{#snippet children({ item })}
-																				{#each typeOptionns as x}
+																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
 																			{/snippet}
