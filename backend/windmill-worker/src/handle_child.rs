@@ -773,13 +773,17 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-pub fn process_status(program: &str, status: ExitStatus, stream_result: Vec<String>) -> error::Result<HandleChildResult> {
+pub fn process_status(
+    program: &str,
+    status: ExitStatus,
+    stream_result: Vec<String>,
+) -> error::Result<HandleChildResult> {
     if status.success() {
         Ok(HandleChildResult {
             result_stream: if stream_result.is_empty() {
                 None
             } else {
-                Some(stream_result.join("\n"))
+                Some(stream_result.join(""))
             },
         })
     } else if let Some(code) = status.code() {

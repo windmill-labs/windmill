@@ -375,7 +375,11 @@ pub async fn read_result(
             if let Value::Object(ref mut map) = value {
                 map.insert("wm_stream".to_string(), Value::String(result_stream));
             } else if value.is_null() {
-                return Ok(unsafe_raw(format!("\"{result_stream}\"")));
+                // return Ok(unsafe_raw(json))
+                return Ok(unsafe_raw(format!(
+                    "\"{}\"",
+                    result_stream.replace("\n", "\\n")
+                )));
             } else {
                 return Ok(x);
             }

@@ -704,6 +704,10 @@ try:
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
     res = inner_script.{main_override}(**args)
+    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list)):
+        for chunk in res:
+            print("WM_STREAM: " + chunk.replace('\n', '\\n'))
+        res = None
     res_json = res_to_json(res)
     with open(result_json, 'w') as f:
         f.write(res_json)
