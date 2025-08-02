@@ -1,4 +1,4 @@
-FROM python:3.11-slim as python-base
+FROM python:3.14.0rc1-slim as python-base
 FROM node:19-slim as node-base
 
 FROM python-base
