@@ -6,6 +6,7 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
+	import type { DynamicSelect } from '$lib/utils'
 	interface Props {
 		dndType?: string | undefined
 		schema: Schema
@@ -22,6 +23,7 @@
 		nestedClasses?: string
 		isValid?: boolean
 		noVariablePicker?: boolean
+		helperScript?: DynamicSelect.HelperScript
 	}
 
 	let {
@@ -36,6 +38,7 @@
 		nestedParent = undefined,
 		disableDnd = false,
 		shouldDispatchChanges = false,
+		helperScript = undefined,
 		diff = {},
 		nestedClasses = '',
 		isValid = $bindable(true),
@@ -114,6 +117,7 @@
 	{onlyMaskPassword}
 	{disablePortal}
 	{disabled}
+	{helperScript}
 	bind:schema
 	dndConfig={disableDnd
 		? undefined

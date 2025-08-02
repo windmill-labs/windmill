@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
+	import { type Job, JobService, type RestartedFrom, type OpenFlow, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -48,6 +48,8 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		dynSelectCode?: string
+		dynSelectLang?: ScriptLang
 	}
 
 	let {
@@ -68,7 +70,9 @@
 		onRunPreview,
 		render = false,
 		onJobDone,
-		upToId = undefined
+		upToId = undefined,
+		dynSelectCode = undefined,
+		dynSelectLang = undefined
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -504,6 +508,13 @@
 										savedArgs = previewArgs.val
 									}}
 									bind:isValid
+									helperScript={dynSelectCode && dynSelectLang
+										? {
+												type: 'inline',
+												code: dynSelectCode,
+												lang: dynSelectLang
+											}
+										: undefined}
 								/>
 							</div>
 						{/key}
@@ -571,7 +582,7 @@
 					bind:rightColumnSelect
 					bind:isOwner
 					{render}
-					customUi={customUi}
+					{customUi}
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
