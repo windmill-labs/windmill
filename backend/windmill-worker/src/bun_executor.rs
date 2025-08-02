@@ -1081,6 +1081,10 @@ function argsObjToArr({{ {spread} }}) {{
     return [ {spread} ];
 }}
 
+function isAsyncIterable(obj) {{
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
@@ -1093,6 +1097,12 @@ async function run() {{
         throw new Error("{main_name} function is missing");
     }}
     let res = await Main.{main_name}(...argsArr);
+    if (isAsyncIterable(res)) {{
+        for await (const chunk of res) {{
+            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+        }}
+        res = null;
+    }}
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
