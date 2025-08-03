@@ -5,6 +5,7 @@ pub fn extract_stream_from_logs(line: &str) -> Option<String> {
         // Extract the content after "[wm_stream]:" prefix
         let stream_content = line.strip_prefix(STREAM_PREFIX).unwrap_or("");
         if !stream_content.is_empty() {
+            // tracing::info!("stream_content: |{}|", stream_content);
             return Some(stream_content.to_string().replace("\\n", "\n"));
         }
     }

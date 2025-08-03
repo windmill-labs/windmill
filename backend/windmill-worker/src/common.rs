@@ -359,16 +359,12 @@ pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
     return Ok(r);
 }
 
-/// Read the `result.json` file. This function assumes that the file contains valid json and will
-/// result in undefined behaviour if it isn't. If the result.json is user generated or otherwise
-/// not guaranteed to be valid, use `read_and_check_result`
-pub async fn read_result(
-    job_dir: &str,
+pub async fn merge_result_stream(
+    result: error::Result<Box<RawValue>>,
     result_stream: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let rf = read_file(&format!("{job_dir}/result.json")).await;
     if let Some(result_stream) = result_stream {
-        rf.and_then(|x| {
+        result.and_then(|x| {
             let mut value: Value = serde_json::from_str(x.get())?;
 
             // Insert the string at the "wm_stream" field
@@ -389,8 +385,18 @@ pub async fn read_result(
             Ok(RawValue::from_string(json_string)?)
         })
     } else {
-        rf
+        result
     }
+}
+/// Read the `result.json` file. This function assumes that the file contains valid json and will
+/// result in undefined behaviour if it isn't. If the result.json is user generated or otherwise
+/// not guaranteed to be valid, use `read_and_check_result`
+pub async fn read_result(
+    job_dir: &str,
+    result_stream: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let rf = read_file(&format!("{job_dir}/result.json")).await;
+    merge_result_stream(rf, result_stream).await
 }
 
 pub async fn read_and_check_file(path: &str) -> error::Result<Box<RawValue>> {

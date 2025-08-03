@@ -17,7 +17,6 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use windmill_common::result_stream::extract_stream_from_logs;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -32,6 +31,7 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::result_stream::extract_stream_from_logs;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
@@ -901,11 +901,10 @@ impl<'a> GetQuery<'a> {
     /// when pushed from an un-updated workers.
     /// This function is used to make the above change transparent for the API, as the returned jobs
     /// will have the raw values as if they were still in the tables.
-    async fn resolve_raw_values<T>(
+    async fn resolve_raw_values<T: JobCommon>(
         &self,
         db: &DB,
         id: Uuid,
-        kind: JobKind,
         hash: Option<ScriptHash>,
         job: &mut JobExtended<T>,
     ) {
@@ -918,18 +917,18 @@ impl<'a> GetQuery<'a> {
             // Try to fetch the flow from the cache, fallback to the preview flow.
             // NOTE: This could check for the job kinds instead of the `or_else` but it's not
             // necessary as `fetch_flow` return early if the job kind is not a preview one.
-            cache::job::fetch_flow(db, kind, hash)
+            cache::job::fetch_flow(db, job.job_kind(), hash)
                 .or_else(|_| cache::job::fetch_preview_flow(db, &id, raw_flow))
                 .await
                 .ok()
                 .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
         }
-        if self.with_code {
+        if self.with_code && job.job_kind() == &JobKind::Preview {
             // Try to fetch the code from the cache, fallback to the preview code.
             // NOTE: This could check for the job kinds instead of the `or_else` but it's not
             // necessary as `fetch_script` return early if the job kind is not a preview one.
             let conn = Connection::from(db.clone());
-            cache::job::fetch_script(db.clone(), kind, hash)
+            cache::job::fetch_script(db.clone(), job.job_kind(), hash)
                 .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
                 .await
                 .ok()
@@ -959,7 +958,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = job.as_mut() {
-            self.resolve_raw_values(&db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(&db, job.id, job.script_hash, job)
                 .await;
         }
         if self.with_flow {
@@ -993,7 +992,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = cjob.as_mut() {
-            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(db, job.id, job.script_hash, job)
                 .await;
         }
 
@@ -2643,7 +2642,7 @@ pub async fn get_resume_urls_internal(
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize)]
-pub struct JobExtended<T> {
+pub struct JobExtended<T: JobCommon> {
     #[sqlx(flatten)]
     #[serde(flatten)]
     inner: T,
@@ -2666,7 +2665,23 @@ pub struct JobExtended<T> {
     pub aggregate_wait_time_ms: Option<i64>,
 }
 
-impl<T> JobExtended<T> {
+pub trait JobCommon {
+    fn job_kind(&self) -> &JobKind;
+}
+
+impl JobCommon for QueuedJob {
+    fn job_kind(&self) -> &JobKind {
+        &self.job_kind
+    }
+}
+
+impl JobCommon for CompletedJob {
+    fn job_kind(&self) -> &JobKind {
+        &self.job_kind
+    }
+}
+
+impl<T: JobCommon> JobExtended<T> {
     pub fn new(
         self_wait_time_ms: Option<i64>,
         aggregate_wait_time_ms: Option<i64>,
@@ -2684,7 +2699,7 @@ impl<T> JobExtended<T> {
     }
 }
 
-impl<T> Deref for JobExtended<T> {
+impl<T: JobCommon> Deref for JobExtended<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -2692,7 +2707,7 @@ impl<T> Deref for JobExtended<T> {
     }
 }
 
-impl<T> DerefMut for JobExtended<T> {
+impl<T: JobCommon> DerefMut for JobExtended<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -4539,8 +4554,13 @@ pub async fn run_wait_result_script_by_path_internal(
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path.to_path(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
+        script_path.to_path(),
+        &mut *tx,
+        &w_id,
+        run_query.skip_preprocessor,
+    )
+    .await?;
     drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
@@ -6003,7 +6023,7 @@ fn extract_logs_stream(logs: Option<String>) -> (Option<String>, Option<String>)
         Some(log_content) => {
             let mut regular_logs = Vec::new();
             let mut stream_lines = Vec::new();
-            
+
             for line in log_content.lines() {
                 if let Some(stream) = extract_stream_from_logs(line) {
                     stream_lines.push(stream);
@@ -6011,19 +6031,19 @@ fn extract_logs_stream(logs: Option<String>) -> (Option<String>, Option<String>)
                     regular_logs.push(line.to_string());
                 }
             }
-            
+
             let filtered_logs = if regular_logs.is_empty() {
                 None
             } else {
                 Some(regular_logs.join("\n"))
             };
-            
+
             let stream = if stream_lines.is_empty() {
                 None
             } else {
                 Some(stream_lines.join(""))
             };
-            
+
             (filtered_logs, stream)
         }
         None => (None, None),
@@ -6170,7 +6190,7 @@ async fn get_job_update_data(
         };
 
         let (filtered_logs, stream) = extract_logs_stream(record.logs);
-        
+
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
