@@ -181,6 +181,28 @@ export async function runScriptByHash(
   return _runScriptInternal(null, hash_, args, verbose);
 }
 
+/**
+ * Append a text to the result stream
+ * @param text text to append to the result stream
+ */
+export function appendToResultStream(
+  text: string
+) {
+  console.log("WM_STREAM: " + text.replaceAll("\n", "\\n"));
+}
+
+/**
+ * Stream to the result stream
+ * @param stream stream to stream to the result stream
+ */
+export async function streamResult(
+  stream: AsyncIterable<string>
+) {
+  for await (const text of stream) {
+    appendToResultStream(text);
+  }
+}
+
 export async function runFlow(
   path: string | null = null,
   args: Record<string, any> | null = null,
@@ -328,7 +350,7 @@ async function _runScriptAsyncInternal(
   } else {
     throw new Error("path or hash_ must be provided");
   }
-  
+
   let url = new URL(OpenAPI.BASE + endpoint);
   url.search = new URLSearchParams(params).toString();
 
@@ -793,8 +815,7 @@ export async function loadS3FileStream(
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
   const response = await fetch(
-    `${
-      OpenAPI.BASE
+    `${OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
