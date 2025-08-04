@@ -7,6 +7,7 @@
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import type { FlowData, StepData } from './FlowLogUtils'
+	import type { FlowStatusModule } from '$lib/gen'
 
 	interface Props {
 		flowData: FlowData
@@ -42,14 +43,16 @@
 		updateSelectedIteration(stepId, newIteration)
 	}
 
-	function getStatusDot(status: string) {
+	function getStatusDot(status: FlowStatusModule['type'] | undefined) {
 		const statusClasses = {
-			success: 'bg-green-500',
-			failure: 'bg-red-500',
-			in_progress: 'bg-blue-500 animate-pulse',
-			waiting: 'bg-gray-400'
+			Success: 'bg-green-500',
+			Failure: 'bg-red-500',
+			InProgress: 'bg-yellow-500 animate-pulse',
+			WaitingForPriorSteps: 'bg-gray-400',
+			WaitingForEvents: 'bg-purple-400',
+			WaitingForExecutor: 'bg-gray-400'
 		}
-		return statusClasses[status] || 'bg-gray-400'
+		return status ? statusClasses[status] : 'bg-gray-400'
 	}
 
 	// Create log entries for display - one entry per step
@@ -58,7 +61,7 @@
 		stepId: string
 		stepNumber: number
 		jobId: string
-		status: 'success' | 'failure' | 'in_progress' | 'waiting'
+		status: FlowStatusModule['type']
 		stepData: StepData
 		args?: any
 		result?: any
@@ -100,6 +103,16 @@
 	}
 
 	let logEntries = $derived(createLogEntries(flowData.steps))
+
+	function getFlowStatus(flowData: FlowData): FlowStatusModule['type'] | undefined {
+		if (flowData.status === 'CompletedJob') {
+			return flowData.success ? 'Success' : 'Failure'
+		} else if (flowData.status === 'QueuedJob') {
+			return 'InProgress'
+		} else {
+			return undefined
+		}
+	}
 </script>
 
 {#if render}
@@ -123,15 +136,14 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="py-1 flex items-center justify-between cursor-pointer {flowData.status ===
-					'waiting'
+					'QueuedJob'
 						? 'opacity-50'
 						: ''}"
 					onclick={() => toggleExpanded(`flow-${flowId}`)}
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
 						<!-- Status dot -->
-						<div class="w-1.5 h-1.5 rounded-full {getStatusDot(flowData.status)} flex-shrink-0"
-						></div>
+						<div class="w-1.5 h-1.5 rounded-full {getStatusDot(getFlowStatus(flowData))}"></div>
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
@@ -178,9 +190,23 @@
 						{/if}
 
 						<!-- Flow steps will be rendered here by the main loop -->
+						{#if flowData.logs}
+							<div class="mb-2">
+								<LogViewer
+									content={flowData.logs}
+									jobId={flowData.jobId}
+									isLoading={false}
+									small={true}
+									download={false}
+									noAutoScroll={true}
+									tag={undefined}
+									noPadding
+								/>
+							</div>
+						{/if}
 
 						<!-- Show flow result if completed -->
-						{#if flowData.result !== undefined && (flowData.status === 'success' || flowData.status === 'failure')}
+						{#if flowData.result !== undefined && flowData.status === 'CompletedJob'}
 							<div class="mb-2 mt-2">
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -225,7 +251,10 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="py-1 flex items-center justify-between cursor-pointer {entry.status === 'waiting'
+						class="py-1 flex items-center justify-between cursor-pointer {entry.status ===
+							'WaitingForPriorSteps' ||
+						entry.status === 'WaitingForEvents' ||
+						entry.status === 'WaitingForExecutor'
 							? 'opacity-50'
 							: ''}"
 						onclick={() => toggleExpanded(entry.id)}
@@ -298,6 +327,7 @@
 					{#if expandedRows.has(entry.id)}
 						<div class="my-1 transition-all duration-200 ease-in-out">
 							<!-- Show input arguments -->
+							<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
 							{#if entry.args && Object.keys(entry.args).length > 0}
 								<div class="mb-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -370,15 +400,12 @@
 										/>
 									</div>
 								{/if}
-							{/if}
-
-							<!-- Show logs for regular steps -->
-							{#if entry.logs}
+							{:else if entry.logs}
 								<div class="mb-2">
 									<LogViewer
 										content={entry.logs}
 										jobId={entry.jobId}
-										isLoading={entry.status === 'in_progress'}
+										isLoading={false}
 										small={true}
 										download={false}
 										noAutoScroll={true}
@@ -393,7 +420,8 @@
 							{/if}
 
 							<!-- Show result if completed -->
-							{#if entry.result !== undefined && (entry.status === 'success' || entry.status === 'failure')}
+							<!-- Todo: show result for subflows -->
+							{#if entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
 								<div class="mb-2 mt-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->

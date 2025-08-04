@@ -1,9 +1,13 @@
+import type { FlowStatusModule, Job } from '$lib/gen'
+
 export interface FlowData {
 	jobId: string
 	inputs: any
 	result: any
+	logs?: string
 	steps: StepData[]
-	status: 'success' | 'failure' | 'in_progress' | 'waiting'
+	status: Job['type']
+	success?: boolean
 }
 
 export interface StepData {
@@ -14,7 +18,7 @@ export interface StepData {
 	result?: any
 	jobId?: string
 	logs?: string
-	status: 'success' | 'failure' | 'in_progress' | 'waiting'
+	status: FlowStatusModule['type']
 	subflows?: FlowData[]
 	selectedIteration?: number
 	type:

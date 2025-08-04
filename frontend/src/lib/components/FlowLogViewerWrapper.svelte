@@ -47,15 +47,6 @@
 		}
 	}
 
-	function getStepStatus(
-		module: FlowStatusModule
-	): 'success' | 'failure' | 'in_progress' | 'waiting' {
-		if (module.type === 'Success') return 'success'
-		if (module.type === 'Failure') return 'failure'
-		if (module.type === 'InProgress') return 'in_progress'
-		return 'waiting'
-	}
-
 	function isSubflowStep(stepIndex: number): boolean {
 		const stepType = job.raw_flow?.modules?.[stepIndex]?.value?.type
 		return stepType
@@ -72,7 +63,6 @@
 			if (!module.id) continue
 
 			const stepNumber = i + 1
-			const status = getStepStatus(module)
 			const state = $localModuleStates[module.id]
 			const summary = rootJob.raw_flow?.modules?.[i]?.summary
 			const isSubflow = isSubflowStep(i)
@@ -83,9 +73,9 @@
 				summary,
 				inputs: state?.args || {},
 				result: state?.result,
-				jobId: module.job,
+				jobId: state?.job_id || '',
 				logs: state?.logs || '',
-				status,
+				status: state?.type,
 				type: rootJob.raw_flow?.modules?.[i]?.value?.type
 			}
 
@@ -107,21 +97,14 @@
 			steps.push(stepData)
 		}
 
-		// Calculate flow status based on steps
-		const flowStatus = steps.some((s) => s.status === 'failure')
-			? 'failure'
-			: steps.some((s) => s.status === 'in_progress' || s.status === 'waiting')
-				? 'in_progress'
-				: steps.every((s) => s.status === 'success')
-					? 'success'
-					: 'waiting'
-
 		return {
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
+			success: rootJob.type === 'CompletedJob' ? rootJob.success : undefined,
+			logs: rootJob.logs || '',
 			steps,
-			status: flowStatus
+			status: rootJob.type
 		}
 	}
 
