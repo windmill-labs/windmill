@@ -82,6 +82,7 @@
 		showTestingBadge?: boolean
 		cloud_subscription_id?: string
 		create_update_subscription_id?: string
+		auto_acknowledge_msg: boolean
 	}
 
 	let {
@@ -95,6 +96,7 @@
 		delivery_config = $bindable(),
 		subscription_mode = $bindable('create_update'),
 		base_endpoint = $bindable(getBaseUrl()),
+		auto_acknowledge_msg = $bindable(true),
 		path = '',
 		showTestingBadge = false,
 		cloud_subscription_id = $bindable(''),
@@ -303,6 +305,22 @@
 											</Subsection>
 										{/if}
 									</div>
+								{:else if delivery_type === 'pull'}
+									<Subsection
+										label="Auto-acknowledge messages"
+										tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
+									>
+										<div class="mt-2">
+											<Toggle bind:checked={auto_acknowledge_msg} />
+										</div>
+										{#if !auto_acknowledge_msg}
+											<div class="mt-3">
+												<Alert size="xs" type="warning" title="Manual Acknowledgment Required">
+													You must acknowledge each message in your script/flow code using the `ack_id` provided in the payload data. If messages are not acknowledged within the acknowledgment deadline (default: 10 seconds), GCP will automatically redeliver them, causing Windmill to reprocess the same messages repeatedly.
+												</Alert>
+											</div>
+										{/if}
+									</Subsection>
 								{/if}
 							</div>
 						{:else if subscription_mode === 'existing'}

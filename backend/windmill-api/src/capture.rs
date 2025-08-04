@@ -176,6 +176,7 @@ pub struct GcpTriggerConfig {
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
     pub topic_id: String,
+    pub auto_acknowledge_msg: Option<bool>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]

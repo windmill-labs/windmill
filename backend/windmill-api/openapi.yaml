@@ -15968,6 +15968,8 @@ components:
           type: boolean
         enabled:
           type: boolean
+        auto_acknowledge_msg:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:

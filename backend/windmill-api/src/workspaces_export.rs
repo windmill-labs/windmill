@@ -737,7 +737,8 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _"
+                    retry as "retry: _",
+                    auto_acknowledge_msg
                 FROM 
                     gcp_trigger
                 WHERE 

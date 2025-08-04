@@ -56,7 +56,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-
+	let auto_acknowledge_msg = $state(true)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -147,6 +147,7 @@
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
+			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			drawerLoading = false
@@ -186,6 +187,7 @@
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
+		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
@@ -224,7 +226,8 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			auto_acknowledge_msg
 		}
 	}
 
@@ -392,6 +395,7 @@
 				bind:delivery_config
 				bind:topic_id
 				bind:subscription_mode
+				bind:auto_acknowledge_msg
 				{path}
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
