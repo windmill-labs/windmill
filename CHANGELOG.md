@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.518.1](https://github.com/windmill-labs/windmill/compare/v1.518.0...v1.518.1) (2025-08-04)
+
+
+### Bug Fixes
+
+* **cli:** revert renaming of inline scripts ([#6320](https://github.com/windmill-labs/windmill/issues/6320)) ([82ac747](https://github.com/windmill-labs/windmill/commit/82ac74779114af837cb3eccdd46962656f06ae08))
+
 ## [1.518.0](https://github.com/windmill-labs/windmill/compare/v1.517.0...v1.518.0) (2025-08-01)
 
 
