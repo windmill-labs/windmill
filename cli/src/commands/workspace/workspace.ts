@@ -47,7 +47,7 @@ async function getActiveWorkspaceName(
 }
 
 export async function getActiveWorkspace(
-  opts: GlobalOptions | undefined
+  opts: GlobalOptions | undefined = undefined
 ): Promise<Workspace | undefined> {
   const name = await getActiveWorkspaceName(opts);
   if (!name) {
