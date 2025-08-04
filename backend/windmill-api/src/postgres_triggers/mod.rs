@@ -32,7 +32,6 @@ use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
 };
-use windmill_queue::JobTriggerKind;
 mod bool;
 mod converter;
 mod handler;
@@ -406,7 +405,6 @@ async fn run_job(
         trigger.error_handler_path.as_deref(),
         trigger.error_handler_args.as_ref(),
         format!("postgres_trigger/{}", trigger.path),
-        JobTriggerKind::Postgres,
     )
     .await?;
 

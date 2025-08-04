@@ -11,7 +11,6 @@
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import Description from '$lib/components/Description.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
@@ -21,7 +20,7 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
+	import type { ErrorHandler, ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
@@ -32,7 +31,6 @@
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
 	const slackSuccessHandler = hubPaths.slackSuccessHandler
-
 	const teamsRecoveryHandler = hubPaths.teamsRecoveryHandler
 	const teamsHandlerScriptPath = hubPaths.teamsErrorHandler
 	const teamsSuccessHandler = hubPaths.teamsSuccessHandler
@@ -42,14 +40,14 @@
 		isEditable: boolean
 		toggleText?: string
 		showScriptHelpText?: boolean
-		handlerSelected: 'custom' | 'slack' | 'teams' | 'email'
+		handlerSelected: ErrorHandler
 		handlerPath: string | undefined
 		handlerExtraArgs: Record<string, any>
 		customScriptTemplate: string
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
-		triggerFailureEmailRecipients?: string[]
-		initialTriggerFailureEmailRecipients?: string[]
+		emailRecipients?: string[]
+		initialemailRecipients?: string[]
 	}
 
 	let {
@@ -63,8 +61,8 @@
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
 		customTabTooltip,
-		triggerFailureEmailRecipients = $bindable([]),
-		initialTriggerFailureEmailRecipients = $bindable([])
+		emailRecipients = $bindable([]),
+		initialemailRecipients = $bindable([])
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -230,6 +228,14 @@
 		}
 	}
 
+	function isEmailHandler(scriptPath: string | undefined) {
+		if (!scriptPath) {
+			return false
+		}
+
+		return scriptPath.startsWith('hub/') && scriptPath.endsWith('/workspace-or-error-handler-email')
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			loadSlackResources()
@@ -245,7 +251,7 @@
 		}
 	})
 
-	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | 'email' | undefined = $state(undefined)
+	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
 	let channelCache = $state({
 		slack: undefined as string | undefined,
 		teams: undefined as string | undefined
@@ -271,6 +277,7 @@
 		handlerPath &&
 			!isSlackHandler(handlerPath) &&
 			!isTeamsHandler(handlerPath) &&
+			!isEmailHandler(handlerPath) &&
 			loadHandlerScriptArgs(handlerPath, [
 				'path',
 				'workspace_id',
@@ -310,6 +317,12 @@
 				'slack'
 			]).then((schema) => (slackHandlerSchema = schema))
 	})
+
+	$effect(() => {
+		if (handlerSelected === 'email') {
+			handlerPath = hubPaths.emailErrorHandler
+		}
+	})
 </script>
 
 <div>
@@ -343,8 +356,10 @@
 				size="xs"
 				href={customScriptTemplate}
 				disabled={!isEditable}
-				target="_blank">Create from template</Button
+				target="_blank"
 			>
+				Create from template
+			</Button>
 		{/if}
 	</div>
 	{#if showScriptHelpText}
@@ -579,19 +594,15 @@
 		</Alert>
 	{:else}
 		<div class="flex flex-col gap-4 my-4">
-			<div class="flex flex-col gap-1">
-				<div class="text-primary text-lg font-semibold">Trigger Failure Email Notifications</div>
-				<Description>
-					Configure email addresses to receive notifications when trigger jobs fail. This feature
-					requires SMTP to be configured.
-				</Description>
-			</div>
+			<Description>
+				Configure email addresses to receive notifications when jobs fail. This feature requires
+				SMTP to be configured.
+			</Description>
 		</div>
 		<div class="flex flex-col gap-2 my-4">
-			<Label>Email Recipients</Label>
 			<MultiSelect
 				items={[] as { label: string; value: string }[]}
-				bind:value={triggerFailureEmailRecipients}
+				bind:value={emailRecipients}
 				placeholder="Enter email addresses..."
 				onCreateItem={(email) => {
 					const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
@@ -599,19 +610,17 @@
 						sendUserToast('Invalid email format', true)
 						return
 					}
-					if (triggerFailureEmailRecipients.includes(email)) {
+					if (emailRecipients.includes(email)) {
 						sendUserToast('Email already added', true)
 						return
 					}
-					triggerFailureEmailRecipients = [...triggerFailureEmailRecipients, email]
+					emailRecipients = [...emailRecipients, email]
 				}}
 				class="w-full"
 			/>
-			{#if triggerFailureEmailRecipients.length > 0}
+			{#if emailRecipients.length > 0}
 				<span class="text-sm text-tertiary">
-					{triggerFailureEmailRecipients.length} email{triggerFailureEmailRecipients.length === 1
-						? ''
-						: 's'} configured
+					{emailRecipients.length} email{emailRecipients.length === 1 ? '' : 's'} configured
 				</span>
 			{/if}
 		</div>

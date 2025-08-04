@@ -9,6 +9,7 @@
 		HttpTriggerService,
 		VariableService,
 		type AuthenticationMethod,
+		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
 		type Retry
@@ -108,8 +109,8 @@
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
-
+	let errorHandlerSelected: ErrorHandler = $state('slack')
+	let email_recipients: string[] = $state([])
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -249,6 +250,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			email_recipients = defaultValues?.email_recipients ?? []
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -284,11 +286,11 @@
 		}
 		extraPerms = cfg?.extra_perms ?? undefined
 		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
-
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		email_recipients = cfg?.email_recipients ?? []
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -356,6 +358,7 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
+			email_recipients,
 			retry
 		}
 
@@ -793,6 +796,7 @@
 										bind:errorHandlerSelected
 										bind:error_handler_path
 										bind:error_handler_args
+										bind:email_recipients
 										bind:retry
 									/>
 								{/if}

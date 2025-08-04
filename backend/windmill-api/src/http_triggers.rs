@@ -12,8 +12,6 @@ use crate::{
     users::fetch_api_authed,
     utils::{check_scopes, non_empty_str, ExpiringCacheEntry},
 };
-use windmill_queue::JobTriggerKind;
-
 use anyhow::anyhow;
 use axum::response::Response;
 use axum::{
@@ -123,6 +121,8 @@ struct NewTrigger {
     raw_string: Option<bool>,
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
     retry: Option<sqlx::types::Json<Retry>>,
 }
 
@@ -155,6 +155,8 @@ pub struct HttpTrigger {
     pub error_handler_args: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -178,6 +180,8 @@ struct EditTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -198,38 +202,38 @@ async fn list_triggers(
 ) -> error::JsonResult<Vec<HttpTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("http_trigger")
-        .fields(&[
-            "workspace_id",
-            "path",
-            "route_path",
-            "route_path_key",
-            "workspaced_route",
-            "wrap_body",
-            "raw_string",
-            "script_path",
-            "summary",
-            "description",
-            "is_flow",
-            "http_method",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-            "is_async",
-            "authentication_method",
-            "static_asset_config",
-            "is_static_website",
-            "authentication_resource_path",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("http_trigger");
+    sqlb.fields(&[
+        "workspace_id",
+        "path",
+        "route_path",
+        "route_path_key",
+        "workspaced_route",
+        "wrap_body",
+        "raw_string",
+        "script_path",
+        "summary",
+        "description",
+        "is_flow",
+        "http_method",
+        "edited_by",
+        "email",
+        "edited_at",
+        "extra_perms",
+        "is_async",
+        "authentication_method",
+        "static_asset_config",
+        "is_static_website",
+        "authentication_resource_path",
+        "error_handler_path",
+        "error_handler_args",
+        "email_recipients",
+        "retry",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -285,7 +289,8 @@ async fn get_trigger(
             raw_string,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _"
+            retry as "retry: _",
+            email_recipients
         FROM 
             http_trigger
         WHERE 
@@ -365,10 +370,11 @@ async fn create_trigger_inner(
             is_static_website,
             error_handler_path,
             error_handler_args,
-            retry
+            retry,
+            email_recipients
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22, $23
         )
         "#,
         w_id,
@@ -393,6 +399,7 @@ async fn create_trigger_inner(
         new_http_trigger.error_handler_path,
         new_http_trigger.error_handler_args as _,
         new_http_trigger.retry as _,
+        new_http_trigger.email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -650,10 +657,11 @@ async fn update_trigger(
                 is_static_website = $18,
                 error_handler_path = $19,
                 error_handler_args = $20,
-                retry = $21
+                retry = $21,
+                email_recipients = $22
             WHERE 
-                workspace_id = $22 AND 
-                path = $23
+                workspace_id = $23 AND 
+                path = $24
             "#,
             route_path,
             &route_path_key,
@@ -676,6 +684,7 @@ async fn update_trigger(
             ct.error_handler_path,
             ct.error_handler_args as _,
             ct.retry as _,
+            ct.email_recipients.as_deref(),
             w_id,
             path,
         )
@@ -705,10 +714,11 @@ async fn update_trigger(
                 is_static_website = $14,
                 error_handler_path = $15,
                 error_handler_args = $16,
-                retry = $17
+                retry = $17,
+                email_recipients = $18
             WHERE 
-                workspace_id = $18 AND 
-                path = $19
+                workspace_id = $19 AND 
+                path = $20
             "#,
             ct.workspaced_route,
             ct.wrap_body,
@@ -727,6 +737,7 @@ async fn update_trigger(
             ct.error_handler_path,
             ct.error_handler_args as _,
             ct.retry as _,
+            ct.email_recipients.as_deref(),
             w_id,
             path,
         )
@@ -1449,7 +1460,6 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
-            JobTriggerKind::Http,
         )
         .await
         .map_err(|e| e.into_response())
@@ -1466,7 +1476,6 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
-            JobTriggerKind::Http,
         )
         .await
         .map_err(|e| e.into_response())

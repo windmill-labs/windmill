@@ -302,7 +302,6 @@ pub async fn push_scheduled_job<'c>(
         None,
         None,
         push_authed,
-        None, // trigger_kind - schedules use the schedule_path instead
     )
     .await?;
 

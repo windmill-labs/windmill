@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { NatsTriggerService, type Retry } from '$lib/gen'
+	import { NatsTriggerService, type ErrorHandler, type Retry } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
@@ -82,9 +82,10 @@
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
+	let email_recipients: string[] | undefined = $state([])
 	let retry: Retry | undefined = $state()
 
 	const saveDisabled = $derived(
@@ -156,6 +157,7 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			email_recipients = defaultValues?.email_recipients
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -179,6 +181,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		email_recipients = cfg?.email_recipients
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -207,6 +210,7 @@
 			use_jetstream: useJetstream,
 			error_handler_path,
 			error_handler_args,
+			email_recipients,
 			retry
 		}
 	}
@@ -417,6 +421,7 @@
 								bind:errorHandlerSelected
 								bind:error_handler_path
 								bind:error_handler_args
+								bind:email_recipients
 								bind:retry
 							/>
 						</div>

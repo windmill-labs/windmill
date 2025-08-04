@@ -24,12 +24,14 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult},
     triggers::TriggerKind,
-    utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
+    utils::{
+        empty_as_none, not_found_if_none, paginate, report_critical_error, Pagination, StripPath,
+    },
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_queue::{JobTriggerKind, PushArgsOwned};
+use windmill_queue::PushArgsOwned;
 
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},
@@ -64,9 +66,12 @@ struct NewWebsocketTrigger {
     initial_messages: Option<Vec<Box<RawValue>>>,
     url_runnable_args: Option<Box<RawValue>>,
     can_return_message: bool,
+    #[serde(default, deserialize_with = "empty_as_none")]
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -118,6 +123,8 @@ pub struct WebsocketTrigger {
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +140,8 @@ struct EditWebsocketTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -152,13 +161,35 @@ async fn list_websocket_triggers(
 ) -> error::JsonResult<Vec<WebsocketTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("websocket_trigger")
-        .field("*")
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("websocket_trigger");
+
+    sqlb.fields(&[
+        "workspace_id",
+        "path",
+        "url",
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "server_id",
+        "last_server_ping",
+        "extra_perms",
+        "error",
+        "enabled",
+        "filters",
+        "initial_messages",
+        "url_runnable_args",
+        "can_return_message",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+        "email_recipients",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -188,14 +219,40 @@ async fn get_websocket_trigger(
     check_scopes(&authed, || format!("websocket_triggers:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let trigger = sqlx::query_as::<_, WebsocketTrigger>(
-        r#"SELECT *
-          FROM websocket_trigger
-          WHERE workspace_id = $1 AND path = $2"#,
+        r#"
+        SELECT
+            workspace_id,
+            path,
+            url,
+            script_path,
+            is_flow,
+            edited_by,
+            email,
+            edited_at,
+            server_id,
+            last_server_ping,
+            extra_perms,
+            error,
+            enabled,
+            filters,
+            initial_messages,
+            url_runnable_args,
+            can_return_message,
+            error_handler_path,
+            error_handler_args,
+            retry,
+            email_recipients
+        FROM 
+            websocket_trigger
+        WHERE 
+            workspace_id = $1 AND path = $2
+    "#,
     )
     .bind(w_id)
     .bind(path)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let trigger = not_found_if_none(trigger, "Trigger", path)?;
@@ -245,9 +302,10 @@ async fn create_websocket_trigger(
             edited_at,
             error_handler_path,
             error_handler_args,
-            retry
+            retry,
+            email_recipients
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16
         )
         "#,
         w_id,
@@ -264,7 +322,8 @@ async fn create_websocket_trigger(
         authed.email,
         ct.error_handler_path,
         ct.error_handler_args as _,
-        ct.retry as _
+        ct.retry as _,
+        ct.email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -317,8 +376,30 @@ async fn update_websocket_trigger(
 
     // important to update server_id to NULL to stop current websocket listener
     sqlx::query!(
-        "UPDATE websocket_trigger SET url = $1, script_path = $2, path = $3, is_flow = $4, filters = $5, initial_messages = $6, url_runnable_args = $7, edited_by = $8, email = $9, can_return_message = $10, edited_at = now(), server_id = NULL, error = NULL, error_handler_path = $13, error_handler_args = $14, retry = $15
-            WHERE workspace_id = $11 AND path = $12",
+        "
+        UPDATE 
+            websocket_trigger
+        SET
+            url = $1,
+            script_path = $2,
+            path = $3,
+            is_flow = $4,
+            filters = $5,
+            initial_messages = $6,
+            url_runnable_args = $7,
+            edited_by = $8,
+            email = $9,
+            can_return_message = $10,
+            edited_at = now(),
+            server_id = NULL,
+            error = NULL,
+            error_handler_path = $13,
+            error_handler_args = $14,
+            retry = $15,
+            email_recipients = $16
+        WHERE
+            workspace_id = $11 AND path = $12
+    ",
         ct.url,
         ct.script_path,
         ct.path,
@@ -334,8 +415,10 @@ async fn update_websocket_trigger(
         ct.error_handler_path,
         ct.error_handler_args as _,
         ct.retry as _,
+        ct.email_recipients.as_deref()
     )
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -546,18 +629,46 @@ async fn listen_to_unlistened_websockets(
     db: &DB,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
-    match sqlx::query_as::<_, WebsocketTrigger>(
-        r#"SELECT *
-            FROM websocket_trigger
-            WHERE enabled IS TRUE AND (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
+    let websocket_triggers = sqlx::query_as::<_, WebsocketTrigger>(
+        r#"
+    SELECT
+        workspace_id,
+        path,
+        url,
+        script_path,
+        is_flow,
+        edited_by,
+        email,
+        edited_at,
+        server_id,
+        last_server_ping,
+        extra_perms,
+        error,
+        enabled,
+        filters,
+        initial_messages,
+        url_runnable_args,
+        can_return_message,
+        error_handler_path,
+        error_handler_args,
+        retry,
+        email_recipients
+    FROM websocket_trigger
+    WHERE
+        enabled IS TRUE
+        AND (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')
+    "#,
     )
     .fetch_all(db)
-    .await
-    {
+    .await;
+
+    match websocket_triggers {
         Ok(mut triggers) => {
             triggers.shuffle(&mut rand::rng());
             for trigger in triggers {
-                trigger.maybe_listen_to_websocket(db.clone(), killpill_rx.resubscribe()).await;
+                trigger
+                    .maybe_listen_to_websocket(db.clone(), killpill_rx.resubscribe())
+                    .await;
             }
         }
         Err(err) => {
@@ -717,7 +828,6 @@ async fn get_url_from_runnable(
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
-        JobTriggerKind::Websocket,
     )
     .await?;
 
@@ -882,7 +992,6 @@ impl WebsocketTrigger {
                         None,
                         None,
                         "".to_string(), // doesn't matter as no retry/error handler
-                        JobTriggerKind::Websocket,
                     )
                     .await
                     .map(|r| r.get().to_owned())?;
@@ -1401,7 +1510,6 @@ async fn run_job(
                     error_handler_path.as_deref(),
                     error_handler_args.as_ref(),
                     format!("websocket_trigger/{}", trigger_path),
-                    JobTriggerKind::Websocket
                 ) => {
                     if let Ok(result) = result.map(|r| r.get().to_owned()) {
                         // only send the result if it's not null
@@ -1433,7 +1541,6 @@ async fn run_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("websocket_trigger/{}", trigger.path),
-            JobTriggerKind::Websocket,
         )
         .await?;
     }

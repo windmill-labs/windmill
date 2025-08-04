@@ -980,7 +980,6 @@ async fn create_script_internal<'c>(
             None,
             None,
             Some(&authed.clone().into()),
-            None
         )
         .await?;
         Ok((hash, new_tx))

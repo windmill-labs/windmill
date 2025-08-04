@@ -16,7 +16,8 @@
 		type MqttV3Config,
 		type MqttV5Config,
 		type MqttSubscribeTopic,
-		type Retry
+		type Retry,
+		type ErrorHandler
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
@@ -91,10 +92,11 @@
 	let isValid: boolean = $state(false)
 	let initialConfig: Record<string, any> | undefined = {}
 	let deploymentLoading = $state(false)
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let email_recipients: string[] | undefined = $state([])
 
 	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
 		$state('connection_options')
@@ -176,6 +178,7 @@
 			activateV5Options.session_expiry_interval = Boolean(
 				defaultValues?.v5_config?.session_expiry_interval
 			)
+			email_recipients = defaultValues?.email_recipients
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -203,6 +206,7 @@
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
+			email_recipients = cfg?.email_recipients
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
 		}
@@ -239,6 +243,7 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
+			email_recipients,
 			retry
 		}
 	}
@@ -557,6 +562,7 @@
 									bind:errorHandlerSelected
 									bind:error_handler_path
 									bind:error_handler_args
+									bind:email_recipients
 									bind:retry
 								/>
 							{/if}

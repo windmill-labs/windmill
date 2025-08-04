@@ -16,6 +16,7 @@ use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
+use serde_json::Value;
 use sqlx::Pool;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -33,6 +34,7 @@ use windmill_common::jobs::{
 };
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
@@ -66,7 +68,9 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
+use windmill_common::auth::is_super_admin_email;
 use windmill_common::worker::to_raw_value;
+
 use windmill_common::{
     cache,
     db::UserDB,
@@ -85,10 +89,11 @@ use windmill_common::{
 
 use windmill_common::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    get_script_info_for_hash, FlowVersionInfo, ScriptHashInfo, BASE_URL,
+    get_script_info_for_hash, utils::empty_as_none, FlowVersionInfo, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, JobTriggerKind, PushArgs, PushArgsOwned, PushIsolationLevel
+    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, JobTriggerKind,
+    PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 pub fn workspaced_service() -> Router {
@@ -233,6 +238,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
+        .route(
+            "/send_email_with_instance_smtp",
+            post(send_email_with_instance_smtp),
+        )
 }
 
 pub fn workspace_unauthed_service() -> Router {
@@ -1035,6 +1044,212 @@ impl<'a> GetQuery<'a> {
             }
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SendEmail {
+    job_id: Uuid,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    trigger_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    runnable_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
+    error: Value,
+}
+
+#[cfg(feature = "smtp")]
+async fn send_workspace_trigger_failure_email_notification(
+    w_id: &str,
+    send_email: SendEmail,
+    db: &Pool<Postgres>,
+) -> Result<(), Error> {
+    let smtp_config = match load_smtp_config(db).await? {
+        Some(config) => config,
+        None => {
+            tracing::info!(
+                "SMTP not configured, skipping workspace trigger failure email notification"
+            );
+            return Ok(());
+        }
+    };
+    let SendEmail { job_id, runnable_path, email_recipients: recipients, error, trigger_path } =
+        send_email;
+    let runnable_path = runnable_path.as_deref().unwrap_or("Unknown");
+
+    let (trigger_kind, trigger_path) = if let Some(trigger_path) = trigger_path.as_deref() {
+        match trigger_path.split_once('/') {
+            Some((trigger_kind, trigger_path)) => {
+                tracing::debug!(
+                    "Workspace trigger job {} is a {:?} trigger",
+                    &job_id,
+                    trigger_kind
+                );
+                (Some(trigger_kind), Some(trigger_path))
+            }
+            _ => {
+                return Ok(());
+            }
+        }
+    } else {
+        (None, None)
+    };
+
+    let base_url = BASE_URL.read().await;
+    let job_url = format!("{}/run/{}?workspace={}", base_url, &job_id, w_id);
+    let trigger_kind_str = trigger_kind.unwrap_or("Unknown").to_string().to_uppercase();
+
+    let subject = format!(
+        "Windmill Job Failed: {} in workspace {}",
+        runnable_path, w_id
+    );
+
+    let error_details = serde_json::to_string_pretty(&error)
+        .unwrap_or_else(|_| format!("Unable to serialize error: {:?}", error));
+
+    let content = format!(
+        r#"
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <style>
+      body {{ font-family: Arial, sans-serif; color: #333; }}
+      h1 {{ color: #c0392b; }}
+      .section {{ margin-bottom: 20px; }}
+      .label {{ font-weight: bold; }}
+      pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }}
+      a.button {{
+        display: inline-block;
+        padding: 10px 15px;
+        margin-top: 10px;
+        color: #fff;
+        background-color: #2980b9;
+        text-decoration: none;
+        border-radius: 5px;
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>Windmill Trigger Job {} Failed</h1>
+    
+    <div class="section">
+      <span class="label">Workspace:</span> {}
+    </div>
+
+    <div class="section">
+      <span class="label">Trigger path:</span> {}
+    </div>
+    
+    <div class="section">
+      <span class="label">Trigger Type:</span> {}
+    </div>
+    
+    <div class="section">
+      <span class="label">Script/Flow Path:</span> {}
+    </div>
+    
+    <div class="section">
+      <span class="label">Job ID:</span> {}
+    </div>
+    
+    <div class="section">
+      <span class="label">Error Details:</span>
+      <pre>{}</pre>
+    </div>
+    
+    <a href="{}" class="button">View Job Details</a>
+  </body>
+</html>
+"#,
+        &job_id,
+        w_id,
+        trigger_path.unwrap_or("Unknown"),
+        trigger_kind_str,
+        runnable_path,
+        &job_id,
+        error_details,
+        job_url
+    );
+
+    let Some(email_recipients) = recipients else {
+        use windmill_common::utils::report_critical_error;
+
+        tracing::error!("No recipient to send the error");
+        report_critical_error(
+            "No recipient to send the error".to_string(),
+            db.clone(),
+            Some(w_id),
+            None,
+        )
+        .await;
+        return Ok(());
+    };
+
+    if let Err(e) = send_email_html(
+        &subject,
+        &content,
+        email_recipients.clone(),
+        smtp_config,
+        None,
+    )
+    .await
+    {
+        let err_msg = format!(
+            "Failed to send workspace email notification for trigger failure (trigger kind: {}, job ID: {}): {}",
+            trigger_kind_str,
+            &job_id,
+            e
+        );
+        return Err(Error::internal_err(err_msg));
+    } else {
+        tracing::info!(
+            "Sent workspace trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
+            trigger_kind_str,
+            &job_id,
+            email_recipients
+        );
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "enterprise", feature = "smtp"))]
+async fn send_email_with_instance_smtp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(send_email): Json<SendEmail>,
+) -> error::Result<()> {
+    if *CLOUD_HOSTED {
+        tracing::warn!(
+            "Workspace trigger failure email notification is not available for cloud hosted Windmill, skipping for job {}",
+            send_email.job_id
+        );
+        return Ok(());
+    }
+
+    if authed.email == "error_handler@windmill.dev"
+        || is_super_admin_email(&db, &authed.email).await?
+    {
+        return send_workspace_trigger_failure_email_notification(&w_id, send_email, &db).await;
+    }
+
+    return Err(Error::NotAuthorized(
+        "Only super admin or whitelisted token can access email workspace error handler feature"
+            .to_string(),
+    ));
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "smtp")))]
+async fn send_email_with_instance_smtp(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_send_email): Json<SendEmail>,
+) -> error::Result<()> {
+    tracing::warn!("SMTP is not enabled, skipping workspace trigger failure email notification",);
+
+    return Err(anyhow::anyhow!("SMTP is not enabled").into());
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -3427,7 +3642,6 @@ async fn batch_rerun_handle_job(
                 StripPath(job.script_path.clone()),
                 RunJobQuery { ..Default::default() },
                 PushArgsOwned { extra: None, args },
-                None,
             )
             .await;
             if let Ok(uuid) = result {
@@ -3444,7 +3658,6 @@ async fn batch_rerun_handle_job(
                     StripPath(job.script_path.clone()),
                     RunJobQuery { ..Default::default() },
                     PushArgsOwned { extra: None, args },
-                    None,
                 )
                 .await
             } else {
@@ -3489,7 +3702,7 @@ pub async fn run_flow_by_path(
         .await?;
 
     let uuid =
-        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await?;
+        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -3502,7 +3715,6 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<Uuid> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3576,7 +3788,6 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
-        trigger_kind,
     )
     .await?;
     tx.commit().await?;
@@ -3671,7 +3882,6 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
-        None
     )
     .await?;
     tx.commit().await?;
@@ -3696,17 +3906,8 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    let (uuid, _) = run_script_by_path_inner(
-        authed,
-        db,
-        user_db,
-        w_id,
-        script_path,
-        run_query,
-        args,
-        None,
-    )
-    .await?;
+    let (uuid, _) =
+        run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -3719,7 +3920,6 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3777,7 +3977,6 @@ pub async fn run_script_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
-        trigger_kind,
     )
     .await?;
     tx.commit().await?;
@@ -3926,7 +4125,6 @@ pub async fn run_workflow_as_code(
         None,
         None,
         push_authed.as_ref(),
-        None,
     )
     .await?;
 
@@ -4457,7 +4655,6 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         push_authed.as_ref(),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4555,8 +4752,13 @@ pub async fn run_wait_result_script_by_path_internal(
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path.to_path(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
+        script_path.to_path(),
+        &mut *tx,
+        &w_id,
+        run_query.skip_preprocessor,
+    )
+    .await?;
     drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
@@ -4603,7 +4805,6 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4718,7 +4919,6 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         push_authed.as_ref(),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4836,7 +5036,6 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4906,7 +5105,6 @@ async fn run_preview_script(
         None,
         None,
         Some(&authed.clone().into()),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4995,7 +5193,6 @@ async fn run_bundle_preview_script(
                 None,
                 None,
                 Some(&authed.clone().into()),
-                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5161,7 +5358,6 @@ async fn run_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -5227,7 +5423,6 @@ async fn run_flow_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
-        None
     )
     .await?;
     tx.commit().await?;
@@ -5568,7 +5763,6 @@ async fn run_preview_flow_job(
         None,
         None,
         Some(&authed.clone().into()),
-        None
     )
     .await?;
     tx.commit().await?;
@@ -5694,7 +5888,6 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         push_authed.as_ref(),
-        None
     )
     .await?;
     tx.commit().await?;

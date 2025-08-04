@@ -30,10 +30,11 @@ use windmill_audit::ActionKind;
 
 #[cfg(feature = "benchmark")]
 use windmill_common::add_time;
+use windmill_common::agent_workers::BASE_INTERNAL_URL;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::utils::{now_from_db, IsEmpty};
+use windmill_common::utils::{now_from_db, };
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 
@@ -72,8 +73,6 @@ use backon::{BackoffBuilder, Retryable};
 
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
-#[cfg(feature = "smtp")]
-use windmill_common::{server::load_smtp_config, email_oss::send_email_html};
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
@@ -454,7 +453,6 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
-        None
     )
     .await?;
     inner_tx.commit().await?;
@@ -504,7 +502,6 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         None,
-        None, // trigger_kind
     )
     .await?;
     inner_tx.commit().await?;
@@ -1296,7 +1293,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     None,
                     queued_job.priority,
                     None,
-                    None
                 )
                 .await?;
                 if let Err(e) = tx.commit().await {
@@ -1335,6 +1331,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
             None,
             queued_job.started_at,
             None,
+            None,
             &queued_job.permissioned_as_email,
             false,
             true,
@@ -1352,15 +1349,25 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     error_message: String,
 ) -> () {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
-        "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
+    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<Vec<String>>)>(
+        r#"SELECT 
+                    error_handler, 
+                    error_handler_extra_args,
+                    email_recipients
+                FROM 
+                    workspace_settings 
+                WHERE 
+                    workspace_id = $1
+                "#,
     )
     .bind(&w_id)
     .fetch_optional(db)
     .await
     .ok()
     .flatten()
-    .unwrap_or((None, None));
+    .unwrap_or((None, None, None));
+
+    let (error_handler, error_handler_extra_args, email_recipients) = row_result;
 
     if let Some(error_handler) = error_handler {
         if let Err(err) = push_error_handler(
@@ -1379,6 +1386,7 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
             None,
             queued_job.started_at,
             error_handler_extra_args,
+            email_recipients,
             &queued_job.permissioned_as_email,
             false,
             false,
@@ -1410,7 +1418,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         error_handler,
         error_handler_extra_args,
         error_handler_muted_on_cancel,
-        trigger_failure_email_recipients
+        email_recipients
     ) = sqlx::query_as::<_, (
             Option<String>,
             Option<Json<Box<RawValue>>>,
@@ -1422,7 +1430,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 error_handler,
                 error_handler_extra_args,
                 error_handler_muted_on_cancel,
-                trigger_failure_email_recipients
+                email_recipients
             FROM 
                 workspace_settings
             WHERE 
@@ -1478,6 +1486,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 None,
                 queued_job.started_at,
                 error_handler_extra_args,
+                email_recipients,
                 &queued_job.permissioned_as_email,
                 false,
                 false,
@@ -1485,165 +1494,6 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             )
             .await?;
         }
-    }
-    else if !trigger_failure_email_recipients.is_empty() && queued_job.parent_job.is_none() {
-
-        if *CLOUD_HOSTED {
-            tracing::warn!(
-                "Workspace trigger failure email notification is not available for cloud hosted Windmill, skipping for job {}",
-                queued_job.id
-            );
-            return Ok(());
-        }
-
-        #[cfg(feature = "smtp")]
-        return send_workspace_trigger_failure_email_notification(
-            queued_job,
-            db,
-            result,
-            trigger_failure_email_recipients.unwrap(),
-        )
-        .await;
-
-        #[cfg(not(feature = "smtp"))]
-        {
-            tracing::warn!(
-                "SMTP is not enabled, skipping workspace trigger failure email notification for job {}",
-                queued_job.id
-            );
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "smtp")]
-async fn send_workspace_trigger_failure_email_notification<'a, T: Serialize + Send + Sync>(
-    queued_job: &MiniPulledJob,
-    db: &Pool<Postgres>,
-    result: Json<&'a T>,
-    recipients: Vec<String>,
-) -> Result<(), Error> {
-
-    let smtp_config = match load_smtp_config(db).await? {
-        Some(config) => config,
-        None => {
-            tracing::info!("SMTP not configured, skipping workspace trigger failure email notification");
-            return Ok(());
-        }
-    };
-
-    let trigger_kind: Option<JobTriggerKind> = sqlx::query_scalar!(
-        r#"SELECT 
-            trigger_kind AS "trigger_kind: _"
-        FROM 
-            v2_job 
-        WHERE 
-            id = $1"#,
-        queued_job.id
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(None);
-
-    let trigger_kind = match trigger_kind {
-        Some(trigger_kind) => {
-            tracing::debug!("Workspace trigger job {} is a {:?} trigger", queued_job.id, trigger_kind);
-            trigger_kind
-        }
-        _ => {
-            return Ok(());
-        }
-    };
-
-    let base_url = BASE_URL.read().await;
-    let job_url = format!("{}/run/{}?workspace={}", base_url, queued_job.id, queued_job.workspace_id);
-    let trigger_kind_str = trigger_kind.to_string().to_uppercase();
-
-    let subject = format!(
-        "Windmill {} Trigger Job Failed: {} in workspace {}",
-        &trigger_kind_str,
-        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
-        queued_job.workspace_id
-    );
-
-    let error_details = serde_json::to_string_pretty(result.0)
-        .unwrap_or_else(|_| "Unable to serialize error details".to_string());
-
-    let content = format!(
-        r#"
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {{ font-family: Arial, sans-serif; color: #333; }}
-      h1 {{ color: #c0392b; }}
-      .section {{ margin-bottom: 20px; }}
-      .label {{ font-weight: bold; }}
-      pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }}
-      a.button {{
-        display: inline-block;
-        padding: 10px 15px;
-        margin-top: 10px;
-        color: #fff;
-        background-color: #2980b9;
-        text-decoration: none;
-        border-radius: 5px;
-      }}
-    </style>
-  </head>
-  <body>
-    <h1>Windmill {} Trigger Job Failed</h1>
-    
-    <div class="section">
-      <span class="label">Workspace:</span> {}
-    </div>
-    
-    <div class="section">
-      <span class="label">Trigger Type:</span> {}
-    </div>
-    
-    <div class="section">
-      <span class="label">Script/Flow Path:</span> {}
-    </div>
-    
-    <div class="section">
-      <span class="label">Job ID:</span> {}
-    </div>
-    
-    <div class="section">
-      <span class="label">Error Details:</span>
-      <pre>{}</pre>
-    </div>
-    
-    <a href="{}" class="button">View Job Details</a>
-  </body>
-</html>
-"#,
-        trigger_kind_str,
-        queued_job.workspace_id,
-        trigger_kind_str,
-        queued_job.runnable_path.as_deref().unwrap_or("Unknown"),
-        queued_job.id,
-        error_details,
-        job_url
-    );
-
-    if let Err(e) = send_email_html(&subject, &content, recipients.clone(), smtp_config, None).await {
-        let err_msg = format!(
-            "Failed to send workspace email notification for trigger failure (trigger kind: {}, job ID: {}): {}",
-            trigger_kind_str,
-            queued_job.id,
-            e
-        );
-        return Err(Error::internal_err(err_msg));
-    } else {
-        tracing::info!(
-            "Sent workspace trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
-            trigger_kind_str,
-            queued_job.id,
-            recipients
-        );
     }
     Ok(())
 }
@@ -1802,6 +1652,7 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
                 Some(times),
                 Some(started_at),
                 schedule.on_failure_extra_args.clone(),
+                None,
                 &schedule.email,
                 true,
                 false,
@@ -1905,6 +1756,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     failed_times: Option<i32>,
     started_at: Option<DateTime<Utc>>,
     extra_args: Option<Json<Box<RawValue>>>,
+    recipients: Option<Vec<String>>,
     email: &str,
     is_schedule_error_handler: bool,
     is_global_error_handler: bool,
@@ -1928,6 +1780,11 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
     extra.insert("email".to_string(), to_raw_value(&email));
+
+    if recipients.is_some() {
+        extra.insert("email_recipients".to_string(), to_raw_value(&recipients));
+        extra.insert("base_internal_url".to_string(), to_raw_value(&*BASE_INTERNAL_URL));
+    }
     if let Some(failed_times) = failed_times {
         extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
     }
@@ -1993,7 +1850,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         priority,
-        None,
         None
     )
     .await?;
@@ -2103,7 +1959,6 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
-        None, // trigger_kind
     )
     .await?;
     tracing::info!(
@@ -2193,7 +2048,6 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
-        None, // trigger_kind
     )
     .await?;
     tracing::info!(
@@ -3571,7 +3425,6 @@ pub async fn push<'c, 'd>(
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
-    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4559,7 +4412,7 @@ pub async fn push<'c, 'd>(
     let trigger_kind = if schedule_path.is_some() {
         Some(JobTriggerKind::Schedule)
     } else {
-        trigger_kind
+        None
     };
     
     sqlx::query!(

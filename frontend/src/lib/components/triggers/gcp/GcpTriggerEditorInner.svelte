@@ -12,7 +12,8 @@
 		type DeliveryType,
 		type PushConfig,
 		type SubscriptionMode,
-		type Retry
+		type Retry,
+		type ErrorHandler
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -52,11 +53,11 @@
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-
+	let email_recipients = $state([])
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -148,6 +149,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			email_recipients = defaultValues?.email_recipients ?? []
 		} finally {
 			drawerLoading = false
 		}
@@ -187,6 +189,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		email_recipients = cfg?.email_recipients
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -224,6 +227,7 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
+			email_recipients,
 			retry
 		}
 	}
@@ -415,6 +419,7 @@
 								bind:errorHandlerSelected
 								bind:error_handler_path
 								bind:error_handler_args
+								bind:email_recipients
 								bind:retry
 							/>
 						</div>

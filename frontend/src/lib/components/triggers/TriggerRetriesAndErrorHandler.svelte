@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Retry } from '$lib/gen'
+	import type { ErrorHandler, Retry } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
@@ -14,15 +14,17 @@
 		errorHandlerSelected = $bindable(),
 		error_handler_path = $bindable(),
 		error_handler_args = $bindable(),
+		email_recipients = $bindable([]),
 		retry = $bindable()
 	}: {
 		optionTabSelected: 'error_handler' | 'retries' | string
 		itemKind: 'script' | 'flow'
 		can_write: boolean
-		errorHandlerSelected: 'custom' | 'slack' | 'teams'
+		errorHandlerSelected: ErrorHandler
 		error_handler_path: string | undefined
 		error_handler_args: Record<string, any>
 		retry: Retry | undefined
+		email_recipients: string[] | undefined
 	} = $props()
 </script>
 
@@ -41,6 +43,7 @@
 		showScriptHelpText={true}
 		bind:handlerSelected={errorHandlerSelected}
 		bind:handlerPath={error_handler_path}
+		bind:emailRecipients={email_recipients}
 		toggleText="Alert channel on error"
 		customScriptTemplate="/scripts/add?hub=hub%2F13953%2Fwindmill%2Ftrigger_error_handler_template"
 		customHandlerKind="script"

@@ -241,7 +241,7 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub trigger_failure_email_recipients: Option<Vec<String>>,
+    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -360,7 +360,7 @@ pub struct EditErrorHandler {
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
     #[serde(default, deserialize_with = "empty_as_none")]
-    pub trigger_failure_email_recipients: Option<Vec<String>>,
+    pub email_recipients: Option<Vec<String>>,
 }
 
 lazy_static::lazy_static! {
@@ -443,7 +443,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations, trigger_failure_email_recipients FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations, email_recipients FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_optional(&mut *tx)
@@ -571,6 +571,7 @@ async fn run_slack_message_test_job(
         None,
         Some(Utc::now()),
         Some(sqlx::types::Json(to_raw_value(&extra_args))),
+        None,
         authed.email.as_str(),
         false,
         false,
@@ -1214,44 +1215,33 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
+        if let Some(recipients) = ee.email_recipients.as_ref() {
+            for recipient in recipients {
+                if !EMAIL_REGEXP.is_match(recipient) {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid email format: {}",
+                        recipient
+                    )));
+                }
+            }
+        }
+
         sqlx::query!(
             r#"
-            UPDATE workspace_settings
+            UPDATE 
+                workspace_settings
             SET
                 error_handler = $1,
                 error_handler_extra_args = $2,
                 error_handler_muted_on_cancel = $3,
-                trigger_failure_email_recipients = NULL
-            WHERE workspace_id = $4
+                email_recipients = $4
+            WHERE 
+                workspace_id = $5
         "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    } else if let Some(recipients) = &ee.trigger_failure_email_recipients {
-        for recipient in recipients {
-            if !EMAIL_REGEXP.is_match(recipient) {
-                return Err(Error::BadRequest(format!(
-                    "Invalid email format: {}",
-                    recipient
-                )));
-            }
-        }
-        sqlx::query!(
-            r#"
-            UPDATE workspace_settings
-            SET
-                error_handler = NULL,
-                error_handler_extra_args = NULL,
-                trigger_failure_email_recipients = $1,
-                error_handler_muted_on_cancel = $2
-            WHERE workspace_id = $3
-        "#,
-            recipients,
-            ee.error_handler_muted_on_cancel.unwrap_or(false),
+            ee.email_recipients.as_deref(),
             &w_id
         )
         .execute(&mut *tx)
@@ -1264,7 +1254,7 @@ async fn edit_error_handler(
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
                 error_handler_muted_on_cancel = NULL,
-                trigger_failure_email_recipients = NULL
+                email_recipients = NULL
             WHERE workspace_id = $1
         "#,
             &w_id
@@ -1284,8 +1274,8 @@ async fn edit_error_handler(
             [
                 ("error_handler", &format!("{:?}", ee.error_handler)[..]),
                 (
-                    "trigger_failure_email_recipients",
-                    &format!("{:?}", ee.trigger_failure_email_recipients)[..],
+                    "email_recipients",
+                    &format!("{:?}", ee.email_recipients)[..],
                 ),
             ]
             .into(),

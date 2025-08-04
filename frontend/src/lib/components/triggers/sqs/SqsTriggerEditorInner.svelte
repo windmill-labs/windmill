@@ -7,7 +7,12 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import { SqsTriggerService, type AwsAuthResourceType, type Retry } from '$lib/gen'
+	import {
+		SqsTriggerService,
+		type AwsAuthResourceType,
+		type ErrorHandler,
+		type Retry
+	} from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -79,9 +84,10 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
+	let email_recipients: string[] | undefined = $state([])
 	let retry: Retry | undefined = $state()
 
 	const sqsConfig = $derived.by(getSaveCfg)
@@ -147,6 +153,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			email_recipients = defaultValues?.email_recipients ?? []
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
@@ -170,7 +177,8 @@
 			error_handler_path = cfg?.error_handler_path
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			email_recipients = cfg?.email_recipients ?? []
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '') ?? []
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
@@ -205,6 +213,7 @@
 			enabled,
 			error_handler_path,
 			error_handler_args,
+			email_recipients,
 			retry
 		}
 	}
@@ -406,6 +415,7 @@
 								bind:errorHandlerSelected
 								bind:error_handler_path
 								bind:error_handler_args
+								bind:email_recipients
 								bind:retry
 							/>
 						</div>

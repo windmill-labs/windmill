@@ -1,14 +1,10 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE workspace_settings\n            SET\n                error_handler = NULL,\n                error_handler_extra_args = NULL,\n                trigger_failure_email_recipients = $1,\n                error_handler_muted_on_cancel = $2\n            WHERE workspace_id = $3\n        ",
+  "query": "\n            UPDATE workspace_settings\n            SET\n                error_handler = NULL,\n                error_handler_extra_args = NULL,\n                email_recipients = $1,\n                error_handler_muted_on_cancel = $2\n            WHERE workspace_id = $3\n        ",
   "describe": {
     "columns": [],
     "parameters": {
-      "Left": [
-        "TextArray",
-        "Bool",
-        "Text"
-      ]
+      "Left": ["TextArray", "Bool", "Text"]
     },
     "nullable": []
   },

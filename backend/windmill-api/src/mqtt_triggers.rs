@@ -6,7 +6,6 @@ use crate::{
     users::fetch_api_authed,
     utils::check_scopes,
 };
-use windmill_queue::JobTriggerKind;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use axum::{
@@ -45,7 +44,9 @@ use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     triggers::TriggerKind,
-    utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
+    utils::{
+        empty_as_none, not_found_if_none, paginate, report_critical_error, Pagination, StripPath,
+    },
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
@@ -119,7 +120,6 @@ async fn run_job(
         trigger.error_handler_path.as_deref(),
         trigger.error_handler_args.as_ref(),
         format!("mqtt_trigger/{}", trigger.path),
-        JobTriggerKind::Mqtt,
     )
     .await?;
 
@@ -219,6 +219,8 @@ pub struct NewMqttTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -236,6 +238,8 @@ pub struct EditMqttTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -265,6 +269,8 @@ pub struct MqttTrigger {
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -545,6 +551,7 @@ pub async fn create_mqtt_trigger(
         error_handler_path,
         error_handler_args,
         retry,
+        email_recipients,
     } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -571,7 +578,8 @@ pub async fn create_mqtt_trigger(
             edited_by,
             error_handler_path,
             error_handler_args,
-            retry
+            retry,
+            email_recipients
         ) 
         VALUES (
             $1, 
@@ -589,7 +597,8 @@ pub async fn create_mqtt_trigger(
             $13,
             $14,
             $15,
-            $16
+            $16,
+            $17
         )"#,
         mqtt_resource_path,
         subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
@@ -606,7 +615,8 @@ pub async fn create_mqtt_trigger(
         &authed.username,
         error_handler_path,
         error_handler_args as _,
-        retry as _
+        retry as _,
+        email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -646,35 +656,35 @@ pub async fn list_mqtt_triggers(
 ) -> error::JsonResult<Vec<MqttTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("mqtt_trigger")
-        .fields(&[
-            "mqtt_resource_path",
-            "subscribe_topics",
-            "v3_config",
-            "v5_config",
-            "client_version",
-            "client_id",
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "server_id",
-            "last_server_ping",
-            "extra_perms",
-            "error",
-            "enabled",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("mqtt_trigger");
+    sqlb.fields(&[
+        "mqtt_resource_path",
+        "subscribe_topics",
+        "v3_config",
+        "v5_config",
+        "client_version",
+        "client_id",
+        "workspace_id",
+        "path",
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "server_id",
+        "last_server_ping",
+        "extra_perms",
+        "error",
+        "enabled",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+        "email_recipients",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -735,7 +745,8 @@ pub async fn get_mqtt_trigger(
             enabled,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _"
+            retry as "retry: _",
+            email_recipients
         FROM 
             mqtt_trigger
         WHERE 
@@ -762,7 +773,9 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    check_scopes(&authed, || format!("mqtt_triggers:write:{}", workspace_path))?;
+    check_scopes(&authed, || {
+        format!("mqtt_triggers:write:{}", workspace_path)
+    })?;
 
     let EditMqttTrigger {
         mqtt_resource_path,
@@ -777,6 +790,7 @@ pub async fn update_mqtt_trigger(
         error_handler_path,
         error_handler_args,
         retry,
+        email_recipients,
     } = mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -807,7 +821,8 @@ pub async fn update_mqtt_trigger(
                 server_id = NULL,
                 error_handler_path = $14,
                 error_handler_args = $15,
-                retry = $16
+                retry = $16,
+                email_recipients = $17
             WHERE 
                 workspace_id = $12 AND 
                 path = $13
@@ -827,7 +842,8 @@ pub async fn update_mqtt_trigger(
         workspace_path,
         error_handler_path,
         error_handler_args as _,
-        retry as _
+        retry as _,
+        email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -1828,7 +1844,8 @@ async fn listen_to_unlistened_mqtt_events(
                 enabled,
                 error_handler_path,
                 error_handler_args as "error_handler_args: _",
-                retry as "retry: _"
+                retry as "retry: _",
+                email_recipients
             FROM
                 mqtt_trigger
             WHERE

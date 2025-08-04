@@ -102,6 +102,8 @@ pub struct EditPostgresTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -117,6 +119,8 @@ pub struct NewPostgresTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -250,6 +254,8 @@ pub struct PostgresTrigger {
     pub error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -374,7 +380,9 @@ pub async fn create_postgres_trigger(
     Path(w_id): Path<String>,
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("postgres_triggers:write:{}", new_postgres_trigger.path))?;
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", new_postgres_trigger.path)
+    })?;
 
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
@@ -394,6 +402,7 @@ pub async fn create_postgres_trigger(
         error_handler_path,
         error_handler_args,
         retry,
+        email_recipients,
     } = new_postgres_trigger;
 
     if publication_name.is_none() && publication.is_none() {
@@ -446,7 +455,8 @@ pub async fn create_postgres_trigger(
             edited_by,
             error_handler_path,
             error_handler_args,
-            retry
+            retry,
+            email_recipients
         ) 
         VALUES (
             $1, 
@@ -461,7 +471,8 @@ pub async fn create_postgres_trigger(
             $10,
             $11,
             $12,
-            $13
+            $13,
+            $14
         )"#,
         pub_name,
         slot_name,
@@ -475,7 +486,8 @@ pub async fn create_postgres_trigger(
         &authed.username,
         error_handler_path,
         error_handler_args as _,
-        retry as _
+        retry as _,
+        email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -515,32 +527,32 @@ pub async fn list_postgres_triggers(
 ) -> error::JsonResult<Vec<PostgresTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("postgres_trigger")
-        .fields(&[
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "server_id",
-            "last_server_ping",
-            "extra_perms",
-            "error",
-            "enabled",
-            "postgres_resource_path",
-            "replication_slot_name",
-            "publication_name",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("postgres_trigger");
+    sqlb.fields(&[
+        "workspace_id",
+        "path",
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "server_id",
+        "last_server_ping",
+        "extra_perms",
+        "error",
+        "enabled",
+        "postgres_resource_path",
+        "replication_slot_name",
+        "publication_name",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+        "email_recipients",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -1177,7 +1189,8 @@ pub async fn get_postgres_trigger(
             postgres_resource_path,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _"
+            retry as "retry: _",
+            email_recipients
         FROM 
             postgres_trigger
         WHERE 
@@ -1204,7 +1217,9 @@ pub async fn update_postgres_trigger(
     Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> Result<String> {
     let workspace_path = path.to_path();
-    check_scopes(&authed, || format!("postgres_triggers:write:{}", workspace_path))?;
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", workspace_path)
+    })?;
 
     let EditPostgresTrigger {
         replication_slot_name,
@@ -1217,6 +1232,7 @@ pub async fn update_postgres_trigger(
         error_handler_path,
         error_handler_args,
         retry,
+        email_recipients,
     } = postgres_trigger;
 
     let mut pg_connection = get_default_pg_connection(
@@ -1281,7 +1297,8 @@ pub async fn update_postgres_trigger(
                 server_id = NULL,
                 error_handler_path = $11,
                 error_handler_args = $12,
-                retry = $13
+                retry = $13,
+                email_recipients = $14
             WHERE 
                 workspace_id = $9 AND 
                 path = $10
@@ -1299,6 +1316,7 @@ pub async fn update_postgres_trigger(
         error_handler_path,
         error_handler_args as _,
         retry as _,
+        email_recipients.as_deref()
     )
     .execute(&mut *tx)
     .await?;

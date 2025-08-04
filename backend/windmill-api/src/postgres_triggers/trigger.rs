@@ -916,7 +916,8 @@ async fn listen_to_unlistened_database_events(
                 postgres_resource_path,
                 error_handler_path,
                 error_handler_args as "error_handler_args: _",
-                retry as "retry: _"
+                retry as "retry: _",
+                email_recipients
             FROM
                 postgres_trigger
             WHERE

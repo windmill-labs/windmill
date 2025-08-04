@@ -145,14 +145,12 @@
       },
       {
         "ordinal": 28,
-        "name": "trigger_failure_email_recipients",
+        "name": "email_recipients",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": ["Text"]
     },
     "nullable": [
       false,
