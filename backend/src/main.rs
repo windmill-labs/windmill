@@ -95,7 +95,7 @@ use crate::monitor::{
     reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -144,10 +144,12 @@ fn update_ca_certificates_if_requested() {
         let ca_cert_path = std::env::var("RUN_UPDATE_CA_CERTIFICATE_PATH")
             .unwrap_or_else(|_| "/usr/sbin/update-ca-certificates".to_string());
 
-        println!("RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running: {}", ca_cert_path);
+        println!(
+            "RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running: {}",
+            ca_cert_path
+        );
 
-        let output = std::process::Command::new(&ca_cert_path)
-            .output();
+        let output = std::process::Command::new(&ca_cert_path).output();
 
         match output {
             Ok(result) => {
@@ -155,11 +157,17 @@ fn update_ca_certificates_if_requested() {
                     println!("Successfully updated CA certificates");
                 } else {
                     let stderr = String::from_utf8_lossy(&result.stderr);
-                    println!("Failed to update CA certificates, but continuing startup: {}", stderr.trim());
+                    println!(
+                        "Failed to update CA certificates, but continuing startup: {}",
+                        stderr.trim()
+                    );
                 }
             }
             Err(e) => {
-                println!("Could not run update-ca-certificates command, but continuing startup: {}", e);
+                println!(
+                    "Could not run update-ca-certificates command, but continuing startup: {}",
+                    e
+                );
             }
         }
     }
@@ -565,6 +573,7 @@ Windmill Community Edition {GIT_VERSION}
             worker_mode,
             true,
             killpill_tx.clone(),
+            None,
         )
         .await;
 
@@ -792,6 +801,8 @@ Windmill Community Edition {GIT_VERSION}
                     let h = tokio::spawn(async move {
                         let mut listener = retry_listen_pg(&db_url).await;
                         let mut last_listener_refresh = Instant::now();
+                        let mut monitor_iteration: u64 = 0;
+                        let rd_shift: u8 = rand::rng().random_range(0..200);
                         loop {
                             let db = db.clone();
                             tokio::select! {
@@ -1127,8 +1138,13 @@ Windmill Community Edition {GIT_VERSION}
                                         worker_mode,
                                         false,
                                         tx.clone(),
+                                        Some(MonitorIteration {
+                                            rd_shift,
+                                            iter: monitor_iteration,
+                                        }),
                                     )
                                     .await;
+                                    monitor_iteration += 1;
                                     if server_mode {
                                         if !*windmill_common::QUIET_LOGS {
                                             tracing::info!("monitor task finished");

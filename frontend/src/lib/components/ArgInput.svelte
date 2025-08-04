@@ -512,8 +512,11 @@
 	{#if variableEditor}
 		<div class="text-sm text-tertiary">
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
-				Linked to resource <a target="_blank" href="{base}/resources#/resource/{value.slice(5)}"
-					class="text-blue-500 underline">{value.slice(5)} <span class="inline-block -mb-0.5" ><ExternalLink size={14} /></span></a
+				Linked to resource <a
+					target="_blank"
+					href="{base}/resources#/resource/{value.slice(5)}"
+					class="text-blue-500 underline"
+					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>
 			{/if}
 		</div>
@@ -872,6 +875,7 @@
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
+				{disabled}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst}
 				{disablePortal}

@@ -810,7 +810,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     )
     .await;
 
-    restart_job_if_perpetual(db, queued_job, canceled_by).await?;
+    restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
+
     // tracing::error!("4 {:?}", start.elapsed());
 
     Ok(queued_job.id)
@@ -1070,29 +1071,24 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     }
     if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = match concurrency_key(db, &queued_job.id).await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(
-                    "Could not get concurrency key for job {} defaulting to default key: {e:?}",
-                    queued_job.id
-                );
-                "".to_string()
-            }
-        };
-        if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_empty() {
+        let concurrency_key = concurrency_key(db, &queued_job.id).await?;
+        if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
-            if let Err(e) = sqlx::query_scalar!(
-                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                    concurrency_key,
-                    queued_job.id.hyphenated().to_string(),
-                )
-                .execute(&mut *tx)
-                .await
-                {
-                    tracing::error!("Could not decrement concurrency counter: {}", e);
-                }
+            let concurrency_key = concurrency_key.unwrap();
+            sqlx::query_scalar!(
+                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+                concurrency_key,
+                queued_job.id.hyphenated().to_string(),
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Could not decrement concurrency counter for job_id={}: {e:#}",
+                    queued_job.id
+                ))
+            })?;
         }
 
         if let Err(e) = sqlx::query_scalar!(
@@ -1101,12 +1097,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error updating to add ended_at timestamp concurrency_key={concurrency_key}: {e:#}"
-            ))
-        }) {
-            tracing::error!("Could not update concurrency_key: {}", e);
+        {
+            tracing::error!(
+                "Could not update concurrency_key ended_at for job_id={}: {e:#}",
+                queued_job.id,
+            );
         }
         tracing::debug!("decremented concurrency counter");
     }
@@ -1178,93 +1173,125 @@ async fn check_result_size<T: ValidableJson>(
 async fn restart_job_if_perpetual(
     db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
-    canceled_by: Option<CanceledBy>,
+    canceled_by: &Option<CanceledBy>,
 ) -> Result<(), Error> {
-    Ok(
-        if !queued_job.is_flow_step() && queued_job.kind == JobKind::Script && canceled_by.is_none()
-        {
-            if let Some(hash) = queued_job.runnable_id {
-                let p = sqlx::query_scalar!(
-                "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
-                hash.0,
-                &queued_job.workspace_id
-            )
-                .fetch_optional(db)
-                .await?
-                .flatten()
-                .unwrap_or(false);
+    if !queued_job.is_flow_step() && queued_job.kind == JobKind::Script && canceled_by.is_none() {
+        if let Some(hash) = queued_job.runnable_id {
+            (|| restart_job_if_perpetual_inner(db, queued_job, hash))
+                .retry(
+                    ConstantBuilder::default()
+                        .with_delay(std::time::Duration::from_secs(3))
+                        .with_max_times(5)
+                        .build(),
+                )
+                .notify(|err, dur| {
+                    tracing::error!(
+                    "Could not apply perpetual job restart, retrying in {dur:#?}, err: {err:#?}"
+                );
+                })
+                .sleep(tokio::time::sleep)
+                .await?;
+        }
+    }
+    Ok(())
+}
 
-                if p {
-                    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-
-                    // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
-                    let now = chrono::Utc::now();
-                    let scheduled_for = if now
-                        .signed_duration_since(queued_job.started_at.unwrap_or(now))
-                        .num_seconds()
-                        < 10
-                    {
-                        let next_run = queued_job.started_at.unwrap_or(now)
-                            + chrono::Duration::try_seconds(10).unwrap();
-                        tracing::warn!("Perpetual script {:?} is running too fast, only 1 job per 10s it supported. Scheduling next run for {:?}", queued_job.runnable_path, next_run);
-                        Some(next_run)
-                    } else {
-                        None
-                    };
-
-                    let ehm = HashMap::new();
-                    let (_uuid, tx) = push(
-                        db,
-                        tx,
-                        &queued_job.workspace_id,
-                        JobPayload::ScriptHash {
-                            hash,
-                            path: queued_job.runnable_path().to_string(),
-                            custom_concurrency_key: custom_concurrency_key(db, &queued_job.id)
-                                .await?,
-                            concurrent_limit: queued_job.concurrent_limit,
-                            concurrency_time_window_s: queued_job.concurrency_time_window_s,
-                            cache_ttl: queued_job.cache_ttl,
-                            dedicated_worker: None,
-                            language: queued_job
-                                .script_lang
-                                .clone()
-                                .unwrap_or_else(|| ScriptLang::Deno),
-                            priority: queued_job.priority,
-                            apply_preprocessor: false,
-                        },
-                        queued_job
-                            .args
-                            .as_ref()
-                            .map(|x| PushArgs::from(&x.0))
-                            .unwrap_or_else(|| PushArgs::from(&ehm)),
-                        &queued_job.created_by,
-                        &queued_job.permissioned_as_email,
-                        queued_job.permissioned_as.clone(),
-                        Some(&format!("add.completed.job{}", queued_job.id)),
-                        scheduled_for,
-                        queued_job.schedule_path(),
-                        None,
-                        None,
-                        None,
-                        false,
-                        false,
-                        None,
-                        queued_job.visible_to_owner,
-                        Some(queued_job.tag.clone()),
-                        queued_job.timeout,
-                        None,
-                        queued_job.priority,
-                        None,
-                    )
-                    .await?;
-                    if let Err(e) = tx.commit().await {
-                        tracing::error!("Could not restart job {}: {}", queued_job.id, e);
-                    }
-                }
-            }
-        },
+async fn restart_job_if_perpetual_inner(
+    db: &Pool<Postgres>,
+    queued_job: &MiniPulledJob,
+    hash: ScriptHash,
+) -> Result<(), Error> {
+    let restart = sqlx::query_scalar!(
+        "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        &queued_job.workspace_id
     )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
+    if restart {
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+
+        // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
+        let now = now_from_db(db).await?;
+        let scheduled_for = if now
+            .signed_duration_since(queued_job.started_at.unwrap_or(now))
+            .num_seconds()
+            < 10
+        {
+            let next_run =
+                queued_job.started_at.unwrap_or(now) + chrono::Duration::try_seconds(10).unwrap();
+            tracing::warn!("Perpetual script {:?} is running too fast, only 1 job per 10s it supported. Scheduling next run for {:?}", queued_job.runnable_path, next_run);
+            Some(next_run)
+        } else {
+            None
+        };
+
+        let ehm = HashMap::new();
+        let (_uuid, tx) = push(
+            db,
+            tx,
+            &queued_job.workspace_id,
+            JobPayload::ScriptHash {
+                hash,
+                path: queued_job.runnable_path().to_string(),
+                custom_concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
+                concurrent_limit: queued_job.concurrent_limit,
+                concurrency_time_window_s: queued_job.concurrency_time_window_s,
+                cache_ttl: queued_job.cache_ttl,
+                dedicated_worker: None,
+                language: queued_job
+                    .script_lang
+                    .clone()
+                    .unwrap_or_else(|| ScriptLang::Deno),
+                priority: queued_job.priority,
+                apply_preprocessor: false,
+            },
+            queued_job
+                .args
+                .as_ref()
+                .map(|x| PushArgs::from(&x.0))
+                .unwrap_or_else(|| PushArgs::from(&ehm)),
+            &queued_job.created_by,
+            &queued_job.permissioned_as_email,
+            queued_job.permissioned_as.clone(),
+            Some(&format!("add.completed.job{}", queued_job.id)),
+            scheduled_for,
+            queued_job.schedule_path(),
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            queued_job.visible_to_owner,
+            Some(queued_job.tag.clone()),
+            queued_job.timeout,
+            None,
+            queued_job.priority,
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+async fn has_failure_module(db: &Pool<Postgres>, job: &MiniPulledJob) -> bool {
+    if let Ok(flow) = cache::job::fetch_flow(db, job.kind, job.runnable_id).await {
+        return flow.value().failure_module.is_some();
+    }
+    sqlx::query_scalar!(
+        "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM v2_job WHERE id = $1",
+        job.id
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(Some(false))
+    .unwrap_or(false)
 }
 
 #[cfg(feature = "enterprise")]
@@ -1277,20 +1304,6 @@ async fn apply_completed_job_error_handlers<T: Serialize + Send + Sync + Validab
     _skip_downstream_error_handlers: bool,
 ) {
     if !success {
-        async fn has_failure_module(db: &Pool<Postgres>, job: &MiniPulledJob) -> bool {
-            if let Ok(flow) = cache::job::fetch_flow(db, job.kind, job.runnable_id).await {
-                return flow.value().failure_module.is_some();
-            }
-            sqlx::query_scalar!(
-                "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM v2_job WHERE id = $1",
-                job.id
-            )
-            .fetch_one(db)
-            .await
-            .unwrap_or(Some(false))
-            .unwrap_or(false)
-        }
-
         if queued_job.permissioned_as_email == ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
             let w_id = &queued_job.workspace_id;
@@ -1398,31 +1411,34 @@ fn apply_completed_job_cloud_usage(
             let premium_workspace =
                 windmill_common::workspaces::is_premium_workspace(&db, &w_id).await;
             tokio::time::timeout(std::time::Duration::from_secs(10), async move {
-            let _ = sqlx::query!(
-                "INSERT INTO usage (id, is_workspace, month_, usage) 
-                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                w_id,
-                additional_usage as i32
-            )
-            .execute(&db)
-            .await
-            .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-
-            if !premium_workspace {
                 let _ = sqlx::query!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                    VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
                     ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                    email,
+                    w_id,
                     additional_usage as i32
                 )
                 .execute(&db)
                 .await
-            .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-        }}).await.unwrap_or_else(|_| {
-            tracing::error!("Could not update usage for workspace {w_id2} and permissioned as {email2}, stopped after 10s");
-        });
+                .map_err(|e| {
+                    Error::internal_err(format!("updating usage: {e:#}"))
+                });
+
+                if !premium_workspace {
+                    let _ = sqlx::query!(
+                        "INSERT INTO usage (id, is_workspace, month_, usage) 
+                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                        email,
+                        additional_usage as i32
+                    )
+                    .execute(&db)
+                    .await
+                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+                }
+            }).await.unwrap_or_else(|_| {
+                tracing::error!("Could not update usage for workspace {w_id2} and permissioned as {email2}, stopped after 10s");
+            });
         });
     }
 }
@@ -2565,16 +2581,12 @@ pub async fn pull(
             return Ok(PulledJobResult { job: Some(pulled_job), suspended });
         }
 
-        let job_concurrency_key = match concurrency_key(db, &pulled_job.id).await {
-            Ok(key) => key,
-            Err(e) => {
-                tracing::error!(
-                    "Could not get concurrency key for job {} defaulting to default key: {e:?}",
-                    pulled_job.id
-                );
-                "".to_string()
-            }
-        };
+        let job_concurrency_key = concurrency_key(db, &pulled_job.id).await?;
+        if job_concurrency_key.is_none() {
+            tracing::warn!("No concurrency key found for job {}", pulled_job.id);
+            return Ok(PulledJobResult { job: None, suspended });
+        }
+        let job_concurrency_key = job_concurrency_key.unwrap();
         tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
@@ -2821,17 +2833,40 @@ pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: &Uuid,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
-        .fetch_optional(db) // this should no longer be fetch optional
-        .await
+    let fut = async || {
+        sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
+            .fetch_optional(db) // this should no longer be fetch optional
+            .await
+    };
+    fut.retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(3))
+            .with_max_times(5)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::error!(
+            "Could not get concurrency key for job {job_id}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .await
 }
 
-async fn concurrency_key(db: &Pool<Postgres>, id: &Uuid) -> windmill_common::error::Result<String> {
-    not_found_if_none(
-        custom_concurrency_key(db, id).await?,
-        "ConcurrencyKey",
-        id.to_string(),
-    )
+async fn concurrency_key(
+    db: &Pool<Postgres>,
+    id: &Uuid,
+) -> windmill_common::error::Result<Option<String>> {
+    custom_concurrency_key(db, id)
+        .await
+        .map(|x| {
+            if x.is_none() {
+                tracing::info!("No concurrency key found for job {id}, defaulting to empty string");
+            }
+            return x;
+        })
+        .map_err(|e| {
+            Error::internal_err(format!("Could not get concurrency key for job {id}: {e:#}"))
+        })
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
