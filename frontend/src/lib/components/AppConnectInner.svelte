@@ -92,6 +92,7 @@
 
 	let scopes: string[] = $state([])
 	let extra_params: [string, string][] = []
+	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
 
@@ -115,6 +116,7 @@
 	 */
 	let clientId = $state('')
 	let clientSecret = $state('')
+	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 
@@ -135,6 +137,7 @@
 		useClientCredentials = false
 		clientId = ''
 		clientSecret = ''
+		tokenUrl = ''
 
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
@@ -278,6 +281,7 @@
 			resourceType = data.resource_type
 			value = data.res.access_token!
 			valueToken = data.res
+			responseExtra = data.extra ?? {}
 			step = 4
 			if (express) {
 				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
@@ -344,13 +348,20 @@
 						return
 					}
 
+					const requestBody: any = {
+						scopes: scopes,
+						cc_client_id: trimmedClientId,
+						cc_client_secret: trimmedClientSecret
+					}
+
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						requestBody.cc_token_url = tokenUrl.trim()
+					}
+
 					const tokenResponse = await OauthService.connectClientCredentials({
 						client: resourceType,
-						requestBody: {
-							scopes: scopes,
-							cc_client_id: trimmedClientId,
-							cc_client_secret: trimmedClientSecret
-						}
+						requestBody
 					})
 
 					// Process the token response like in popup flow
@@ -411,6 +422,8 @@
 				if (account_identifier) {
 					args['account_identifier'] = account_identifier[1]
 				}
+			} else if (resourceType === 'quickbooks' && responseExtra['realmId']) {
+				args['realmId'] = responseExtra['realmId']
 			}
 
 			let account: number | undefined = undefined
@@ -426,6 +439,10 @@
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						accountData.cc_token_url = tokenUrl.trim()
+					}
 				}
 
 				account = Number(
@@ -743,6 +760,18 @@
 									class="w-full p-2 border border-gray-300 rounded mt-1"
 									required
 								/>
+							</label>
+							<label style="display: block; margin-top: 8px;">
+								<span style="font-weight: 600;">Token URL Override (Optional)</span>
+								<input
+									type="url"
+									bind:value={tokenUrl}
+									placeholder="Custom token endpoint URL"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+								/>
+								<div style="font-size: 12px; color: #666; margin-top: 4px;">
+									Override the instance-level token URL for this resource
+								</div>
 							</label>
 						</div>
 					{/if}

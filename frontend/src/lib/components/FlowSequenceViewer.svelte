@@ -89,7 +89,8 @@
 						storedJob = await JobService.getJob({
 							workspace: workspaceId ?? $workspaceStore ?? '',
 							id: loopJobId,
-							noLogs: true
+							noLogs: true,
+							noCode: true
 						})
 						storedListJobs[j] = storedJob
 					}

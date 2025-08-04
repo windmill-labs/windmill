@@ -106,6 +106,20 @@ function getModelMaxTokens(model: string) {
 	return 8192
 }
 
+export function getModelContextWindow(model: string) {
+	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+		return 1000000
+	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+		return 128000
+	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+		return 200000
+	} else if (model.startsWith('codestral')) {
+		return 32000
+	} else {
+		return 128000
+	}
+}
+
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]

@@ -54,8 +54,8 @@ use windmill_common::{
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
-        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
+        MODE_AND_ADDONS,
     },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
@@ -95,7 +95,7 @@ use crate::monitor::{
     reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -133,6 +133,44 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
     #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None, false);
     Ok(())
+}
+
+fn update_ca_certificates_if_requested() {
+    if std::env::var("RUN_UPDATE_CA_CERTIFICATE_AT_START")
+        .ok()
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
+        let ca_cert_path = std::env::var("RUN_UPDATE_CA_CERTIFICATE_PATH")
+            .unwrap_or_else(|_| "/usr/sbin/update-ca-certificates".to_string());
+
+        println!(
+            "RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running: {}",
+            ca_cert_path
+        );
+
+        let output = std::process::Command::new(&ca_cert_path).output();
+
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    println!("Successfully updated CA certificates");
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    println!(
+                        "Failed to update CA certificates, but continuing startup: {}",
+                        stderr.trim()
+                    );
+                }
+            }
+            Err(e) => {
+                println!(
+                    "Could not run update-ca-certificates command, but continuing startup: {}",
+                    e
+                );
+            }
+        }
+    }
 }
 
 #[inline(always)]
@@ -263,12 +301,14 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
+    update_ca_certificates_if_requested();
+
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
     }
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
-        tracing::error!("Failed to install rustls crypto provider");
+        println!("Failed to install rustls crypto provider");
     }
 
     #[cfg(feature = "enterprise")]
@@ -280,9 +320,9 @@ async fn windmill_main() -> anyhow::Result<()> {
             .arg("iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP")
             .status()
         {
-            tracing::warn!("Failed to run iptables to block metadata endpoint: {e}");
+            println!("Failed to run iptables to block metadata endpoint: {e}");
         } else {
-            tracing::info!("Successfully blocked metadata endpoint using iptables");
+            println!("Successfully blocked metadata endpoint using iptables");
         }
     }
 
@@ -365,7 +405,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = create_ssh_agent_worker_suffix(&hostname);
+        let suffix = create_default_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -377,7 +417,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
-        tracing::info!(
+        println!(
             "PostgreSQL version: {} (windmill require PG >= 14)",
             num_version
                 .ok()
@@ -386,7 +426,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         );
         load_otel(&db).await;
 
-        tracing::info!("Database connected");
+        println!("Database connected");
         (Connection::Sql(db), None)
     };
 
@@ -533,6 +573,7 @@ Windmill Community Edition {GIT_VERSION}
             worker_mode,
             true,
             killpill_tx.clone(),
+            None,
         )
         .await;
 
@@ -760,6 +801,8 @@ Windmill Community Edition {GIT_VERSION}
                     let h = tokio::spawn(async move {
                         let mut listener = retry_listen_pg(&db_url).await;
                         let mut last_listener_refresh = Instant::now();
+                        let mut monitor_iteration: u64 = 0;
+                        let rd_shift: u8 = rand::rng().random_range(0..200);
                         loop {
                             let db = db.clone();
                             tokio::select! {
@@ -1095,8 +1138,13 @@ Windmill Community Edition {GIT_VERSION}
                                         worker_mode,
                                         false,
                                         tx.clone(),
+                                        Some(MonitorIteration {
+                                            rd_shift,
+                                            iter: monitor_iteration,
+                                        }),
                                     )
                                     .await;
+                                    monitor_iteration += 1;
                                     if server_mode {
                                         if !*windmill_common::QUIET_LOGS {
                                             tracing::info!("monitor task finished");

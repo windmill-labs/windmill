@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.508.0
+  version: 1.518.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -184,9 +184,9 @@ components:
         type:
           type: string
           enum:
-            - javascript
+            - static
       required:
-        - expr
+        - value
         - type
 
     JavascriptTransform:
@@ -376,7 +376,7 @@ components:
         type:
           type: string
           enum:
-            - forloopflow
+            - whileloopflow
         parallel:
           type: boolean
         parallelism:
@@ -437,7 +437,6 @@ components:
                   $ref: "#/components/schemas/FlowModule"
             required:
               - modules
-              - expr
         type:
           type: string
           enum:

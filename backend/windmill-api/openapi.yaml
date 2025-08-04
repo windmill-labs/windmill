@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.508.0
+  version: 1.518.0
   title: Windmill API
 
   contact:
@@ -2455,6 +2455,65 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/edit_git_sync_repository:
+    post:
+      summary: add or update individual git sync repository
+      operationId: editGitSyncRepository
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Git sync repository settings to add or update
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_repo_resource_path:
+                  type: string
+                  description: The resource path of the git repository to update
+                repository:
+                  $ref: "#/components/schemas/GitRepositorySettings"
+              required:
+                - git_repo_resource_path
+                - repository
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/delete_git_sync_repository:
+    delete:
+      summary: delete individual git sync repository
+      operationId: deleteGitSyncRepository
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Git sync repository to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_repo_resource_path:
+                  type: string
+                  description: The resource path of the git repository to delete
+              required:
+                - git_repo_resource_path
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/workspaces/edit_deploy_ui_config:
     post:
       summary: edit workspace deploy ui settings
@@ -3413,6 +3472,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3455,6 +3517,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level authentication"
+                cc_token_url:
+                  type: string
+                  description: "OAuth token URL override for resource-level authentication"
               required:
                 - cc_client_id
                 - cc_client_secret
@@ -5087,6 +5152,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptHash"
         - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
+        - name: authed
           in: query
           schema:
             type: boolean
@@ -7559,6 +7628,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: no_code
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
@@ -7660,7 +7733,43 @@ paths:
                   progress:
                     type: integer
                   flow_status:
-                    $ref: "#/components/schemas/WorkflowStatusRecord"
+                    $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+                  workflow_as_code_status:
+                    $ref: "#/components/schemas/WorkflowStatus"
+
+  /w/{workspace}/jobs_u/getupdate_sse/{id}:
+    get:
+      summary: get job updates via server-sent events
+      operationId: getJobUpdatesSSE
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: running
+          in: query
+          schema:
+            type: boolean
+        - name: log_offset
+          in: query
+          schema:
+            type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
+        - name: only_result
+          in: query
+          schema:
+            type: boolean
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs_u/get_log_file/{path}:
     get:
@@ -13599,6 +13708,24 @@ components:
           customai,
         ]
 
+    GitSyncObjectType:
+      type: string
+      enum:
+        - script
+        - flow
+        - app
+        - folder
+        - resource
+        - variable
+        - secret
+        - resourcetype
+        - schedule
+        - user
+        - group
+        - trigger
+        - settings
+        - key
+
     AIProviderModel:
       type: object
       properties:
@@ -14018,6 +14145,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14125,6 +14254,8 @@ components:
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+        workflow_as_code_status:
+          $ref: "#/components/schemas/WorkflowStatus"
         raw_flow:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
@@ -14587,36 +14718,41 @@ components:
                   - type: object
                     properties:
                       object:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            key:
-                              type: string
-                            typ:
-                              oneOf:
-                                - type: string
-                                  enum:
-                                    [
-                                      "float",
-                                      "int",
-                                      "bool",
-                                      "email",
-                                      "unknown",
-                                      "bytes",
-                                      "dict",
-                                      "datetime",
-                                      "sql",
-                                    ]
-                                - type: object
-                                  properties:
-                                    str: {}
-                                  required: [str]
-                          required:
-                            - key
-                            - typ
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          props:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                typ:
+                                  oneOf:
+                                    - type: string
+                                      enum:
+                                        [
+                                          "float",
+                                          "int",
+                                          "bool",
+                                          "email",
+                                          "unknown",
+                                          "bytes",
+                                          "dict",
+                                          "datetime",
+                                          "sql",
+                                        ]
+                                    - type: object
+                                      properties:
+                                        str: {}
+                                      required: [str]
+                              required:
+                                - key
+                                - typ
                     required:
-                      - object
+                      - object 
                   - type: object
                     properties:
                       list:
@@ -16793,7 +16929,6 @@ components:
         - name
         - scopes
 
-
     ListableRawApp:
       type: object
       properties:
@@ -17076,15 +17211,7 @@ components:
         include_type:
           type: array
           items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - resource
-              - variable
-              - secret
-              - trigger
+            $ref: "#/components/schemas/GitSyncObjectType"
 
     WorkspaceDefaultScripts:
       type: object
@@ -17124,22 +17251,7 @@ components:
             include_type:
               type: array
               items:
-                type: string
-                enum:
-                  - script
-                  - flow
-                  - app
-                  - folder
-                  - resource
-                  - variable
-                  - secret
-                  - resourcetype
-                  - schedule
-                  - user
-                  - group
-                  - trigger
-                  - settings
-                  - key
+                $ref: "#/components/schemas/GitSyncObjectType"
             exclude_path:
               type: array
               items:
@@ -17151,22 +17263,7 @@ components:
         exclude_types_override:
           type: array
           items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
-              - settings
-              - key
+            $ref: "#/components/schemas/GitSyncObjectType"
       required:
         - script_path
         - git_repo_resource_path

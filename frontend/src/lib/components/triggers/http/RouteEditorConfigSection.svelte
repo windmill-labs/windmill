@@ -11,23 +11,39 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import { untrack } from 'svelte'
 
-	export let initialTriggerPath: string | undefined = undefined
-	export let dirtyRoutePath: boolean = false
-	export let route_path: string | undefined
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
-	export let can_write: boolean = false
-	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
-		undefined
-	export let headless: boolean = false
-	export let workspaced_route: boolean = false
-	export let isValid = false
-	export let isDraftOnly: boolean = true
-	export let showTestingBadge: boolean = false
+	interface Props {
+		initialTriggerPath?: string | undefined
+		dirtyRoutePath?: boolean
+		route_path: string | undefined
+		http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
+		can_write?: boolean
+		static_asset_config?: { s3: string; storage?: string; filename?: string } | undefined
+		headless?: boolean
+		workspaced_route?: boolean
+		isValid?: boolean
+		isDraftOnly?: boolean
+		showTestingBadge?: boolean
+	}
+
+	let {
+		initialTriggerPath = undefined,
+		dirtyRoutePath = $bindable(false),
+		route_path = $bindable(),
+		http_method = $bindable(),
+		can_write = false,
+		static_asset_config = $bindable(undefined),
+		headless = false,
+		workspaced_route = $bindable(false),
+		isValid = $bindable(false),
+		isDraftOnly = true,
+		showTestingBadge = false
+	}: Props = $props()
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
-	let routeError: string = ''
+	let routeError: string = $state('')
 	async function validateRoute(
 		routePath: string | undefined,
 		method: typeof http_method,
@@ -63,26 +79,37 @@
 		})
 	}
 
-	$: validateRoute(route_path, http_method, workspaced_route)
+	$effect.pre(() => {
+		;[route_path, http_method, workspaced_route]
+		untrack(() => {
+			validateRoute(route_path, http_method, workspaced_route)
+		})
+	})
 
-	$: isValid = routeError === ''
+	$effect.pre(() => {
+		isValid = routeError === ''
+	})
 
-	$: fullRoute = getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? '')
+	let fullRoute = $derived(getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? ''))
 
-	$: !http_method && (http_method = 'post')
-	$: route_path === undefined && (route_path = '')
+	$effect.pre(() => {
+		!http_method && (http_method = 'post')
+	})
+	$effect.pre(() => {
+		route_path === undefined && (route_path = '')
+	})
 
-	$: userIsAdmin = $userStore?.is_admin || $userStore?.is_super_admin
-	$: userCanEditConfig = userIsAdmin || isDraftOnly // User can edit config if they are admin or if the trigger is a draft which will not be saved
+	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly) // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 
 <div>
 	<Section label="HTTP" {headless}>
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 		{#if !userCanEditConfig && isDraftOnly}
 			<Alert type="info" title="Admin only" collapsible size="xs">
 				Route endpoints can only be edited by workspace admins
@@ -99,7 +126,7 @@
 						</div>
 						<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
 					</div>
-					<!-- svelte-ignore a11y-autofocus -->
+					<!-- svelte-ignore a11y_autofocus -->
 					<input
 						type="text"
 						autocomplete="off"
@@ -108,7 +135,7 @@
 						class={routeError === ''
 							? ''
 							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-						on:input={() => {
+						oninput={() => {
 							dirtyRoutePath = true
 						}}
 					/>

@@ -9,7 +9,7 @@
 		emptyString,
 		getSchemaFromProperties
 	} from '$lib/utils'
-	import { DollarSign, Plus, X, Check, Loader2 } from 'lucide-svelte'
+	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
@@ -26,7 +26,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import FileUpload from './common/fileUpload/FileUpload.svelte'
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
@@ -42,6 +41,7 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
+	import { base } from '$lib/base'
 
 	interface Props {
 		label?: string
@@ -323,7 +323,7 @@
 		const newRawValue =
 			value == undefined || value == null
 				? ''
-				: isObjectCat(inputCat)
+				: isObjectCat(inputCat) || (inputCat == 'list' && isListJson)
 					? JSON.stringify(value, null, 2)
 					: isRawStringEditor(inputCat)
 						? typeof value == 'string'
@@ -497,6 +497,32 @@
 	})
 </script>
 
+{#snippet variableInput()}
+	{#if variableEditor}
+		<div class="text-sm text-tertiary">
+			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+				Linked to variable <button
+					class="text-blue-500 underline"
+					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
+				>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+{#snippet resourceInput()}
+	{#if variableEditor}
+		<div class="text-sm text-tertiary">
+			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
+				Linked to resource <a
+					target="_blank"
+					href="{base}/resources#/resource/{value.slice(5)}"
+					class="text-blue-500 underline"
+					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
+				>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
@@ -622,7 +648,7 @@
 		{:else if (inputCat == 'resource-object' && format && format.split('-').length > 1 && format
 				.replace('resource-', '')
 				.replace('_', '')
-				.toLowerCase() == 's3object') || (inputCat == 'list' && itemsType?.resourceType === 's3_object')}
+				.toLowerCase() == 's3object') || (inputCat == 'list' && (itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object'))}
 			<S3ArgInput
 				multiple={inputCat == 'list'}
 				bind:value
@@ -668,30 +694,6 @@
 								reorderable
 							/>
 						</div>
-					{:else if itemsType?.type == 'object' && itemsType?.resourceType == 's3object'}
-						<div class="w-full">
-							<FileUpload
-								{appPath}
-								computeForceViewerPolicies={computeS3ForceViewerPolicies}
-								{workspace}
-								allowMultiple={true}
-								randomFileKey={true}
-								on:addition={(evt) => {
-									value = [
-										...value,
-										{
-											s3: evt.detail?.path ?? '',
-											filename: evt.detail?.filename ?? ''
-										}
-									]
-								}}
-								on:deletion={(evt) => {
-									value = value.filter((v) => v.s3 !== evt.detail?.path)
-								}}
-								defaultValue={defaultValue?.map((v) => v.s3)}
-								initialValue={value}
-							/>
-						</div>
 					{:else}
 						<div class="w-full">
 							{#key redraw}
@@ -708,7 +710,7 @@
 														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
 														multiple={false}
 													/>
-												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
+												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
@@ -734,10 +736,16 @@
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
-												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+												{:else if (itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)) || (format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
+													{@const resourceFormat =
+														itemsType?.type == 'resource' &&
+														itemsType.resourceType &&
+														resourceTypes.includes(itemsType.resourceType)
+															? `resource-${itemsType.resourceType}`
+															: format!}
 													<ObjectResourceInput
 														bind:value={value[i]}
-														format={'resource-' + itemsType?.resourceType}
+														format={resourceFormat}
 														defaultValue={undefined}
 													/>
 												{:else if itemsType?.type == 'resource'}
@@ -789,6 +797,15 @@
 											>{itemsLimit}/{value.length}: Load 50 more...</button
 										>
 									{/if}
+								{:else if typeof value === 'string'}
+									{#if value.startsWith('$res:')}
+										{@render resourceInput()}
+									{:else}
+										<div class="text-red-500">
+											Invalid string value: "{value}", expected array. Click add item to turn it
+											into an array.
+										</div>
+									{/if}
 								{/if}
 							{/key}
 						</div>
@@ -805,7 +822,11 @@
 									if (itemsType?.type == 'number') {
 										value = value.concat(0)
 									} else if (
-										itemsType?.type == 'object' ||
+										(itemsType?.type == 'object' &&
+											!(
+												format?.startsWith('resource-') &&
+												resourceTypes?.includes(format.split('-')[1])
+											)) ||
 										(itemsType?.type == 'resource' &&
 											!(
 												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
@@ -855,6 +876,7 @@
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
+				{disabled}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst}
 				{disablePortal}
@@ -1255,17 +1277,8 @@
 						{/if}
 					{/if}
 				</div>
-				{#if variableEditor}
-					<div class="text-sm text-tertiary">
-						{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-							Linked to variable <button
-								class="text-blue-500 underline"
-								onclick={() => variableEditor?.editVariable?.(value.slice(5))}
-								>{value.slice(5)}</button
-							>
-						{/if}
-					</div>
-				{/if}
+				{@render variableInput()}
+				{@render resourceInput()}
 			</div>
 		{/if}
 		{@render actions?.()}

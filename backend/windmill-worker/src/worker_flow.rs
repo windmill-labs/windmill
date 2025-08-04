@@ -98,7 +98,7 @@ pub async fn update_flow_status_after_job_completion(
         success,
         result,
         stop_early_override,
-        skip_error_handler: false,
+        has_triggered_error_handler: false,
     };
     let mut unrecoverable = unrecoverable;
     loop {
@@ -115,7 +115,7 @@ pub async fn update_flow_status_after_job_completion(
             same_worker_tx,
             worker_dir,
             rec.stop_early_override,
-            rec.skip_error_handler,
+            rec.has_triggered_error_handler,
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
@@ -140,7 +140,7 @@ pub async fn update_flow_status_after_job_completion(
                     same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
-                    rec.skip_error_handler,
+                    rec.has_triggered_error_handler,
                     worker_name,
                     job_completed_tx.clone(),
                     #[cfg(feature = "benchmark")]
@@ -188,7 +188,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     success: bool,
     result: Arc<Box<RawValue>>,
     stop_early_override: Option<bool>,
-    skip_error_handler: bool,
+    has_triggered_error_handler: bool,
 }
 
 #[derive(Deserialize)]
@@ -220,6 +220,10 @@ fn get_stop_after_if_data(
     return (false, None);
 }
 
+fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
+    let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
+    return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
+}
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -233,11 +237,12 @@ pub async fn update_flow_status_after_job_completion_internal(
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
-    skip_error_handler: bool,
+    has_triggered_error_handler: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
+    let mut has_triggered_error_handler = has_triggered_error_handler;
     add_time!(bench, "update flow status internal START");
     let (
         should_continue_flow,
@@ -292,6 +297,11 @@ pub async fn update_flow_status_after_job_completion_internal(
             Step::Step(i) => flow_value.modules.get(i),
             _ => None,
         };
+
+        if current_module.is_some_and(|x| x.is_flow()) {
+            has_triggered_error_handler = false;
+        }
+
         let module_status = match module_step {
             Step::PreprocessorStep => old_status
                 .preprocessor_module
@@ -565,10 +575,36 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
 
+                    let branches = current_module
+                        .and_then(|x| x.get_branches_skip_failures().ok())
+                        .map(|x| {
+                            x.branches
+                                .iter()
+                                .map(|b| b.skip_failure.unwrap_or(false))
+                                .collect::<Vec<_>>()
+                        });
+
+                    let mut njobs = Vec::new();
+
+                    let jobs_filtered = if branchall.is_some() {
+                        if let Some(branches) = branches {
+                            for (branch, job) in branches.iter().zip(jobs.iter()) {
+                                if !branch {
+                                    njobs.push(job.clone());
+                                }
+                            }
+                            njobs.as_slice()
+                        } else {
+                            jobs.as_slice()
+                        }
+                    } else {
+                        jobs.as_slice()
+                    };
+
                     let new_status = if skip_loop_failures
                          || sqlx::query_scalar!(
                              "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
-                             jobs.as_slice()
+                             jobs_filtered
                          )
                          .fetch_all(&mut *tx)
                          .await
@@ -620,7 +656,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tracing::info!(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
-                    (true, Some(new_status))
+
+                    // for parallel branchall and forloop, we do not want to trigger the error handler again at the forloop/branchall node since it was already triggered at the leaf level
+                    // so we want to ignore the has_triggered_error_handler flag at the forloop/branchall node and reset it based on if the node is a success or failure
+                    if !success && flow_value.failure_module.is_some() {
+                        has_triggered_error_handler = true;
+                    } else {
+                        has_triggered_error_handler = false;
+                    }
+                    (success, Some(new_status))
                 } else {
                     add_time!(bench, "handle parallel flow start");
                     tx.commit().await?;
@@ -771,7 +815,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .and_then(|x| x.retry.clone())
                             .unwrap_or_default();
 
-                        tracing::info!("update flow status on rety: {retry:#?} ");
+                        tracing::info!("update flow status on retry: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -791,17 +835,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
-        let skip_parallel_branchall_failure = match (module_status, new_status.as_ref()) {
-            (
-                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
-                Some(FlowStatusModule::Success { flow_jobs_success, .. }),
-            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
-            (
-                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
-                Some(FlowStatusModule::Failure { flow_jobs_success, .. }),
-            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
-            _ => false,
-        };
         let step_counter = if inc_step_counter {
             sqlx::query!(
                 "UPDATE v2_job_status
@@ -1112,19 +1145,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             .flow_innermost_root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
-        tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             false if unrecoverable => false,
-            false
-                if skip_seq_branch_failure
-                    || skip_parallel_branchall_failure
-                    || skip_loop_failures
-                    || continue_on_error =>
-            {
+            false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
             false
@@ -1153,7 +1180,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             false
                 if !is_failure_step
-                    && !skip_error_handler
+                    && !has_triggered_error_handler
                     && flow_value.failure_module.is_some() =>
             {
                 true
@@ -1161,7 +1188,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             false => false,
         };
 
-        tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
+             skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
+             current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
+            continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
         (
             should_continue_flow,
@@ -1184,10 +1214,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 "Flow job canceled\n".to_string()
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
-            } else if success {
-                "Flow job completed with success\n".to_string()
+            } else if is_failure_step {
+                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
             } else {
-                "Flow job completed with error\n".to_string()
+                format!(
+                    "Flow job completed with {}\n",
+                    if success { "success" } else { "error" }
+                )
             };
             append_logs(&flow_job.id, w_id, logs, &db.into()).await;
         }
@@ -1237,6 +1270,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             }
         }
+
         if flow_job.is_canceled() {
             add_completed_job_error(
                 db,
@@ -1259,13 +1293,9 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                 save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
             }
-            fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
-                let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
-                return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
-            }
+
             let success = success
                 && (!is_failure_step || result_has_recover_true(nresult.clone()))
-                && !skip_error_handler
                 && stop_early_err_msg.is_none();
 
             add_time!(bench, "flow status update 1");
@@ -1357,7 +1387,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         } else {
                             None
                         },
-                        skip_error_handler: skip_error_handler || is_failure_step,
+                        has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
                     },
                 ));
             }
@@ -1780,9 +1810,10 @@ async fn push_next_flow_job(
         .flow_innermost_root_job
         .map(|x| x.to_string())
         .unwrap_or_else(|| "none".to_string());
-    tracing::info!(id = %flow_job.id, root_id = %job_root, "pushing next flow job");
 
     let mut step = Step::from_i32_and_len(status.step, flow.modules.len());
+
+    tracing::info!(id = %flow_job.id, root_id = %job_root, step = ?step, "pushing next flow job");
 
     let mut status_module = match step {
         Step::Step(i) => status
@@ -1796,6 +1827,8 @@ async fn push_next_flow_job(
             .unwrap_or_else(|| status.failure_module.module_status.clone()),
         Step::FailureStep => status.failure_module.module_status.clone(),
     };
+
+    // tracing::error!("status_module: {status_module:#?}");
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
@@ -1813,6 +1846,14 @@ async fn push_next_flow_job(
             success: true,
             result: if flow.modules.is_empty() {
                 to_raw_value(arc_flow_job_args.as_ref())
+            } else if matches!(
+                status_module,
+                FlowStatusModule::Success { branch_chosen: Some(_), .. }
+            ) {
+                last_job_result
+                    .as_ref()
+                    .map(|x| x.as_ref().clone())
+                    .unwrap_or_else(|| to_raw_value(&json!("{}")))
             } else {
                 // it has to be an empty for loop event
                 serde_json::from_str("[]").unwrap()
@@ -2550,8 +2591,16 @@ async fn push_next_flow_job(
                 json!(FlowStatusModule::Success {
                     id: status_module.id(),
                     job: Uuid::nil(),
-                    flow_jobs: Some(vec![]),
-                    flow_jobs_success: Some(vec![]),
+                    flow_jobs: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
+                    flow_jobs_success: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
                     branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],

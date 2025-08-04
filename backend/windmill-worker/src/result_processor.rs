@@ -1,14 +1,14 @@
 #[cfg(feature = "otel")]
 use opentelemetry::trace::FutureExt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
-    }
+    },
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
@@ -17,14 +17,20 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, KillpillSender, DB
+    add_time,
+    error::{self, Error},
+    jobs::JobKind,
+    utils::WarnAfterExt,
+    worker::{to_raw_value, Connection, WORKER_GROUP},
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
+    WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -34,9 +40,20 @@ use tokio::{sync::Notify, task::JoinHandle};
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::ANSI_ESCAPE_RE, common::{error_to_value, read_result, save_in_cache}, otel_oss::add_root_flow_job_to_otlp, worker_flow::update_flow_status_after_job_completion, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload, UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS
+    bash_executor::ANSI_ESCAPE_RE,
+    common::{error_to_value, read_result, save_in_cache},
+    otel_oss::add_root_flow_job_to_otlp,
+    worker_flow::update_flow_status_after_job_completion,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
+    UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
+
+#[derive(Debug, Deserialize)]
+struct ErrorMessage {
+    message: String,
+    name: String,
+}
 
 async fn process_jc(
     jc: JobCompleted,
@@ -50,22 +67,48 @@ async fn process_jc(
 ) {
     let success: bool = jc.success;
 
-    let span = tracing::span!(
-        tracing::Level::INFO,
-        "job_postprocessing",
-        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
-        // hostname = %hostname,
-        language = field::Empty,
-        script_path = field::Empty,
-        flow_step_id = field::Empty,
-        parent_job = field::Empty,
-        otel.name = field::Empty
-    );
+    let span = if success {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            labels = field::Empty,
+        )
+    } else {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            error.message = field::Empty,
+            error.name = field::Empty,
+            labels = field::Empty,
+        )
+    };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
         root_job
     } else {
         jc.job.id
     };
+
+    if let Some(labels) = jc.result.wm_labels() {
+        if !labels.is_empty() {
+            span.record("labels", labels.join(","));
+        }
+    }
     windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
@@ -88,6 +131,12 @@ async fn process_jc(
     }
     if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
+    }
+    if !success {
+        if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
+            span.record("error.message", result_error.message.as_str());
+            span.record("error.name", result_error.name.as_str());
+        }
     }
 
     let root_job = handle_receive_completed_job(
@@ -173,7 +222,10 @@ pub fn start_background_processor(
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                JobCompletedRx::JobCompleted(SendResult { result: SendResultPayload::JobCompleted(jc), time }) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result: SendResultPayload::JobCompleted(jc),
+                    time,
+                }) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -216,19 +268,24 @@ pub fn start_background_processor(
                     {
                         infos.add_iter(bench, true);
                     }
-                    last_processing_duration.store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
-                JobCompletedRx::JobCompleted(SendResult { result: SendResultPayload::UpdateFlow(UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                }), time}) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result:
+                        SendResultPayload::UpdateFlow(UpdateFlow {
+                            flow,
+                            w_id,
+                            success,
+                            result,
+                            worker_dir,
+                            stop_early_override,
+                            token,
+                        }),
+                    time,
+                }) => {
                     // let r;
-                    tracing::info!(parent_flow = %flow, "updating flow status");
+                    tracing::info!(parent_flow = %flow, "updating flow status after job completion");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
                         &AuthedClient::new(
@@ -255,14 +312,14 @@ pub fn start_background_processor(
                     {
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
-                    last_processing_duration.store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
                 JobCompletedRx::Killpill => {
                     tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
-                },  
-                JobCompletedRx::WakeUp => {
                 }
+                JobCompletedRx::WakeUp => {}
             }
         }
 
@@ -595,13 +652,14 @@ async fn handle_non_flow_job_error(
     job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
-    err: Value,
+    err_string: String,
+    err_json: Value,
     worker_name: &str,
 ) -> Result<WrappedError, Error> {
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("Unexpected error during job execution:\n{err:#?}"),
+        format!("Unexpected error during job execution:\n{err_string}"),
         &db.into(),
     )
     .await;
@@ -610,7 +668,7 @@ async fn handle_non_flow_job_error(
         job,
         mem_peak,
         canceled_by,
-        err,
+        err_json,
         worker_name,
         false,
         None,
@@ -633,7 +691,8 @@ pub async fn handle_job_error(
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
-    let err = error_to_value(err);
+    let err_string = format!("{}: {}", err.name(), err.to_string());
+    let err_json = error_to_value(err);
 
     let update_job_future = || async {
         handle_non_flow_job_error(
@@ -641,7 +700,8 @@ pub async fn handle_job_error(
             job,
             mem_peak,
             canceled_by.clone(),
-            err.clone(),
+            err_string,
+            err_json.clone(),
             worker_name,
         )
         .await
@@ -660,8 +720,8 @@ pub async fn handle_job_error(
             (job.id, Uuid::nil())
         };
 
-        let wrapped_error = WrappedError { error: err.clone() };
-        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
+        let wrapped_error = WrappedError { error: err_json.clone() };
+        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,

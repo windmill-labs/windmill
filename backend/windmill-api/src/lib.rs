@@ -611,7 +611,7 @@ pub async fn run_server(
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service),
+                    .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -669,7 +669,7 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                .nest("/mcp/w/:workspace_id/sse", mcp_router.layer(from_extractor::<ApiAuthed>()))
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]

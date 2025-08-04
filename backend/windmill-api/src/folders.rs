@@ -216,17 +216,6 @@ async fn create_folder(
     .execute(&mut *tx)
     .await?;
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Folder { path: format!("f/{}", ng.name) },
-        Some(format!("Folder '{}' created", ng.name)),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -238,6 +227,18 @@ async fn create_folder(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", ng.name) },
+        Some(format!("Folder '{}' created", ng.name)),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFolder { workspace: w_id, name: ng.name.clone() },
@@ -367,17 +368,6 @@ async fn update_folder(
         }
     }
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Folder { path: format!("f/{}", name) },
-        Some(format!("Folder '{}' updated", name)),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -389,6 +379,18 @@ async fn update_folder(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' updated", name)),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone().clone(),
         WebhookMessage::UpdateFolder { workspace: w_id, name: name.to_owned() },

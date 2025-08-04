@@ -789,19 +789,36 @@ export function graphBuilder(
 						}
 						nodes.push(endNode)
 
-						// Add default branch
+						// // Add default branch
+						// const defaultBranch: NodeLayout = {
+						// 	id: `${module.id}-default`,
+						// 	data: {
+						// 		offset: currentOffset,
+						// 		label: 'Default',
+						// 		id: module.id,
+						// 		branchIndex: -1,
+						// 		eventHandlers: eventHandlers,
+						// 		branchOne: true,
+						// 		...extra
+						// 	},
+						// 	type: 'noBranch'
+						// }
+
 						const defaultBranch: NodeLayout = {
-							id: `${module.id}-default`,
+							id: `${module.id}-branch-default`,
 							data: {
 								offset: currentOffset,
 								label: 'Default',
 								id: module.id,
 								branchIndex: -1,
 								eventHandlers: eventHandlers,
-								branchOne: true,
-								...extra
+								insertable: extra.insertable,
+								preLabel: undefined,
+								flowModuleStates: extra.flowModuleStates,
+								selected: false,
+								modules: module.value.default
 							},
-							type: 'noBranch'
+							type: 'branchOneStart'
 						}
 
 						nodes.push(defaultBranch)
@@ -866,7 +883,7 @@ export function graphBuilder(
 						let expanded = expandedSubflows[module.id]
 						if (expanded) {
 							expanded = $state.snapshot(expanded)
-							const startId = `${module.id}-subflow-start`
+							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
 								: module.id

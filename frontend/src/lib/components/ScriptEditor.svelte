@@ -11,7 +11,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
-	import TestJobLoader from './TestJobLoader.svelte'
+	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 	import { Button } from './common'
@@ -154,7 +154,7 @@
 
 	let width = $state(1200)
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let isValid: boolean = $state(true)
 	let scriptProgress = $state(undefined)
@@ -199,14 +199,25 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
-		let job = await testJobLoader.runPreview(
+		let job = await jobLoader.runPreview(
 			path,
 			code,
 			lang,
 			selectedTab === 'preprocessor' || kind === 'preprocessor'
 				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 				: (args ?? {}),
-			tag
+			tag,
+			undefined,
+			undefined,
+			{
+				done(_x) {
+					loadPastTests()
+				},
+				doneError({ error }) {
+					console.error(error)
+					// sendUserToast('Error running test', true)
+				}
+			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -426,10 +437,10 @@
 	})
 </script>
 
-<TestJobLoader
-	on:done={loadPastTests}
+<JobLoader
+	noCode={true}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
@@ -657,7 +668,7 @@
 						/>
 					</div>
 					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+						<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
 								white={true}
 								class="mr-2 text-white"
