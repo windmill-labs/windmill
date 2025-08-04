@@ -258,7 +258,7 @@
 			{:else}
 				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
 			{/if}
-			{#if resource_type === 'git_repository' && $workspaceStore && $userStore?.is_admin}
+			{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
 				<GitHubAppIntegration
 					resourceType={resource_type}
 					{args}

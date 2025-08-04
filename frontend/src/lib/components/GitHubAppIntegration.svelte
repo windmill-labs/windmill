@@ -56,7 +56,9 @@
 	)
 
 	let showGitHubApp = $derived(
-		resourceType === 'git_repository' && $workspaceStore && $userStore?.is_admin
+		resourceType === 'git_repository' &&
+			$workspaceStore &&
+			($userStore?.is_admin || $userStore?.is_super_admin)
 	)
 
 	// Load GitHub installations when conditions are met

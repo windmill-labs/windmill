@@ -280,7 +280,7 @@
 										<div>
 											<ToggleButtonGroup
 												disabled={owner_name == 'u/' + $userStore?.username &&
-													!$userStore?.is_admin}
+													!($userStore?.is_admin || $userStore?.is_super_admin)}
 												selected={role}
 												on:selected={async (e) => {
 													const role = e.detail
