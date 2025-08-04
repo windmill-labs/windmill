@@ -213,6 +213,7 @@
 														const target = e.target as HTMLSelectElement
 														handleIterationChange(entry.stepId, Number(target.value))
 													}}
+													onclick={(e) => e.stopPropagation()}
 													class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
 												>
 													{#each entry.stepData.subflows as _, index}
@@ -331,12 +332,15 @@
 									{/if}
 								{:else if entry.type === 'end'}
 									<!-- Show result -->
-									{#if entry.result !== undefined}
-										<div>
-											<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
+									<div>
+										<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
+										{#if entry.result !== undefined}
 											<ObjectViewer json={entry.result} pureViewer={true} />
-										</div>
-									{/if}
+										{:else}
+											<!-- Todo: display in progress or waiting -->
+											<div class="text-xs text-tertiary font-mono"> Null </div>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						{/if}
