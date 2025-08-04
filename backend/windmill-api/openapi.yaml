@@ -7711,6 +7711,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: no_logs
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -7761,6 +7765,10 @@ paths:
           schema:
             type: boolean
         - name: only_result
+          in: query
+          schema:
+            type: boolean
+        - name: no_logs
           in: query
           schema:
             type: boolean
@@ -14754,7 +14762,7 @@ components:
                                 - key
                                 - typ
                     required:
-                      - object 
+                      - object
                   - type: object
                     properties:
                       list:

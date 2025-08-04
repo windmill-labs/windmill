@@ -5709,16 +5709,27 @@ pub struct JobUpdateQuery {
 
 #[derive(Serialize, Debug)]
 pub struct JobUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub running: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub new_logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub result_stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub log_offset: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workflow_as_code_status: Option<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub job: Option<Job>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub only_result: Option<Box<serde_json::value::RawValue>>,
 }
 
@@ -5830,7 +5841,7 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, fast }): Query<
+    Query(JobUpdateQuery { log_offset, get_progress, running, no_logs, only_result, fast }): Query<
         JobUpdateQuery,
     >,
 ) -> Response {
@@ -5845,6 +5856,7 @@ async fn get_job_update_sse(
         running,
         only_result,
         fast,
+        no_logs,
     )
     .map(|x| {
         format!(
@@ -5885,6 +5897,7 @@ fn get_job_update_sse_stream(
     running: Option<bool>,
     only_result: Option<bool>,
     fast: Option<bool>,
+    no_logs: Option<bool>,
 ) -> impl futures::Stream<Item = JobUpdateSSEStream> {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
@@ -5894,6 +5907,8 @@ fn get_job_update_sse_stream(
 
         // Send initial update immediately
         let mut running = running;
+        let mut mem_peak = 0;
+
         match get_job_update_data(
             &opt_authed,
             &opt_tokened,
@@ -5906,17 +5921,25 @@ fn get_job_update_sse_stream(
             true,
             true,
             only_result,
+            no_logs,
         )
         .await
         {
-            Ok(update) => {
+            Ok(mut update) => {
                 last_update_hash = Some(update.hash_str());
                 let completion_sent = update.completed.unwrap_or(false);
                 if running.is_some() && update.running.is_some_and(|x| x) {
                     running = Some(true);
                 }
+                if let Some(new_mem_peak) = update.mem_peak {
+                    mem_peak = new_mem_peak;
+                }
                 if let Some(new_offset) = update.log_offset {
-                    log_offset = Some(new_offset);
+                    if new_offset != log_offset.unwrap_or(0) {
+                        log_offset = Some(new_offset);
+                    } else {
+                        update.log_offset = None;
+                    }
                 }
                 if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
                     tracing::warn!("Failed to send initial job update for job {job_id}");
@@ -5942,6 +5965,7 @@ fn get_job_update_sse_stream(
         let mut i = 0;
         let start = Instant::now();
         let mut last_ping = Instant::now();
+
         loop {
             i += 1;
             let ms_duration = if i > 100 || !fast.unwrap_or(false) {
@@ -5979,12 +6003,19 @@ fn get_job_update_sse_stream(
                 false,
                 true,
                 only_result,
+                no_logs,
             )
             .await
             {
-                Ok(update) => {
+                Ok(mut update) => {
                     if running.is_some() && update.running.is_some_and(|x| x) {
                         running = Some(true);
+                    }
+                    if update.completed.is_some_and(|x| !x) {
+                        update.completed = None;
+                    }
+                    if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
+                        update.new_logs = None;
                     }
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
@@ -5994,7 +6025,18 @@ fn get_job_update_sse_stream(
                     if last_update_hash.as_ref() != Some(&update_last_status) {
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
-                            log_offset = Some(new_offset);
+                            if new_offset != log_offset.unwrap_or(0) {
+                                log_offset = Some(new_offset);
+                            } else {
+                                update.log_offset = None;
+                            }
+                        }
+                        if let Some(new_mem_peak) = update.mem_peak {
+                            if new_mem_peak != mem_peak {
+                                mem_peak = new_mem_peak;
+                            } else {
+                                update.mem_peak = None;
+                            }
                         }
                         let completed = update.completed.unwrap_or(false);
                         if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
@@ -6111,7 +6153,11 @@ async fn get_job_update_data(
         } else {
             if running.is_some_and(|x| !x) {
                 let r = sqlx::query!(
-                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job_queue.running as \"running: Option<bool>\" FROM v2_job_completed FULL OUTER JOIN v2_job_queue USING (id) WHERE (v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2) OR (v2_job_completed.id = $1 AND v2_job_completed.workspace_id = $2)",
+                    "SELECT 
+                        result as \"result: sqlx::types::Json<Box<RawValue>>\",
+                        v2_job_queue.running as \"running: Option<bool>\" 
+                    FROM v2_job_completed FULL OUTER JOIN v2_job_queue USING (id) 
+                    WHERE (v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2) OR (v2_job_completed.id = $1 AND v2_job_completed.workspace_id = $2)",
                     job_id,
                     w_id,
                 ).fetch_optional(db).await?;
@@ -6122,12 +6168,19 @@ async fn get_job_update_data(
                     (None, None)
                 }
             } else {
-                (sqlx::query_scalar!(
-                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\" FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
-                    w_id,
-                    job_id,
-                ).fetch_optional(db).await?.flatten()
-                .map(|x| x.0), running)
+                (
+                    sqlx::query_scalar!(
+                        "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\"
+                     FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
+                        w_id,
+                        job_id,
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                    .map(|x| x.0),
+                    running,
+                )
             }
         };
         Ok(JobUpdate {
@@ -6151,11 +6204,11 @@ async fn get_job_update_data(
                     WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                     ELSE false
                 END AS running,
-                SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
+                CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
-                job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
+                CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
@@ -6174,6 +6227,7 @@ async fn get_job_update_data(
             get_progress.unwrap_or(false),
             running,
             tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+            no_logs.unwrap_or(false),
         )
         .fetch_optional(db)
         .await?

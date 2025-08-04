@@ -38,6 +38,7 @@
 		extraQueryParams?: Record<string, any>
 		autoRefresh?: boolean
 		result?: any
+		result_stream?: string
 		forceSchemaDisplay?: boolean
 		wrapperClass?: string
 		wrapperStyle?: string
@@ -72,6 +73,7 @@
 		extraQueryParams = {},
 		autoRefresh = true,
 		result = $bindable(undefined),
+		result_stream = $bindable(undefined),
 		forceSchemaDisplay = false,
 		wrapperClass = '',
 		wrapperStyle = '',

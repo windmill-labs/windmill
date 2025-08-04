@@ -492,10 +492,12 @@
 <HighlightTheme />
 
 {#if result_stream && result == undefined}
-	<div class="flex items-center gap-2 text-tertiary">
-		<Loader2 class="animate-spin" size={16} /> Streaming result
+	<div class="flex flex-col w-full gap-2">
+		<div class="flex items-center gap-2 text-tertiary">
+			<Loader2 class="animate-spin" size={16} /> Streaming result
+		</div>
+		<ResultStreamDisplay {result_stream} />
 	</div>
-	<ResultStreamDisplay {result_stream} />
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}

@@ -67,6 +67,7 @@
 		replaceCallback?: boolean
 		id: string
 		result?: any
+		result_stream?: string
 		initializing?: boolean | undefined
 		loading?: boolean
 		extraQueryParams?: Record<string, any>
@@ -102,6 +103,7 @@
 		replaceCallback = false,
 		id,
 		result = $bindable(undefined),
+		result_stream = $bindable(undefined),
 		initializing = $bindable(undefined),
 		loading = $bindable(false),
 		extraQueryParams = {},

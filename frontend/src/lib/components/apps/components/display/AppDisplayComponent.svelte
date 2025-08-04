@@ -26,6 +26,7 @@
 		configuration: RichConfigurations
 	}
 
+	let result_stream: string | undefined = $state(undefined)
 	let {
 		id,
 		componentInput,
@@ -78,7 +79,15 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:result_stream
+>
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
 			class={twMerge(
@@ -105,6 +114,7 @@
 			<DisplayResult
 				workspaceId={workspace}
 				{result}
+				{result_stream}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={$userStore ? undefined : $appPath}

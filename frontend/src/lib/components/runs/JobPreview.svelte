@@ -82,7 +82,7 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<JobLoader lazyLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
+<JobLoader noLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}

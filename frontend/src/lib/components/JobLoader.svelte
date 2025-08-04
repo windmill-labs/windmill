@@ -35,7 +35,6 @@
 		allowConcurentRequests?: boolean
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
-		lazyLogs?: boolean
 		onlyResult?: boolean
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
@@ -52,7 +51,6 @@
 		notfound = $bindable(false),
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
-		lazyLogs = false,
 		onlyResult = false,
 		scriptProgress = $bindable(undefined),
 		noLogs = false,
@@ -424,7 +422,7 @@
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
-						noLogs: lazyLogs || onlyResult || noLogs,
+						noLogs: onlyResult || noLogs,
 						noCode
 					})
 				}
@@ -520,7 +518,7 @@
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
-						noLogs: lazyLogs || noLogs,
+						noLogs: noLogs,
 						noCode
 					})
 				}
@@ -563,6 +561,9 @@
 
 					if (startedWatchingJob && startedWatchingJob > Date.now() - 5000) {
 						params.set('fast', 'true')
+					}
+					if (noLogs) {
+						params.set('no_logs', 'true')
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
