@@ -5,7 +5,7 @@ import { allWorkspaces, Workspace } from "../workspace/workspace.ts";
 type WorkspaceWithOptionalToken = Omit<Workspace, 'token'> & { token?: string };
 
 const command = new Command()
-    .description("config related actions")
+    .description("Shows current workspace config. Use -t to show tokens. Use -p to only show the config folder path.")
     .option("-p, --path", "show config path")
     .option("-t, --token", "show tokens")
     .action(async (opts) => {
