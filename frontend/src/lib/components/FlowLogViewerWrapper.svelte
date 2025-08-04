@@ -166,6 +166,8 @@
 		}
 	})
 
+	$inspect('dbg flowData', flowData)
+
 	function toggleExpanded(id: string) {
 		if (expandedRows.has(id)) {
 			expandedRows.delete(id)

@@ -108,69 +108,68 @@
 </script>
 
 {#if render}
-	<table class="w-full font-mono text-xs bg-surface-secondary">
-		<tbody>
-			<!-- Start of flow -->
-			<tr class="border-b border-gray-200 dark:border-gray-700">
-				<td class="py-2 leading-tight align-top">
+	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
+		<!-- Start of flow -->
+		<li class="border-b border-gray-200 dark:border-gray-700 flex">
+			<div class="py-2 leading-tight align-top">
+				<button
+					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+					onclick={() => toggleExpanded(`flow-start-${flowData.jobId}`)}
+				>
+					{#if expandedRows.has(`flow-start-${flowData.jobId}`)}
+						<ChevronDown size={8} />
+					{:else}
+						<ChevronRight size={8} />
+					{/if}
+				</button>
+			</div>
+			<div class="w-full leading-tight">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="py-1 flex items-center justify-between cursor-pointer"
+					onclick={() => toggleExpanded(`flow-start-${flowData.jobId}`)}
+				>
+					<span class="text-xs font-mono">Running <b>flow</b></span>
+					<a
+						href={getJobLink(flowData.jobId)}
+						class="text-xs text-primary hover:underline font-mono"
+						target="_blank"
+						rel="noopener noreferrer"
+						onclick={(e) => e.stopPropagation()}
+					>
+						{truncateRev(flowData.jobId, 10)}
+					</a>
+				</div>
+
+				{#if expandedRows.has(`flow-start-${flowData.jobId}`)}
+					<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
+						{#if flowData.inputs && Object.keys(flowData.inputs).length > 0}
+							<div class="mb-2">
+								<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
+								<ObjectViewer json={flowData.inputs} pureViewer={true} />
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</li>
+
+		{#each logEntries as entry (entry.id)}
+			<li class="border-b border-gray-200 dark:border-gray-700 flex">
+				<div class="py-2 leading-tight align-top">
 					<button
 						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-						onclick={() => toggleExpanded(`flow-start-${flowData.jobId}`)}
+						onclick={() => toggleExpanded(entry.id)}
 					>
-						{#if expandedRows.has(`flow-start-${flowData.jobId}`)}
+						{#if expandedRows.has(entry.id)}
 							<ChevronDown size={8} />
 						{:else}
 							<ChevronRight size={8} />
 						{/if}
 					</button>
-				</td>
-				<td class="w-full leading-tight">
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="py-1 flex items-center justify-between cursor-pointer"
-						onclick={() => toggleExpanded(`flow-start-${flowData.jobId}`)}
-					>
-						<span class="text-xs font-mono">Running <b>flow</b></span>
-						<a
-							href={getJobLink(flowData.jobId)}
-							class="text-xs text-primary hover:underline font-mono"
-							target="_blank"
-							rel="noopener noreferrer"
-							onclick={(e) => e.stopPropagation()}
-						>
-							{truncateRev(flowData.jobId, 10)}
-						</a>
-					</div>
-
-					{#if expandedRows.has(`flow-start-${flowData.jobId}`)}
-						<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
-							{#if flowData.inputs && Object.keys(flowData.inputs).length > 0}
-								<div class="mb-2">
-									<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
-									<ObjectViewer json={flowData.inputs} pureViewer={true} />
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</td>
-			</tr>
-
-			{#each logEntries as entry (entry.id)}
-				<tr class="border-b border-gray-200 dark:border-gray-700">
-					<td class="py-2 leading-tight align-top">
-						<button
-							class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-							onclick={() => toggleExpanded(entry.id)}
-						>
-							{#if expandedRows.has(entry.id)}
-								<ChevronDown size={8} />
-							{:else}
-								<ChevronRight size={8} />
-							{/if}
-						</button>
-					</td>
-					<td class="w-full leading-tight">
+				</div>
+				<div class="w-full leading-tight">
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
@@ -344,58 +343,58 @@
 								{/if}
 							</div>
 						{/if}
-					</td>
-				</tr>
-			{/each}
+				</div>
+			</li>
+		{/each}
 
-			<tr class="border-b border-gray-200 dark:border-gray-700">
-				<td class="py-2 leading-tight align-top">
-					<button
-						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-						onclick={() => toggleExpanded(`flow-end-${flowData.jobId}`)}
-					>
-						{#if expandedRows.has(`flow-end-${flowData.jobId}`)}
-							<ChevronDown size={8} />
-						{:else}
-							<ChevronRight size={8} />
-						{/if}
-					</button>
-				</td>
-				<td class="w-full leading-tight">
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="py-1 flex items-center justify-between cursor-pointer"
-						onclick={() => toggleExpanded(`flow-end-${flowData.jobId}`)}
-					>
-						<span class="text-xs font-mono">
-							Flow
-							{#if flowData.status === 'success'}
-								<span class="text-green-600">executed with success</span>
-							{:else if flowData.status === 'failure'}
-								<span class="text-red-600">failed</span>
-							{:else if flowData.status === 'in_progress'}
-								<span class="text-blue-600">in progress</span>
-							{:else}
-								<span class="text-gray-600">waiting</span>
-							{/if}
-						</span>
-					</div>
-
+		<!-- End of flow -->
+		<li class="border-gray-200 dark:border-gray-700 flex">
+			<div class="py-2 leading-tight align-top">
+				<button
+					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+					onclick={() => toggleExpanded(`flow-end-${flowData.jobId}`)}
+				>
 					{#if expandedRows.has(`flow-end-${flowData.jobId}`)}
-						<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
-							{#if flowData.result !== undefined && (flowData.status === 'success' || flowData.status === 'failure')}
-								<div class="mb-2">
-									<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
-									<ObjectViewer json={flowData.result} pureViewer={true} />
-								</div>
-							{/if}
-						</div>
+						<ChevronDown size={8} />
+					{:else}
+						<ChevronRight size={8} />
 					{/if}
-				</td>
-			</tr>
-		</tbody>
-	</table>
+				</button>
+			</div>
+			<div class="w-full leading-tight">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="py-1 flex items-center justify-between cursor-pointer"
+					onclick={() => toggleExpanded(`flow-end-${flowData.jobId}`)}
+				>
+					<span class="text-xs font-mono">
+						Flow
+						{#if flowData.status === 'success'}
+							<span class="text-green-600">executed with success</span>
+						{:else if flowData.status === 'failure'}
+							<span class="text-red-600">failed</span>
+						{:else if flowData.status === 'in_progress'}
+							<span class="text-blue-600">in progress</span>
+						{:else}
+							<span class="text-gray-600">waiting</span>
+						{/if}
+					</span>
+				</div>
+
+				{#if expandedRows.has(`flow-end-${flowData.jobId}`)}
+					<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
+						{#if flowData.result !== undefined && (flowData.status === 'success' || flowData.status === 'failure')}
+							<div class="mb-2">
+								<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
+								<ObjectViewer json={flowData.result} pureViewer={true} />
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</li>
+	</ul>
 {/if}
 
 <style>
