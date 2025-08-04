@@ -131,14 +131,14 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
   const { git_branches } = config;
   const currentBranch = getCurrentGitBranch();
 
-  // In a git repository, git_branches section is mandatory
+  // In a git repository, git_branches section is recommended
   if (!git_branches || Object.keys(git_branches).length === 0) {
-    log.error(
-      "❌ In a Git repository, the 'git_branches' section is mandatory in wmill.yaml.\n" +
-      "   Please add a git_branches section with configuration for your Git branches.\n" +
+    log.warn(
+      "⚠️  WARNING: In a Git repository, the 'git_branches' section is recommended in wmill.yaml.\n" +
+      "   Consider adding a git_branches section with configuration for your Git branches.\n" +
       "   Run 'wmill init' to recreate the configuration file with proper branch setup."
     );
-    Deno.exit(1);
+    return;
   }
 
   // Current branch must be defined in git_branches config
@@ -169,16 +169,16 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
 
         log.info(`✅ Created empty branch configuration for '${currentBranch}'`);
       } else {
-        log.info("Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration.");
-        Deno.exit(1);
+        log.warn("⚠️  WARNING: Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration.");
+        return;
       }
     } else {
-      log.error(
-        `❌ Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
-        `   Please add configuration for branch '${currentBranch}' in the git_branches section of wmill.yaml.\n` +
+      log.warn(
+        `⚠️  WARNING: Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
+        `   Consider adding configuration for branch '${currentBranch}' in the git_branches section of wmill.yaml.\n` +
         `   Available branches: ${Object.keys(git_branches).join(', ')}`
       );
-      Deno.exit(1);
+      return;
     }
   }
 }
