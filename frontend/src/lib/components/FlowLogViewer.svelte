@@ -42,10 +42,19 @@
 		updateSelectedIteration(stepId, newIteration)
 	}
 
-	// Create log entries for display
+	function getStatusDot(status: string) {
+		const statusClasses = {
+			success: 'bg-green-500',
+			failure: 'bg-red-500',
+			in_progress: 'bg-blue-500 animate-pulse',
+			waiting: 'bg-gray-400'
+		}
+		return statusClasses[status] || 'bg-gray-400'
+	}
+
+	// Create log entries for display - one entry per step
 	interface LogEntry {
 		id: string
-		type: 'start' | 'end'
 		stepId: string
 		stepNumber: number
 		jobId: string
@@ -71,36 +80,20 @@
 		const entries: LogEntry[] = []
 
 		steps.forEach((step) => {
-			// Add start entry
+			// Create single entry per step
 			entries.push({
-				id: `start-${step.stepId}`,
-				type: 'start',
+				id: step.stepId,
 				stepId: step.stepId,
 				stepNumber: step.stepNumber,
 				jobId: step.jobId || '',
 				status: step.status,
 				stepData: step,
 				args: step.inputs,
+				result: step.result,
 				logs: step.logs || '',
 				summary: step.summary,
 				stepType: step.type
 			})
-
-			// Add end entry if step is completed
-			if (step.status === 'success' || step.status === 'failure') {
-				entries.push({
-					id: `end-${step.stepId}`,
-					type: 'end',
-					stepId: step.stepId,
-					stepNumber: step.stepNumber,
-					jobId: step.jobId || '',
-					status: step.status,
-					stepData: step,
-					result: step.result,
-					summary: step.summary,
-					stepType: step.type
-				})
-			}
 		})
 
 		return entries
@@ -111,14 +104,14 @@
 
 {#if render}
 	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
-		<!-- Start of flow -->
+		<!-- Flow entry -->
 		<li class="border-b border-gray-200 dark:border-gray-700 flex">
 			<div class="py-2 leading-tight align-top">
 				<button
 					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-					onclick={() => toggleExpanded(`flow-start-${flowId}`)}
+					onclick={() => toggleExpanded(`flow-${flowId}`)}
 				>
-					{#if expandedRows.has(`flow-start-${flowId}`)}
+					{#if expandedRows.has(`flow-${flowId}`)}
 						<ChevronDown size={8} />
 					{:else}
 						<ChevronRight size={8} />
@@ -129,10 +122,24 @@
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="py-1 flex items-center justify-between cursor-pointer"
-					onclick={() => toggleExpanded(`flow-start-${flowId}`)}
+					class="py-1 flex items-center justify-between cursor-pointer {flowData.status ===
+					'waiting'
+						? 'opacity-50'
+						: ''}"
+					onclick={() => toggleExpanded(`flow-${flowId}`)}
 				>
-					<span class="text-xs font-mono">Running <b>flow</b></span>
+					<div class="flex items-center gap-2 grow min-w-0">
+						<!-- Status dot -->
+						<div class="w-1.5 h-1.5 rounded-full {getStatusDot(flowData.status)} flex-shrink-0"
+						></div>
+
+						<div class="flex items-center gap-2">
+							<span class="text-xs font-mono">
+								<b>flow</b>
+							</span>
+						</div>
+					</div>
+
 					<a
 						href={getJobLink(flowData.jobId)}
 						class="text-xs text-primary hover:underline font-mono"
@@ -144,12 +151,55 @@
 					</a>
 				</div>
 
-				{#if expandedRows.has(`flow-start-${flowId}`)}
-					<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
+				{#if expandedRows.has(`flow-${flowId}`)}
+					<div class="my-1 transition-all duration-200 ease-in-out">
+						<!-- Show flow input arguments -->
 						{#if flowData.inputs && Object.keys(flowData.inputs).length > 0}
 							<div class="mb-2">
-								<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
-								<ObjectViewer json={flowData.inputs} pureViewer={true} />
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+									onclick={() => toggleExpanded(`flow-${flowId}-input`)}
+								>
+									{#if expandedRows.has(`flow-${flowId}-input`)}
+										<ChevronDown size={10} />
+									{:else}
+										<ChevronRight size={10} />
+									{/if}
+									Input:
+								</div>
+								{#if expandedRows.has(`flow-${flowId}-input`)}
+									<div class="pl-4">
+										<ObjectViewer json={flowData.inputs} pureViewer={true} />
+									</div>
+								{/if}
+							</div>
+						{/if}
+
+						<!-- Flow steps will be rendered here by the main loop -->
+
+						<!-- Show flow result if completed -->
+						{#if flowData.result !== undefined && (flowData.status === 'success' || flowData.status === 'failure')}
+							<div class="mb-2 mt-2">
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+									onclick={() => toggleExpanded(`flow-${flowId}-result`)}
+								>
+									{#if expandedRows.has(`flow-${flowId}-result`)}
+										<ChevronDown size={10} />
+									{:else}
+										<ChevronRight size={10} />
+									{/if}
+									Result:
+								</div>
+								{#if expandedRows.has(`flow-${flowId}-result`)}
+									<div class="pl-4">
+										<ObjectViewer json={flowData.result} pureViewer={true} />
+									</div>
+								{/if}
 							</div>
 						{/if}
 					</div>
@@ -175,68 +225,62 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="py-1 flex items-center justify-between cursor-pointer"
+						class="py-1 flex items-center justify-between cursor-pointer {entry.status === 'waiting'
+							? 'opacity-50'
+							: ''}"
 						onclick={() => toggleExpanded(entry.id)}
 					>
 						<div class="flex items-center gap-2 grow min-w-0">
-							{#if entry.type === 'start'}
-								<div class="flex items-center gap-2">
-									<span class="text-xs font-mono">
-										Running
-										<b>
-											{#if entry.stepType === 'forloopflow'}
-												forloop
-											{:else if entry.stepType === 'whileloopflow'}
-												whileloop
-											{:else if entry.stepType === 'branchall'}
-												branchall
-											{:else if entry.stepType === 'branchone'}
-												brancheone
-											{:else if entry.stepType === 'flow'}
-												flow
-											{:else}
-												step
-											{/if}
-											{entry.stepId}
-										</b>
-										{#if entry.summary}
-											: {entry.summary}
-										{/if}
-									</span>
-									{#if entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
-										<span
-											class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
-										>
-											iteration
-											<select
-												value={getSelectedIteration(entry.stepId)}
-												onchange={(e) => {
-													const target = e.target as HTMLSelectElement
-													handleIterationChange(entry.stepId, Number(target.value))
-												}}
-												onclick={(e) => e.stopPropagation()}
-												class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
-											>
-												{#each entry.stepData.subflows as _, index}
-													<option value={index}>
-														{index + 1}
-													</option>
-												{/each}
-											</select>
-											{`/${entry.stepData.subflows.length}`}
-										</span>
-									{/if}
-								</div>
-							{:else}
+							<!-- Status dot -->
+							<div class="w-1.5 h-1.5 rounded-full {getStatusDot(entry.status)} flex-shrink-0"
+							></div>
+
+							<div class="flex items-center gap-2">
 								<span class="text-xs font-mono">
-									Step <b>{entry.stepId}</b>
-									{#if entry.status === 'success'}
-										<span class="text-green-600">executed with success</span>
-									{:else if entry.status === 'failure'}
-										<span class="text-red-600">failed</span>
+									<b>
+										{#if entry.stepType === 'forloopflow'}
+											forloop
+										{:else if entry.stepType === 'whileloopflow'}
+											whileloop
+										{:else if entry.stepType === 'branchall'}
+											branchall
+										{:else if entry.stepType === 'branchone'}
+											brancheone
+										{:else if entry.stepType === 'flow'}
+											flow
+										{:else}
+											step
+										{/if}
+										{entry.stepId}
+									</b>
+									{#if entry.summary}
+										: {entry.summary}
 									{/if}
 								</span>
-							{/if}
+								{#if entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
+									<span
+										class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
+									>
+										iteration
+										<select
+											value={getSelectedIteration(entry.stepId)}
+											onchange={(e) => {
+												const target = e.target as HTMLSelectElement
+												handleIterationChange(entry.stepId, Number(target.value))
+											}}
+											onclick={(e) => e.stopPropagation()}
+											class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
+										>
+											{#each entry.stepData.subflows as _, index}
+												<option value={index}>
+													{index + 1}
+												</option>
+											{/each}
+										</select>
+										{`/${entry.stepData.subflows.length}`}
+									</span>
+								{/if}
+							</div>
 						</div>
 
 						{#if entry.stepType !== 'branchall' && entry.stepType !== 'branchone' && entry.stepType !== 'forloopflow' && entry.stepType !== 'whileloopflow'}
@@ -253,49 +297,37 @@
 
 					{#if expandedRows.has(entry.id)}
 						<div class="my-1 transition-all duration-200 ease-in-out">
-							{#if entry.type === 'start'}
-								{#if entry.stepData.subflows && entry.stepData.subflows.length > 0}
-									{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
-										{#if entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
-											<div class="border-l">
-												<FlowLogViewer
-													flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
-													{expandedRows}
-													{toggleExpanded}
-													{updateSelectedIteration}
-													{workspaceId}
-													{render}
-													level={level + 1}
-													flowId={entry.stepId}
-												/>
-											</div>
+							<!-- Show input arguments -->
+							{#if entry.args && Object.keys(entry.args).length > 0}
+								<div class="mb-2">
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+										onclick={() => toggleExpanded(`${entry.id}-input`)}
+									>
+										{#if expandedRows.has(`${entry.id}-input`)}
+											<ChevronDown size={10} />
+										{:else}
+											<ChevronRight size={10} />
 										{/if}
-									{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
-										<!-- This is a branch, show all subflows -->
-										<div class="mb-2">
-											{#each entry.stepData.subflows as subflow}
-												<div class="mb-2 border-l">
-													<FlowLogViewer
-														flowData={subflow}
-														{expandedRows}
-														{toggleExpanded}
-														{updateSelectedIteration}
-														{workspaceId}
-														{render}
-														level={level + 1}
-														flowId={subflow.jobId}
-													/>
-												</div>
-											{/each}
-										</div>
-									{:else if entry.stepType === 'flow'}
-										<div class="mb-2">
-											<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
+										Input:
+									</div>
+									{#if expandedRows.has(`${entry.id}-input`)}
+										<div class="pl-4">
 											<ObjectViewer json={entry.args} pureViewer={true} />
 										</div>
-										<div class="mb-2">
+									{/if}
+								</div>
+							{/if}
+
+							<!-- Show subflows for complex step types -->
+							{#if entry.stepData.subflows && entry.stepData.subflows.length > 0}
+								{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
+									{#if entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
+										<div class="border-l mb-2">
 											<FlowLogViewer
-												flowData={entry.stepData.subflows[0]}
+												flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
 												{expandedRows}
 												{toggleExpanded}
 												{updateSelectedIteration}
@@ -306,43 +338,80 @@
 											/>
 										</div>
 									{/if}
-								{:else}
-									<!-- Regular step, show logs -->
-									<!-- Show input arguments -->
-									{#if entry.args && Object.keys(entry.args).length > 0}
-										<div class="mb-2">
-											<h4 class="text-xs font-mono font-medium mb-1">Input:</h4>
-											<ObjectViewer json={entry.args} pureViewer={true} />
-										</div>
-									{/if}
-									{#if entry.logs}
-										<div class="mb-2">
-											<LogViewer
-												content={entry.logs}
-												jobId={entry.jobId}
-												isLoading={entry.status === 'in_progress'}
-												small={true}
-												download={false}
-												noAutoScroll={true}
-												tag={undefined}
-												noPadding
-											/>
-										</div>
-									{:else if entry.jobId}
-										<div class="mb-2">
-											<div class="text-xs text-tertiary font-mono"> No logs available </div>
-										</div>
-									{/if}
+								{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
+									<!-- This is a branch, show all subflows -->
+									<div class="mb-2">
+										{#each entry.stepData.subflows as subflow}
+											<div class="mb-2 border-l">
+												<FlowLogViewer
+													flowData={subflow}
+													{expandedRows}
+													{toggleExpanded}
+													{updateSelectedIteration}
+													{workspaceId}
+													{render}
+													level={level + 1}
+													flowId={subflow.jobId}
+												/>
+											</div>
+										{/each}
+									</div>
+								{:else if entry.stepType === 'flow'}
+									<div class="mb-2">
+										<FlowLogViewer
+											flowData={entry.stepData.subflows[0]}
+											{expandedRows}
+											{toggleExpanded}
+											{updateSelectedIteration}
+											{workspaceId}
+											{render}
+											level={level + 1}
+											flowId={entry.stepId}
+										/>
+									</div>
 								{/if}
-							{:else if entry.type === 'end'}
-								<!-- Show result -->
-								<div>
-									<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
-									{#if entry.result !== undefined}
-										<ObjectViewer json={entry.result} pureViewer={true} />
-									{:else}
-										<!-- Todo: display in progress or waiting -->
-										<div class="text-xs text-tertiary font-mono"> Null </div>
+							{/if}
+
+							<!-- Show logs for regular steps -->
+							{#if entry.logs}
+								<div class="mb-2">
+									<LogViewer
+										content={entry.logs}
+										jobId={entry.jobId}
+										isLoading={entry.status === 'in_progress'}
+										small={true}
+										download={false}
+										noAutoScroll={true}
+										tag={undefined}
+										noPadding
+									/>
+								</div>
+							{:else if entry.jobId && !entry.stepData.subflows}
+								<div class="mb-2">
+									<div class="text-xs text-tertiary font-mono"> No logs available </div>
+								</div>
+							{/if}
+
+							<!-- Show result if completed -->
+							{#if entry.result !== undefined && (entry.status === 'success' || entry.status === 'failure')}
+								<div class="mb-2 mt-2">
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+										onclick={() => toggleExpanded(`${entry.id}-result`)}
+									>
+										{#if expandedRows.has(`${entry.id}-result`)}
+											<ChevronDown size={10} />
+										{:else}
+											<ChevronRight size={10} />
+										{/if}
+										Result:
+									</div>
+									{#if expandedRows.has(`${entry.id}-result`)}
+										<div class="pl-4">
+											<ObjectViewer json={entry.result} pureViewer={true} />
+										</div>
 									{/if}
 								</div>
 							{/if}
@@ -351,54 +420,6 @@
 				</div>
 			</li>
 		{/each}
-
-		<!-- End of flow -->
-		<li class="border-gray-200 dark:border-gray-700 flex">
-			<div class="py-2 leading-tight align-top">
-				<button
-					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-					onclick={() => toggleExpanded(`flow-end-${flowId}`)}
-				>
-					{#if expandedRows.has(`flow-end-${flowId}`)}
-						<ChevronDown size={8} />
-					{:else}
-						<ChevronRight size={8} />
-					{/if}
-				</button>
-			</div>
-			<div class="w-full leading-tight">
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					class="py-1 flex items-center justify-between cursor-pointer"
-					onclick={() => toggleExpanded(`flow-end-${flowId}`)}
-				>
-					<span class="text-xs font-mono">
-						Flow
-						{#if flowData.status === 'success'}
-							<span class="text-green-600">executed with success</span>
-						{:else if flowData.status === 'failure'}
-							<span class="text-red-600">failed</span>
-						{:else if flowData.status === 'in_progress'}
-							<span class="text-blue-600">in progress</span>
-						{:else}
-							<span class="text-gray-600">waiting</span>
-						{/if}
-					</span>
-				</div>
-
-				{#if expandedRows.has(`flow-end-${flowId}`)}
-					<div class="mt-1 pl-4 transition-all duration-200 ease-in-out">
-						{#if flowData.result !== undefined && (flowData.status === 'success' || flowData.status === 'failure')}
-							<div class="mb-2">
-								<h4 class="text-xs font-mono font-medium mb-1">Result:</h4>
-								<ObjectViewer json={flowData.result} pureViewer={true} />
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</li>
 	</ul>
 {/if}
 
