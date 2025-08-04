@@ -365,7 +365,7 @@
 		}}
 		{placeholder}
 		class={twMerge(
-			'textarea-input resize-none bg-transparent caret-black dark:caret-white',
+			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
 			className
 		)}
 		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
