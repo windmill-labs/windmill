@@ -20,7 +20,7 @@ overrides:
 When in a git repo, a branches section is MANDATORY. The CLI check for .git in every parent folder if branches section is missing and error if missing. Also error if current branch is not in the branches config.
 
 ```yaml
-branches:
+git_branches:
   branchName:
     baseUrl: X
     workspaceId: Y
@@ -35,7 +35,7 @@ When no user profile is found for the given branch, we ask to create the profile
 ## Workspace specific Overrides
 
 ```yaml
-branches:
+git_branches:
   branchName:
     ...
     overrides:
@@ -46,7 +46,7 @@ branches:
 ## Git sync overrides
 
 ```yaml
-branches:
+git_branches:
   branchName:
     ...
     overrides:
@@ -60,7 +60,7 @@ branches:
 ## Workspace specific items
 
 ```yaml
-branches:
+git_branches:
   branchName:
     ...
     specificItems:
@@ -85,6 +85,7 @@ Workspace name: `ephemeral-<branch_name>-<ephermal-workspace-name>`
 
 Assume settings + baseUrl from the `<origin-branch>`
 
-We had a github action that check when those branches are deleted and it delete the ephemeral workspace
-
-TBD: can ephemeral workspaces be created from UI? Most likely yes, so git sync need may need to able to create branches directly
+- a github action checks when those ephemeral branches are deleted and it delete the ephemeral workspace on Windmill.
+- Ephemeral workspaces can be created from UI as an additional option from "Fork" button (and from workspace settings). You select one of the git sync connection (in non promotion mode) branch as origin.
+- Ephemeral workspaces have a specific drawer accessible from home page that allows them to merge in both direction from their origin workspaces.
+- Ephemeral workspaces have almost all their settings derived from original workspace, but git sync is setup in a specific way to point to the ephemeral branch
