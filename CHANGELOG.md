@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.518.0](https://github.com/windmill-labs/windmill/compare/v1.517.0...v1.518.0) (2025-08-01)
+
+
+### Features
+
+* **utils:** add flow.yaml validation function ([#6316](https://github.com/windmill-labs/windmill/issues/6316)) ([4937076](https://github.com/windmill-labs/windmill/commit/493707668b2b723115568e9bb96e7d57b5246ac4))
+
+
+### Bug Fixes
+
+* add disabled support to resource picker in schema forms ([c279154](https://github.com/windmill-labs/windmill/commit/c279154409643da493606da6d401228281966583))
+* add wm_labels to tracing spans ([d45ddec](https://github.com/windmill-labs/windmill/commit/d45ddecf8fdd14fe5ef759b7e836caacf1b78a52))
+* cleanup concurrency_counter automatically + remove orphans keys automatically ([87dd522](https://github.com/windmill-labs/windmill/commit/87dd52296f4bb8a585fffd08a6d13e9b1e4856b8))
+* delete empty git connection ([#6318](https://github.com/windmill-labs/windmill/issues/6318)) ([8d05696](https://github.com/windmill-labs/windmill/commit/8d05696809cae7590ffedee1f30a76efcc8f3c66))
+* sanitize XSS on login error ([523bc20](https://github.com/windmill-labs/windmill/commit/523bc2023b6789fe986532eb78f42db2c94f0c58))
+
+## [1.517.0](https://github.com/windmill-labs/windmill/compare/v1.516.0...v1.517.0) (2025-07-31)
+
+
+### Features
+
+* **cli:** wmill-lock.yaml v2 for easier git merge diffs ([ef3e235](https://github.com/windmill-labs/windmill/commit/ef3e2353a76d096847b3f10b1daa6767fc4baa0d))
+
+
+### Bug Fixes
+
+* use with_capacity back presusre for tantivy directory multipart writes ([#6313](https://github.com/windmill-labs/windmill/issues/6313)) ([8887707](https://github.com/windmill-labs/windmill/commit/8887707d41456889371e471c996773e605088a88))
+
+## [1.516.0](https://github.com/windmill-labs/windmill/compare/v1.515.1...v1.516.0) (2025-07-31)
+
+
+### Features
+
+* add CA certificate update at startup via environment variable ([#6280](https://github.com/windmill-labs/windmill/issues/6280)) ([a460e13](https://github.com/windmill-labs/windmill/commit/a460e131c71a0105fb14812ea2fabaa6bea1e0df))
+* prevent too large results (&gt;500Mb) from OOMing database ([4b9683f](https://github.com/windmill-labs/windmill/commit/4b9683f1462e9c8a577cc9e65a79fcdcd3894da0))
+
+
+### Bug Fixes
+
+* indexer collection of job logs before indexing ([#6300](https://github.com/windmill-labs/windmill/issues/6300)) ([77c8f17](https://github.com/windmill-labs/windmill/commit/77c8f17fdf88821951af36786e28aed9a270d476))
+* no process relative imports for scripts with codebase ([576156b](https://github.com/windmill-labs/windmill/commit/576156b0cc89c8a6ccb94234c59307ab8c41fed4))
+* sqs oidc authentication disconnect [#6307](https://github.com/windmill-labs/windmill/issues/6307) ([993e809](https://github.com/windmill-labs/windmill/commit/993e80955b23098d7075ed5279e3f18cd8a633b9))
+
+## [1.515.1](https://github.com/windmill-labs/windmill/compare/v1.515.0...v1.515.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* improved logs for script ([2e7ab91](https://github.com/windmill-labs/windmill/commit/2e7ab919a7bce4f04d7b09f45db48b5465346846))
+
+## [1.515.0](https://github.com/windmill-labs/windmill/compare/v1.514.1...v1.515.0) (2025-07-29)
+
+
+### Features
+
+* **cli:** generate cursor rules on init ([#6270](https://github.com/windmill-labs/windmill/issues/6270)) ([29c686d](https://github.com/windmill-labs/windmill/commit/29c686d62ae3597eb59371f5a3e9dadd9dc9557f))
+
+
+### Bug Fixes
+
+* add size limit to indexer queries on jobs table to avoid oom ([#6293](https://github.com/windmill-labs/windmill/issues/6293)) ([4d6a614](https://github.com/windmill-labs/windmill/commit/4d6a61403b51d84ea4039611cb007a42a26d24b6))
+* fix DynSelect ([55ba599](https://github.com/windmill-labs/windmill/commit/55ba599022ac2a6b513c4456747e4910f3188ec7))
+* improve docker logs collection in docker mode ([ce4177e](https://github.com/windmill-labs/windmill/commit/ce4177ebaed02df62aec676ca4624d77052f3e51))
+* resource types as arg in typescript handle imported defined types ([56671bc](https://github.com/windmill-labs/windmill/commit/56671bc75fe940f940f52ad47f5cf99c8329a0c3))
+* resource-type-ts-parser ([#6289](https://github.com/windmill-labs/windmill/issues/6289)) ([9931311](https://github.com/windmill-labs/windmill/commit/99313116509a5ebec33aa2ab813e0c189d4c4e24))
+
 ## [1.514.1](https://github.com/windmill-labs/windmill/compare/v1.514.0...v1.514.1) (2025-07-28)
 
 

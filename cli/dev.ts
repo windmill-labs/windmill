@@ -22,7 +22,8 @@ import {
 import { exts, findGlobalDeps, removeExtensionToPath } from "./script.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
-import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { FlowFile } from "./flow.ts";
+import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { parseMetadataFile } from "./metadata.ts";
 
 const PORT = 3001;
@@ -74,7 +75,16 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
-        replaceInlineScripts(localFlow.value.modules, localPath, undefined);
+        await replaceInlineScripts(
+          localFlow.value.modules,
+          async (path: string) => await Deno.readTextFile(localPath + path),
+          log,
+          localPath,
+          SEP,
+          undefined,
+          (path: string, newPath: string) => Deno.renameSync(path, newPath),
+          (path: string) => Deno.removeSync(path),
+        );
         currentLastEdit = {
           type: "flow",
           flow: localFlow,

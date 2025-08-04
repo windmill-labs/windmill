@@ -32,6 +32,7 @@
 		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
+		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
@@ -102,7 +103,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 
 	let {
-		script,
+		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		template = $bindable('script'),
@@ -319,14 +320,18 @@
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
 
+	let timeout2: NodeJS.Timeout | undefined = undefined
 	function encodeScriptState(script: NewScript) {
-		replaceStateFn(
-			'#' +
-				encodeState({
-					...script,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-				})
-		)
+		untrack(() => timeout2 && clearTimeout(timeout2))
+		timeout2 = setTimeout(() => {
+			replaceStateFn(
+				'#' +
+					encodeState({
+						...script,
+						draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+					})
+			)
+		}, 500)
 	}
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -933,7 +938,8 @@
 		})
 	})
 	$effect(() => {
-		!disableHistoryChange && untrack(() => encodeScriptState(script))
+		readFieldsRecursively(script)
+		!disableHistoryChange && encodeScriptState(script)
 	})
 
 	loadWorkerTags()

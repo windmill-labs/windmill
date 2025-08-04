@@ -13,7 +13,6 @@ import {
   defaultScriptMetadata,
 } from "./bootstrap/script_bootstrap.ts";
 import { Workspace } from "./workspace.ts";
-import { SchemaProperty } from "./bootstrap/common.ts";
 import {
   languagesWithRawReqsSupport,
   LanguageWithRawReqsSupport,
@@ -21,16 +20,13 @@ import {
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
-import {
-  FSFSElement,
-  extractInlineScriptsForFlows,
-  findCodebase,
-  newPathAssigner,
-  yamlOptions,
-} from "./sync.ts";
+import { FSFSElement, findCodebase, yamlOptions } from "./sync.ts";
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
-import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { FlowFile } from "./flow.ts";
+import { replaceInlineScripts } from "./windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows } from "./windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { argSigToJsonSchemaType } from "./windmill-utils-internal/src/parse/parse-schema.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 
@@ -172,10 +168,15 @@ export async function generateFlowLockInternal(
     }
 
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
-    replaceInlineScripts(
+    await replaceInlineScripts(
       flowValue.value.modules,
+      async (path: string) => await Deno.readTextFile(folder + SEP + path),
+      log,
       folder + SEP!,
-      changedScripts
+      SEP,
+      changedScripts,
+      (path: string, newPath: string) => Deno.renameSync(path, newPath),
+      (path: string) => Deno.removeSync(path)
     );
 
     //removeChangedLocks
@@ -188,7 +189,8 @@ export async function generateFlowLockInternal(
 
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      newPathAssigner(opts.defaultTs ?? "bun")
+      {},
+      SEP
     );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))
@@ -529,9 +531,7 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
-    const { parse_python } = await import(
-      "./wasm/py/windmill_parser_wasm.js"
-    );
+    const { parse_python } = await import("./wasm/py/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
     const { parse_deno } = await import("./wasm/ts/windmill_parser_wasm.js");
@@ -599,7 +599,9 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_duckdb } = await import("./wasm/regex/windmill_parser_wasm.js");
+    const { parse_duckdb } = await import(
+      "./wasm/regex/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
     const { parse_graphql } = await import(
@@ -702,234 +704,6 @@ function sortObject(obj: any): any {
       }),
       {}
     );
-}
-
-//copied straight fron frontend /src/utils/inferArgs.ts
-export function argSigToJsonSchemaType(
-  t:
-    | string
-    | { resource: string | null }
-    | {
-        list:
-          | (
-              | string
-              | {
-                  object: {
-                    name?: string;
-                    props?: { key: string; typ: any }[];
-                  };
-                }
-            )
-          | { str: any }
-          | { object: { name?: string; props?: { key: string; typ: any }[] } }
-          | null;
-      }
-    | { dynselect: string }
-    | { str: string[] | null }
-    | { object: { name?: string; props?: { key: string; typ: any }[] } }
-    | {
-        oneof: {
-          label: string;
-          properties: { key: string; typ: any }[];
-        }[];
-      },
-  oldS: SchemaProperty
-): void {
-  const newS: SchemaProperty = { type: "" };
-  if (t === "int") {
-    newS.type = "integer";
-  } else if (t === "float") {
-    newS.type = "number";
-  } else if (t === "bool") {
-    newS.type = "boolean";
-  } else if (t === "email") {
-    newS.type = "string";
-    newS.format = "email";
-  } else if (t === "sql") {
-    newS.type = "string";
-    newS.format = "sql";
-  } else if (t === "yaml") {
-    newS.type = "string";
-    newS.format = "yaml";
-  } else if (t === "bytes") {
-    newS.type = "string";
-    newS.contentEncoding = "base64";
-    newS.originalType = "bytes";
-  } else if (t === "datetime") {
-    newS.type = "string";
-    newS.format = "date-time";
-  } else if (typeof t !== "string" && "oneof" in t) {
-    newS.type = "object";
-    if (t.oneof) {
-      newS.oneOf = t.oneof.map((obj) => {
-        const oldObjS =
-          oldS.oneOf?.find((o) => o?.title === obj.label) ?? undefined;
-        const properties: Record<string, any> = {};
-        for (const prop of obj.properties) {
-          if (oldObjS?.properties && prop.key in oldObjS?.properties) {
-            properties[prop.key] = oldObjS?.properties[prop.key];
-          } else {
-            properties[prop.key] = { description: "", type: "" };
-          }
-          argSigToJsonSchemaType(prop.typ, properties[prop.key]);
-        }
-        return {
-          type: "object",
-          title: obj.label,
-          properties,
-          order: oldObjS?.order ?? undefined,
-        };
-      });
-    }
-  } else if (typeof t !== "string" && `object` in t) {
-    newS.type = "object";
-    if (t.object.name) {
-      newS.format = `resource-${t.object.name}`;
-    }
-    if (t.object.props) {
-      const properties: Record<string, any> = {};
-      for (const prop of t.object.props) {
-        if (oldS.properties && prop.key in oldS.properties) {
-          properties[prop.key] = oldS.properties[prop.key];
-        } else {
-          properties[prop.key] = { description: "", type: "" };
-        }
-        argSigToJsonSchemaType(prop.typ, properties[prop.key]);
-      }
-      newS.properties = properties;
-    }
-  } else if (typeof t !== "string" && `str` in t) {
-    newS.type = "string";
-    if (t.str) {
-      newS.originalType = "enum";
-      newS.enum = t.str;
-    } else if (oldS.originalType == "string" && oldS.enum) {
-      newS.originalType = "string";
-      newS.enum = oldS.enum;
-    } else {
-      newS.originalType = "string";
-      newS.enum = undefined;
-    }
-  } else if (typeof t !== "string" && `resource` in t) {
-    newS.type = "object";
-    newS.format = `resource-${t.resource}`;
-  } else if (typeof t !== "string" && `dynselect` in t) {
-    newS.type = "object";
-    newS.format = `dynselect-${t.dynselect}`;
-  } else if (typeof t !== "string" && `list` in t) {
-    newS.type = "array";
-    if (t.list === "int" || t.list === "float") {
-      newS.items = { type: "number" };
-      newS.originalType = "number[]";
-    } else if (t.list === "bytes") {
-      newS.items = { type: "string", contentEncoding: "base64" };
-      newS.originalType = "bytes[]";
-    } else if (
-      t.list &&
-      typeof t.list == "object" &&
-      "str" in t.list &&
-      t.list.str
-    ) {
-      newS.items = { type: "string", enum: t.list.str };
-      newS.originalType = "enum[]";
-    } else if (
-      t.list == "string" ||
-      (t.list && typeof t.list == "object" && "str" in t.list)
-    ) {
-      newS.items = { type: "string", enum: oldS.items?.enum };
-      newS.originalType = "string[]";
-    } else if (
-      t.list &&
-      typeof t.list == "object" &&
-      "resource" in t.list &&
-      t.list.resource
-    ) {
-      newS.items = {
-        type: "resource",
-        resourceType: t.list.resource as string,
-      };
-      newS.originalType = "resource[]";
-    } else if (
-      t.list &&
-      typeof t.list == "object" &&
-      "object" in t.list &&
-      t.list.object
-    ) {
-      if (t.list.object.name) {
-        newS.format = `resource-${t.list.object.name}`;
-      }
-      if (t.list.object.props && t.list.object.props.length > 0) {
-        const properties: Record<string, any> = {};
-        for (const prop of t.list.object.props) {
-          properties[prop.key] = { description: "", type: "" };
-          argSigToJsonSchemaType(prop.typ, properties[prop.key]);
-        }
-        newS.items = { type: "object", properties: properties };
-      } else {
-        newS.items = { type: "object" };
-      }
-      newS.originalType = "record[]";
-    } else {
-      newS.items = { type: "object" };
-      newS.originalType = "object[]";
-    }
-  } else {
-    newS.type = "object";
-  }
-
-  const preservedFields = [
-    "description",
-    "pattern",
-    "min",
-    "max",
-    "currency",
-    "currencyLocale",
-    "multiselect",
-    "customErrorMessage",
-    "required",
-    "showExpr",
-    "password",
-    "order",
-    "dateFormat",
-    "title",
-    "placeholder",
-  ];
-
-  preservedFields.forEach((field) => {
-    // @ts-ignore
-    if (oldS[field] !== undefined) {
-      // @ts-ignore
-      newS[field] = oldS[field];
-    }
-  });
-
-  if (oldS.type != newS.type) {
-    for (const prop of Object.getOwnPropertyNames(newS)) {
-      if (prop != "description") {
-        // @ts-ignore
-        delete oldS[prop];
-      }
-    }
-  } else if (
-    (oldS.format == "date" || oldS.format === "date-time") &&
-    newS.format == "string"
-  ) {
-    newS.format = oldS.format;
-  } else if (newS.format == "date-time" && oldS.format == "date") {
-    newS.format = "date";
-  } else if (oldS.items?.type != newS.items?.type) {
-    delete oldS.items;
-  }
-
-  if (oldS.format && !newS.format) {
-    oldS.format = undefined
-  }
-
-  Object.assign(oldS, newS);
-  // if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
-  // 	sendUserToast(JSON.stringify(savedItems))
-  // 	oldS.items = savedItems
-  // }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -1042,6 +816,7 @@ export async function parseMetadataFile(
 }
 
 interface Lock {
+  version?: "v2";
   locks?: { [path: string]: string | { [subpath: string]: string } };
 }
 
@@ -1055,7 +830,7 @@ export async function readLockfile(): Promise<Lock> {
       throw new Error("Invalid lockfile");
     }
   } catch {
-    const lock = { locks: {} };
+    const lock = { locks: {}, version: "v2" as const };
     await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
     log.info(colors.green("wmill-lock.yaml created"));
 
@@ -1063,6 +838,13 @@ export async function readLockfile(): Promise<Lock> {
   }
 }
 
+function v2LockPath(path: string, subpath?: string) {
+  if (subpath) {
+    return `${path}+${subpath}`;
+  } else {
+    return path;
+  }
+}
 export async function checkifMetadataUptodate(
   path: string,
   hash: string,
@@ -1075,9 +857,16 @@ export async function checkifMetadataUptodate(
   if (!conf.locks) {
     return false;
   }
-  const obj = conf.locks?.[path];
-  const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
-  return current == hash;
+  const isV2 = conf?.version == "v2";
+
+  if (isV2) {
+    const current = conf.locks?.[v2LockPath(path, subpath)];
+    return current == hash;
+  } else {
+    const obj = conf.locks?.[path];
+    const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
+    return current == hash;
+  }
 }
 
 export async function generateScriptHash(
@@ -1099,16 +888,21 @@ export async function updateMetadataGlobalLock(
   if (!conf?.locks) {
     conf.locks = {};
   }
+  const isV2 = conf?.version == "v2";
 
-  if (subpath) {
-    let prev: any = conf.locks[path];
-    if (!prev || typeof prev != "object") {
-      prev = {};
-      conf.locks[path] = prev;
-    }
-    prev[subpath] = hash;
+  if (isV2) {
+    conf.locks[v2LockPath(path, hash)] = hash;
   } else {
-    conf.locks[path] = hash;
+    if (subpath) {
+      let prev: any = conf.locks[path];
+      if (!prev || typeof prev != "object") {
+        prev = {};
+        conf.locks[path] = prev;
+      }
+      prev[subpath] = hash;
+    } else {
+      conf.locks[path] = hash;
+    }
   }
   await Deno.writeTextFile(
     WMILL_LOCKFILE,
