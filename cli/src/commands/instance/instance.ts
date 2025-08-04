@@ -12,7 +12,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 
 import { Input, colors, log } from "../../../deps.ts";
 import { loginInteractive } from "../../core/login.ts";
-import { getRootStore } from "../../core/store.ts";
+import { getActiveInstanceFilePath, getInstancesConfigFilePath } from "../../../windmill-utils-internal/src/config/config.ts";
 import { push, pull } from "../sync/sync.ts";
 import { showDiff } from "../../types.ts";
 
@@ -47,7 +47,7 @@ export interface Instance {
 
 export async function allInstances(): Promise<Instance[]> {
   try {
-    const file = (await getRootStore()) + "instances.ndjson";
+    const file = await getInstancesConfigFilePath();
     const txt = await Deno.readTextFile(file);
     return txt
       .split("\n")
@@ -115,7 +115,7 @@ export async function addInstance(
 async function appendInstance(instance: Instance) {
   instance.remote = new URL(instance.remote).toString(); // add trailing slash in all cases!
   await removeInstance(instance.name);
-  const file = await Deno.open((await getRootStore()) + "instances.ndjson", {
+  const file = await Deno.open(await getInstancesConfigFilePath(), {
     append: true,
     write: true,
     read: true,
@@ -130,7 +130,7 @@ async function removeInstance(name: string) {
   const orgWorkspaces = await allInstances();
 
   await Deno.writeTextFile(
-    (await getRootStore()) + "instances.ndjson",
+    await getInstancesConfigFilePath(),
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
@@ -625,7 +625,7 @@ async function switchI(opts: {}, instanceName: string) {
   }
 
   await Deno.writeTextFile(
-    (await getRootStore()) + "/activeInstance",
+    await getActiveInstanceFilePath(),
     instanceName
   );
 
@@ -639,7 +639,7 @@ export async function getActiveInstance(opts: {
     return opts.instance;
   }
   try {
-    return await Deno.readTextFile((await getRootStore()) + "/activeInstance");
+    return await Deno.readTextFile(await getActiveInstanceFilePath());
   } catch {
     return undefined;
   }

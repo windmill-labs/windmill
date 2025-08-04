@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { getRootStore } from "../../core/store.ts";
+import { getActiveWorkspaceConfigFilePath, getWorkspaceConfigFilePath } from "../../../windmill-utils-internal/src/config/config.ts";
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -16,7 +16,7 @@ export interface Workspace {
 
 export async function allWorkspaces(configDirOverride?: string): Promise<Workspace[]> {
   try {
-    const file = (await getRootStore(configDirOverride)) + "remotes.ndjson";
+    const file = await getWorkspaceConfigFilePath(configDirOverride);
     const txt = await Deno.readTextFile(file);
     return txt
       .split("\n")
@@ -40,7 +40,8 @@ async function getActiveWorkspaceName(
     return opts?.workspace;
   }
   try {
-    return await Deno.readTextFile((await getRootStore(opts?.configDir)) + "/activeWorkspace");
+    const file = await getActiveWorkspaceConfigFilePath(opts?.configDir);
+    return await Deno.readTextFile(file);
   } catch {
     return undefined;
   }
@@ -121,8 +122,9 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 }
 
 export async function setActiveWorkspace(workspaceName: string, configDirOverride?: string) {
+  const file = await getActiveWorkspaceConfigFilePath(configDirOverride);
   await Deno.writeTextFile(
-    (await getRootStore(configDirOverride)) + "/activeWorkspace",
+    file,
     workspaceName
   );
 }
@@ -336,7 +338,8 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
   await removeWorkspace(workspace.name, true, opts);
 
   // Add the new workspace
-  const file = await Deno.open((await getRootStore(opts.configDir)) + "remotes.ndjson", {
+  const filePath = await getWorkspaceConfigFilePath(opts.configDir);
+  const file = await Deno.open(filePath, {
     append: true,
     write: true,
     read: true,
@@ -367,8 +370,9 @@ export async function removeWorkspace(
     log.info(colors.yellow(`Removing existing workspace ${name}`));
   }
 
+  const filePath = await getWorkspaceConfigFilePath(opts.configDir);
   await Deno.writeTextFile(
-    (await getRootStore(opts.configDir)) + "remotes.ndjson",
+    filePath,
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
