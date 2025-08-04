@@ -9,7 +9,7 @@
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
@@ -454,19 +454,4 @@ pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, val
 }
 lazy_static::lazy_static! {
     static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
-}
-
-pub async fn get_ducklake_instance_pg_catalog_password(
-    db: &Pool<Postgres>,
-) -> error::Result<String> {
-    sqlx::query_scalar!(
-        "SELECT trim(both '\"' from value::text) FROM global_settings WHERE name = 'ducklake_user_pg_pwd';"
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten().ok_or_else(||
-        Error::BadRequest(format!(
-            "Ducklake instance catalog password not found, did you run migrations ?"
-        ))
-    )
 }

@@ -16,10 +16,11 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_common::workspaces::DucklakeCatalogResourceType;
+use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_ducklake_from_agent_http;
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -175,9 +176,10 @@ pub async fn do_duckdb(
                     }
                     None => match transform_attach_ducklake(
                         &query_block,
-                        client,
+                        conn,
                         &mut duckdb_connection_settings_cache,
                         &mut hidden_passwords,
+                        &job.workspace_id,
                     )
                     .await?
                     {
@@ -577,9 +579,10 @@ async fn transform_attach_db_resource_query(
 
 async fn transform_attach_ducklake(
     query: &str,
-    client: &AuthedClient,
+    conn: &Connection,
     duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    w_id: &str,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -587,14 +590,17 @@ async fn transform_attach_ducklake(
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
     };
-    let ducklake_name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
+    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
     let extra_args = cap
         .get(3)
         .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
         .unwrap_or("".to_string());
 
-    let ducklake = client.get_ducklake(ducklake_name).await?;
+    let ducklake = match conn {
+        Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
+        Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
+    };
     let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
         _ => ducklake.catalog.resource_type.as_ref(),
@@ -615,11 +621,11 @@ async fn transform_attach_ducklake(
     if !duckdb_connection_settings_cache.contains_key(&storage) {
         duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
     };
-    let s3_conn_str =
+    let s3_network_uri =
         duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake.storage.path)?;
 
     let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_conn_str}'{extra_args});",
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_network_uri}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;

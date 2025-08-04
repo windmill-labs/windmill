@@ -9,15 +9,9 @@
 use std::collections::HashMap;
 
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
-use crate::auth::Tokened;
 use crate::db::ApiAuthed;
-#[cfg(all(feature = "enterprise", feature = "private"))]
-use crate::job_helpers_ee::duckdb_connection_settings_v2_inner;
-use crate::resources::get_resource_value_interpolated_internal;
 use crate::users_oss::send_email_if_possible;
-use crate::utils::{
-    get_ducklake_instance_pg_catalog_password, get_instance_username_or_create_pending,
-};
+use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
     db::DB,
@@ -35,7 +29,6 @@ use chrono::Utc;
 
 use regex::Regex;
 
-use serde_json::json;
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -50,14 +43,13 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
-use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType, DucklakeWithConnData};
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -124,7 +116,6 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
-        .route("/get_ducklake/:name", get(get_ducklake))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -914,91 +905,6 @@ async fn list_ducklakes(
     .collect();
 
     Ok(Json(ducklakes))
-}
-#[allow(unused_variables)]
-async fn get_ducklake(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Tokened { token }: Tokened,
-    Path((w_id, name)): Path<(String, String)>,
-) -> JsonResult<DucklakeWithConnData> {
-    let ducklake = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes'->$2 AS config
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id,
-        name
-    )
-    .fetch_one(&db)
-    .await
-    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?
-    .ok_or_else(|| Error::internal_err(format!("ducklake {name} not found")))?;
-
-    let ducklake = serde_json::from_value::<Ducklake>(ducklake)
-        .map_err(|err| Error::internal_err(format!("parsing ducklake {name}: {err}")))?;
-
-    let catalog_resource = {
-        match ducklake.catalog.resource_type {
-            DucklakeCatalogResourceType::Instance => {
-                let pg_creds = parse_postgres_url(&get_database_url().await?)?;
-                json!({
-                    "dbname": ducklake.catalog.resource_path,
-                    "host": pg_creds.host,
-                    "port": pg_creds.port,
-                    "user": "ducklake_user",
-                    "sslmode": pg_creds.ssl_mode,
-                    "password": get_ducklake_instance_pg_catalog_password(&db).await?,
-                })
-            }
-            _ => get_resource_value_interpolated_internal(
-                &authed,
-                None, // Never check permissions for the catalog resource
-                &db,
-                &w_id,
-                &ducklake.catalog.resource_path,
-                None,
-                &token,
-            )
-            .await?
-            .ok_or_else(|| {
-                Error::internal_err(format!("Ducklake {name}: Catalog resource not found"))
-            })?,
-        }
-    };
-
-    #[cfg(not(all(feature = "enterprise", feature = "private")))]
-    return Err(Error::BadRequest(
-        "Ducklake is only available on EE".to_string(),
-    ));
-
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    {
-        use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
-        let storage_settings = duckdb_connection_settings_v2_inner(
-            authed.clone(),
-            db,
-            user_db,
-            token,
-            w_id.clone(),
-            DuckdbConnectionSettingsQueryV2 {
-                storage: ducklake.storage.storage.clone(),
-                s3_resource_path: None,
-            },
-        )
-        .await?;
-
-        let ducklake = DucklakeWithConnData {
-            catalog: ducklake.catalog,
-            storage: ducklake.storage,
-            catalog_resource,
-            storage_settings,
-        };
-
-        Ok(Json(ducklake))
-    }
 }
 
 async fn edit_ducklake_config(

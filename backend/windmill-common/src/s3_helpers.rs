@@ -227,6 +227,18 @@ pub enum LargeFileStorage {
     // TODO: Add a filesystem type here in the future if needed
 }
 
+impl LargeFileStorage {
+    pub fn get_s3_resource_path(&self) -> &str {
+        match self {
+            LargeFileStorage::S3Storage(s3_lfs) => &s3_lfs.s3_resource_path,
+            LargeFileStorage::S3AwsOidc(s3_lfs) => &s3_lfs.s3_resource_path,
+            LargeFileStorage::AzureBlobStorage(az_lfs) => &az_lfs.azure_blob_resource_path,
+            LargeFileStorage::AzureWorkloadIdentity(az_lfs) => &az_lfs.azure_blob_resource_path,
+            LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct S3Storage {
     pub s3_resource_path: String,
@@ -969,7 +981,7 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DuckdbConnectionSettingsResponse {
     pub connection_settings_str: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -984,4 +996,89 @@ pub struct DuckdbConnectionSettingsQueryV2 {
     pub s3_resource_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+}
+
+pub fn lfs_to_object_store_resource(
+    lfs: &LargeFileStorage,
+    resource_value: serde_json::Value,
+) -> error::Result<ObjectStoreResource> {
+    match lfs {
+        LargeFileStorage::S3Storage(_) | LargeFileStorage::S3AwsOidc(_) => {
+            let s3_resource: S3Resource = serde_json::from_value(resource_value).map_err(|e| {
+                error::Error::internal_err(format!("Error parsing S3 resource: {}", e))
+            })?;
+            Ok(ObjectStoreResource::S3(s3_resource))
+        }
+        LargeFileStorage::AzureBlobStorage(_) | LargeFileStorage::AzureWorkloadIdentity(_) => {
+            let azure_blob_resource: AzureBlobResource = serde_json::from_value(resource_value)
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Error parsing Azure Blob resource: {}", e))
+                })?;
+            Ok(ObjectStoreResource::Azure(azure_blob_resource))
+        }
+        LargeFileStorage::GoogleCloudStorage(_) => {
+            let gcs_resource: GcsResource =
+                serde_json::from_value(resource_value).map_err(|e| {
+                    error::Error::internal_err(format!("Error parsing GCS resource: {}", e))
+                })?;
+            Ok(ObjectStoreResource::Gcs(gcs_resource))
+        }
+    }
+}
+
+pub fn format_duckdb_connection_settings(
+    object_store_resource: ObjectStoreResource,
+) -> error::Result<DuckdbConnectionSettingsResponse> {
+    match object_store_resource {
+        ObjectStoreResource::S3(s3_resource) => duckdb_connection_settings_internal(s3_resource),
+        ObjectStoreResource::Azure(azure_resource) => {
+            let connection_string = format!(
+                "CREATE SECRET az_secret (TYPE AZURE, CONNECTION_STRING 'DefaultEndpointsProtocol=https;AccountName={};AccountKey={};EndpointSuffix=core.windows.net');",
+                azure_resource.account_name,
+                azure_resource.access_key.unwrap_or_default()
+            );
+            let response = DuckdbConnectionSettingsResponse {
+                connection_settings_str: connection_string,
+                azure_container_path: Some(format!("az://{}", azure_resource.container_name)),
+                s3_bucket: None,
+            };
+            Ok(response)
+        }
+        ObjectStoreResource::Gcs(_) => {
+            return Err(error::Error::BadRequest(
+                "GCS is not supported in DuckDB".to_string(),
+            ));
+        }
+    }
+}
+
+pub fn duckdb_connection_settings_internal(
+    s3_resource: S3Resource,
+) -> error::Result<DuckdbConnectionSettingsResponse> {
+    let mut duckdb_settings: String = String::new();
+
+    duckdb_settings.push_str("SET home_directory='./';\n"); // TODO: make this configurable maybe, or point to a temporary folder
+    duckdb_settings.push_str("INSTALL 'httpfs';\n");
+    if s3_resource.path_style.unwrap_or(true) {
+        duckdb_settings.push_str("SET s3_url_style='path';\n");
+    }
+    duckdb_settings.push_str(format!("SET s3_region='{}';\n", s3_resource.region).as_str());
+    duckdb_settings.push_str(format!("SET s3_endpoint='{}';\n", s3_resource.endpoint).as_str());
+    if !s3_resource.use_ssl {
+        duckdb_settings.push_str("SET s3_use_ssl=0;\n"); // default is true for DuckDB
+    }
+    if let Some(access_key_id) = s3_resource.access_key {
+        duckdb_settings.push_str(format!("SET s3_access_key_id='{}';\n", access_key_id).as_str());
+    }
+    if let Some(secret_access_key) = s3_resource.secret_key {
+        duckdb_settings
+            .push_str(format!("SET s3_secret_access_key='{}';\n", secret_access_key).as_str());
+    }
+
+    let response = DuckdbConnectionSettingsResponse {
+        connection_settings_str: duckdb_settings,
+        azure_container_path: None,
+        s3_bucket: Some(s3_resource.bucket),
+    };
+    return Ok(response);
 }
