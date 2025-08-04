@@ -35,7 +35,6 @@ import { add as workspaceAdd } from "./commands/workspace/workspace.ts";
 import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import init from "./commands/init/init.ts";
-import config from "./commands/config/config.ts";
 
 export {
   flow,
@@ -123,7 +122,6 @@ const command = new Command()
   .command("worker-groups", workerGroups)
   .command("workers", workers)
   .command("queues", queues)
-  .command("config", config)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);
