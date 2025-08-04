@@ -20,36 +20,11 @@
 
 	let { innerModules, job, localModuleStates, workspaceId, render }: Props = $props()
 
-	// Cache for fetched logs per job ID
-	let jobLogs: Map<string, string> = $state(new Map())
-
 	// Cache for fetched subflow jobs
 	let subflowJobs: Map<string, Job> = $state(new Map())
 
 	// State for tracking expanded rows
 	let expandedRows: Set<string> = $state(new Set())
-
-	// Fetch logs for a specific job
-	async function fetchJobLogs(jobId: string): Promise<string> {
-		if (!jobId) return ''
-		if (jobLogs.has(jobId)) return jobLogs.get(jobId)!
-
-		try {
-			const jobData = await JobService.getJob({
-				workspace: workspaceId ?? $workspaceStore ?? '',
-				id: jobId,
-				noLogs: false
-			})
-
-			const logs = jobData.logs || ''
-			jobLogs.set(jobId, logs)
-			jobLogs = new Map(jobLogs)
-			return logs
-		} catch (error) {
-			console.error('Failed to fetch logs for job:', jobId, error)
-			return ''
-		}
-	}
 
 	// Fetch subflow job data
 	async function fetchSubflowJob(jobId: string): Promise<Job | null> {
@@ -102,11 +77,6 @@
 			const summary = rootJob.raw_flow?.modules?.[i]?.summary
 			const isSubflow = isSubflowStep(i)
 
-			let logs = ''
-			if (module.job) {
-				logs = await fetchJobLogs(module.job)
-			}
-
 			const stepData: StepData = {
 				stepId: module.id,
 				stepNumber,
@@ -114,7 +84,7 @@
 				inputs: state?.args || {},
 				result: state?.result,
 				jobId: module.job,
-				logs,
+				logs: state?.logs || '',
 				status,
 				type: rootJob.raw_flow?.modules?.[i]?.value?.type
 			}
@@ -159,7 +129,7 @@
 	let flowData: FlowData | null = $state(null)
 
 	$effect(() => {
-		if (render && innerModules.length > 0) {
+		if (render && innerModules.length > 0 && $localModuleStates) {
 			untrack(() => buildFlowData(innerModules, job)).then((data) => {
 				flowData = data
 			})
