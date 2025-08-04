@@ -124,8 +124,7 @@
 	let initialObjectSelected = $state(
 		Object.keys(properties ?? {}).length == 0 ? 'resource' : 'custom-object'
 	)
-
-	let isDynSelect = $state(format?.startsWith('dynselect-') ?? false)
+	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
 </script>
 
 <div class="flex flex-col gap-2">

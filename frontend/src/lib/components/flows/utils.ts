@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type DynSelectLang
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -99,6 +100,8 @@ export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	dyn_select_code?: string
+	dyn_select_lang?: DynSelectLang
 } {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {

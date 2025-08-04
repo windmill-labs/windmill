@@ -1,4 +1,4 @@
-import type { OpenFlow, ScriptLang } from '$lib/gen'
+import type { DynSelectLang, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -33,8 +33,8 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
-	dynselect_code?: string
-	dynselect_lang?: ScriptLang
+	dyn_select_code?: string
+	dyn_select_lang?: DynSelectLang
 }
 
 export type FlowInputEditorState = {

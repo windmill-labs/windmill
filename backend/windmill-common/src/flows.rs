@@ -23,11 +23,19 @@ use crate::{
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
+    utils::empty_as_none,
     worker::{to_raw_value, Connection},
     DB,
 };
+#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+#[sqlx(type_name = "DYN_SELECT_LANG", rename_all = "lowercase")]
+pub enum DynSelectScriptLang {
+    Bun,
+    Python3,
+}
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -39,6 +47,10 @@ pub struct Flow {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dyn_select_lang: Option<DynSelectScriptLang>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dyn_select_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,7 +103,7 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Deserialize, sqlx::FromRow)]
+#[derive(Debug, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
@@ -105,6 +117,9 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub dyn_select_lang: Option<DynSelectScriptLang>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub dyn_select_code: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

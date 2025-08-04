@@ -21,6 +21,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
+	import type { DynSelectLang } from '$lib/gen'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -51,6 +52,8 @@
 					created_at?: string
 					created_by?: string
 					extra_perms?: Record<string, boolean>
+					dyn_select_code?: string
+					dyn_select_lang?: DynSelectLang
 			  }
 			| undefined
 		runAction: (
@@ -261,7 +264,9 @@
 									type: 'hash',
 									hash: runnable.hash
 								}
-							: undefined}
+							: runnable.dyn_select_code && runnable.dyn_select_lang
+								? { type: 'inline', code: runnable.dyn_select_code, lang: runnable.dyn_select_lang }
+								: undefined}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}

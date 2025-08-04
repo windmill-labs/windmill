@@ -171,8 +171,8 @@
 			render={previewOpen}
 			{onJobDone}
 			{upToId}
-			dynSelectCode={flowStore.val.dynselect_code}
-			dynSelectLang={flowStore.val.dynselect_lang}
+			dynSelectCode={flowStore.val.dyn_select_code}
+			dynSelectLang={flowStore.val.dyn_select_lang}
 		/>
 	</Drawer>
 {/if}

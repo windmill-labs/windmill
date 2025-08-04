@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import type { DynSelectLang, Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -597,23 +597,39 @@ export namespace DynamicSelect {
 	export type HelperScript =
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
-	
-	export const DEFAULT_DYNSELECT_TYPESCRIPT = `	
-export function main() {
+
+	export const generatePythonFnTemplate = (functionName: string): string => {
+		return `
+def ${functionName}():
+    return [
+        { "label": "Foo", "value": "foo" },
+        { "label": "Bar", "value": "bar" }
+    ]
+
+`
+	}
+
+	export const generateJsFnTemplate = (functionName: string): string => {
+		return `
+export function ${functionName}() {
 	return [
 		{ label: 'Foo', value: 'foo' },
 		{ label: 'Bar', value: 'bar' }
 	];
 }
-`
-	export const DEFAULT_DYNSELECT_PYTHON = `
-def main():
-	return [
-		{"label": "Foo", "value": "foo"},
-		{"label": "Bar", "value": "bar"}
-	]
-`
 
+`
+	}
+
+	export const generateDefaultTemplateFn = (functionName: string, lang: DynSelectLang): string => {
+		return lang === 'bun'
+			? generateJsFnTemplate(functionName)
+			: generatePythonFnTemplate(functionName)
+	}
+
+	export const getGenerateTemplateFn = (lang: DynSelectLang) => {
+		return lang === 'bun' ? generateJsFnTemplate : generatePythonFnTemplate
+	}
 }
 
 export function setInputCat(
@@ -631,7 +647,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && (format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))) {
+	} else if (
+		type == 'object' &&
+		(format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))
+	) {
 		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
