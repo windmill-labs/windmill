@@ -197,6 +197,7 @@
 			{updateSelectedIteration}
 			{workspaceId}
 			{render}
+			flowId="root"
 		/>
 	{:else}
 		<div class="p-4 text-center text-tertiary">Loading flow data...</div>
