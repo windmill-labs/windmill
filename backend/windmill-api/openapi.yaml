@@ -2467,6 +2467,13 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
 
   /w/{workspace}/workspaces/list_ducklakes:
     get:
