@@ -166,8 +166,6 @@
 		}
 	})
 
-	$inspect('dbg flowData', flowData)
-
 	function toggleExpanded(id: string) {
 		if (expandedRows.has(id)) {
 			expandedRows.delete(id)
@@ -182,7 +180,6 @@
 			const step = flowData.steps.find((step) => step.stepId === stepId)
 			if (step) {
 				step.selectedIteration = iteration
-				console.log('dbg updated selected iteration', step)
 			}
 		}
 	}
