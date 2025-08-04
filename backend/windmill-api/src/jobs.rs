@@ -5702,6 +5702,7 @@ pub struct JobUpdateQuery {
     pub running: Option<bool>,
     pub log_offset: Option<i32>,
     pub get_progress: Option<bool>,
+    pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
     pub fast: Option<bool>,
 }
@@ -5801,7 +5802,7 @@ async fn get_job_update(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, .. }): Query<
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result, no_logs, .. }): Query<
         JobUpdateQuery,
     >,
 ) -> JsonResult<JobUpdate> {
@@ -5818,6 +5819,7 @@ async fn get_job_update(
             true,
             false,
             only_result,
+            no_logs,
         )
         .await?,
     ))
@@ -6062,6 +6064,7 @@ async fn get_job_update_data(
     log_view: bool,
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
+    no_logs: Option<bool>,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(

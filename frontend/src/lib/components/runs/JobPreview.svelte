@@ -28,7 +28,7 @@
 
 	let { id, blankLink = false, workspace }: Props = $props()
 
-	let job: Job | undefined = $state(undefined)
+	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
 	let result: any = $state()
 
@@ -239,7 +239,7 @@
 								{:else}
 									<Skeleton layout={[[5]]} />
 								{/if}
-							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
