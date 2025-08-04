@@ -86,6 +86,6 @@ Workspace name: `ephemeral-<branch_name>-<ephermal-workspace-name>`
 Assume settings + baseUrl from the `<origin-branch>`
 
 - a github action checks when those ephemeral branches are deleted and it delete the ephemeral workspace on Windmill.
-- Ephemeral workspaces can be created from UI as an additional option from "Fork" button (and from workspace settings). You select one of the git sync connection (in non promotion mode) branch as origin.
-- Ephemeral workspaces have a specific drawer accessible from home page that allows them to merge in both direction from their origin workspaces.
+- Ephemeral workspaces can be created from UI as an additional option from "Fork" button, and from workspace settings). You select one of the git sync connection (in non promotion mode) branch as origin.
+- Ephemeral workspaces have a specific drawer accessible from home page that allows them to merge in both direction from their origin workspace.
 - Ephemeral workspaces have almost all their settings derived from original workspace, but git sync is setup in a specific way to point to the ephemeral branch
