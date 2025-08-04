@@ -9,7 +9,7 @@ import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { resolve, track_job } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { generateFlowLockInternal } from "../../utils/metadata.ts";
-import { SyncOptions, mergeConfigWithConfigFile } from "../../../src/core/conf.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";

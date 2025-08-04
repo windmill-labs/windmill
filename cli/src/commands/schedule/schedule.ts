@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { colors, Command, log, SEP, Table } from "../../../deps.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {

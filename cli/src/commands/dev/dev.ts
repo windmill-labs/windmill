@@ -12,19 +12,19 @@ import {
 } from "../../../deps.ts";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
 import { ignoreF } from "../sync/sync.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
-} from "../../../src/core/conf.ts";
-import { exts, findGlobalDeps, removeExtensionToPath } from "../../../src/commands/script/script.ts";
-import { inferContentTypeFromFilePath } from "../../../src/utils/script_common.ts";
+} from "../../core/conf.ts";
+import { exts, findGlobalDeps, removeExtensionToPath } from "../script/script.ts";
+import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
-import { parseMetadataFile } from "../../../src/utils/metadata.ts";
+import { parseMetadataFile } from "../../utils/metadata.ts";
 
 const PORT = 3001;
 async function dev(opts: GlobalOptions & SyncOptions) {

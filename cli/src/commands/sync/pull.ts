@@ -2,7 +2,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { colors, Command, JSZip, log } from "../../../deps.ts";
 import { Workspace } from "../workspace/workspace.ts";
-import { getHeaders } from "../../../src/utils/utils.ts";
+import { getHeaders } from "../../utils/utils.ts";
 
 export async function downloadZip(
   workspace: Workspace,

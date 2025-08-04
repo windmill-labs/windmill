@@ -5,8 +5,8 @@ import {
   parseFromFile,
   removeType,
 } from "../../types.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import { colors, Command, log, Table } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ResourceType } from "../../../gen/types.gen.ts";

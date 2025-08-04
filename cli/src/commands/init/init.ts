@@ -5,7 +5,7 @@ import {
   yamlStringify,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
-import { readLockfile } from "../../../src/utils/metadata.ts";
+import { readLockfile } from "../../utils/metadata.ts";
 import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 
@@ -29,7 +29,7 @@ async function initAction(opts: InitOptions) {
     log.error(colors.red("wmill.yaml already exists"));
   } else {
     // Import DEFAULT_SYNC_OPTIONS from conf.ts
-    const { DEFAULT_SYNC_OPTIONS } = await import("../../../src/core/conf.ts");
+    const { DEFAULT_SYNC_OPTIONS } = await import("../../core/conf.ts");
 
     // Create initial config with defaults
     const initialConfig = {
@@ -58,8 +58,8 @@ async function initAction(opts: InitOptions) {
     // Check for backend git-sync settings unless --use-default is specified
     if (!opts.useDefault) {
       try {
-        const { requireLogin } = await import("../../../src/core/auth.ts");
-        const { resolveWorkspace } = await import("../../../src/core/context.ts");
+        const { requireLogin } = await import("../../core/auth.ts");
+        const { resolveWorkspace } = await import("../../core/context.ts");
 
         // Check if user has workspace configured
         const { getActiveWorkspace } = await import("../workspace/workspace.ts");

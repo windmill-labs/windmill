@@ -16,8 +16,8 @@ import {
   parseFromFile,
   removeType,
 } from "../../types.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { validatePath, resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { validatePath, resolveWorkspace } from "../../core/context.ts";
 
 type Trigger = {
   http: HttpTrigger;

@@ -2,11 +2,11 @@
 import { Command, log } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import { pushResourceType } from "../resource-type/resource-type.ts";
 import { GlobalOptions } from "../../types.ts";
-import { deepEqual } from "../../../src/utils/utils.ts";
+import { deepEqual } from "../../utils/utils.ts";
 
 const DEFAULT_HUB_BASE_URL = "https://hub.windmill.dev";
 

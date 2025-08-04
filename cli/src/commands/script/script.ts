@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import {
   colors,
   Command,
@@ -13,7 +13,7 @@ import {
   writeAllSync,
   yamlStringify,
 } from "../../../deps.ts";
-import { deepEqual } from "../../../src/utils/utils.ts";
+import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -25,28 +25,28 @@ import { Workspace } from "../workspace/workspace.ts";
 import {
   generateScriptMetadataInternal,
   parseMetadataFile,
-} from "../../../src/utils/metadata.ts";
+} from "../../utils/metadata.ts";
 import {
     LanguageWithRawReqsSupport,
   ScriptLanguage,
   inferContentTypeFromFilePath,
   languagesWithRawReqsSupport,
-} from "../../../src/utils/script_common.ts";
+} from "../../utils/script_common.ts";
 import {
   elementsToMap,
   findCodebase,
   readDirRecursiveWithIgnore,
   Skips,
   yamlOptions,
-} from "../../../src/commands/sync/sync.ts";
-import { ignoreF } from "../../../src/commands/sync/sync.ts";
-import { FSFSElement } from "../../../src/commands/sync/sync.ts";
+} from "../sync/sync.ts";
+import { ignoreF } from "../sync/sync.ts";
+import { FSFSElement } from "../sync/sync.ts";
 import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
-} from "../../../src/core/conf.ts";
-import { SyncCodebase, listSyncCodebases } from "../../../src/utils/codebase.ts";
+} from "../../core/conf.ts";
+import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import fs from "node:fs";
 import { type Tarball } from "npm:@ayonli/jsext/archive";
 

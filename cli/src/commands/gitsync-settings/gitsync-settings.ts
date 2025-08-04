@@ -1,15 +1,15 @@
 import { colors, Command, Confirm, log, yamlStringify } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import {
   DEFAULT_SYNC_OPTIONS,
   getEffectiveSettings,
   readConfigFile,
   SyncOptions,
-} from "../../../src/core/conf.ts";
-import { deepEqual, Repository, selectRepository } from "../../../src/utils/utils.ts";
+} from "../../core/conf.ts";
+import { deepEqual, Repository, selectRepository } from "../../utils/utils.ts";
 
 // Constants for git-sync fields to avoid duplication
 const GIT_SYNC_FIELDS = [

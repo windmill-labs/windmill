@@ -11,8 +11,8 @@ import {
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { Input, colors, log } from "../../../deps.ts";
-import { loginInteractive } from "../../../src/core/login.ts";
-import { getRootStore } from "../../../src/core/store.ts";
+import { loginInteractive } from "../../core/login.ts";
+import { getRootStore } from "../../core/store.ts";
 import { push, pull } from "../sync/sync.ts";
 import { showDiff } from "../../types.ts";
 
@@ -34,8 +34,8 @@ import {
   pullInstanceConfigs,
   pushInstanceConfigs,
   type SimplifiedSettings,
-} from "../../../src/core/settings.ts";
-import { deepEqual } from "../../../src/utils/utils.ts";
+} from "../../core/settings.ts";
+import { deepEqual } from "../../utils/utils.ts";
 import { getActiveWorkspace } from "../workspace/workspace.ts";
 
 export interface Instance {

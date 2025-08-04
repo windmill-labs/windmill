@@ -5,12 +5,12 @@ import {
   parseFromFile,
   removeType,
 } from "../../types.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { colors, Command, log, SEP, Table } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
-import { readInlinePathSync } from "../../../src/utils/utils.ts";
+import { readInlinePathSync } from "../../utils/utils.ts";
 
 export interface ResourceFile {
   value: any;

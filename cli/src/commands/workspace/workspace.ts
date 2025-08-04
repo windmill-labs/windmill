@@ -1,9 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { getRootStore } from "../../../src/core/store.ts";
-import { loginInteractive, tryGetLoginInfo } from "../../../src/core/login.ts";
+import { getRootStore } from "../../core/store.ts";
+import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
-import { requireLogin } from "../../../src/core/auth.ts";
+import { requireLogin } from "../../core/auth.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 

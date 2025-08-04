@@ -1,9 +1,9 @@
 import { Command, Confirm, setClient, Table } from "../../../deps.ts";
 
 import { log } from "../../../deps.ts";
-import { allInstances, getActiveInstance, Instance, InstanceSyncOptions, pickInstance } from "../instance/instance.ts";
+import { allInstances, getActiveInstance, InstanceSyncOptions, pickInstance } from "../instance/instance.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { pullInstanceConfigs, pushInstanceConfigs } from "../../../src/core/settings.ts";
+import { pullInstanceConfigs, pushInstanceConfigs } from "../../core/settings.ts";
 
 type GlobalOptions = {
   instance?: string;

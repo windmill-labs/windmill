@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
-import { requireLogin } from "../../../src/core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import {
   GlobalOptions,
   isSuperset,
