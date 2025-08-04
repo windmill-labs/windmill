@@ -29,7 +29,13 @@
 	// Fetch subflow job data
 	async function fetchSubflowJob(jobId: string): Promise<Job | null> {
 		if (!jobId) return null
-		if (subflowJobs.has(jobId)) return subflowJobs.get(jobId)!
+		if (subflowJobs.has(jobId)) {
+			const job = subflowJobs.get(jobId)
+			if (job?.type === 'CompletedJob') {
+				//use cache only  if the job in cache is completed
+				return job
+			}
+		}
 
 		try {
 			const jobData = await JobService.getJob({
@@ -82,6 +88,7 @@
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)
 			if (isSubflow && module.flow_jobs && module.flow_jobs.length > 0) {
 				stepData.subflows = []
+
 				for (const subflowJobId of module.flow_jobs) {
 					const subflowJob = await fetchSubflowJob(subflowJobId)
 					if (subflowJob) {

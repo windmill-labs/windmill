@@ -136,7 +136,7 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="py-1 flex items-center justify-between cursor-pointer {flowData.status ===
-					'QueuedJob'
+					undefined
 						? 'opacity-50'
 						: ''}"
 					onclick={() => toggleExpanded(`flow-${flowId}`)}
