@@ -37,8 +37,19 @@ import {
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings, validateBranchConfiguration } from "./conf.ts";
+import {
+  deepEqual,
+  isFileResource,
+  Repository,
+  selectRepository,
+} from "./utils.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+  getEffectiveSettings,
+  validateBranchConfiguration,
+} from "./conf.ts";
 import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
@@ -50,18 +61,19 @@ import {
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
 
-
 // Merge CLI options with effective settings, preserving CLI flags as overrides
-function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(
-  cliOpts: T,
-  effectiveOpts: SyncOptions
-): T {
+function mergeCliWithEffectiveOptions<
+  T extends GlobalOptions & SyncOptions & { repository?: string }
+>(cliOpts: T, effectiveOpts: SyncOptions): T {
   // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
 // Resolve effective sync options using branch-based configuration
-async function resolveEffectiveSyncOptions(workspace: Workspace, promotion?: string): Promise<SyncOptions> {
+async function resolveEffectiveSyncOptions(
+  workspace: Workspace,
+  promotion?: string
+): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
   return await getEffectiveSettings(localConfig, promotion);
 }
@@ -1052,7 +1064,8 @@ export async function ignoreF(wmillconf: {
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
             wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
-          (!wmillconf.extraIncludes || wmillconf.extraIncludes.length === 0 ||
+          (!wmillconf.extraIncludes ||
+            wmillconf.extraIncludes.length === 0 ||
             wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
@@ -1154,7 +1167,10 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string; promotion?: string }) {
+export async function pull(
+  opts: GlobalOptions &
+    SyncOptions & { repository?: string; promotion?: string }
+) {
   // Validate branch configuration early
   await validateBranchConfiguration();
 
@@ -1166,7 +1182,10 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.promotion);
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.promotion
+  );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1230,12 +1249,14 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
       success: true,
-      changes: changes.map(change => ({
+      changes: changes.map((change) => ({
         type: change.name,
         path: change.path,
-        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        ...(change.name === "edited" && change.codebase
+          ? { codebase_changed: true }
+          : {}),
       })),
-      total: changes.length
+      total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -1396,12 +1417,14 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
       const result = {
         success: true,
         message: `All ${changes.length} changes applied locally and wmill-lock.yaml updated`,
-        changes: changes.map(change => ({
+        changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
-          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+          ...(change.name === "edited" && change.codebase
+            ? { codebase_changed: true }
+            : {}),
         })),
-        total: changes.length
+        total: changes.length,
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -1412,7 +1435,13 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
       );
     }
   } else if (opts.jsonOutput) {
-    console.log(JSON.stringify({ success: true, message: "No changes to apply", total: 0 }, null, 2));
+    console.log(
+      JSON.stringify(
+        { success: true, message: "No changes to apply", total: 0 },
+        null,
+        2
+      )
+    );
   }
 }
 
@@ -1467,7 +1496,9 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-export async function push(opts: GlobalOptions & SyncOptions & { repository?: string }) {
+export async function push(
+  opts: GlobalOptions & SyncOptions & { repository?: string }
+) {
   // Validate branch configuration early
   await validateBranchConfiguration();
 
@@ -1475,7 +1506,10 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
-  const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.promotion);
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.promotion
+  );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
@@ -1612,12 +1646,14 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
       success: true,
-      changes: changes.map(change => ({
+      changes: changes.map((change) => ({
         type: change.name,
         path: change.path,
-        ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+        ...(change.name === "edited" && change.codebase
+          ? { codebase_changed: true }
+          : {}),
       })),
-      total: changes.length
+      total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -1991,26 +2027,38 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
       const result = {
         success: true,
         message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
-        changes: changes.map(change => ({
+        changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
-          ...(change.name === "edited" && change.codebase ? { codebase_changed: true } : {})
+          ...(change.name === "edited" && change.codebase
+            ? { codebase_changed: true }
+            : {}),
         })),
         total: changes.length,
-        duration_ms: Math.round(performance.now() - start)
+        duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
       log.info(
         colors.bold.green.underline(
-          `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+          `\nDone! All ${
+            changes.length
+          } changes pushed to the remote workspace ${
             workspace.workspaceId
-          } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
+          } named ${workspace.name} (${(performance.now() - start).toFixed(
+            0
+          )}ms)`
         )
       );
     }
   } else if (opts.jsonOutput) {
-    console.log(JSON.stringify({ success: true, message: "No changes to push", total: 0 }, null, 2));
+    console.log(
+      JSON.stringify(
+        { success: true, message: "No changes to push", total: 0 },
+        null,
+        2
+      )
+    );
   }
 }
 
