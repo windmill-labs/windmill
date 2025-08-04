@@ -1,5 +1,5 @@
-import { requireLogin } from "../../../src/core/auth.ts";
-import { fetchVersion, resolveWorkspace } from "../../../src/core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
 import {
   colors,
   Command,
@@ -35,17 +35,17 @@ import {
   removeExtensionToPath,
 } from "../script/script.ts";
 
-import { handleFile } from "../../../src/commands/script/script.ts";
-import { deepEqual, isFileResource } from "../../../src/utils/utils.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../../src/core/conf.ts";
-import { Workspace } from "../../../src/commands/workspace/workspace.ts";
+import { handleFile } from "../script/script.ts";
+import { deepEqual, isFileResource } from "../../utils/utils.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../core/conf.ts";
+import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { SyncCodebase, listSyncCodebases } from "../../../src/utils/codebase.ts";
+import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
   readLockfile,
-} from "../../../src/utils/metadata.ts";
+} from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import { assignPath } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
