@@ -328,7 +328,7 @@ export function extractInlineScriptsForApps(rec: any, pathAssigner: PathAssigner
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const name = o["name"];
+        const name = rec["name"];
         const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
         const r = [];
         if (o["content"]) {
