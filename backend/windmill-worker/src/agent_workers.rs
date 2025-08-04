@@ -50,6 +50,7 @@ pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Resul
         .await
 }
 
+#[allow(dead_code)]
 pub async fn get_ducklake_from_agent_http(
     client: &HttpClient,
     name: &str,
