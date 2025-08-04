@@ -27,7 +27,7 @@ import { FlowFile } from "../commands/flow/flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { argSigToJsonSchemaType } from "../../windmill-utils-internal/src/parse/parse-schema.ts";
-import { getIsWin } from "../main.ts";
+import { getIsWin } from "./utils.ts";
 import { FlowValue } from "../../gen/types.gen.ts";
 
 export class LockfileGenerationError extends Error {

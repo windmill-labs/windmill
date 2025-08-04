@@ -26,7 +26,8 @@ import dev from "./commands/dev/dev.ts";
 import { fetchVersion } from "./core/context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
-import { getHeaders } from "./utils/utils.ts";
+import { getHeaders, getIsWin } from "./utils/utils.ts";
+import { setShowDiffs } from "./core/conf.ts";
 import { NpmProvider } from "./utils/upgrade.ts";
 import { pull as hubPull } from "./commands/hub/hub.ts";
 import { pull, push } from "./commands/sync/sync.ts";
@@ -168,17 +169,7 @@ const command = new Command()
   )
   .command("completions", new CompletionsCommand());
 
-export let showDiffs = false;
 
-let isWin: boolean | undefined = undefined;
-
-export async function getIsWin() {
-  if (isWin === undefined) {
-    const os = await import("node:os");
-    isWin = os.platform() === "win32";
-  }
-  return isWin;
-}
 
 async function main() {
   try {
@@ -190,8 +181,9 @@ async function main() {
         ? "DEBUG"
         : "INFO";
     // const NO_COLORS = Deno.args.includes("--no-colors");
-    showDiffs = Deno.args.includes("--show-diffs");
+    setShowDiffs(Deno.args.includes("--show-diffs"));
 
+    const isWin = await getIsWin();
     log.setup({
       handlers: {
         console: new log.ConsoleHandler(LOG_LEVEL, {

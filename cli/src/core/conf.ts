@@ -1,5 +1,10 @@
 import { log, yamlParseFile } from "../../deps.ts";
 
+export let showDiffs = false;
+export function setShowDiffs(value: boolean) {
+  showDiffs = value;
+}
+
 export interface SyncOptions {
   stateful?: boolean;
   raw?: boolean;

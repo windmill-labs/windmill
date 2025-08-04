@@ -197,3 +197,12 @@ export async function selectRepository<T extends Repository>(
 
   return repositories.find((r) => r.git_repo_resource_path === selectedRepo)!;
 }
+
+let isWin: boolean | undefined = undefined;
+export async function getIsWin(): Promise<boolean> {
+  if (isWin === undefined) {
+    const os = await import("node:os");
+    isWin = os.platform() === "win32";
+  }
+  return isWin;
+}
