@@ -52,32 +52,32 @@ export async function replaceInlineScripts(
           }
 
           // rename the file if the prefix is different from the module id (fix old naming)
-          if (pathPrefix != module.id && renamer) {
-            logger.info(`Renaming ${path} to ${module.id}.${pathSuffix}`);
-            try {
-              renamer(localPath + path, localPath + module.id + "." + pathSuffix);
-            } catch {
-              logger.info(`Failed to rename ${path} to ${module.id}.${pathSuffix}`);
-            }
-          }
+          // if (pathPrefix != module.id && renamer) {
+          //   logger.info(`Renaming ${path} to ${module.id}.${pathSuffix}`);
+          //   try {
+          //     renamer(localPath + path, localPath + module.id + "." + pathSuffix);
+          //   } catch {
+          //     logger.info(`Failed to rename ${path} to ${module.id}.${pathSuffix}`);
+          //   }
+          // }
 
           const lock = module.value.lock;
           if (removeLocks && removeLocks.includes(path)) {
             module.value.lock = undefined;
 
           // delete the file if the prefix is different from the module id (fix old naming)
-          if (lock && lock != "") {
-            const path = lock.split(" ")[1];
-            const pathPrefix = path.split(".")[0];
-            if (pathPrefix != module.id && deleter) {
-              logger.info(`Deleting ${path}`);
-              try {
-                deleter(localPath + path);
-              } catch {
-                logger.error(`Failed to delete ${path}`);
-              } 
-            }
-          }
+          // if (lock && lock != "") {
+          //   const path = lock.split(" ")[1];
+          //   const pathPrefix = path.split(".")[0];
+          //   if (pathPrefix != module.id && deleter) {
+          //     logger.info(`Deleting ${path}`);
+          //     try {
+          //       deleter(localPath + path);
+          //     } catch {
+          //       logger.error(`Failed to delete ${path}`);
+          //     } 
+          //   }
+          // }
 
           } else if (
             lock &&
