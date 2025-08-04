@@ -1,4 +1,3 @@
-#[cfg(feature = "parquet")]
 use crate::error;
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
