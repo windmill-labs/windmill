@@ -47,7 +47,7 @@
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
 		emailRecipients?: string[]
-		initialemailRecipients?: string[]
+		initialEmailRecipients?: string[]
 	}
 
 	let {
@@ -62,7 +62,7 @@
 		customHandlerKind = $bindable('script'),
 		customTabTooltip,
 		emailRecipients = $bindable([]),
-		initialemailRecipients = $bindable([])
+		initialEmailRecipients = $bindable([])
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()

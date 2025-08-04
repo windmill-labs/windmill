@@ -52,6 +52,7 @@
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import { untrack } from 'svelte'
+	import { getHandlerType } from '$lib/components/triggers/utils'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -733,7 +734,7 @@
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 				bind:emailRecipients
-				bind:initialemailRecipients={initialEmailRecipients}
+				bind:initialEmailRecipients={initialEmailRecipients}
 			>
 				{#snippet customTabTooltip()}
 					<Tooltip>
