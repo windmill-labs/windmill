@@ -32,7 +32,7 @@ When a single user profile correspond to branch implied: baseUrl / workspaceId, 
 
 When no user profile is found for the given branch, we ask to create the profile.
 
-## Workspace specific Overrides
+## Workspace/Branch specific Overrides
 
 ```yaml
 git_branches:
@@ -43,7 +43,9 @@ git_branches:
        ...
 ```
 
-## Git sync overrides
+## Git sync/Promotion overrides
+
+Settings that only apply to promotion mode of git sync need to be set in a separate overrides called `promotionOverrides`. The effective settings for git sync promotion mode is common + promotionOverrides, the overrides block itself is ignored. This is used by git sync when pulling the settings from the wmill.yaml by picking the ones corresponding to the branch that correspond to the target promotion branch.
 
 ```yaml
 git_branches:
@@ -57,7 +59,7 @@ git_branches:
        ...
 ```
 
-## Workspace specific items
+## Workspace/Branch specific items
 
 ```yaml
 git_branches:
