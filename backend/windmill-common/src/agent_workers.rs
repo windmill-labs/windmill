@@ -15,7 +15,7 @@ use crate::{jwt::decode_without_verify, worker::HttpClient};
 
 lazy_static! {
     pub static ref BASE_INTERNAL_URL: String =
-        std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8080".to_string());
+        std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8000".to_string());
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
     pub static ref DECODED_AGENT_TOKEN: Option<AgentAuth> = {
         if AGENT_TOKEN.is_empty() {
