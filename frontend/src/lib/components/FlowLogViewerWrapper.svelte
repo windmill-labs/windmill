@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { BranchAll, FlowModuleValue, FlowStatusModule, Job } from '$lib/gen'
+	import type { BranchAll, FlowModuleValue, Job } from '$lib/gen'
 	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import { JobService } from '$lib/gen'
@@ -10,7 +10,6 @@
 	import { untrack } from 'svelte'
 
 	interface Props {
-		innerModules: FlowStatusModule[]
 		job: Job
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		workspaceId: string | undefined
@@ -24,7 +23,6 @@
 	}
 
 	let {
-		innerModules,
 		job,
 		localModuleStates,
 		workspaceId,
@@ -80,12 +78,9 @@
 	}
 
 	// Build the flow data structure
-	async function buildFlowData(
-		modules: FlowStatusModule[],
-		rootJob: Job,
-		flowLabel?: string
-	): Promise<FlowData> {
+	async function buildFlowData(rootJob: Job, flowLabel?: string): Promise<FlowData> {
 		const steps: StepData[] = []
+		const modules = rootJob.flow_status?.modules || []
 
 		for (let i = 0; i < modules.length; i++) {
 			const module = modules[i]
@@ -115,7 +110,6 @@
 				const subflowJob = await fetchSubflowJob(stepData.jobId)
 				if (subflowJob) {
 					const subflowData = await buildFlowData(
-						subflowJob.flow_status?.modules || [],
 						subflowJob,
 						getBranchChosenLabel(rootJob.raw_flow?.modules?.[i]?.value, state?.branchChosen)
 					)
@@ -139,11 +133,7 @@
 					}
 
 					if (subflowJob) {
-						const subflowData = await buildFlowData(
-							subflowJob.flow_status?.modules || [],
-							subflowJob,
-							flowLabel
-						)
+						const subflowData = await buildFlowData(subflowJob, flowLabel)
 						stepData.subflows.push(subflowData)
 					}
 				}
@@ -168,8 +158,8 @@
 	let flowData: FlowData | null = $state(null)
 
 	$effect(() => {
-		if (render && innerModules.length > 0 && $localModuleStates) {
-			untrack(() => buildFlowData(innerModules, job)).then((data) => {
+		if (render && job && $localModuleStates) {
+			untrack(() => buildFlowData(job)).then((data) => {
 				flowData = data
 			})
 		}

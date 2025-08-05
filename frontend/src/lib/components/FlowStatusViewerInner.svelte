@@ -1193,7 +1193,6 @@
 		</div>
 		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
 			<FlowLogViewerWrapper
-				{innerModules}
 				{job}
 				{localModuleStates}
 				{workspaceId}
