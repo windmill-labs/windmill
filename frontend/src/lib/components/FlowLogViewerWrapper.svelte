@@ -5,6 +5,7 @@
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewer from './FlowLogViewer.svelte'
+	import FlowLogsLoader from './FlowLogsLoader.svelte'
 	import type { FlowData, StepData } from './FlowLogUtils'
 	import { untrack } from 'svelte'
 
@@ -14,11 +15,19 @@
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		workspaceId: string | undefined
 		render: boolean
+		refreshLog?: boolean
 		prefix?: string
 		level?: number
 	}
 
-	let { innerModules, job, localModuleStates, workspaceId, render }: Props = $props()
+	let {
+		innerModules,
+		job,
+		localModuleStates,
+		workspaceId,
+		render,
+		refreshLog = false
+	}: Props = $props()
 
 	// Cache for fetched subflow jobs
 	let subflowJobs: Map<string, Job> = $state(new Map())
@@ -147,6 +156,9 @@
 
 <div class="w-full rounded-md overflow-hidden border">
 	{#if flowData}
+		<!-- Log polling component -->
+		<FlowLogsLoader bind:flowData {expandedRows} {workspaceId} {refreshLog} />
+
 		<FlowLogViewer
 			{flowData}
 			{expandedRows}
