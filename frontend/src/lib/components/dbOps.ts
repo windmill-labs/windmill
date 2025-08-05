@@ -109,7 +109,7 @@ export function dbTableOpsWithPreviewScripts({
 		onInsert: async ({ values }) => {
 			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
 			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
-			runScriptAndPollResult({
+			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
 			})

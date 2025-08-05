@@ -117,7 +117,6 @@
 		Object.fromEntries(
 			ducklakeSettings.ducklakes.map((d) => {
 				const saved = ducklakeSavedSettings.ducklakes.find((saved) => saved.name === d.name)
-				console.log('ducklakeIsDirty', d.name, saved, d)
 				return [d.name, !deepEqual(saved, d)] as const
 			})
 		)

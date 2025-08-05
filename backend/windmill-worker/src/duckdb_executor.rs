@@ -429,7 +429,8 @@ fn string_to_duckdb_timestamp(s: &str) -> Result<duckdb::types::Value> {
 
 fn string_to_duckdb_date(s: &str) -> Result<duckdb::types::Value> {
     use chrono::Datelike;
-    let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|e| Error::ExecutionErr(format!("Invalid date format: {}", e)))?;
     Ok(duckdb::types::Value::Date32(date.num_days_from_ce()))
 }
 
@@ -679,7 +680,7 @@ pub fn duckdb_conn_settings_to_s3_network_uri(
             Ok(format!("s3://{bucket}/{s3_path}"))
         }
         DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
-            Ok(format!("{base}/{s3_path})"))
+            Ok(format!("{base}/{s3_path}"))
         }
         _ => {
             Err(Error::ExecutionErr(

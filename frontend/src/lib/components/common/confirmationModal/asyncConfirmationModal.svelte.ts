@@ -1,5 +1,6 @@
 import { createRawSnippet, type ComponentProps } from 'svelte'
 import type ConfirmationModal from './ConfirmationModal.svelte'
+import { sendUserToast } from '$lib/toast'
 
 /**
  * This allows asking for confirmation while maintaining a linear imperative flow,
@@ -37,10 +38,15 @@ export function createAsyncConfirmationModal(): {
 					onCanceled: () => (resolve(false), (o.props.open = false)),
 					onConfirmed: async () => {
 						o.props.loading = true
-						await params.onConfirmed?.()
-						o.props.loading = false
-						resolve(true)
-						o.props.open = false
+						try {
+							await params.onConfirmed?.()
+							o.props.loading = false
+							resolve(true)
+							o.props.open = false
+						} catch (e) {
+							sendUserToast('Error : ' + JSON.stringify(e), true)
+							o.props.loading = false
+						}
 					}
 				}
 			})
