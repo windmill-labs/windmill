@@ -27,6 +27,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DatabaseIcon,
 		DiffIcon,
 		DollarSign,
 		File,
@@ -114,6 +115,7 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
+	let databasePicker: ItemPicker | undefined = $state()
 
 	let showContextVarPicker = $derived(
 		[
@@ -167,8 +169,7 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java',
-			'duckdb'
+			'java'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -178,6 +179,7 @@
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
 	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -664,6 +666,31 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	/>
 {/if}
 
+{#if showDatabasePicker}
+	<ItemPicker
+		bind:this={databasePicker}
+		pickCallback={(path, _, resType) => {
+			if (!editor) return
+			if (lang == 'duckdb') {
+				let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
+				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
+			}
+			sendUserToast(`${path} inserted at cursor`)
+		}}
+		tooltip="Attach a database resource in your script. This allows you to query data from the database using SQL."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+		itemName="Database"
+		buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
+		extraField="description"
+		extraField2="resource_type"
+		loadItems={async () =>
+			await ResourceService.listResource({
+				workspace: $workspaceStore ?? 'NO_W',
+				resourceType: 'postgresql,mysql,bigquery'
+			})}
+	></ItemPicker>
+{/if}
+
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
@@ -774,6 +801,22 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Package }}
 				>
 					+Type
+				</Button>
+			{/if}
+
+			{#if showDatabasePicker && customUi?.database != false}
+				<Button
+					aiId="editor-bar-add-database"
+					aiDescription="Add database"
+					title="Add database"
+					color="light"
+					on:click={() => databasePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DatabaseIcon }}
+					{iconOnly}
+					>+Database
 				</Button>
 			{/if}
 
