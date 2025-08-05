@@ -1102,6 +1102,29 @@ async fn send_workspace_trigger_failure_email_notification(
     let error_details = serde_json::to_string_pretty(&error)
         .unwrap_or_else(|_| format!("Unable to serialize error: {:?}", error));
 
+    let trigger_info = if trigger_kind.is_some() && trigger_path.is_some() {
+        format!(
+            r#"
+    <div class="section">
+      <span class="label">Trigger path:</span> {}
+    </div>
+    
+    <div class="section">
+      <span class="label">Trigger Type:</span> {}
+    </div>"#,
+            trigger_path.unwrap(),
+            trigger_kind_str
+        )
+    } else {
+        String::new()
+    };
+
+    let email_title = if trigger_kind.is_some() {
+        format!("Windmill Trigger Job {} Failed", &job_id)
+    } else {
+        format!("Windmill Job {} Failed", &job_id)
+    };
+
     let content = format!(
         r#"
 <!DOCTYPE html>
@@ -1126,20 +1149,12 @@ async fn send_workspace_trigger_failure_email_notification(
     </style>
   </head>
   <body>
-    <h1>Windmill Trigger Job {} Failed</h1>
+    <h1>{}</h1>
     
     <div class="section">
       <span class="label">Workspace:</span> {}
     </div>
-
-    <div class="section">
-      <span class="label">Trigger path:</span> {}
-    </div>
-    
-    <div class="section">
-      <span class="label">Trigger Type:</span> {}
-    </div>
-    
+{}
     <div class="section">
       <span class="label">Script/Flow Path:</span> {}
     </div>
@@ -1157,10 +1172,9 @@ async fn send_workspace_trigger_failure_email_notification(
   </body>
 </html>
 "#,
-        &job_id,
+        email_title,
         w_id,
-        trigger_path.unwrap_or("Unknown"),
-        trigger_kind_str,
+        trigger_info,
         runnable_path,
         &job_id,
         error_details,
