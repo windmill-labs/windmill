@@ -15,7 +15,7 @@ export class GitSyncSettingsConverter {
   // Convert backend include_type array to SyncOptions boolean flags
   static fromBackendFormat(settings: BackendGitSyncSettings): SyncOptions {
     const includeTypes = settings.include_type || [];
-    
+
     const result: SyncOptions = {
       includes: settings.include_path || [],
       excludes: settings.exclude_path || [],
