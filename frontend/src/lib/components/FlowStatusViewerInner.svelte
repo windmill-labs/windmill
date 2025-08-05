@@ -1160,7 +1160,7 @@
 			{/if}
 		</div>
 		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
-			<FlowLogViewerWrapper {innerModules} {job} {localModuleStates} {workspaceId} {render} />
+			<FlowLogViewerWrapper {innerModules} {job} {localModuleStates} {workspaceId} {render} refreshLog={job.type == 'QueuedJob' || job['running']} />
 		</div>
 	</div>
 	{#if render}

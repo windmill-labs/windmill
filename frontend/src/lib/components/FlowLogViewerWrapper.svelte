@@ -89,7 +89,7 @@
 				inputs: state?.args || {},
 				result: state?.result,
 				jobId: state?.job_id || '',
-				logs: state?.logs || '',
+				logs: undefined,
 				status: state?.type,
 				type: rootJob.raw_flow?.modules?.[i]?.value?.type
 			}

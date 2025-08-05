@@ -13,7 +13,7 @@
 
 	let { flowData = $bindable(), expandedRows, workspaceId, refreshLog }: Props = $props()
 
-	// Track polling state for each job
+	// Track polling state for each job - similar to FlowJobResult.svelte
 	let pollingStates: Record<
 		string,
 		{
@@ -22,6 +22,9 @@
 			lastJobId: string
 		}
 	> = $state({})
+
+	// Track which jobs we've seen before to trigger initial fetch
+	let watchedJobIds: Set<string> = $state(new Set())
 
 	// Get list of job IDs that need log polling (expanded steps with jobIds)
 	function getJobIdsToWatch(): string[] {
@@ -86,25 +89,31 @@
 		}
 	}
 
-	// Reset polling state when job changes
-	function resetPollingState(jobId: string) {
-		const state = pollingStates[jobId]
-		if (state && state.lastJobId !== jobId) {
-			pollingStates[jobId] = {
-				iteration: 0,
-				logOffset: 0,
-				lastJobId: jobId
+	// Similar to diffJobId() in FlowJobResult.svelte - handles new job detection
+	async function diffJobId(jobId: string) {
+		if (!watchedJobIds.has(jobId)) {
+			watchedJobIds.add(jobId)
+			watchedJobIds = new Set(watchedJobIds)
+
+			// Reset state for new job
+			if (pollingStates[jobId]) {
+				pollingStates[jobId] = {
+					iteration: 0,
+					logOffset: 0,
+					lastJobId: jobId
+				}
 			}
+
+			// Always fetch logs for new jobs (same as FlowJobResult.svelte line 60)
+			await getLogs(jobId)
 		}
 	}
 
-	// Poll logs for a specific job
-	async function pollLogsForJob(jobId: string) {
+	// Similar to getLogs() in FlowJobResult.svelte
+	async function getLogs(jobId: string) {
 		if (!jobId || !flowData) return
 
 		initPollingState(jobId)
-		resetPollingState(jobId)
-
 		const state = pollingStates[jobId]!
 		state.iteration += 1
 
@@ -122,16 +131,16 @@
 			// Update polling state
 			state.logOffset = getUpdate.log_offset ?? 0
 		} catch (error) {
-			console.error('Failed to poll logs for job:', jobId, error)
+			console.error('Failed to get logs for job:', jobId, error)
 		}
 
-		// Schedule next poll if still refreshing
+		// Schedule next poll only if refreshLog is true (same as FlowJobResult.svelte lines 76-85)
 		if (refreshLog) {
 			const iteration = state.iteration
 			setTimeout(
 				() => {
 					if (refreshLog && getJobIdsToWatch().includes(jobId)) {
-						pollLogsForJob(jobId)
+						getLogs(jobId)
 					}
 				},
 				iteration < 10 ? 1000 : iteration < 20 ? 2000 : 5000
@@ -210,11 +219,11 @@
 		return false
 	}
 
-	// Start polling for jobs that need it
+	// Start polling for jobs that need it - follows FlowJobResult pattern
 	function startPolling() {
 		const jobIds = getJobIdsToWatch()
 
-		// Stop polling for jobs that are no longer needed
+		// Clean up polling states for jobs that are no longer needed
 		const currentJobIds = new Set(jobIds)
 		for (const jobId in pollingStates) {
 			if (!currentJobIds.has(jobId)) {
@@ -222,20 +231,27 @@
 			}
 		}
 
-		// Start polling for new jobs
-		for (const jobId of jobIds) {
-			if (refreshLog) {
-				pollLogsForJob(jobId)
+		// Clean up watched job IDs for jobs that are no longer expanded
+		const newWatchedJobIds = new Set<string>()
+		for (const jobId of watchedJobIds) {
+			if (currentJobIds.has(jobId)) {
+				newWatchedJobIds.add(jobId)
 			}
+		}
+		watchedJobIds = newWatchedJobIds
+
+		// Process each job ID - always fetch logs for new jobs, regardless of refreshLog
+		for (const jobId of jobIds) {
+			diffJobId(jobId)
 		}
 	}
 
-	// React to changes in expanded rows or refresh state
+	// React to changes in expanded rows or refresh state - follows FlowJobResult pattern
 	$effect(() => {
 		expandedRows
 		refreshLog
 		untrack(() => {
-			if (flowData && refreshLog) {
+			if (flowData) {
 				startPolling()
 			}
 		})
