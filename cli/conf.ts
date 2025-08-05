@@ -61,13 +61,28 @@ export async function readConfigFile(): Promise<SyncOptions> {
   try {
     const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
 
-    // Error if obsolete overrides format is detected - no longer supported
+    // Handle obsolete overrides format
     if (conf && 'overrides' in conf) {
-      throw new Error(
-        "❌ The 'overrides' field is no longer supported.\n" +
-        "   The configuration system now uses Git branch-based configuration only.\n" +
-        "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
-      );
+      const overrides = conf.overrides as any;
+      const hasSettings = overrides && typeof overrides === 'object' && Object.keys(overrides).length > 0;
+
+      if (hasSettings) {
+        throw new Error(
+          "❌ The 'overrides' field is no longer supported.\n" +
+          "   The configuration system now uses Git branch-based configuration only.\n" +
+          "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
+        );
+      } else {
+        // Remove empty overrides with a note
+        log.info("ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to git_branches format)");
+        delete conf.overrides;
+        // Write the updated config back to file
+        try {
+          await Deno.writeTextFile("wmill.yaml", yamlStringify(conf));
+        } catch (error) {
+          log.warn(`Could not update wmill.yaml to remove empty overrides: ${error instanceof Error ? error.message : error}`);
+        }
+      }
     }
 
     if (conf?.defaultTs == undefined) {

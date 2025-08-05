@@ -1060,7 +1060,15 @@ export async function pull(
     SyncOptions & { repository?: string; promotion?: string }
 ) {
   // Validate branch configuration early
-  await validateBranchConfiguration();
+  try {
+    await validateBranchConfiguration();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
 
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
@@ -1388,7 +1396,15 @@ export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string }
 ) {
   // Validate branch configuration early
-  await validateBranchConfiguration();
+  try {
+    await validateBranchConfiguration();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);

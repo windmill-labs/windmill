@@ -29,7 +29,15 @@ export async function pushGitSyncSettings(
   },
 ) {
   // Validate branch configuration like sync commands
-  await validateBranchConfiguration();
+  try {
+    await validateBranchConfiguration();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
