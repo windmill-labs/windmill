@@ -14,6 +14,9 @@ pub struct EndpointTool {
     pub method: Method,
     pub path: Cow<'static, str>,
     pub handler: fn(Value) -> HandlerFuture,
+    pub path_params_schema: Option<fn() -> Value>,
+    pub query_schema: Option<fn() -> Value>,
+    pub body_schema: Option<fn() -> Value>,
 }
 
 inventory::collect!(EndpointTool);

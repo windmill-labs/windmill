@@ -1148,14 +1148,26 @@ impl ServerHandler for Runner {
 
         // Add endpoint tools from the inventory registry
         for endpoint_tool in windmill_tool_registry::all_tools() {
-            let mut input_schema_map = serde_json::Map::new();
-            input_schema_map.insert("type".to_string(), serde_json::Value::String("object".to_string()));
-            input_schema_map.insert("properties".to_string(), serde_json::Value::Object(serde_json::Map::new()));
-            
+            let mut root = serde_json::Map::new();
+            root.insert("type".to_string(), serde_json::Value::String("object".to_string()));
+            let mut props = serde_json::Map::new();
+
+            if let Some(f) = endpoint_tool.path_params_schema {
+                props.insert("path_params".to_string(), f());
+            }
+            if let Some(f) = endpoint_tool.query_schema {
+                props.insert("query".to_string(), f());
+            }
+            if let Some(f) = endpoint_tool.body_schema {
+                props.insert("body".to_string(), f());
+            }
+
+            root.insert("properties".to_string(), serde_json::Value::Object(props));
+
             tools.push(Tool {
                 name: endpoint_tool.name.clone(),
                 description: Some(endpoint_tool.description.clone()),
-                input_schema: Arc::new(input_schema_map),
+                input_schema: Arc::new(root),
                 annotations: None,
             });
         }

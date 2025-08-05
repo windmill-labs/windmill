@@ -203,27 +203,21 @@ async fn list_search_resources(
     Ok(Json(rows))
 }
 
-#[windmill_tool(
-    name = "list_resources",
-    description = "List resources in a workspace",
-    method = "GET", 
-    path = "/list"
-)]
-async fn list_resources_tool(args: serde_json::Value) -> serde_json::Value {
-    // Extract workspace_id from args
-    let workspace_id = args.get("workspace_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("demo");
-    
-    // For now, return a mock response
-    // TODO: In the future we'll need to properly handle auth and call the real function
+fn workspace_path_schema() -> serde_json::Value {
     serde_json::json!({
-        "message": "list_resources endpoint tool",
-        "workspace_id": workspace_id,
-        "note": "This is a placeholder - actual implementation would require auth handling"
+        "type": "object",
+        "required": ["workspace_id"],
+        "properties": { "workspace_id": { "type": "string" } }
     })
 }
 
+#[windmill_tool(
+    name = "list_resources",
+    description = "List resources in a workspace",
+    method = "GET",
+    path = "/api/w/:workspace_id/resources",
+    path_params_fn = "workspace_path_schema"
+)]
 async fn list_resources(
     authed: ApiAuthed,
     Query(lq): Query<ListResourceQuery>,
