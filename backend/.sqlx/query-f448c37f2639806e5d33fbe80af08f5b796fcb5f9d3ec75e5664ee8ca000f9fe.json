@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow (\n        workspace_id, path, summary, description,\n        dependency_job, lock_error_logs, draft_only, tag,\n        dedicated_worker, visible_to_runner_only, on_behalf_of_email,\n        value, schema, dyn_select_code, dyn_select_lang, edited_by, edited_at\n    ) VALUES (\n        $1, $2, $3, $4,\n        NULL, '', $5, $6,\n        $7, $8, $9,\n        $10, $11::text::json, $12, $13, $14, now()\n    )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "dyn_select_lang",
+            "kind": {
+              "Enum": [
+                "bun",
+                "python3"
+              ]
+            }
+          }
+        },
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f448c37f2639806e5d33fbe80af08f5b796fcb5f9d3ec75e5664ee8ca000f9fe"
+}

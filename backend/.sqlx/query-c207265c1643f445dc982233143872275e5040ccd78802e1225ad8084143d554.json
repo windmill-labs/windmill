@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE \n            flow \n        SET\n            path = $1,\n            summary = $2,\n            description = $3,\n            dependency_job = NULL,\n            lock_error_logs = '',\n            draft_only = NULL,\n            tag = $4,\n            dedicated_worker = $5,\n            visible_to_runner_only = $6,\n            on_behalf_of_email = $7,\n            value = $8,\n            schema = $9::text::json,\n            dyn_select_code = $10,\n            dyn_select_lang = $11,\n            edited_by = $12,\n            edited_at = now()\n        WHERE \n            path = $13 AND workspace_id = $14",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "dyn_select_lang",
+            "kind": {
+              "Enum": [
+                "bun",
+                "python3"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c207265c1643f445dc982233143872275e5040ccd78802e1225ad8084143d554"
+}
