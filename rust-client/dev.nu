@@ -23,7 +23,7 @@ def main [ --publish(-p) --check(-c) --test(-t) ] {
   open windmill_api/Cargo.toml
   # Use rustls - otherwise compilation will fail due to missing libssl
   | update dependencies.reqwest.features [json, multipart, rustls-tls]
-  | update dependencies.reqwest.default-features false
+  | insert dependencies.reqwest.default-features false
   | update package.license "Apache-2.0"
   | insert package.homepage "https://windmill.dev"
   | save -f windmill_api/Cargo.toml
