@@ -18,7 +18,10 @@
 		WorkspaceService,
 		ResourceService,
 		SettingService,
-		type AIConfig
+		type AIConfig,
+
+		type ErrorHandler
+
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -66,7 +69,7 @@
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
 	let workspaceToDeployTo: string | undefined = $state(undefined)
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' | 'email' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
@@ -324,7 +327,7 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
+					error_handler: undefined,
 					error_handler_extra_args: undefined,
 					error_handler_muted_on_cancel: undefined,
 				}
