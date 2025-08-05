@@ -17,6 +17,9 @@ BEGIN
   ) THEN
     CREATE USER ducklake_user WITH PASSWORD 'TO_CHANGE';
   END IF;
+EXCEPTION
+  WHEN duplicate_object THEN
+    RAISE NOTICE 'User ducklake_user already exists, skipping.';
 END
 $$;
 
@@ -26,5 +29,8 @@ DECLARE
 BEGIN
     SELECT trim(both '"' from value::text) INTO pwd FROM global_settings WHERE name = 'ducklake_user_pg_pwd';
     EXECUTE format('ALTER USER ducklake_user WITH PASSWORD %L', pwd);
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Couldn''t set ducklake_user password: %', SQLERRM;
 END
 $$;
