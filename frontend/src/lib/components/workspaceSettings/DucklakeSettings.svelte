@@ -177,7 +177,7 @@
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
-<div class="flex flex-col gap-4 my-8">
+<div class="flex flex-col gap-4 mb-8 mt-20">
 	<div class="flex flex-col gap-1">
 		<div class="text-primary text-lg font-semibold">Ducklake</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ducklake">
@@ -282,7 +282,8 @@
 							bind:value={
 								() => ducklake.storage.storage,
 								(s) => {
-									ducklake.storage.storage = s
+									if (s) ducklake.storage.storage = s
+									else delete ducklake.storage.storage
 								}
 							}
 							class="w-48"
@@ -330,7 +331,11 @@
 		</Row>
 	</tbody>
 </DataTable>
-<Button wrapperClasses="mt-4 max-w-fit" on:click={onSave}>Save ducklake settings</Button>
+<Button
+	wrapperClasses="mt-4 mb-44 max-w-fit"
+	on:click={onSave}
+	disabled={Object.values(ducklakeIsDirty).every((v) => v === false)}>Save ducklake settings</Button
+>
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />

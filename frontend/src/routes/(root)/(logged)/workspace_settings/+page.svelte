@@ -819,7 +819,6 @@
 			/>
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings bind:s3ResourceSettings />
-		{:else if tab == 'ducklake'}
 			<DucklakeSettings bind:ducklakeSettings bind:ducklakeSavedSettings />
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
