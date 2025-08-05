@@ -3,7 +3,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 
@@ -32,6 +32,7 @@ export async function pullGitSyncSettings(
     override?: boolean;
     withBackendSettings?: string;
     yes?: boolean;
+    promotion?: string;
   },
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -116,6 +117,7 @@ export async function pullGitSyncSettings(
     let selectedRepo = await selectAndLogRepository(
       settings.git_sync.repositories,
       opts.repository,
+      opts.jsonOutput,
     );
 
     // Check if the selected repository needs migration and handle it
@@ -146,7 +148,7 @@ export async function pullGitSyncSettings(
     const localConfig = await readConfigFile();
 
     // Calculate current settings once and reuse throughout
-    const currentSettings = await getCurrentSettings(localConfig);
+    const currentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
 
     // Determine write mode for branch-based configuration
     let writeMode: WriteMode = "replace";
@@ -226,19 +228,21 @@ export async function pullGitSyncSettings(
       !opts.replace &&
       !opts.override
     ) {
+      // Recalculate current settings with promotion if needed
+      const effectiveCurrentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
       // Use the same logic as diff to determine current settings
       const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
         GitSyncSettingsConverter.normalize(backendSyncOptions),
       );
       const gitSyncCurrent = GitSyncSettingsConverter.extractGitSyncFields(
-        GitSyncSettingsConverter.normalize(currentSettings),
+        GitSyncSettingsConverter.normalize(effectiveCurrentSettings),
       );
       const hasConflict = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
       if (hasConflict && !opts.yes && Deno.stdin.isTerminal()) {
         // Show the diff first
         log.info("Changes that would be applied locally:");
-        const changes = generateChanges(currentSettings, backendSyncOptions);
+        const changes = generateChanges(effectiveCurrentSettings, backendSyncOptions);
         if (Object.keys(changes).length > 0) {
           displayChanges(changes);
         }

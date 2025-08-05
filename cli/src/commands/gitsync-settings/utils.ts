@@ -86,6 +86,7 @@ export async function getCurrentSettings(localConfig: SyncOptions): Promise<Sync
 export async function selectAndLogRepository(
   repositories: GitSyncRepository[],
   repository?: string,
+  suppressLogs?: boolean,
 ): Promise<GitSyncRepository> {
   let selectedRepo: GitSyncRepository;
 
@@ -100,7 +101,9 @@ export async function selectAndLogRepository(
     }
     selectedRepo = found;
     const repoPath = selectedRepo.git_repo_resource_path.replace(/^\$res:/, "");
-    log.info(colors.cyan(`Using repository: ${colors.bold(repoPath)}`));
+    if (!suppressLogs) {
+      log.info(colors.cyan(`Using repository: ${colors.bold(repoPath)}`));
+    }
   } else {
     selectedRepo = await selectRepository(repositories);
   }

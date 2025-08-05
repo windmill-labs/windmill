@@ -3,7 +3,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, validateBranchConfiguration } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, validateBranchConfiguration, getEffectiveSettings } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 
 import { GitSyncRepository } from "./types.ts";
@@ -26,6 +26,7 @@ export async function pushGitSyncSettings(
     jsonOutput?: boolean;
     withBackendSettings?: string;
     yes?: boolean;
+    promotion?: string;
   },
 ) {
   // Validate branch configuration like sync commands
@@ -156,6 +157,7 @@ export async function pushGitSyncSettings(
     let selectedRepo = await selectAndLogRepository(
       settings.git_sync.repositories,
       opts.repository,
+      opts.jsonOutput,
     );
 
     // Check if the selected repository needs migration and handle it
@@ -174,7 +176,7 @@ export async function pushGitSyncSettings(
 
     // Get effective settings for this workspace/repo
     const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-    const effectiveSettings = await getCurrentSettings(localConfig);
+    const effectiveSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
 
     // Convert to backend format
     const backendFormat = GitSyncSettingsConverter.toBackendFormat(effectiveSettings);

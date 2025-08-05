@@ -30,6 +30,10 @@ const command = new Command()
     "Use provided JSON settings instead of querying backend (for testing)",
   )
   .option("--yes", "Skip interactive prompts and use default behavior")
+  .option(
+    "--promotion <branch:string>",
+    "Use promotionOverrides from the specified branch instead of regular overrides"
+  )
   .action(pullGitSyncSettings as any)
   .command("push")
   .description(
@@ -46,6 +50,10 @@ const command = new Command()
     "Use provided JSON settings instead of querying backend (for testing)",
   )
   .option("--yes", "Skip interactive prompts and use default behavior")
+  .option(
+    "--promotion <branch:string>",
+    "Use promotionOverrides from the specified branch instead of regular overrides"
+  )
   .action(pushGitSyncSettings as any);
 
 export { pullGitSyncSettings, pushGitSyncSettings };

@@ -204,7 +204,7 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 }
 
 // Get effective settings by merging top-level settings with branch-specific overrides
-export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean): Promise<SyncOptions> {
+export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean, suppressLogs?: boolean): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { git_branches, ...topLevelSettings } = config;
   let effective = { ...topLevelSettings };
@@ -219,10 +219,14 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
       // First try promotionOverrides, then fall back to overrides
       if (targetBranch.promotionOverrides) {
         Object.assign(effective, targetBranch.promotionOverrides);
-        log.info(`Applied promotion settings from branch: ${promotion}`);
+        if (!suppressLogs) {
+          log.info(`Applied promotion settings from branch: ${promotion}`);
+        }
       } else if (targetBranch.overrides) {
         Object.assign(effective, targetBranch.overrides);
-        log.info(`Applied settings from branch: ${promotion} (no promotionOverrides found)`);
+        if (!suppressLogs) {
+          log.info(`Applied settings from branch: ${promotion} (no promotionOverrides found)`);
+        }
       } else {
         log.debug(`No promotion or regular overrides found for branch '${promotion}', using top-level settings`);
       }
@@ -230,7 +234,9 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
     // Otherwise use current branch overrides (existing behavior)
     else if (currentBranch && git_branches && git_branches[currentBranch] && git_branches[currentBranch].overrides) {
       Object.assign(effective, git_branches[currentBranch].overrides);
-      log.info(`Applied settings for Git branch: ${currentBranch}`);
+      if (!suppressLogs) {
+        log.info(`Applied settings for Git branch: ${currentBranch}`);
+      }
     } else if (currentBranch) {
       log.debug(`No branch-specific overrides found for '${currentBranch}', using top-level settings`);
     }
