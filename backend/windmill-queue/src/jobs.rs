@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 use windmill_common::BASE_INTERNAL_URL;
@@ -120,6 +121,7 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 #[cfg(feature = "enterprise")]
 const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
@@ -1872,6 +1874,71 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
+pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
+pub const ERROR_HANDLER_PATH_SLACK: &str = "/workspace-or-schedule-error-handler-slack";
+pub const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
+
+enum ErrorHandlerType {
+    Custom,
+    Teams,
+    Slack,
+    Email,
+}
+
+impl ErrorHandlerType {
+    fn from_error_handler_path(error_handler_path: &str) -> Option<ErrorHandlerType> {
+        let error_handler_path = if error_handler_path.starts_with("script/") {
+            error_handler_path.strip_prefix("script/").unwrap()
+        } else if error_handler_path.starts_with("flow/") {
+            error_handler_path.strip_prefix("flow/").unwrap()
+        } else {
+            error_handler_path
+        };
+
+        if let Some(from_hub) = error_handler_path.strip_prefix("hub/") {
+            let handler_type = if from_hub.ends_with(ERROR_HANDLER_PATH_TEAMS) {
+                ErrorHandlerType::Teams
+            } else if from_hub.ends_with(ERROR_HANDLER_PATH_SLACK) {
+                ErrorHandlerType::Slack
+            } else if from_hub.ends_with(ERROR_HANDLER_PATH_EMAIL) {
+                ErrorHandlerType::Email
+            } else {
+                return None;
+            };
+
+            return Some(handler_type);
+        }
+
+        Some(ErrorHandlerType::Custom)
+    }
+}
+
+fn get_email_and_permissioned_as(
+    error_handler_path: &str,
+    is_global_error_handler: bool,
+    is_schedule_error_handler: bool,
+) -> (&'static str, String) {
+    let res = if is_global_error_handler {
+        (SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SECRET_EMAIL.to_string())
+    } else if is_schedule_error_handler {
+        (
+            SCHEDULE_ERROR_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
+    } else {
+        let handler_type = ErrorHandlerType::from_error_handler_path(error_handler_path);
+
+        let email = match handler_type {
+            Some(ErrorHandlerType::Email) => EMAIL_ERROR_HANDLER_USER_EMAIL,
+            _ => ERROR_HANDLER_USER_EMAIL,
+        };
+
+        (email, ERROR_HANDLER_USER_GROUP.to_string())
+    };
+    
+    res
+}
+
 pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     db: &Pool<Postgres>,
     job_id: Uuid,
@@ -1933,17 +2000,11 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
             on_behalf_of.email.as_str(),
             on_behalf_of.permissioned_as.clone(),
         )
-    } else if is_global_error_handler {
-        (SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SECRET_EMAIL.to_string())
-    } else if is_schedule_error_handler {
-        (
-            SCHEDULE_ERROR_HANDLER_USER_EMAIL,
-            ERROR_HANDLER_USER_GROUP.to_string(),
-        )
     } else {
-        (
-            ERROR_HANDLER_USER_EMAIL,
-            ERROR_HANDLER_USER_GROUP.to_string(),
+        get_email_and_permissioned_as(
+            on_failure_path,
+            is_global_error_handler,
+            is_schedule_error_handler,
         )
     };
 
@@ -1955,7 +2016,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         payload,
         PushArgs { extra: Some(extra), args: &result },
         if is_global_error_handler {
-            "global"
+            GLOBAL_ERROR_HANDLER_USERNAME
         } else if is_schedule_error_handler {
             SCHEDULE_ERROR_HANDLER_USERNAME
         } else {

@@ -1211,6 +1211,8 @@ async fn send_email_with_instance_smtp(
     Path(w_id): Path<String>,
     Json(send_email): Json<SendEmail>,
 ) -> error::Result<Json<String>> {
+    use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
+
     if *CLOUD_HOSTED {
         tracing::warn!(
             "Workspace trigger failure email notification is not available for cloud hosted Windmill",
@@ -1232,7 +1234,7 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("No recipient to send the error").into());
     }
 
-    if authed.email == "error_handler@windmill.dev"
+    if authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || is_super_admin_email(&db, &authed.email).await?
     {
         let resp = send_workspace_trigger_failure_email_notification(
