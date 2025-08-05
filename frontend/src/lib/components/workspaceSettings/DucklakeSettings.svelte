@@ -283,7 +283,7 @@
 							bind:value={
 								() => ducklake.storage.storage,
 								(s) => {
-									if (s) ducklake.storage.storage = s
+									ducklake.storage.storage = s
 								}
 							}
 							class="w-48"

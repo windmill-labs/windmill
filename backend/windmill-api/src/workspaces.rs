@@ -1291,7 +1291,9 @@ async fn delete_git_sync_repository(
 
     // For deletion, only validate that path is not empty to allow cleanup of malformed entries
     if request.git_repo_resource_path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
