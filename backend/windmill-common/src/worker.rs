@@ -526,6 +526,12 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 
 #[derive(Copy, Clone)]
 #[annotations("#")]
+pub struct RubyAnnotations {
+    pub verbose: bool,
+}
+
+#[derive(Copy, Clone)]
+#[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_postinstall: bool,

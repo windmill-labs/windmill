@@ -15,7 +15,7 @@ use windmill_common::{
     client::AuthedClient,
     error::Error,
     utils::calculate_hash,
-    worker::{write_file, Connection},
+    worker::{write_file, Connection, RubyAnnotations},
 };
 use windmill_parser::Arg;
 use windmill_parser_ruby::parse_ruby_signature;
@@ -23,10 +23,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies_seq,
-        read_result, start_child_process, OccupancyMetrics, RequiredDependency,
+        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
+        OccupancyMetrics,
     },
     handle_child::{self},
+    universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
     DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
@@ -473,7 +474,9 @@ struct InstallRes {
 }
 
 async fn install<'a>(
-    JobHandlerInput { worker_name, job, conn, job_dir, .. }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { worker_name, job, conn, job_dir, inner_content, .. }: &mut JobHandlerInput<
+        'a,
+    >,
     lockfile: String,
 ) -> Result<InstallRes, Error> {
     #[derive(Debug, Clone)]
@@ -569,6 +572,10 @@ async fn install<'a>(
             return Err(anyhow!("Cannot deterimine version and package name for: {}", tl).into());
         };
 
+        // Strip platform from version. E.g:
+        // 1.18.9-x86_64-darwin -> 1.18.9
+        let version = version.split('-').next().unwrap_or(version);
+
         let custom_payload = CustomPayload {
             version: version.into(),
             pkg: pkg.into(),
@@ -597,16 +604,17 @@ async fn install<'a>(
         let handle = format!("{}-{}-{}", hash, pkg, version);
         let path = format!("{RUBY_CACHE_DIR}/gems/{}", &handle);
 
-        deps.push(dbg!(RequiredDependency {
+        deps.push(RequiredDependency {
             path,
             s3_handle: handle,
             display_name: tl.to_owned(),
             custom_payload,
-        }));
+        });
     }
 
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
+    let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
     let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
     par_install_language_dependencies_seq(
         deps.clone(),
@@ -614,7 +622,7 @@ async fn install<'a>(
         "gem",
         false,
         *RUBY_CONCURRENT_DOWNLOADS,
-        true,
+        // true,
         // crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
         move |dependency| {
             let mut cmd = if jailed {
@@ -678,9 +686,6 @@ async fn install<'a>(
                 // Disable transitive dependencies!
                 "--ignore-dependencies",
                 "--no-document",
-                // Make it output minimal info
-                "--quiet",
-                "--silent",
                 // Do not use default sources
                 "--clear-sources",
                 // Specify the one from lockfile
@@ -689,6 +694,11 @@ async fn install<'a>(
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+            if !verbose {
+                // Make it output minimal info
+                cmd.args(&["--quiet", "--silent"]);
+            }
 
             #[cfg(windows)]
             {
@@ -702,7 +712,7 @@ async fn install<'a>(
 
             Ok(cmd)
         },
-        async move |_| Ok(()),
+        // async move |_| Ok(()),
         &job.id,
         &job.workspace_id,
         worker_name,

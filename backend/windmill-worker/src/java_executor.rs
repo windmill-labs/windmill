@@ -21,12 +21,13 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables,
-        par_install_language_dependencies_all_at_once, read_result, start_child_process,
-        OccupancyMetrics, RequiredDependency,
+        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
+        OccupancyMetrics,
     },
-    handle_child, COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
-    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child,
+    universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
+    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR,
+    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 

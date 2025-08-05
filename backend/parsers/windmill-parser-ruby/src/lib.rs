@@ -89,11 +89,11 @@ pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<String> {
                 // }
                 {
                     continue 'top_level;
-                } else if dbg!(n.kind()) == "do_block" {
+                } else if n.kind() == "do_block" {
                     let req = n.utf8_text(code.as_bytes())?.to_owned();
 
                     lazy_static::lazy_static! {
-                        static ref WINDMILL_RE: Regex = Regex::new(r"^\s*require\s*'windmill/inline'").unwrap();
+                        static ref WINDMILL_RE: Regex = Regex::new(r"(?m)^\s*require\s*'windmill/inline'").unwrap();
                     }
 
                     if WINDMILL_RE.find(&code).is_none() {
