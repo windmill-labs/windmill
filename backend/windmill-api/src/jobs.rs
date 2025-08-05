@@ -1185,7 +1185,7 @@ async fn send_workspace_trigger_failure_email_notification(
         return Err(Error::internal_err(err_msg));
     }
     let success_msg = format!(
-        "Successfully sent workspace failure email notification for job ID: '{}' to {:?}",
+        "Job ID '{}' failed. An email with error details has been sent to {:?}.",
         &job_id, email_recipients
     );
     tracing::info!("{}", &success_msg);
@@ -1210,7 +1210,7 @@ async fn send_email_with_instance_smtp(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(send_email): Json<SendEmail>,
-) -> error::Result<String> {
+) -> error::Result<Json<String>> {
     if *CLOUD_HOSTED {
         tracing::warn!(
             "Workspace trigger failure email notification is not available for cloud hosted Windmill",
@@ -1235,7 +1235,7 @@ async fn send_email_with_instance_smtp(
     if authed.email == "error_handler@windmill.dev"
         || is_super_admin_email(&db, &authed.email).await?
     {
-        return send_workspace_trigger_failure_email_notification(
+        let resp = send_workspace_trigger_failure_email_notification(
             &db,
             &w_id,
             &send_email.job_id,
@@ -1244,7 +1244,9 @@ async fn send_email_with_instance_smtp(
             &send_email.email_recipients.unwrap(),
             &send_email.error,
         )
-        .await;
+        .await?;
+
+        return Ok(Json(resp));
     }
 
     return Err(Error::NotAuthorized(
