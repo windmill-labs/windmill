@@ -281,7 +281,7 @@
 										{:else if entry.stepType === 'branchall'}
 											branchall
 										{:else if entry.stepType === 'branchone'}
-											brancheone
+											branchone
 										{:else if entry.stepType === 'flow'}
 											flow
 										{:else}

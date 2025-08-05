@@ -66,13 +66,6 @@
 		}
 	}
 
-	function isSubflowStep(stepIndex: number): boolean {
-		const stepType = job.raw_flow?.modules?.[stepIndex]?.value?.type
-		return stepType
-			? ['branchall', 'brancheone', 'forloopflow', 'whileloopflow'].includes(stepType)
-			: false
-	}
-
 	// Build the flow data structure
 	async function buildFlowData(modules: FlowStatusModule[], rootJob: Job): Promise<FlowData> {
 		const steps: StepData[] = []
@@ -84,7 +77,6 @@
 			const stepNumber = i + 1
 			const state = $localModuleStates[module.id]
 			const summary = rootJob.raw_flow?.modules?.[i]?.summary
-			const isSubflow = isSubflowStep(i)
 
 			const stepData: StepData = {
 				stepId: module.id,
@@ -101,7 +93,18 @@
 			}
 
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)
-			if (isSubflow && module.flow_jobs && module.flow_jobs.length > 0) {
+			if (stepData.type === 'branchone' && stepData.jobId) {
+				stepData.subflows = []
+				const subflowJob = await fetchSubflowJob(stepData.jobId)
+				if (subflowJob) {
+					const subflowData = await buildFlowData(subflowJob.flow_status?.modules || [], subflowJob)
+					stepData.subflows.push(subflowData)
+				}
+			} else if (
+				['branchall', 'branchone', 'forloopflow', 'whileloopflow'].includes(stepData.type ?? '') &&
+				module.flow_jobs &&
+				module.flow_jobs.length > 0
+			) {
 				stepData.subflows = []
 
 				for (const subflowJobId of module.flow_jobs) {
