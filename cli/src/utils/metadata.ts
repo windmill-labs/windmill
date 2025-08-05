@@ -20,7 +20,7 @@ import {
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
-import { FSFSElement, findCodebase, newPathAssigner, yamlOptions } from "../commands/sync/sync.ts";
+import { FSFSElement, findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "../commands/flow/flow.ts";
@@ -192,7 +192,6 @@ export async function generateFlowLockInternal(
       {},
       SEP,
       opts.defaultTs,
-      newPathAssigner(opts.defaultTs ?? "bun")
     );
     inlineScripts
       .filter((s) => s.path.endsWith(".lock"))

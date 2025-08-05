@@ -48,7 +48,7 @@ import {
 } from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
-import { assignPath } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import { newPathAssigner, PathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -404,7 +404,6 @@ function ZipFSElement(
               {},
               SEP,
               defaultTs,
-              newPathAssigner(defaultTs)
             );
             for (const s of inlineScripts) {
               yield {
@@ -2125,66 +2124,5 @@ const command = new Command()
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);
-
-  interface PathAssigner {
-    assignPath(summary: string | undefined, language: string): [string, string];
-  }
-  const INLINE_SCRIPT = "inline_script";
-
-  export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
-    let counter = 0;
-    const seen_names = new Set<string>();
-    function assignPath(
-      summary: string | undefined,
-      language: string
-    ): [string, string] {
-      let name;
-  
-      name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
-  
-      let original_name = name;
-  
-      if (name == "") {
-        original_name = INLINE_SCRIPT;
-        name = `${INLINE_SCRIPT}_0`;
-      }
-  
-      while (seen_names.has(name)) {
-        counter++;
-        name = `${original_name}_${counter}`;
-      }
-      seen_names.add(name);
-  
-      let ext;
-      if (language == "python3") ext = "py";
-      else if (language == defaultTs || language == "bunnative") ext = "ts";
-      else if (language == "bun") ext = "bun.ts";
-      else if (language == "deno") ext = "deno.ts";
-      else if (language == "go") ext = "go";
-      else if (language == "bash") ext = "sh";
-      else if (language == "powershell") ext = "ps1";
-      else if (language == "postgresql") ext = "pg.sql";
-      else if (language == "mysql") ext = "my.sql";
-      else if (language == "bigquery") ext = "bq.sql";
-      else if (language == "oracledb") ext = "odb.sql";
-      else if (language == "snowflake") ext = "sf.sql";
-      else if (language == "mssql") ext = "ms.sql";
-      else if (language == "graphql") ext = "gql";
-      else if (language == "nativets") ext = "native.ts";
-      else if (language == "frontend") ext = "frontend.js";
-      else if (language == "php") ext = "php";
-      else if (language == "rust") ext = "rs";
-      else if (language == "csharp") ext = "cs";
-      else if (language == "nu") ext = "nu";
-      else if (language == "ansible") ext = "playbook.yml";
-      else if (language == "java") ext = "java";
-      else if (language == "duckdb") ext = "duckdb.sql";
-      // for related places search: ADD_NEW_LANG
-      else ext = "no_ext";
-  
-      return [`${name}.inline_script.`, ext];
-    }
-    return { assignPath };
-  }
 
 export default command;
