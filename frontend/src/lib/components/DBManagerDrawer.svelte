@@ -146,122 +146,120 @@
 	preventEscape
 	on:close={closeDrawer}
 >
-	{#key [input, dbSchema]}
-		<DrawerContent
-			title={replResultData ? 'Query Result' : 'Database Manager'}
-			on:close={() => {
-				if (replResultData) {
-					replResultData = undefined
-				} else {
-					closeDrawer()
-				}
-			}}
-			CloseIcon={replResultData ? ArrowLeft : undefined}
-			noPadding
-		>
-			{#if dbSchema && $workspaceStore && input}
-				{@const _input = input}
-				{@const dbType = input.type == 'database' ? input.resourceType : 'duckdb'}
-				<Splitpanes horizontal>
-					<Pane class="relative">
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class={'absolute inset-0 z-10 p-8 ' +
-								(replResultData
-									? 'bg-surface/90'
-									: 'transition-colors bg-transparent pointer-events-none select-none')}
-							onclick={(e) => {
-								// Only proceed if the click is directly on this div and not on the child elements
-								if (e.target === e.currentTarget) {
-									replResultData = undefined
-								}
-							}}
-						>
-							{#if replResultData}
-								{#key replResultData}
-									<SimpleAgTable data={replResultData} class="animate-zoom-in" />
-								{/key}
-							{/if}
-						</div>
-						<DbManager
-							dbSupportsSchemas={input.type == 'database' && dbSupportsSchemas(input.resourceType)}
-							{dbSchema}
-							{getColDefs}
-							dbTableOpsFactory={({ colDefs, tableKey }) =>
-								dbTableOpsWithPreviewScripts({
-									colDefs,
-									tableKey,
-									input: _input,
-									workspace: $workspaceStore
-								})}
-							dbTableActionsFactory={[
-								dbDeleteTableActionWithPreviewScript({ input: _input, workspace: $workspaceStore })
-							]}
-							{refresh}
-							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
-								dbType,
-								previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
-								async onConfirm(values) {
-									const dbArg =
-										input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
-									const language = getLanguageByResourceType(dbType)
-									let query = makeCreateTableQuery(values, dbType, selectedSchemaKey)
-									if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
-									await runScriptAndPollResult({
-										workspace: $workspaceStore,
-										requestBody: { args: dbArg, content: query, language }
-									})
-									refresh()
-								}
+	<DrawerContent
+		title={replResultData ? 'Query Result' : 'Database Manager'}
+		on:close={() => {
+			if (replResultData) {
+				replResultData = undefined
+			} else {
+				closeDrawer()
+			}
+		}}
+		CloseIcon={replResultData ? ArrowLeft : undefined}
+		noPadding
+	>
+		{#if dbSchema && $workspaceStore && input}
+			{@const _input = input}
+			{@const dbType = input.type == 'database' ? input.resourceType : 'duckdb'}
+			<Splitpanes horizontal>
+				<Pane class="relative">
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class={'absolute inset-0 z-10 p-8 ' +
+							(replResultData
+								? 'bg-surface/90'
+								: 'transition-colors bg-transparent pointer-events-none select-none')}
+						onclick={(e) => {
+							// Only proceed if the click is directly on this div and not on the child elements
+							if (e.target === e.currentTarget) {
+								replResultData = undefined
+							}
+						}}
+					>
+						{#if replResultData}
+							{#key replResultData}
+								<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+							{/key}
+						{/if}
+					</div>
+					<DbManager
+						dbSupportsSchemas={input.type == 'database' && dbSupportsSchemas(input.resourceType)}
+						{dbSchema}
+						{getColDefs}
+						dbTableOpsFactory={({ colDefs, tableKey }) =>
+							dbTableOpsWithPreviewScripts({
+								colDefs,
+								tableKey,
+								input: _input,
+								workspace: $workspaceStore
 							})}
-						/>
-					</Pane>
-					<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
-						<SqlRepl
-							{input}
-							onData={(data) => {
-								replResultData = data
-							}}
-							placeholderTableName={sortArray(
-								Object.keys(
-									dbSchema?.schema[
-										'public' in dbSchema?.schema
-											? 'public'
-											: 'dbo' in dbSchema?.schema
-												? 'dbo'
-												: Object.keys(dbSchema?.schema)?.[0]
-									]
-								)
-							)?.[0]}
-						/>
-					</Pane>
-				</Splitpanes>
-			{:else}
-				<Splitpanes>
-					<Pane class="relative flex justify-center items-center">
-						<Loader2 class="animate-spin" size={32} />
-					</Pane>
-				</Splitpanes>
-			{/if}
-			{#snippet actions()}
-				<Button
-					loading={refreshing}
-					on:click={() => refresh()}
-					startIcon={{ icon: RefreshCcw }}
-					size="xs"
-					color="light"
-				>
-					Refresh
-				</Button>
+						dbTableActionsFactory={[
+							dbDeleteTableActionWithPreviewScript({ input: _input, workspace: $workspaceStore })
+						]}
+						{refresh}
+						dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
+							dbType,
+							previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
+							async onConfirm(values) {
+								const dbArg =
+									input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+								const language = getLanguageByResourceType(dbType)
+								let query = makeCreateTableQuery(values, dbType, selectedSchemaKey)
+								if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+								await runScriptAndPollResult({
+									workspace: $workspaceStore,
+									requestBody: { args: dbArg, content: query, language }
+								})
+								refresh()
+							}
+						})}
+					/>
+				</Pane>
+				<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
+					<SqlRepl
+						{input}
+						onData={(data) => {
+							replResultData = data
+						}}
+						placeholderTableName={sortArray(
+							Object.keys(
+								dbSchema?.schema[
+									'public' in dbSchema?.schema
+										? 'public'
+										: 'dbo' in dbSchema?.schema
+											? 'dbo'
+											: Object.keys(dbSchema?.schema)?.[0]
+								]
+							)
+						)?.[0]}
+					/>
+				</Pane>
+			</Splitpanes>
+		{:else}
+			<Splitpanes>
+				<Pane class="relative flex justify-center items-center">
+					<Loader2 class="animate-spin" size={32} />
+				</Pane>
+			</Splitpanes>
+		{/if}
+		{#snippet actions()}
+			<Button
+				loading={refreshing}
+				on:click={() => refresh()}
+				startIcon={{ icon: RefreshCcw }}
+				size="xs"
+				color="light"
+			>
+				Refresh
+			</Button>
 
-				<Button
-					on:click={() => (expand = !expand)}
-					startIcon={{ icon: expand ? Minimize : Expand }}
-					size="xs"
-					color="light"
-				/>
-			{/snippet}
-		</DrawerContent>
-	{/key}
+			<Button
+				on:click={() => (expand = !expand)}
+				startIcon={{ icon: expand ? Minimize : Expand }}
+				size="xs"
+				color="light"
+			/>
+		{/snippet}
+	</DrawerContent>
 </Drawer>
