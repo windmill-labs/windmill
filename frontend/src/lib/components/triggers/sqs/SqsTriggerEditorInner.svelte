@@ -175,7 +175,7 @@
 			error_handler_path = cfg?.error_handler_path
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '') ?? []
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}

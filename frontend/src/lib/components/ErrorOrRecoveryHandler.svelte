@@ -53,7 +53,7 @@
 		isEditable,
 		toggleText = 'Enable',
 		showScriptHelpText = false,
-		handlerSelected = $bindable(),
+		handlerSelected = $bindable('custom'),
 		handlerPath = $bindable(),
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
