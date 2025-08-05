@@ -215,7 +215,7 @@ fn workspace_path_schema() -> serde_json::Value {
     name = "list_resources",
     description = "List resources in a workspace",
     method = "GET",
-    path = "/api/w/:workspace_id/resources",
+    path = "/api/w/:workspace_id/resources/list",
     path_params_fn = "workspace_path_schema"
 )]
 async fn list_resources(

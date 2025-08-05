@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::to_bytes;
+use axum::body::{to_bytes, Body};
 use axum::Router;
 use axum::{extract::Path, http::Request, middleware::Next, response::Response};
 use rmcp::{
@@ -18,7 +18,7 @@ use sqlx::FromRow;
 use tokio::try_join;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
-use windmill_common::{DB, HUB_BASE_URL};
+use windmill_common::{DB, HUB_BASE_URL, BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
@@ -844,6 +844,87 @@ impl Runner {
     }
 }
 
+async fn call_endpoint_tool(
+    tool: &windmill_tool_registry::EndpointTool,
+    args: serde_json::Value,
+    token: Option<&str>,
+) -> Result<serde_json::Value, Error> {
+    // Extract sections from args
+    let path_params = args.get("path_params").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+    let query_params = args.get("query").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+    let body_params = args.get("body").cloned().unwrap_or(serde_json::Value::Null);
+
+    // Substitute path parameters in the URL template
+    let mut url_path = tool.path.to_string();
+    if let serde_json::Value::Object(params) = path_params {
+        for (key, value) in params {
+            println!("key: {}, value: {:?}", key, value);
+            let placeholder = format!(":{}", key);
+            if let Some(str_val) = value.as_str() {
+                url_path = url_path.replace(&placeholder, str_val);
+            }
+        }
+    }
+
+    // Build query string
+    let mut query_string = String::new();
+    if let serde_json::Value::Object(params) = query_params {
+        let mut pairs = Vec::new();
+        for (key, value) in params {
+            if let Some(str_val) = value.as_str() {
+                pairs.push(format!("{}={}", 
+                    urlencoding::encode(&key), 
+                    urlencoding::encode(str_val)
+                ));
+            }
+        }
+        if !pairs.is_empty() {
+            query_string = format!("?{}", pairs.join("&"));
+        }
+    }
+
+    let full_url = format!("{}{}{}", BASE_URL.read().await, url_path, query_string);
+    
+    println!("Making HTTP request to: {}", full_url);
+
+    // Use reqwest to make the HTTP call
+    let client = reqwest::Client::new();
+    let mut request = client.request(
+        tool.method.clone().try_into().map_err(|_| {
+            Error::internal_error("Invalid HTTP method", None)
+        })?,
+        &full_url
+    );
+
+    // Add body for POST/PUT/PATCH requests
+    if !body_params.is_null() && matches!(tool.method, http::Method::POST | http::Method::PUT | http::Method::PATCH) {
+        request = request.json(&body_params);
+    }
+
+    if let Some(token) = token {
+        request = request.header("Authorization", format!("Bearer {}", token));
+    }
+
+    let response = request.send().await.map_err(|e| {
+        println!("HTTP request failed: {}", e);
+        Error::internal_error("HTTP request failed", None)
+    })?;
+
+    let status = response.status();
+    let body_text = response.text().await.map_err(|_| {
+        Error::internal_error("Failed to read response body", None)
+    })?;
+
+    if status.is_success() {
+        // Try to parse as JSON, fallback to string
+        let parsed_json = serde_json::from_str(&body_text)
+            .unwrap_or_else(|_| serde_json::Value::String(body_text));
+        Ok(parsed_json)
+    } else {
+        Err(Error::internal_error(format!("Endpoint returned {}: {}", status, body_text), None))
+    }
+}
+
 impl ServerHandler for Runner {
     /// Handles the `CallTool` request from the MCP client.
     ///
@@ -912,8 +993,24 @@ impl ServerHandler for Runner {
         // First, check if this is an endpoint tool
         for endpoint_tool in windmill_tool_registry::all_tools() {
             if endpoint_tool.name == request.name {
-                // Call the endpoint tool handler
-                let result = (endpoint_tool.handler)(args.clone()).await;
+                // Extract token from query parameters
+                let token = http_parts.uri.query()
+                    .and_then(|query| {
+                        println!("query: {:?}", query);
+                        query.split('&')
+                            .find_map(|param| {
+                                let mut parts = param.split('=');
+                                if parts.next() == Some("token") {
+                                    parts.next()
+                                } else {
+                                    None
+                                }
+                            })
+                    });
+                println!("token: {:?}", token);
+
+                // Forward to actual HTTP endpoint
+                let result = call_endpoint_tool(endpoint_tool, args.clone(), token).await?;
                 return Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
                 )]));
