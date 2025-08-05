@@ -1263,7 +1263,7 @@ async fn send_email_with_instance_smtp(
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
     Json(_send_email): Json<SendEmail>,
-) -> error::Result<()> {
+) -> error::Result<Json<String>> {
     tracing::warn!("SMTP is not enabled, skipping workspace trigger failure email notification",);
 
     return Err(anyhow::anyhow!("SMTP is not enabled").into());

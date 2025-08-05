@@ -615,10 +615,6 @@
 						sendUserToast('Invalid email format', true)
 						return
 					}
-					if (handlerExtraArgs[EMAIL_RECIPIENTS_KEY].includes(email)) {
-						sendUserToast('Email already added', true)
-						return
-					}
 					const currentArray = handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? []
 					handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = [...currentArray, email]
 				}}
