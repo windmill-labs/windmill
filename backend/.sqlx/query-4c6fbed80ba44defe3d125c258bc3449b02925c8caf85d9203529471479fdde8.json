@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT \n            workspace_id,\n            path,\n            kafka_resource_path,\n            group_id,\n            topics,\n            script_path,\n            is_flow,\n            edited_by,\n            email,\n            edited_at,\n            server_id,\n            last_server_ping,\n            extra_perms,\n            error,\n            enabled,\n            error_handler_path,\n            error_handler_args as \"error_handler_args: _\",\n            retry as \"retry: _\"\n            FROM kafka_trigger WHERE workspace_id = $1 AND path = $2",
+  "query": "SELECT \n                    workspace_id,\n                    path,\n                    kafka_resource_path,\n                    group_id,\n                    topics,\n                    script_path,\n                    is_flow,\n                    edited_by,\n                    email,\n                    edited_at,\n                    server_id,\n                    last_server_ping,\n                    extra_perms,\n                    error,\n                    enabled,\n                    error_handler_path,\n                    error_handler_args as \"error_handler_args: _\",\n                    retry as \"retry: _\"\n                 FROM kafka_trigger\n                 WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -96,7 +96,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Text"
       ]
     },
@@ -121,5 +120,5 @@
       true
     ]
   },
-  "hash": "6489342f52a9e1e90466bad48e0a6079fcabd696b02d57e3dbe652d28b84f008"
+  "hash": "4c6fbed80ba44defe3d125c258bc3449b02925c8caf85d9203529471479fdde8"
 }
