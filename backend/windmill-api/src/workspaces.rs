@@ -1289,8 +1289,10 @@ async fn delete_git_sync_repository(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    // Validate the resource path format
-    validate_git_repo_resource_path(&request.git_repo_resource_path)?;
+    // For deletion, only validate that path is not empty to allow cleanup of malformed entries
+    if request.git_repo_resource_path.is_empty() {
+        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+    }
 
     let mut tx = db.begin().await?;
 

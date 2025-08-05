@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.518.2](https://github.com/windmill-labs/windmill/compare/v1.518.1...v1.518.2) (2025-08-05)
+
+
+### Bug Fixes
+
+* fix edit button for script in flow module ([c351b7b](https://github.com/windmill-labs/windmill/commit/c351b7ba87c68ec7428b7bc4f901b6422c7c2fb3))
+* github apps popup appear for superadmins ([86df8ce](https://github.com/windmill-labs/windmill/commit/86df8ce240d1b69f35a1b7d132e30e815e992b31))
+
+## [1.518.1](https://github.com/windmill-labs/windmill/compare/v1.518.0...v1.518.1) (2025-08-04)
+
+
+### Bug Fixes
+
+* **cli:** revert renaming of inline scripts ([#6320](https://github.com/windmill-labs/windmill/issues/6320)) ([82ac747](https://github.com/windmill-labs/windmill/commit/82ac74779114af837cb3eccdd46962656f06ae08))
+
+## [1.518.0](https://github.com/windmill-labs/windmill/compare/v1.517.0...v1.518.0) (2025-08-01)
+
+
+### Features
+
+* **utils:** add flow.yaml validation function ([#6316](https://github.com/windmill-labs/windmill/issues/6316)) ([4937076](https://github.com/windmill-labs/windmill/commit/493707668b2b723115568e9bb96e7d57b5246ac4))
+
+
+### Bug Fixes
+
+* add disabled support to resource picker in schema forms ([c279154](https://github.com/windmill-labs/windmill/commit/c279154409643da493606da6d401228281966583))
+* add wm_labels to tracing spans ([d45ddec](https://github.com/windmill-labs/windmill/commit/d45ddecf8fdd14fe5ef759b7e836caacf1b78a52))
+* cleanup concurrency_counter automatically + remove orphans keys automatically ([87dd522](https://github.com/windmill-labs/windmill/commit/87dd52296f4bb8a585fffd08a6d13e9b1e4856b8))
+* delete empty git connection ([#6318](https://github.com/windmill-labs/windmill/issues/6318)) ([8d05696](https://github.com/windmill-labs/windmill/commit/8d05696809cae7590ffedee1f30a76efcc8f3c66))
+* sanitize XSS on login error ([523bc20](https://github.com/windmill-labs/windmill/commit/523bc2023b6789fe986532eb78f42db2c94f0c58))
+
+## [1.517.0](https://github.com/windmill-labs/windmill/compare/v1.516.0...v1.517.0) (2025-07-31)
+
+
+### Features
+
+* **cli:** wmill-lock.yaml v2 for easier git merge diffs ([ef3e235](https://github.com/windmill-labs/windmill/commit/ef3e2353a76d096847b3f10b1daa6767fc4baa0d))
+
+
+### Bug Fixes
+
+* use with_capacity back presusre for tantivy directory multipart writes ([#6313](https://github.com/windmill-labs/windmill/issues/6313)) ([8887707](https://github.com/windmill-labs/windmill/commit/8887707d41456889371e471c996773e605088a88))
+
 ## [1.516.0](https://github.com/windmill-labs/windmill/compare/v1.515.1...v1.516.0) (2025-07-31)
 
 
