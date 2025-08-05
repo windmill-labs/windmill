@@ -89,7 +89,7 @@
 				inputs: state?.args || {},
 				result: state?.result,
 				jobId: state?.job_id || '',
-				logs: undefined,
+				logs: state?.logs || '',
 				status: state?.type,
 				type: rootJob.raw_flow?.modules?.[i]?.value?.type
 			}
@@ -152,12 +152,13 @@
 			}
 		}
 	}
+
 </script>
 
 <div class="w-full rounded-md overflow-hidden border">
 	{#if flowData}
 		<!-- Log polling component -->
-		<FlowLogsLoader bind:flowData {expandedRows} {workspaceId} {refreshLog} />
+		<FlowLogsLoader {expandedRows} {workspaceId} {refreshLog} {localModuleStates} />
 
 		<FlowLogViewer
 			{flowData}
