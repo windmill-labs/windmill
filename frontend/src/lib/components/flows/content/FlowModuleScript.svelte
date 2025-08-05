@@ -62,7 +62,6 @@
 		previousCode = cachedValues[key]?.previousCode
 		tag = cachedValues[key]?.tag
 		notFound = cachedValues[key]?.notFound ?? false
-		console.log('cachedValues', cachedValues, code)
 	}
 
 	getCachedValues(path, hash)
