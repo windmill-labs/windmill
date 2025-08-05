@@ -59,6 +59,7 @@
 		dropdownBtnClasses?: string
 		dropdownItems?: MenuItem[] | (() => MenuItem[]) | undefined
 		hideDropdown?: boolean
+		onClick?: (e?: Event) => void
 		children?: import('svelte').Snippet
 		tooltip?: import('svelte').Snippet
 		[key: string]: any
@@ -98,6 +99,7 @@
 		hideDropdown = false,
 		children,
 		tooltip,
+		onClick,
 		dropdownOpen = $bindable(false),
 		...rest
 	}: Props = $props()
@@ -125,13 +127,14 @@
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 
-	async function onClick(event: MouseEvent) {
+	async function onclick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
 			if (!propagateEvent) {
 				// by default events are not propagated, added this prop so that we can
 				event.stopPropagation()
 			}
+			onClick?.(event)
 			dispatch('click', event)
 		}
 	}
@@ -285,7 +288,7 @@
 		<button
 			bind:this={element}
 			onpointerdown={bubble('pointerdown')}
-			onclick={onClick}
+			{onclick}
 			onfocus={bubble('focus')}
 			onblur={bubble('blur')}
 			onmouseenter={bubble('mouseenter')}
