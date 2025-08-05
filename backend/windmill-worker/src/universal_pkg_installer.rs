@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -7,7 +6,7 @@ use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     fs::File,
     process::Command,
-    sync::{OwnedSemaphorePermit, RwLock, Semaphore},
+    sync::{broadcast::Sender, OwnedSemaphorePermit, RwLock, Semaphore},
     task::JoinHandle,
 };
 use uuid::Uuid;
@@ -122,7 +121,7 @@ pub async fn par_install_language_dependencies_all_at_once<
         _platform_agnostic,
     )
     .await?;
-    let failed = process_handles(handles, w_id).await;
+    let installation_res = process_handles(handles, w_id).await;
     if !to_batch_install.read().await.is_empty() {
         let for_all_at_once_copy = to_batch_install.read().await.clone();
         windmill_queue::append_logs(
@@ -194,11 +193,7 @@ pub async fn par_install_language_dependencies_all_at_once<
         }
     }
     finish_installation(total_time, job_id, w_id, conn).await;
-    return if failed {
-        Err(anyhow!("Env installation did not succeed, check logs").into())
-    } else {
-        Ok(())
-    };
+    installation_res
 }
 
 /// # General
@@ -265,12 +260,9 @@ pub async fn par_install_language_dependencies_seq<
     )
     .await?;
 
-    return if process_handles(handles, w_id).await {
-        Err(anyhow::anyhow!("Env installation did not succeed, check logs").into())
-    } else {
-        finish_installation(total_time, job_id, w_id, conn).await;
-        Ok(())
-    };
+    let installation_res = process_handles(handles, w_id).await;
+    finish_installation(total_time, job_id, w_id, conn).await;
+    installation_res
 }
 
 type NameMaxLength = usize;
@@ -333,14 +325,14 @@ enum Action<T: Clone + Send + Sync> {
     Install(Box<dyn TokioChildWrapper + 'static>),
     AddToBulk(Arc<RwLock<Vec<RequiredDependency<T>>>>),
 }
-struct TaskKiller(tokio::sync::broadcast::Sender<()>);
+struct TaskKiller(tokio::sync::broadcast::Sender<String>);
 impl Drop for TaskKiller {
     fn drop(&mut self) {
         // We don't care if it actually stopped anything or not.
         // In some cases it will fire and actually stop
         // In other cases do nothing
         #[allow(unused_must_use)]
-        self.0.send(());
+        self.0.send("Installation failed".to_owned());
     }
 }
 // Callback will be invoked only if could not pull from S3
@@ -359,7 +351,10 @@ async fn spawn_wrapped_installation_threads<
     conn: &Connection,
     _language_name: &str,
     _platform_agnostic: bool,
-) -> anyhow::Result<Vec<JoinHandle<anyhow::Result<TaskKiller>>>> {
+) -> anyhow::Result<(
+    Vec<JoinHandle<anyhow::Result<TaskKiller>>>,
+    tokio::sync::broadcast::Sender<()>,
+)> {
     // Semaphore will panic if value less then 1
     let parallel_limit = concurrent_downloads.clamp(1, 30);
     tracing::info!(
@@ -375,22 +370,25 @@ async fn spawn_wrapped_installation_threads<
         missing.len(),
         Arc::new(tokio::sync::Mutex::new(0)),
     );
-    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> =
-        (0..missing.len()).map(|_| kill_tx.subscribe()).collect();
 
-    // Listen to cancell events and stop jobs
+    // Pretty sensitive. Single drop will fail installation
+    let (kill_tx, ..) = tokio::sync::broadcast::channel::<String>(10);
+    //   ^^^^^^^ Original will go into listen_to_cancel
+    //
+    // But before that it will be used to populate t and r for every thread
+    let trxs: Vec<(
+        tokio::sync::broadcast::Sender<String>,
+        tokio::sync::broadcast::Receiver<String>,
+    )> = (0..missing.len())
+        .map(|_| (kill_tx.clone(), kill_tx.subscribe()))
+        .collect();
+
+    // Listen to cancel events and stop jobs
     // NOTE:
-    // once all _close are dropped, the listener will be closed
-    let _close = listen_to_cancel(
-        job_id.clone(),
-        w_id.to_owned(),
-        conn.clone(),
-        kill_tx.clone(),
-    )
-    .await;
+    // once closer is dropped, the listener will be closed
+    let closer = listen_to_cancel(job_id.clone(), w_id.to_owned(), conn.clone(), kill_tx).await;
 
-    for (dep, mut kill_rx) in missing.into_iter().zip(kill_rxs) {
+    for (dep, (kill_tx, mut kill_rx)) in missing.into_iter().zip(trxs) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
         if let Err(_) = permit {
@@ -423,29 +421,24 @@ async fn spawn_wrapped_installation_threads<
             _language_name.to_owned(),
             _platform_agnostic,
             permit,
-            // We will provide every install thread with handle.
-            // We want this handle be alive as long as possible
-            //
-            // Even in cases when the mode is set to sequential, there will be at least one handle and poller will work
-            _close.clone(),
-            TaskKiller(kill_tx.clone()),
+            TaskKiller(kill_tx),
         );
         handles.push(tokio::spawn(async move {
             tokio::select! {
-                _ = kill_rx.recv() => return Err(anyhow::anyhow!("Installation was canceled or failed")),
+                reason = kill_rx.recv() => return Err(anyhow::anyhow!("Installation stopped. Reason: {:?}", reason)),
                 r = task_fut => return r
             };
         }));
     }
 
-    Ok(handles)
+    Ok((handles, closer))
 }
 /// Do not drop the returned sender! As soon as you drop it the polling thread will stop
 pub async fn listen_to_cancel(
     job_id: Uuid,
     w_id: String,
     conn: Connection,
-    killpill: tokio::sync::broadcast::Sender<()>,
+    killpill: tokio::sync::broadcast::Sender<String>,
 ) -> tokio::sync::broadcast::Sender<()> {
     let (close_tx, mut close_rx) = tokio::sync::broadcast::channel::<()>(1);
     tokio::spawn(async move {
@@ -459,7 +452,7 @@ pub async fn listen_to_cancel(
                             workspace_id = %w_id,
                             "cancelling installations",
                         );
-                        if let Err(ref e) = killpill.send(()) {
+                        if let Err(ref e) = killpill.send("Job was canceled".to_owned()) {
                             tracing::error!(
                                 // If there is listener on other side,
                                 workspace_id = %w_id,
@@ -497,11 +490,6 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
     _language_name: String,
     _platform_agnostic: bool,
     _permit: OwnedSemaphorePermit,
-    // Bring into scope
-    // IMPORTANT:
-    // we need this pointer be still alive in order to cancel event poller to work
-    _close_cancel_listener: tokio::sync::broadcast::Sender<()>,
-
     // If dropped the entire installation fails and all installation threads are being stopped
     // That's why we just pass it to return so it is not being dropped
     kill_all_tasks: TaskKiller,
@@ -586,7 +574,10 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
         windmill_queue::append_logs(
             &job_id,
             &w_id,
-            format!("\n[x] - error while installing {}: {e:?}", &dep.display_name),
+            format!(
+                "\n[x] - error while installing {}: {e:?}",
+                &dep.display_name
+            ),
             &conn,
         )
         .await;
@@ -704,23 +695,39 @@ async fn print_success(
     // Drop lock, so next print success can fire
 }
 
-async fn process_handles(handles: Vec<JoinHandle<anyhow::Result<TaskKiller>>>, w_id: &str) -> bool {
-    let mut failed = false;
+async fn process_handles(
+    (handles, closer): (Vec<JoinHandle<anyhow::Result<TaskKiller>>>, Sender<()>),
+    w_id: &str,
+) -> anyhow::Result<()> {
+    let mut killers = vec![];
     for handle in handles {
-        if let Err(e) = handle
+        match handle
             .await
             .unwrap_or(Err(anyhow::anyhow!("Problem by joining handle")))
         {
-            failed = true;
-            tracing::warn!(
-                workspace_id = %w_id,
-                "Env installation failed: {:?}",
-                e
-            );
+            // __________< Cannot drop just yet.
+            Ok(kill_tasks) => killers.push(kill_tasks),
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Env installation failed: {:?}",
+                    e
+                );
+                // We can safely return,
+                // it will drop `closer`
+                // which will drop first kill_tx for all installation threads
+                // which will trigger chain reaction and kill every installation
+                return Err(e);
+            }
         }
-        // Here the TaskKiller drops.
     }
-    failed
+
+    // Only now we can be sure there is no installation thread running
+    // we can safely stop poller
+    drop(closer);
+    // Drop ONLY after we processed all handles
+    drop(killers);
+    Ok(())
 }
 async fn finish_installation(
     total_time: std::time::Instant,

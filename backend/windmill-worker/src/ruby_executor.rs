@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc};
+use std::{collections::HashMap, process::Stdio};
 
 use anyhow::anyhow;
 use const_format::concatcp;
@@ -474,9 +474,17 @@ struct InstallRes {
 }
 
 async fn install<'a>(
-    JobHandlerInput { worker_name, job, conn, job_dir, inner_content, .. }: &mut JobHandlerInput<
-        'a,
-    >,
+    JobHandlerInput {
+        worker_name,
+        job,
+        conn,
+        job_dir,
+        inner_content,
+        envs,
+        client,
+        parent_runnable_path,
+        ..
+    }: &mut JobHandlerInput<'a>,
     lockfile: String,
 ) -> Result<InstallRes, Error> {
     #[derive(Debug, Clone)]
@@ -616,6 +624,10 @@ async fn install<'a>(
     let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
     let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
     let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
+    let (envs, reserved_variables) = (
+        envs.clone(),
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?,
+    );
     par_install_language_dependencies_seq(
         deps.clone(),
         "ruby",
@@ -648,7 +660,7 @@ async fn install<'a>(
                     GEM_PATH.as_str()
                 })
             };
-            cmd.env_clear().current_dir(&job_dir).envs(vec![
+            cmd.current_dir(&job_dir).envs(vec![
                 ("PATH".to_owned(), PATH_ENV.clone()),
                 // Make sure there is nothing written to actual home
                 // This way we keep everything clean, organized and maintable
@@ -692,6 +704,8 @@ async fn install<'a>(
                 "--source",
                 source.as_str(),
             ])
+            .envs(envs.clone())
+            .envs(reserved_variables.clone())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
