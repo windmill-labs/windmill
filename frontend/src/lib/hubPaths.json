@@ -18,7 +18,7 @@
 	"slackErrorHandler": "hub/19741/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_0": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_1": "hub/9206/workspace-or-schedule-error-handler-slack",
-	"emailErrorHandler": "hub/10000012/workspace-or-error-handler-email",	
+	"emailErrorHandler": "hub/10000015/workspace-or-error-handler-email",	
 	"slackRecoveryHandler": "hub/9080/slack/schedule-recovery-handler-slack",
 	"slackSuccessHandler": "hub/9072/slack/schedule-success-handler-slack",
 	"teamsErrorHandler": "hub/19742/workspace-or-schedule-error-handler-teams",

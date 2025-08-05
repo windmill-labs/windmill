@@ -30,15 +30,12 @@ use windmill_audit::ActionKind;
 
 #[cfg(feature = "benchmark")]
 use windmill_common::add_time;
-use windmill_common::agent_workers::BASE_INTERNAL_URL;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::utils::{now_from_db, };
+use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
-
-
-
+use windmill_common::BASE_INTERNAL_URL;
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
@@ -69,13 +66,12 @@ use windmill_common::{
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
-
-#[cfg(feature = "cloud")]
-use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
+#[cfg(feature = "cloud")]
+use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -1363,7 +1359,7 @@ async fn apply_completed_job_error_handlers<T: Serialize + Send + Sync + Validab
                 "Sending error of job {} to error handlers (if any)",
                 queued_job.id
             );
-            
+
             if let Err(e) = send_error_to_global_handler(&queued_job, db, Json(&result)).await {
                 tracing::error!(
                     "Could not run global error handler for job {}: {}",
@@ -1477,7 +1473,6 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
             None,
             queued_job.started_at,
             None,
-            None,
             &queued_job.permissioned_as_email,
             false,
             true,
@@ -1495,11 +1490,11 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     error_message: String,
 ) -> () {
     let w_id = &queued_job.workspace_id;
-    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<Vec<String>>)>(
-        r#"SELECT 
+    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
+        r#"
+                SELECT 
                     error_handler, 
-                    error_handler_extra_args,
-                    email_recipients
+                    error_handler_extra_args
                 FROM 
                     workspace_settings 
                 WHERE 
@@ -1511,9 +1506,9 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     .await
     .ok()
     .flatten()
-    .unwrap_or((None, None, None));
+    .unwrap_or((None, None));
 
-    let (error_handler, error_handler_extra_args, email_recipients) = row_result;
+    let (error_handler, error_handler_extra_args) = row_result;
 
     if let Some(error_handler) = error_handler {
         if let Err(err) = push_error_handler(
@@ -1532,7 +1527,6 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
             None,
             queued_job.started_at,
             error_handler_extra_args,
-            email_recipients,
             &queued_job.permissioned_as_email,
             false,
             false,
@@ -1560,34 +1554,25 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
 
-    let (
-        error_handler,
-        error_handler_extra_args,
-        error_handler_muted_on_cancel,
-        email_recipients
-    ) = sqlx::query_as::<_, (
-            Option<String>,
-            Option<Json<Box<RawValue>>>,
-            bool,
-            Option<Vec<String>>
-        )>(
-    r#"
+    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+        r#"
             SELECT
                 error_handler,
                 error_handler_extra_args,
-                error_handler_muted_on_cancel,
-                email_recipients
+                error_handler_muted_on_cancel
             FROM 
                 workspace_settings
             WHERE 
                 workspace_id = $1
-        "#
+        "#,
     )
     .bind(&w_id)
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = row_result;
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1632,7 +1617,6 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 None,
                 queued_job.started_at,
                 error_handler_extra_args,
-                email_recipients,
                 &queued_job.permissioned_as_email,
                 false,
                 false,
@@ -1797,7 +1781,6 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
                 Some(times),
                 Some(started_at),
                 schedule.on_failure_extra_args.clone(),
-                None,
                 &schedule.email,
                 true,
                 false,
@@ -1901,7 +1884,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     failed_times: Option<i32>,
     started_at: Option<DateTime<Utc>>,
     extra_args: Option<Json<Box<RawValue>>>,
-    recipients: Option<Vec<String>>,
     email: &str,
     is_schedule_error_handler: bool,
     is_global_error_handler: bool,
@@ -1925,11 +1907,11 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
     extra.insert("email".to_string(), to_raw_value(&email));
+    extra.insert(
+        "base_internal_url".to_string(),
+        to_raw_value(&*BASE_INTERNAL_URL),
+    );
 
-    if recipients.is_some() {
-        extra.insert("email_recipients".to_string(), to_raw_value(&recipients));
-        extra.insert("base_internal_url".to_string(), to_raw_value(&*BASE_INTERNAL_URL));
-    }
     if let Some(failed_times) = failed_times {
         extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
     }
@@ -1995,7 +1977,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         priority,
-        None
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2221,21 +2203,20 @@ pub enum JobTriggerKind {
     Gcp,
 }
 
-
 impl std::fmt::Display for JobTriggerKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let kind = match self {
-            JobTriggerKind::Webhook =>  "webhook",
-            JobTriggerKind::Http =>  "http",
-            JobTriggerKind::Websocket =>  "websocket",
-            JobTriggerKind::Kafka =>  "kafka",
-            JobTriggerKind::Email =>  "email",
-            JobTriggerKind::Nats =>  "nats",
-            JobTriggerKind::Mqtt =>  "mqtt",
-            JobTriggerKind::Sqs =>  "sqs",
-            JobTriggerKind::Postgres =>  "postgres",
-            JobTriggerKind::Schedule =>  "schedule",
-            JobTriggerKind::Gcp =>  "gcp",
+            JobTriggerKind::Webhook => "webhook",
+            JobTriggerKind::Http => "http",
+            JobTriggerKind::Websocket => "websocket",
+            JobTriggerKind::Kafka => "kafka",
+            JobTriggerKind::Email => "email",
+            JobTriggerKind::Nats => "nats",
+            JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Sqs => "sqs",
+            JobTriggerKind::Postgres => "postgres",
+            JobTriggerKind::Schedule => "schedule",
+            JobTriggerKind::Gcp => "gcp",
         };
         write!(f, "{}", kind)
     }
@@ -4140,6 +4121,10 @@ pub async fn push<'c, 'd>(
                     "email".to_string(),
                     InputTransform::Static { value: to_raw_value(&email) },
                 );
+                input_transforms.insert(
+                    "base_internal_url".to_string(),
+                    InputTransform::Static { value: to_raw_value(&*BASE_INTERNAL_URL) },
+                );
                 // for the below transforms to work, make sure that flow_job_id and started_at are added to the eval context when pusing the error handler job
                 input_transforms.insert(
                     "job_id".to_string(),
@@ -4600,14 +4585,13 @@ pub async fn push<'c, 'd>(
     // ).execute(&mut *tx).await {
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
-    
-    
+
     let trigger_kind = if schedule_path.is_some() {
         Some(JobTriggerKind::Schedule)
     } else {
         None
     };
-    
+
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,

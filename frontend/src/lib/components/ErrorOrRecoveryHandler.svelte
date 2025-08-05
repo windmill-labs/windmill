@@ -46,8 +46,6 @@
 		customScriptTemplate: string
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
-		emailRecipients?: string[]
-		initialEmailRecipients?: string[]
 	}
 
 	let {
@@ -61,14 +59,11 @@
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
 		customTabTooltip,
-		emailRecipients = $bindable([]),
-		initialEmailRecipients = $bindable([])
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
 	let isFetching: boolean = $state(false)
-
 	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
 	let teams_team_name: string | undefined = $state(undefined)
 
@@ -77,6 +72,8 @@
 
 	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined =
 		$state()
+	const EMAIL_RECIPIENTS_KEY = 'email_recipients'
+	const CHANNEL_KEY = 'channel'
 
 	async function loadSlackResources() {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -252,21 +249,26 @@
 	})
 
 	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
-	let channelCache = $state({
+	let handlerCache = $state({
 		slack: undefined as string | undefined,
-		teams: undefined as string | undefined
+		teams: undefined as string | undefined,
+		email: undefined as string[] | undefined
 	})
 	$effect(() => {
 		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
-			if (lastHandlerSelected === 'teams' || lastHandlerSelected === 'slack') {
-				channelCache[lastHandlerSelected] = handlerExtraArgs['channel']
+			if (lastHandlerSelected != 'custom') {
+				const key = lastHandlerSelected === 'email' ? EMAIL_RECIPIENTS_KEY : CHANNEL_KEY
+				handlerCache[lastHandlerSelected] = handlerExtraArgs[key]
 			}
 
-			if (handlerSelected === 'custom' || handlerSelected === 'email') {
-				handlerExtraArgs['channel'] = ''
+			if (handlerSelected === 'custom') {
+				handlerExtraArgs[CHANNEL_KEY] = ''
+				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = []
 				handlerPath = undefined
+			} else if (handlerSelected === 'email') {
+				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = handlerCache[handlerSelected] ?? []
 			} else {
-				handlerExtraArgs['channel'] = channelCache[handlerSelected] ?? ''
+				handlerExtraArgs[CHANNEL_KEY] = handlerCache[handlerSelected] ?? ''
 			}
 		}
 
@@ -602,7 +604,10 @@
 		<div class="flex flex-col gap-2 my-4">
 			<MultiSelect
 				items={[] as { label: string; value: string }[]}
-				bind:value={emailRecipients}
+				bind:value={
+					() => handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? [],
+					(recipients) => (handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = recipients)
+				}
 				placeholder="Enter email addresses..."
 				onCreateItem={(email) => {
 					const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
@@ -610,17 +615,22 @@
 						sendUserToast('Invalid email format', true)
 						return
 					}
-					if (emailRecipients.includes(email)) {
+					if (handlerExtraArgs[EMAIL_RECIPIENTS_KEY].includes(email)) {
 						sendUserToast('Email already added', true)
 						return
 					}
-					emailRecipients = [...emailRecipients, email]
+					const currentArray = handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? []
+					handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = [...currentArray, email]
 				}}
 				class="w-full"
 			/>
-			{#if emailRecipients.length > 0}
+			{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
 				<span class="text-sm text-tertiary">
-					{emailRecipients.length} email{emailRecipients.length === 1 ? '' : 's'} configured
+					{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
+						EMAIL_RECIPIENTS_KEY
+					]?.length === 1
+						? ''
+						: 's'} configured
 				</span>
 			{/if}
 		</div>

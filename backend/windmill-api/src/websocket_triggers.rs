@@ -70,8 +70,6 @@ struct NewWebsocketTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -123,8 +121,6 @@ pub struct WebsocketTrigger {
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -140,8 +136,6 @@ struct EditWebsocketTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -184,7 +178,6 @@ async fn list_websocket_triggers(
         "error_handler_path",
         "error_handler_args",
         "retry",
-        "email_recipients",
     ])
     .order_by("edited_at", true)
     .and_where("workspace_id = ?".bind(&w_id))
@@ -241,7 +234,6 @@ async fn get_websocket_trigger(
             error_handler_path,
             error_handler_args,
             retry,
-            email_recipients
         FROM 
             websocket_trigger
         WHERE 
@@ -302,10 +294,9 @@ async fn create_websocket_trigger(
             edited_at,
             error_handler_path,
             error_handler_args,
-            retry,
-            email_recipients
+            retry
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15
         )
         "#,
         w_id,
@@ -322,8 +313,7 @@ async fn create_websocket_trigger(
         authed.email,
         ct.error_handler_path,
         ct.error_handler_args as _,
-        ct.retry as _,
-        ct.email_recipients.as_deref()
+        ct.retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -395,8 +385,7 @@ async fn update_websocket_trigger(
             error = NULL,
             error_handler_path = $13,
             error_handler_args = $14,
-            retry = $15,
-            email_recipients = $16
+            retry = $15
         WHERE
             workspace_id = $11 AND path = $12
     ",
@@ -414,8 +403,7 @@ async fn update_websocket_trigger(
         path,
         ct.error_handler_path,
         ct.error_handler_args as _,
-        ct.retry as _,
-        ct.email_recipients.as_deref()
+        ct.retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -651,8 +639,7 @@ async fn listen_to_unlistened_websockets(
         can_return_message,
         error_handler_path,
         error_handler_args,
-        retry,
-        email_recipients
+        retry
     FROM websocket_trigger
     WHERE
         enabled IS TRUE

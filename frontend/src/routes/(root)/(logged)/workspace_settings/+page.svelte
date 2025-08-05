@@ -73,8 +73,6 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
-	let emailRecipients: string[] = $state([])
-	let initialEmailRecipients: string[] = $state([])
 
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
@@ -255,8 +253,6 @@
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
-		emailRecipients = settings.email_recipients ? settings.email_recipients : []
-		initialEmailRecipients = [...emailRecipients]
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -321,7 +317,6 @@
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
 					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
-					email_recipients: emailRecipients
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -332,10 +327,8 @@
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: undefined,
 					error_handler_muted_on_cancel: undefined,
-					email_recipients: undefined
 				}
 			})
-			emailRecipients = []
 			sendUserToast(`workspace error handler removed`)
 		}
 	}
@@ -733,8 +726,6 @@
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
-				bind:emailRecipients
-				bind:initialEmailRecipients={initialEmailRecipients}
 			>
 				{#snippet customTabTooltip()}
 					<Tooltip>

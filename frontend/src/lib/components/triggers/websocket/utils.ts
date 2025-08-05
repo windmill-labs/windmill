@@ -17,7 +17,6 @@ export async function saveWebsocketTriggerFromCfg(
 					? triggerCfg.error_handler_args
 					: undefined,
 				retry: triggerCfg.retry,
-				email_recipients: triggerCfg.email_recipients
 			}
 		: {}
 	const requestBody: EditWebsocketTrigger = {

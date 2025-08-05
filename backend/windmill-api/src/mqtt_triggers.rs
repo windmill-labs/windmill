@@ -44,9 +44,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     triggers::TriggerKind,
-    utils::{
-        empty_as_none, not_found_if_none, paginate, report_critical_error, Pagination, StripPath,
-    },
+    utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
@@ -219,8 +217,6 @@ pub struct NewMqttTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -238,8 +234,6 @@ pub struct EditMqttTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -269,8 +263,6 @@ pub struct MqttTrigger {
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -551,7 +543,6 @@ pub async fn create_mqtt_trigger(
         error_handler_path,
         error_handler_args,
         retry,
-        email_recipients,
     } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -578,8 +569,7 @@ pub async fn create_mqtt_trigger(
             edited_by,
             error_handler_path,
             error_handler_args,
-            retry,
-            email_recipients
+            retry
         ) 
         VALUES (
             $1, 
@@ -597,8 +587,7 @@ pub async fn create_mqtt_trigger(
             $13,
             $14,
             $15,
-            $16,
-            $17
+            $16
         )"#,
         mqtt_resource_path,
         subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
@@ -615,8 +604,7 @@ pub async fn create_mqtt_trigger(
         &authed.username,
         error_handler_path,
         error_handler_args as _,
-        retry as _,
-        email_recipients.as_deref()
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -679,7 +667,6 @@ pub async fn list_mqtt_triggers(
         "error_handler_path",
         "error_handler_args",
         "retry",
-        "email_recipients",
     ])
     .order_by("edited_at", true)
     .and_where("workspace_id = ?".bind(&w_id))
@@ -745,8 +732,7 @@ pub async fn get_mqtt_trigger(
             enabled,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _",
-            email_recipients
+            retry as "retry: _"
         FROM 
             mqtt_trigger
         WHERE 
@@ -790,7 +776,6 @@ pub async fn update_mqtt_trigger(
         error_handler_path,
         error_handler_args,
         retry,
-        email_recipients,
     } = mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -821,8 +806,7 @@ pub async fn update_mqtt_trigger(
                 server_id = NULL,
                 error_handler_path = $14,
                 error_handler_args = $15,
-                retry = $16,
-                email_recipients = $17
+                retry = $16
             WHERE 
                 workspace_id = $12 AND 
                 path = $13
@@ -842,8 +826,7 @@ pub async fn update_mqtt_trigger(
         workspace_path,
         error_handler_path,
         error_handler_args as _,
-        retry as _,
-        email_recipients.as_deref()
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -1844,8 +1827,7 @@ async fn listen_to_unlistened_mqtt_events(
                 enabled,
                 error_handler_path,
                 error_handler_args as "error_handler_args: _",
-                retry as "retry: _",
-                email_recipients
+                retry as "retry: _"
             FROM
                 mqtt_trigger
             WHERE

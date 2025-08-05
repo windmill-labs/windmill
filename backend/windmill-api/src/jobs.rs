@@ -25,6 +25,8 @@ use std::str::FromStr;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
+#[cfg(feature = "smtp")]
+use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
@@ -34,6 +36,7 @@ use windmill_common::jobs::{
 };
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+#[cfg(feature = "smtp")]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
@@ -68,7 +71,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::auth::is_super_admin_email;
+
 use windmill_common::worker::to_raw_value;
 
 use windmill_common::{
@@ -92,8 +95,8 @@ use windmill_common::{
     get_script_info_for_hash, utils::empty_as_none, FlowVersionInfo, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, JobTriggerKind,
-    PushArgs, PushArgsOwned, PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
+    PushArgsOwned, PushIsolationLevel,
 };
 
 pub fn workspaced_service() -> Router {
@@ -1046,35 +1049,29 @@ impl<'a> GetQuery<'a> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct SendEmail {
-    job_id: Uuid,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    trigger_path: Option<String>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    runnable_path: Option<String>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
-    error: Value,
-}
-
-#[cfg(feature = "smtp")]
+#[cfg(all(feature = "smtp", feature = "enterprise"))]
 async fn send_workspace_trigger_failure_email_notification(
-    w_id: &str,
-    send_email: SendEmail,
     db: &Pool<Postgres>,
-) -> Result<(), Error> {
+    w_id: &str,
+    job_id: &Uuid,
+    trigger_path: Option<&str>,
+    runnable_path: Option<&str>,
+    email_recipients: &Vec<String>,
+    error: &Value,
+) -> Result<String, Error> {
     let smtp_config = match load_smtp_config(db).await? {
         Some(config) => config,
         None => {
             tracing::info!(
                 "SMTP not configured, skipping workspace trigger failure email notification"
             );
-            return Ok(());
+            return Err(anyhow::anyhow!(
+                "SMTP not configured, skipping workspace trigger failure email notification"
+            )
+            .into());
         }
     };
-    let SendEmail { job_id, runnable_path, email_recipients: recipients, error, trigger_path } =
-        send_email;
+
     let runnable_path = runnable_path.as_deref().unwrap_or("Unknown");
 
     let (trigger_kind, trigger_path) = if let Some(trigger_path) = trigger_path.as_deref() {
@@ -1087,9 +1084,7 @@ async fn send_workspace_trigger_failure_email_notification(
                 );
                 (Some(trigger_kind), Some(trigger_path))
             }
-            _ => {
-                return Ok(());
-            }
+            _ => (None, None),
         }
     } else {
         (None, None)
@@ -1172,24 +1167,10 @@ async fn send_workspace_trigger_failure_email_notification(
         job_url
     );
 
-    let Some(email_recipients) = recipients else {
-        use windmill_common::utils::report_critical_error;
-
-        tracing::error!("No recipient to send the error");
-        report_critical_error(
-            "No recipient to send the error".to_string(),
-            db.clone(),
-            Some(w_id),
-            None,
-        )
-        .await;
-        return Ok(());
-    };
-
     if let Err(e) = send_email_html(
         &subject,
         &content,
-        email_recipients.clone(),
+        email_recipients.to_owned(),
         smtp_config,
         None,
     )
@@ -1202,15 +1183,25 @@ async fn send_workspace_trigger_failure_email_notification(
             e
         );
         return Err(Error::internal_err(err_msg));
-    } else {
-        tracing::info!(
-            "Sent workspace trigger failure email notification for trigger kind '{}' (job ID: {}) to {:?}",
-            trigger_kind_str,
-            &job_id,
-            email_recipients
-        );
     }
-    Ok(())
+    let success_msg = format!(
+        "Successfully sent workspace failure email notification for job ID: '{}' to {:?}",
+        &job_id, email_recipients
+    );
+    tracing::info!("{}", &success_msg);
+    Ok(success_msg)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SendEmail {
+    job_id: Uuid,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    trigger_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    runnable_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    email_recipients: Option<Vec<String>>,
+    error: Value,
 }
 
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
@@ -1219,19 +1210,41 @@ async fn send_email_with_instance_smtp(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(send_email): Json<SendEmail>,
-) -> error::Result<()> {
+) -> error::Result<String> {
     if *CLOUD_HOSTED {
         tracing::warn!(
-            "Workspace trigger failure email notification is not available for cloud hosted Windmill, skipping for job {}",
-            send_email.job_id
+            "Workspace trigger failure email notification is not available for cloud hosted Windmill",
         );
-        return Ok(());
+        return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
+    }
+
+    if send_email.email_recipients.is_none() {
+        use windmill_common::utils::report_critical_error;
+
+        tracing::error!("No recipient to send the error");
+        report_critical_error(
+            "No recipient to send the error".to_string(),
+            db.clone(),
+            Some(&w_id),
+            None,
+        )
+        .await;
+        return Err(anyhow::anyhow!("No recipient to send the error").into());
     }
 
     if authed.email == "error_handler@windmill.dev"
         || is_super_admin_email(&db, &authed.email).await?
     {
-        return send_workspace_trigger_failure_email_notification(&w_id, send_email, &db).await;
+        return send_workspace_trigger_failure_email_notification(
+            &db,
+            &w_id,
+            &send_email.job_id,
+            send_email.trigger_path.as_deref(),
+            send_email.runnable_path.as_deref(),
+            &send_email.email_recipients.unwrap(),
+            &send_email.error,
+        )
+        .await;
     }
 
     return Err(Error::NotAuthorized(

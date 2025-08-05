@@ -79,7 +79,6 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let email_recipients: string[] | undefined = $state([])
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
@@ -165,7 +164,6 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			email_recipients = nDefaultValues?.email_recipients ?? []
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -190,7 +188,6 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		email_recipients = cfg?.email_recipients
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -218,7 +215,6 @@
 			extra_perms: extra_perms,
 			error_handler_path,
 			error_handler_args,
-			email_recipients,
 			retry
 		}
 	}
@@ -412,7 +408,6 @@
 								bind:errorHandlerSelected
 								bind:error_handler_path
 								bind:error_handler_args
-								bind:email_recipients
 								bind:retry
 							/>
 						</div>

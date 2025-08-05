@@ -121,8 +121,6 @@ struct NewTrigger {
     raw_string: Option<bool>,
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
     retry: Option<sqlx::types::Json<Retry>>,
 }
 
@@ -155,8 +153,6 @@ pub struct HttpTrigger {
     pub error_handler_args: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -180,8 +176,6 @@ struct EditTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -227,7 +221,6 @@ async fn list_triggers(
         "authentication_resource_path",
         "error_handler_path",
         "error_handler_args",
-        "email_recipients",
         "retry",
     ])
     .order_by("edited_at", true)
@@ -289,8 +282,7 @@ async fn get_trigger(
             raw_string,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _",
-            email_recipients
+            retry as "retry: _"
         FROM 
             http_trigger
         WHERE 
@@ -370,11 +362,10 @@ async fn create_trigger_inner(
             is_static_website,
             error_handler_path,
             error_handler_args,
-            retry,
-            email_recipients
+            retry
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22, $23
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
         )
         "#,
         w_id,
@@ -398,8 +389,7 @@ async fn create_trigger_inner(
         new_http_trigger.is_static_website,
         new_http_trigger.error_handler_path,
         new_http_trigger.error_handler_args as _,
-        new_http_trigger.retry as _,
-        new_http_trigger.email_recipients.as_deref()
+        new_http_trigger.retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -657,11 +647,10 @@ async fn update_trigger(
                 is_static_website = $18,
                 error_handler_path = $19,
                 error_handler_args = $20,
-                retry = $21,
-                email_recipients = $22
+                retry = $21
             WHERE 
-                workspace_id = $23 AND 
-                path = $24
+                workspace_id = $22 AND 
+                path = $23
             "#,
             route_path,
             &route_path_key,
@@ -684,7 +673,6 @@ async fn update_trigger(
             ct.error_handler_path,
             ct.error_handler_args as _,
             ct.retry as _,
-            ct.email_recipients.as_deref(),
             w_id,
             path,
         )
@@ -714,11 +702,10 @@ async fn update_trigger(
                 is_static_website = $14,
                 error_handler_path = $15,
                 error_handler_args = $16,
-                retry = $17,
-                email_recipients = $18
+                retry = $17
             WHERE 
-                workspace_id = $19 AND 
-                path = $20
+                workspace_id = $18 AND 
+                path = $19
             "#,
             ct.workspaced_route,
             ct.wrap_body,
@@ -737,7 +724,6 @@ async fn update_trigger(
             ct.error_handler_path,
             ct.error_handler_args as _,
             ct.retry as _,
-            ct.email_recipients.as_deref(),
             w_id,
             path,
         )

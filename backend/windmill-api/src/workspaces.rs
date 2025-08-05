@@ -38,6 +38,8 @@ use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
+use windmill_common::workspaces::GitRepositorySettings;
+#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
@@ -47,8 +49,6 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-#[cfg(feature = "enterprise")]
-use windmill_common::workspaces::GitRepositorySettings;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -58,7 +58,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::{empty_as_none, not_found_if_none};
+use windmill_common::utils::not_found_if_none;
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -116,7 +116,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
-        .route("/delete_git_sync_repository", delete(delete_git_sync_repository))
+        .route(
+            "/delete_git_sync_repository",
+            delete(delete_git_sync_repository),
+        )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
@@ -244,8 +247,6 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -363,8 +364,6 @@ pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 lazy_static::lazy_static! {
@@ -445,17 +444,53 @@ async fn get_settings(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
     let mut tx = user_db.begin(&authed).await?;
+
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations, email_recipients FROM workspace_settings WHERE workspace_id = $1",
+        r#"
+        SELECT 
+            workspace_id,
+            slack_team_id,
+            teams_team_id,
+            teams_team_name,
+            slack_name,
+            slack_command_script,
+            teams_command_script,
+            slack_email,
+            auto_invite_domain,
+            auto_invite_operator,
+            auto_add,
+            customer_id,
+            plan,
+            webhook,
+            deploy_to,
+            ai_config,
+            error_handler,
+            error_handler_extra_args,
+            error_handler_muted_on_cancel,
+            large_file_storage,
+            git_sync,
+            deploy_ui,
+            default_app,
+            default_scripts,
+            mute_critical_alerts,
+            color,
+            operator_settings,
+            git_app_installations
+        FROM 
+            workspace_settings
+        WHERE 
+            workspace_id = $1
+        "#,
         &w_id
     )
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-    tx.commit().await?;
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
 
+    tx.commit().await?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     Ok(Json(settings))
 }
 
@@ -575,7 +610,6 @@ async fn run_slack_message_test_job(
         None,
         Some(Utc::now()),
         Some(sqlx::types::Json(to_raw_value(&extra_args))),
-        None,
         authed.email.as_str(),
         false,
         false,
@@ -899,12 +933,16 @@ pub struct DeleteGitSyncRepositoryRequest {
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     // Must start with $res: prefix
     if !path.starts_with("$res:") {
-        return Err(Error::BadRequest("Resource path must start with '$res:'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:'".to_string(),
+        ));
     }
 
     // Extract the actual path after $res:
@@ -912,19 +950,29 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
 
     // Basic validation: must start with f/ or u/ and contain at least one slash
     if !actual_path.starts_with("f/") && !actual_path.starts_with("u/") {
-        return Err(Error::BadRequest("Resource path must start with '$res:f/' or '$res:u/'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:f/' or '$res:u/'".to_string(),
+        ));
     }
 
     // Must have at least 3 parts (type, folder/user, name)
     let parts: Vec<&str> = actual_path.split('/').collect();
     if parts.len() < 3 || parts.iter().any(|part| part.is_empty()) {
-        return Err(Error::BadRequest("Invalid resource path format".to_string()));
+        return Err(Error::BadRequest(
+            "Invalid resource path format".to_string(),
+        ));
     }
 
     // Resource name validation (last part)
     let resource_name = parts.last().unwrap();
-    if !resource_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err(Error::BadRequest("Resource name can only contain alphanumeric characters, underscores, and hyphens".to_string()));
+    if !resource_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(
+            "Resource name can only contain alphanumeric characters, underscores, and hyphens"
+                .to_string(),
+        ));
     }
 
     Ok(())
@@ -936,11 +984,15 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     workspace_id: &str,
 ) {
     // Check if all repositories are in new format (have settings field)
-    let all_repos_migrated = git_sync_settings.repositories.iter()
+    let all_repos_migrated = git_sync_settings
+        .repositories
+        .iter()
         .all(|repo| repo.settings.is_some());
 
     // If all repos are migrated and we still have legacy workspace-level settings
-    if all_repos_migrated && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some()) {
+    if all_repos_migrated
+        && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some())
+    {
         tracing::info!(
             workspace_id = workspace_id,
             "All git sync repositories migrated to new format, cleaning up legacy workspace-level settings"
@@ -1082,16 +1134,29 @@ async fn edit_git_sync_repository(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("repository_path", new_config.git_repo_resource_path.as_str()), ("repository_data", &format!("{:?}", new_config.repository))].into()),
+        Some(
+            [
+                (
+                    "repository_path",
+                    new_config.git_repo_resource_path.as_str(),
+                ),
+                ("repository_data", &format!("{:?}", new_config.repository)),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
     // Check if repository exists before modifying
-    let repo_exists = git_sync_settings.repositories.iter()
+    let repo_exists = git_sync_settings
+        .repositories
+        .iter()
         .any(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     // Find and update the specific repository, or add it if it doesn't exist
-    let repo_found = git_sync_settings.repositories.iter_mut()
+    let repo_found = git_sync_settings
+        .repositories
+        .iter_mut()
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
@@ -1126,7 +1191,8 @@ async fn edit_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' {}",
+        Some(format!(
+            "Git sync repository '{}' {}",
             new_config.git_repo_resource_path,
             if repo_exists { "updated" } else { "added" }
         )),
@@ -1134,7 +1200,8 @@ async fn edit_git_sync_repository(
     )
     .await?;
 
-    Ok(format!("{} git sync repository '{}' for workspace {}",
+    Ok(format!(
+        "{} git sync repository '{}' for workspace {}",
         if repo_exists { "Updated" } else { "Added" },
         new_config.git_repo_resource_path,
         &w_id
@@ -1165,7 +1232,9 @@ async fn delete_git_sync_repository(
 
     // For deletion, only validate that path is not empty to allow cleanup of malformed entries
     if request.git_repo_resource_path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
@@ -1191,7 +1260,9 @@ async fn delete_git_sync_repository(
 
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
-    git_sync_settings.repositories.retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
+    git_sync_settings
+        .repositories
+        .retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
 
     if git_sync_settings.repositories.len() == original_count {
         return Err(Error::BadRequest(format!(
@@ -1236,12 +1307,18 @@ async fn delete_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' deleted", request.git_repo_resource_path)),
+        Some(format!(
+            "Git sync repository '{}' deleted",
+            request.git_repo_resource_path
+        )),
         false,
     )
     .await?;
 
-    Ok(format!("Deleted git sync repository '{}' from workspace {}", request.git_repo_resource_path, &w_id))
+    Ok(format!(
+        "Deleted git sync repository '{}' from workspace {}",
+        request.git_repo_resource_path, &w_id
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1509,14 +1586,32 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
-        if let Some(recipients) = ee.email_recipients.as_ref() {
-            for recipient in recipients {
-                if !EMAIL_REGEXP.is_match(recipient) {
-                    return Err(Error::BadRequest(format!(
-                        "Invalid email format: {}",
-                        recipient
-                    )));
+        match ee.error_handler_extra_args.as_ref() {
+            Some(extra_args) if extra_args.is_object() => {
+                let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
+                    extra_args["email_recipients"].to_owned(),
+                ) else {
+                    return Err(Error::BadRequest(
+                        "Field `email_recipients` expected to be JSON array".to_string(),
+                    ));
+                };
+
+                if let Some(email_recipients) = email_recipients {
+                    for email in email_recipients {
+                        if !EMAIL_REGEXP.is_match(&email) {
+                            return Err(Error::BadRequest(format!(
+                                "Invalid email format: {}",
+                                email
+                            )));
+                        }
+                    }
                 }
+            }
+            None => {}
+            _ => {
+                return Err(Error::BadRequest(
+                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                ))
             }
         }
 
@@ -1527,15 +1622,13 @@ async fn edit_error_handler(
             SET
                 error_handler = $1,
                 error_handler_extra_args = $2,
-                error_handler_muted_on_cancel = $3,
-                email_recipients = $4
+                error_handler_muted_on_cancel = $3
             WHERE 
-                workspace_id = $5
-        "#,
+                workspace_id = $4
+            "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
-            ee.email_recipients.as_deref(),
             &w_id
         )
         .execute(&mut *tx)
@@ -1543,13 +1636,14 @@ async fn edit_error_handler(
     } else {
         sqlx::query!(
             r#"
-            UPDATE workspace_settings
+            UPDATE 
+                workspace_settings
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = NULL,
-                email_recipients = NULL
-            WHERE workspace_id = $1
+                error_handler_muted_on_cancel = NULL
+            WHERE 
+                workspace_id = $1
         "#,
             &w_id
         )
@@ -1564,16 +1658,7 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some(
-            [
-                ("error_handler", &format!("{:?}", ee.error_handler)[..]),
-                (
-                    "email_recipients",
-                    &format!("{:?}", ee.email_recipients)[..],
-                ),
-            ]
-            .into(),
-        ),
+        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
     )
     .await?;
     tx.commit().await?;

@@ -563,8 +563,7 @@ pub(crate) async fn tarball_workspace(
                     raw_string,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                 FROM 
                     http_trigger
                 WHERE 
@@ -608,8 +607,7 @@ pub(crate) async fn tarball_workspace(
                     can_return_message,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                 FROM 
                     websocket_trigger
                 WHERE 
@@ -653,8 +651,7 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                  FROM kafka_trigger
                  WHERE workspace_id = $1"#,
                 &w_id
@@ -697,8 +694,7 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                 FROM 
                     sqs_trigger
                 WHERE 
@@ -743,8 +739,7 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                 FROM 
                     gcp_trigger
                 WHERE 
@@ -767,7 +762,8 @@ pub(crate) async fn tarball_workspace(
         {
             let nats_triggers = sqlx::query_as!(
                 crate::nats_triggers_oss::NatsTrigger,
-                r#"SELECT 
+                r#"
+                SELECT 
                     workspace_id,
                     path,
                     nats_resource_path,
@@ -787,10 +783,12 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
-                 FROM nats_trigger
-                 WHERE workspace_id = $1"#,
+                    retry as "retry: _"
+                 FROM 
+                    nats_trigger
+                 WHERE 
+                    workspace_id = $1
+                "#,
                 &w_id
             )
             .fetch_all(&mut *tx)
@@ -809,7 +807,8 @@ pub(crate) async fn tarball_workspace(
         {
             let postgres_triggers = sqlx::query_as!(
                 crate::postgres_triggers::PostgresTrigger,
-                r#"SELECT 
+                r#"
+                SELECT 
                     workspace_id,
                     path,
                     script_path,
@@ -827,10 +826,12 @@ pub(crate) async fn tarball_workspace(
                     postgres_resource_path,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
-                FROM postgres_trigger
-                WHERE workspace_id = $1"#,
+                    retry as "retry: _"
+                FROM 
+                    postgres_trigger
+                WHERE 
+                    workspace_id = $1
+                "#,
                 &w_id
             )
             .fetch_all(&mut *tx)
@@ -873,8 +874,7 @@ pub(crate) async fn tarball_workspace(
                     enabled,
                     error_handler_path,
                     error_handler_args as "error_handler_args: _",
-                    retry as "retry: _",
-                    email_recipients
+                    retry as "retry: _"
                 FROM 
                     mqtt_trigger
                 "#,

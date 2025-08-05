@@ -14,7 +14,6 @@ export async function saveNatsTriggerFromCfg(
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
 				retry: cfg.retry,
-				email_recipients: cfg.email_recipients
 			}
 		: {}
 	const requestBody: EditNatsTrigger = {

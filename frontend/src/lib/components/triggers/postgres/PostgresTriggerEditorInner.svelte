@@ -115,7 +115,6 @@
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
-	let email_recipients: string[] | undefined = $state([])
 	let retry: Retry | undefined = $state()
 
 	const errorMessage = $derived.by(() => {
@@ -275,7 +274,6 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			email_recipients = defaultValues?.email_recipients ?? []
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -301,7 +299,6 @@
 					: undefined,
 			error_handler_path,
 			error_handler_args,
-			email_recipients,
 			retry
 		}
 		return cfg
@@ -323,7 +320,6 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		email_recipients = cfg?.email_recipients
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -823,7 +819,6 @@
 								bind:errorHandlerSelected
 								bind:error_handler_path
 								bind:error_handler_args
-								bind:email_recipients
 								bind:retry
 							/>
 						</div>

@@ -102,8 +102,6 @@ pub struct EditPostgresTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -119,8 +117,6 @@ pub struct NewPostgresTrigger {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -254,8 +250,6 @@ pub struct PostgresTrigger {
     pub error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email_recipients: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -402,7 +396,6 @@ pub async fn create_postgres_trigger(
         error_handler_path,
         error_handler_args,
         retry,
-        email_recipients,
     } = new_postgres_trigger;
 
     if publication_name.is_none() && publication.is_none() {
@@ -455,8 +448,7 @@ pub async fn create_postgres_trigger(
             edited_by,
             error_handler_path,
             error_handler_args,
-            retry,
-            email_recipients
+            retry
         ) 
         VALUES (
             $1, 
@@ -471,8 +463,7 @@ pub async fn create_postgres_trigger(
             $10,
             $11,
             $12,
-            $13,
-            $14
+            $13
         )"#,
         pub_name,
         slot_name,
@@ -486,8 +477,7 @@ pub async fn create_postgres_trigger(
         &authed.username,
         error_handler_path,
         error_handler_args as _,
-        retry as _,
-        email_recipients.as_deref()
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -547,7 +537,6 @@ pub async fn list_postgres_triggers(
         "error_handler_path",
         "error_handler_args",
         "retry",
-        "email_recipients",
     ])
     .order_by("edited_at", true)
     .and_where("workspace_id = ?".bind(&w_id))
@@ -1189,8 +1178,7 @@ pub async fn get_postgres_trigger(
             postgres_resource_path,
             error_handler_path,
             error_handler_args as "error_handler_args: _",
-            retry as "retry: _",
-            email_recipients
+            retry as "retry: _"
         FROM 
             postgres_trigger
         WHERE 
@@ -1232,7 +1220,6 @@ pub async fn update_postgres_trigger(
         error_handler_path,
         error_handler_args,
         retry,
-        email_recipients,
     } = postgres_trigger;
 
     let mut pg_connection = get_default_pg_connection(
@@ -1297,8 +1284,7 @@ pub async fn update_postgres_trigger(
                 server_id = NULL,
                 error_handler_path = $11,
                 error_handler_args = $12,
-                retry = $13,
-                email_recipients = $14
+                retry = $13
             WHERE 
                 workspace_id = $9 AND 
                 path = $10
@@ -1315,8 +1301,7 @@ pub async fn update_postgres_trigger(
         workspace_path,
         error_handler_path,
         error_handler_args as _,
-        retry as _,
-        email_recipients.as_deref()
+        retry as _
     )
     .execute(&mut *tx)
     .await?;

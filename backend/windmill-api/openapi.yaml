@@ -1932,10 +1932,6 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
-                  email_recipients:
-                    type: array
-                    items:
-                      type: string
                 required:
                   - error_handler_muted_on_cancel
 
@@ -2398,12 +2394,6 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
-                email_recipients:
-                  type: array
-                  items:
-                    type: string
-                  description: List of email addresses to notify when trigger jobs fail
-
       responses:
         "200":
           description: status
@@ -15419,10 +15409,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15482,10 +15468,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15545,10 +15527,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -15631,10 +15609,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15680,10 +15654,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15729,10 +15699,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15836,10 +15802,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -15877,10 +15839,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -15919,10 +15877,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -15980,10 +15934,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16030,10 +15980,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16094,10 +16040,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16132,10 +16074,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16171,10 +16109,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16286,10 +16220,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16321,10 +16251,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16357,10 +16283,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
@@ -16398,10 +16320,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16434,10 +16352,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16470,10 +16384,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16515,10 +16425,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16555,10 +16461,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -16595,10 +16497,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        email_recipients:
-          type: array
-          items:
-            type: string
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
