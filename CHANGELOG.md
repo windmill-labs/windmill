@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.518.2](https://github.com/windmill-labs/windmill/compare/v1.518.1...v1.518.2) (2025-08-05)
+
+
+### Bug Fixes
+
+* fix edit button for script in flow module ([c351b7b](https://github.com/windmill-labs/windmill/commit/c351b7ba87c68ec7428b7bc4f901b6422c7c2fb3))
+* github apps popup appear for superadmins ([86df8ce](https://github.com/windmill-labs/windmill/commit/86df8ce240d1b69f35a1b7d132e30e815e992b31))
+
 ## [1.518.1](https://github.com/windmill-labs/windmill/compare/v1.518.0...v1.518.1) (2025-08-04)
 
 
