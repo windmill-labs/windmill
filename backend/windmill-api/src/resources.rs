@@ -210,11 +210,17 @@ async fn list_search_resources(
     path = "/list"
 )]
 async fn list_resources_tool(args: serde_json::Value) -> serde_json::Value {
-    // For now, return a simple mock response
-    // In step 4 we'll implement the actual call forwarding
+    // Extract workspace_id from args
+    let workspace_id = args.get("workspace_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("demo");
+    
+    // For now, return a mock response
+    // TODO: In the future we'll need to properly handle auth and call the real function
     serde_json::json!({
-        "message": "list_resources tool called",
-        "args": args
+        "message": "list_resources endpoint tool",
+        "workspace_id": workspace_id,
+        "note": "This is a placeholder - actual implementation would require auth handling"
     })
 }
 

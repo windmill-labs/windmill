@@ -909,6 +909,18 @@ impl ServerHandler for Runner {
             })
             .map(|w_id| w_id.0.clone())?;
 
+        // First, check if this is an endpoint tool
+        for endpoint_tool in windmill_tool_registry::all_tools() {
+            if endpoint_tool.name == request.name {
+                // Call the endpoint tool handler
+                let result = (endpoint_tool.handler)(args.clone()).await;
+                return Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+                )]));
+            }
+        }
+
+        // If not an endpoint tool, continue with script/flow logic
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
 
