@@ -371,11 +371,9 @@ pub async fn merge_result_stream(
             if let Value::Object(ref mut map) = value {
                 map.insert("wm_stream".to_string(), Value::String(result_stream));
             } else if value.is_null() {
+                tracing::error!("result_stream: {}", result_stream);
                 // return Ok(unsafe_raw(json))
-                return Ok(unsafe_raw(format!(
-                    "\"{}\"",
-                    result_stream.replace("\n", "\\n")
-                )));
+                return Ok(to_raw_value(&json!(result_stream)));
             } else {
                 return Ok(x);
             }

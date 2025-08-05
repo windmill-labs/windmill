@@ -1,10 +1,11 @@
 use regex::Regex;
 
 pub use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::result_stream::append_result_stream_db;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED};
 
-use windmill_common::DB;
+use windmill_common::{error, DB};
 use windmill_queue::append_logs;
 
 use std::sync::atomic::AtomicU32;
@@ -60,6 +61,19 @@ pub async fn append_job_logs(
         }
     }
 }
+
+pub async fn append_result_stream(conn: &Connection, workspace_id: &str, job_id: &Uuid, nstream: &str) -> error::Result<()> {
+    match conn {
+        Connection::Sql(db)  => {
+            append_result_stream_db(db, workspace_id, job_id, nstream).await?;
+        }
+        _ => {
+            // append_logs(&job_id, w_id, logs, &conn).await;
+        }
+    }
+    Ok(())
+}
+
 
 pub async fn append_logs_with_compaction(
     job_id: &Uuid,

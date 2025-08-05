@@ -31,7 +31,6 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::result_stream::extract_stream_from_logs;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
@@ -5701,6 +5700,7 @@ pub async fn run_job_by_hash_inner(
 pub struct JobUpdateQuery {
     pub running: Option<bool>,
     pub log_offset: Option<i32>,
+    pub stream_offset: Option<i32>,
     pub get_progress: Option<bool>,
     pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
@@ -5716,9 +5716,11 @@ pub struct JobUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_logs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result_stream: Option<String>,
+    pub new_result_stream: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_offset: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_offset: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5841,7 +5843,7 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running, no_logs, only_result, fast }): Query<
+    Query(JobUpdateQuery { log_offset, stream_offset, get_progress, running, no_logs, only_result, fast }): Query<
         JobUpdateQuery,
     >,
 ) -> Response {
@@ -5852,6 +5854,7 @@ async fn get_job_update_sse(
         w_id,
         job_id,
         log_offset,
+        stream_offset,
         get_progress,
         running,
         only_result,
@@ -5893,6 +5896,7 @@ fn get_job_update_sse_stream(
     w_id: String,
     job_id: Uuid,
     initial_log_offset: Option<i32>,
+    initial_stream_offset: Option<i32>,
     get_progress: Option<bool>,
     running: Option<bool>,
     only_result: Option<bool>,
@@ -5903,6 +5907,7 @@ fn get_job_update_sse_stream(
 
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
+        let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
 
         // Send initial update immediately
@@ -6017,6 +6022,7 @@ fn get_job_update_sse_stream(
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
                     }
+
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
                     // }
@@ -6062,38 +6068,6 @@ fn get_job_update_sse_stream(
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
 
-fn extract_logs_stream(logs: Option<String>) -> (Option<String>, Option<String>) {
-    match logs {
-        Some(log_content) => {
-            let mut regular_logs = Vec::new();
-            let mut stream_lines = Vec::new();
-
-            for line in log_content.lines() {
-                if let Some(stream) = extract_stream_from_logs(line) {
-                    stream_lines.push(stream);
-                } else {
-                    regular_logs.push(line.to_string());
-                }
-            }
-
-            let filtered_logs = if regular_logs.is_empty() {
-                None
-            } else {
-                Some(regular_logs.join("\n"))
-            };
-
-            let stream = if stream_lines.is_empty() {
-                None
-            } else {
-                Some(stream_lines.join(""))
-            };
-
-            (filtered_logs, stream)
-        }
-        None => (None, None),
-    }
-}
-
 async fn get_job_update_data(
     opt_authed: &Option<ApiAuthed>,
     opt_tokened: &OptTokened,
@@ -6101,6 +6075,7 @@ async fn get_job_update_data(
     w_id: &str,
     job_id: &Uuid,
     log_offset: Option<i32>,
+    stream_offset: Option<i32>,
     get_progress: Option<bool>,
     running: Option<bool>,
     log_view: bool,
@@ -6127,23 +6102,22 @@ async fn get_job_update_data(
 
     if only_result.unwrap_or(false) {
         let result = if let Some(tags) = tags {
-            let get_stream = true;
-            let r = if get_stream {
+            let r = 
                 sqlx::query!(
                     "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
-                v2_job_queue.running as \"running: Option<bool>\"
+                v2_job_queue.running as \"running: Option<bool>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) AS stream_offset
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
                 LEFT JOIN v2_job_completed USING (id)
+                LEFT JOIN job_result_stream rs ON rs.job_id = $2
                 WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
                     w_id,
                     job_id,
+                    stream_offset,
                 )
                 .fetch_optional(db)
                 .await?
                 .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-            } else {
-            };
 
             if !tags.contains(&r.tag.as_str()) {
                 return Err(Error::NotAuthorized(format!(
@@ -6153,38 +6127,43 @@ async fn get_job_update_data(
                 )));
             }
             let running = r.running.as_ref().map(|x| *x);
-            (r.result.map(|x| x.0), running)
+            (r.result.map(|x| x.0), running, r.result_stream)
         } else {
             if running.is_some_and(|x| !x) {
                 let r = sqlx::query!(
                     "SELECT 
                         result as \"result: sqlx::types::Json<Box<RawValue>>\",
-                        v2_job_queue.running as \"running: Option<bool>\" 
+                        v2_job_queue.running as \"running: Option<bool>\",
+                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
+                        CHAR_LENGTH(rs.stream) AS stream_offset
                     FROM v2_job_completed FULL OUTER JOIN v2_job_queue USING (id) 
+                    LEFT JOIN job_result_stream rs ON rs.job_id = $1
                     WHERE (v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2) OR (v2_job_completed.id = $1 AND v2_job_completed.workspace_id = $2)",
                     job_id,
                     w_id,
+                    stream_offset,
                 ).fetch_optional(db).await?;
                 if let Some(r) = r {
                     let running = r.running.as_ref().map(|x| *x);
-                    (r.result.map(|x| x.0), running)
+                    (r.result.map(|x| x.0), running, r.result_stream)
                 } else {
-                    (None, None)
+                    (None, None, None)
                 }
             } else {
-                (
-                    sqlx::query_scalar!(
-                        "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\"
-                     FROM v2_job_completed WHERE id = $2 AND workspace_id = $1",
-                        w_id,
-                        job_id,
-                    )
-                    .fetch_optional(db)
-                    .await?
-                    .flatten()
-                    .map(|x| x.0),
-                    running,
+                let q =  sqlx::query!(
+                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", rs.stream AS \"result_stream: Option<String>\"
+                 FROM v2_job_completed LEFT JOIN job_result_stream rs ON rs.job_id = $2 WHERE id = $2 AND v2_job_completed.workspace_id = $1",
+                    w_id,
+                    job_id,
+                    stream_offset,
                 )
+                .fetch_optional(db)
+                .await?;
+                if let Some(r) = q {
+                    (r.result.map(|x| x.0), running, r.result_stream)
+                } else {
+                    (None, None, None)
+                }
             }
         };
         Ok(JobUpdate {
@@ -6192,7 +6171,8 @@ async fn get_job_update_data(
             completed: if result.0.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
-            result_stream: None,
+            new_result_stream: None,
+            stream_offset: None,
             mem_peak: None,
             progress: None,
             job: None,
@@ -6209,19 +6189,23 @@ async fn get_job_update_data(
                     ELSE false
                 END AS running,
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,
+                SUBSTR(rs.stream, $8) AS new_result_stream,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
+                CHAR_LENGTH(rs.stream) AS stream_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
-                ) END AS progress
+                ) END AS progress,
+                rs.stream AS \"result_stream: Option<String>\"
             FROM v2_job j
                 LEFT JOIN v2_job_queue q USING (id)
                 LEFT JOIN v2_job_runtime r USING (id)
                 LEFT JOIN v2_job_status f USING (id)
                 LEFT JOIN v2_job_completed c USING (id)
+                LEFT JOIN job_result_stream rs ON rs.job_id = $3
                 LEFT JOIN job_logs ON job_logs.job_id =  $3
             WHERE j.workspace_id = $2 AND j.id = $3
             AND ($6::text[] IS NULL OR j.tag = ANY($6))",
@@ -6232,6 +6216,7 @@ async fn get_job_update_data(
             running,
             tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
             no_logs.unwrap_or(false),
+            stream_offset,
         )
         .fetch_optional(db)
         .await?
@@ -6250,14 +6235,13 @@ async fn get_job_update_data(
             None
         };
 
-        let (filtered_logs, stream) = extract_logs_stream(record.logs);
-
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
             log_offset: record.log_offset,
-            new_logs: filtered_logs,
-            result_stream: stream,
+            new_logs: record.logs,
+            new_result_stream: record.new_result_stream,
+            stream_offset: record.stream_offset,
             mem_peak: record.mem_peak,
             progress: record.progress,
             workflow_as_code_status: record

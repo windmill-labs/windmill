@@ -7,7 +7,7 @@ use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
-use windmill_common::result_stream::extract_stream_from_logs;
+use windmill_common::result_stream::{extract_stream_from_logs};
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -53,7 +53,7 @@ use futures::{
 };
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
-use crate::job_logger::{append_job_logs, append_with_limit};
+use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
@@ -409,6 +409,7 @@ pub async fn write_lines(
         let mut joined = String::new();
 
         let job_id = job_id.clone();
+        let mut nstream = String::new();
         while let Some(line) = read_lines.next().await {
             match line {
                 Ok(line) => {
@@ -416,9 +417,17 @@ pub async fn write_lines(
                         continue;
                     }
                     if let Some(stream) = extract_stream_from_logs(&line) {
-                        stream_result.push(stream);
+                        let len = stream.len();
+                        if log_remaining >= len {
+                            log_remaining -= len;
+                            nstream.push_str(&stream);
+                            stream_result.push(stream);
+                        } else {
+                            log_remaining = 0;
+                        }
+                    } else {
+                        append_with_limit(&mut joined, &line, &mut log_remaining);
                     }
-                    append_with_limit(&mut joined, &line, &mut log_remaining);
                     if log_remaining == 0 {
                         tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                         let _ = set_too_many_logs.send(true);
@@ -470,7 +479,13 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
+            tracing::error!("nstream: {}", nstream);
             (do_write, write_result) = tokio::spawn(async move {
+                if !nstream.is_empty() {
+                    if let Err(err) = append_result_stream(&conn, &w_id, &job_id, &nstream).await {
+                            tracing::error!("Unable to send result stream for job {job_id}. Error was: {:?}", err);
+                    }
+                }
                 append_job_logs(
                     &job_id,
                     &w_id,
