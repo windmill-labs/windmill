@@ -13,34 +13,41 @@
 		flowData: FlowData
 		expandedRows: Set<string>
 		toggleExpanded: (id: string) => void
-		updateSelectedIteration: (stepId: string, iteration: number) => void
 		workspaceId: string | undefined
 		render: boolean
 		level?: number
 		flowId: string
+		onSelectedIteration: (
+			detail:
+				| { id: string; index: number; manuallySet: true; moduleId: string }
+				| { manuallySet: false; moduleId: string }
+		) => Promise<void>
+		getSelectedIteration: (stepId: string) => number
 	}
 
 	let {
 		flowData,
 		expandedRows,
 		toggleExpanded,
-		updateSelectedIteration,
 		workspaceId,
 		render,
 		level = 0,
-		flowId = 'root'
+		flowId = 'root',
+		onSelectedIteration,
+		getSelectedIteration
 	}: Props = $props()
 
 	function getJobLink(jobId: string): string {
 		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
 	}
 
-	function getSelectedIteration(stepId: string): number {
-		return flowData.steps.find((step) => step.stepId === stepId)?.selectedIteration ?? 0
-	}
-
-	function handleIterationChange(stepId: string, newIteration: number) {
-		updateSelectedIteration(stepId, newIteration)
+	async function handleIterationChange(stepId: string, newIteration: number, jobId: string) {
+		await onSelectedIteration({
+			id: jobId,
+			index: newIteration,
+			manuallySet: true,
+			moduleId: stepId
+		})
 	}
 
 	function getStatusDot(status: FlowStatusModule['type'] | undefined) {
@@ -295,7 +302,11 @@
 											value={getSelectedIteration(entry.stepId)}
 											onchange={(e) => {
 												const target = e.target as HTMLSelectElement
-												handleIterationChange(entry.stepId, Number(target.value))
+												handleIterationChange(
+													entry.stepId,
+													Number(target.value),
+													entry.stepData.subflows?.[Number(target.value)]?.jobId ?? ''
+												)
 											}}
 											onclick={(e) => e.stopPropagation()}
 											class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
@@ -306,7 +317,7 @@
 												</option>
 											{/each}
 										</select>
-										{`/${entry.stepData.subflows.length}`}
+										{`/${entry.stepData.iterationTotal}`}
 									</span>
 								{/if}
 							</div>
@@ -360,7 +371,8 @@
 												flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
 												{expandedRows}
 												{toggleExpanded}
-												{updateSelectedIteration}
+												{onSelectedIteration}
+												{getSelectedIteration}
 												{workspaceId}
 												{render}
 												level={level + 1}
@@ -377,7 +389,8 @@
 													flowData={subflow}
 													{expandedRows}
 													{toggleExpanded}
-													{updateSelectedIteration}
+													{onSelectedIteration}
+													{getSelectedIteration}
 													{workspaceId}
 													{render}
 													level={level + 1}
@@ -392,7 +405,8 @@
 											flowData={entry.stepData.subflows[0]}
 											{expandedRows}
 											{toggleExpanded}
-											{updateSelectedIteration}
+											{onSelectedIteration}
+											{getSelectedIteration}
 											{workspaceId}
 											{render}
 											level={level + 1}

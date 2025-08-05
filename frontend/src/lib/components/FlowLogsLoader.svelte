@@ -175,6 +175,4 @@
 			startPolling()
 		})
 	})
-
-	$inspect('dbg localModuleStates', $localModuleStates)
 </script>

@@ -896,6 +896,38 @@
 		return rec(ids, undefined)
 	}
 
+	async function onSelectedIteration(
+		detail:
+			| { id: string; index: number; manuallySet: true; moduleId: string }
+			| { manuallySet: false; moduleId: string }
+	) {
+		if (detail.manuallySet) {
+			let rootJobId = detail.id
+			await tick()
+
+			let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+			if (previousId) {
+				await globalRefreshes?.[detail.moduleId]?.(true, previousId)
+			}
+
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForloop: detail.id,
+				selectedForloopIndex: detail.index,
+				selectedForLoopSetManually: true
+			}
+
+			await tick()
+
+			await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
+		} else {
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForLoopSetManually: false
+			}
+		}
+	}
+
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onFlowModuleId())
 	})
@@ -1160,7 +1192,15 @@
 			{/if}
 		</div>
 		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
-			<FlowLogViewerWrapper {innerModules} {job} {localModuleStates} {workspaceId} {render} refreshLog={job.type == 'QueuedJob' || job['running']} />
+			<FlowLogViewerWrapper
+				{innerModules}
+				{job}
+				{localModuleStates}
+				{workspaceId}
+				{render}
+				refreshLog={job.type == 'QueuedJob' || job['running']}
+				{onSelectedIteration}
+			/>
 		</div>
 	</div>
 	{#if render}
@@ -1215,33 +1255,7 @@
 									selectedNode = e.id
 								}
 							}}
-							onSelectedIteration={async (detail) => {
-								if (detail.manuallySet) {
-									let rootJobId = detail.id
-									await tick()
-
-									let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
-									if (previousId) {
-										await globalRefreshes?.[detail.moduleId]?.(true, previousId)
-									}
-
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForloop: detail.id,
-										selectedForloopIndex: detail.index,
-										selectedForLoopSetManually: true
-									}
-
-									await tick()
-
-									await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
-								} else {
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForLoopSetManually: false
-									}
-								}
-							}}
+							{onSelectedIteration}
 							earlyStop={job.raw_flow?.skip_expr !== undefined}
 							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}

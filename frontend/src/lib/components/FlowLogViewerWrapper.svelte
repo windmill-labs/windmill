@@ -16,8 +16,11 @@
 		workspaceId: string | undefined
 		render: boolean
 		refreshLog?: boolean
-		prefix?: string
-		level?: number
+		onSelectedIteration: (
+			detail:
+				| { id: string; index: number; manuallySet: true; moduleId: string }
+				| { manuallySet: false; moduleId: string }
+		) => Promise<void>
 	}
 
 	let {
@@ -26,7 +29,8 @@
 		localModuleStates,
 		workspaceId,
 		render,
-		refreshLog = false
+		refreshLog = false,
+		onSelectedIteration
 	}: Props = $props()
 
 	// Cache for fetched subflow jobs
@@ -91,7 +95,9 @@
 				jobId: state?.job_id || '',
 				logs: state?.logs || '',
 				status: state?.type,
-				type: rootJob.raw_flow?.modules?.[i]?.value?.type
+				type: rootJob.raw_flow?.modules?.[i]?.value?.type,
+				selectedIteration: state?.selectedForloopIndex ?? 0,
+				iterationTotal: state?.iteration_total ?? 0
 			}
 
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)
@@ -144,15 +150,9 @@
 		expandedRows = new Set(expandedRows)
 	}
 
-	function updateSelectedIteration(stepId: string, iteration: number) {
-		if (flowData) {
-			const step = flowData.steps.find((step) => step.stepId === stepId)
-			if (step) {
-				step.selectedIteration = iteration
-			}
-		}
+	function getSelectedIteration(stepId: string): number {
+		return $localModuleStates[stepId]?.selectedForloopIndex ?? 0
 	}
-
 </script>
 
 <div class="w-full rounded-md overflow-hidden border">
@@ -164,9 +164,10 @@
 			{flowData}
 			{expandedRows}
 			{toggleExpanded}
-			{updateSelectedIteration}
+			{onSelectedIteration}
 			{workspaceId}
 			{render}
+			{getSelectedIteration}
 			flowId="root"
 		/>
 	{:else}

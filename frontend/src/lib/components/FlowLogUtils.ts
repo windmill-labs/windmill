@@ -21,6 +21,7 @@ export interface StepData {
 	status: FlowStatusModule['type']
 	subflows?: FlowData[]
 	selectedIteration?: number
+	iterationTotal?: number
 	type:
 		| 'script'
 		| 'flow'
