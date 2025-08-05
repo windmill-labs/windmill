@@ -154,7 +154,10 @@
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
-								<b>flow</b>
+								<b>Flow</b>
+								{#if flowData.label}
+									: {flowData.label}
+								{/if}
 							</span>
 						</div>
 					</div>
@@ -275,17 +278,17 @@
 								<span class="text-xs font-mono">
 									<b>
 										{#if entry.stepType === 'forloopflow'}
-											forloop
+											For loop
 										{:else if entry.stepType === 'whileloopflow'}
-											whileloop
+											While loop
 										{:else if entry.stepType === 'branchall'}
-											branchall
+											Branch to all
 										{:else if entry.stepType === 'branchone'}
-											branchone
+											Branch to one
 										{:else if entry.stepType === 'flow'}
-											flow
+											Flow
 										{:else}
-											step
+											Step
 										{/if}
 										{entry.stepId}
 									</b>

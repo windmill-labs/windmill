@@ -8,6 +8,7 @@ export interface FlowData {
 	steps: StepData[]
 	status: Job['type']
 	success?: boolean
+	label?: string
 }
 
 export interface StepData {

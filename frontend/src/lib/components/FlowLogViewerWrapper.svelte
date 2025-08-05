@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FlowStatusModule, Job } from '$lib/gen'
+	import type { BranchAll, FlowModuleValue, FlowStatusModule, Job } from '$lib/gen'
 	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import { JobService } from '$lib/gen'
@@ -66,8 +66,25 @@
 		}
 	}
 
+	function getBranchChosenLabel(
+		module: FlowModuleValue | undefined,
+		branchChosen: number | undefined
+	): string | undefined {
+		if (!module) return undefined
+		if (module.type === 'branchone') {
+			if (branchChosen === undefined || branchChosen === 0) return 'Default branch'
+			const summary = module.branches?.[branchChosen - 1]?.summary
+			return summary && summary !== '' ? `Branch ${summary}` : `Branch ${branchChosen}`
+		}
+		return undefined
+	}
+
 	// Build the flow data structure
-	async function buildFlowData(modules: FlowStatusModule[], rootJob: Job): Promise<FlowData> {
+	async function buildFlowData(
+		modules: FlowStatusModule[],
+		rootJob: Job,
+		flowLabel?: string
+	): Promise<FlowData> {
 		const steps: StepData[] = []
 
 		for (let i = 0; i < modules.length; i++) {
@@ -97,22 +114,35 @@
 				stepData.subflows = []
 				const subflowJob = await fetchSubflowJob(stepData.jobId)
 				if (subflowJob) {
-					const subflowData = await buildFlowData(subflowJob.flow_status?.modules || [], subflowJob)
+					const subflowData = await buildFlowData(
+						subflowJob.flow_status?.modules || [],
+						subflowJob,
+						getBranchChosenLabel(rootJob.raw_flow?.modules?.[i]?.value, state?.branchChosen)
+					)
 					stepData.subflows.push(subflowData)
 				}
 			} else if (
-				['branchall', 'branchone', 'forloopflow', 'whileloopflow'].includes(stepData.type ?? '') &&
+				['branchall', 'forloopflow', 'whileloopflow'].includes(stepData.type ?? '') &&
 				module.flow_jobs &&
 				module.flow_jobs.length > 0
 			) {
 				stepData.subflows = []
 
-				for (const subflowJobId of module.flow_jobs) {
+				for (const [index, subflowJobId] of module.flow_jobs.entries()) {
 					const subflowJob = await fetchSubflowJob(subflowJobId)
+
+					// For branch all we can use the branch summary as the flow label
+					let flowLabel: string | undefined = undefined
+					if (stepData.type === 'branchall') {
+						const moduleValue = rootJob.raw_flow?.modules?.[i]?.value as BranchAll
+						flowLabel = moduleValue.branches?.[index]?.summary
+					}
+
 					if (subflowJob) {
 						const subflowData = await buildFlowData(
 							subflowJob.flow_status?.modules || [],
-							subflowJob
+							subflowJob,
+							flowLabel
 						)
 						stepData.subflows.push(subflowData)
 					}
@@ -129,7 +159,8 @@
 			success: rootJob.type === 'CompletedJob' ? rootJob.success : undefined,
 			logs: rootJob.logs || '',
 			steps,
-			status: rootJob.type
+			status: rootJob.type,
+			label: flowLabel
 		}
 	}
 
