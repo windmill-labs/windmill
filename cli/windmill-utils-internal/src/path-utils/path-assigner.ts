@@ -1,5 +1,7 @@
 import { RawScript } from "../gen/types.gen";
 
+const INLINE_SCRIPT_PREFIX = "inline_script";
+
 /**
  * Union type of all supported programming languages in Windmill
  */
@@ -31,7 +33,8 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   ansible: "playbook.yml",
   java: "java",
   duckdb: "duckdb.sql",
-  bunnative: "ts"
+  bunnative: "ts",
+  // for related places search: ADD_NEW_LANG
 };
 
 /**
@@ -52,20 +55,43 @@ export function getLanguageExtension(
   return LANGUAGE_EXTENSIONS[language] || "no_ext";
 }
 
+export interface PathAssigner {
+  assignPath(summary: string | undefined, language: SupportedLanguage): [string, string];
+}
+
 /**
- * Assigns a file path for an inline script based on its ID and language.
- * Returns both the base path and extension as separate components.
+ * Creates a new path assigner for inline scripts.
  * 
- * @param id - Unique identifier for the script
- * @param language - Programming language of the script
  * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
- * @returns Tuple containing [basePath, extension]
+ * @returns Path assigner function
  */
-export function assignPath(
-  id: string,
-  language: SupportedLanguage,
-  defaultTs: "bun" | "deno" = "bun"
-): [string, string] {
-  const ext = getLanguageExtension(language, defaultTs);
-  return [`${id}.inline_script.`, ext];
+export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+  let counter = 0;
+  const seen_names = new Set<string>();
+  function assignPath(
+    summary: string | undefined,
+    language: SupportedLanguage
+  ): [string, string] {
+    let name;
+
+    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+
+    let original_name = name;
+
+    if (name == "") {
+      original_name = INLINE_SCRIPT_PREFIX;
+      name = `${INLINE_SCRIPT_PREFIX}_0`;
+    }
+
+    while (seen_names.has(name)) {
+      counter++;
+      name = `${original_name}_${counter}`;
+    }
+    seen_names.add(name);
+
+    const ext = getLanguageExtension(language, defaultTs);
+
+    return [`${name}.inline_script.`, ext];
+  }
+  return { assignPath };
 }

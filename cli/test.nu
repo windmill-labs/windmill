@@ -40,9 +40,9 @@ def 'main test deno' [] {
   print $"Testing Deno"
   $languages | each { |l|
     print $"+ ($l)"
-    deno run -A ../cli/main.ts script bootstrap $"f/tests/(random uuid)" $l
+    deno run -A ../cli/src/main.ts script bootstrap $"f/tests/(random uuid)" $l
   }
-  deno run -A ../cli/main.ts script generate-metadata
+  deno run -A ../cli/src/main.ts script generate-metadata
   print $"\nDeno has passed!\n"
 }
 
@@ -73,7 +73,7 @@ def 'main build' [] {
 #   main clean;
 #   $languages | each { |l|
 #     print $"+ ($l)"
-#     # deno run -A ../cli/main.ts script bootstrap $"f/tests/(random uuid)" $l
+#     # deno run -A ../cli/src/main.ts script bootstrap $"f/tests/(random uuid)" $l
 #     #
 #     let cmd = r#'
 #     import { inferSchema } from '../cli/metadata.ts';
@@ -86,7 +86,7 @@ def 'main build' [] {
 #     deno eval $cmd
 #     }
 
-#   # deno run -A ../cli/main.ts script generate-metadata
+#   # deno run -A ../cli/src/main.ts script generate-metadata
 # }
 
 # def 'main clean' [] {

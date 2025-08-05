@@ -1023,10 +1023,10 @@ export async function main(
       ...args
     ];
     
-    console.log('🔧 CLI Command:', ['/home/alex/.deno/bin/deno', 'run', '-A', '/home/alex/windmill/windmill/cli/main.ts', ...fullArgs].join(' '));
+    console.log('🔧 CLI Command:', ['/home/alex/.deno/bin/deno', 'run', '-A', '/home/alex/windmill/windmill/cli/src/main.ts', ...fullArgs].join(' '));
     
     return new Deno.Command('/home/alex/.deno/bin/deno', {
-      args: ['run', '-A', '/home/alex/windmill/windmill/cli/main.ts', ...fullArgs],
+      args: ['run', '-A', '/home/alex/windmill/windmill/cli/src/main.ts', ...fullArgs],
       cwd: workingDir,
       stdout: 'piped',
       stderr: 'piped',
