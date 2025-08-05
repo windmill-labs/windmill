@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.501.0"
+version = "1.518.2"
 dependencies = [
  "reqwest",
  "serde",
@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "wmill"
-version = "1.501.0"
+version = "1.518.2"
 dependencies = [
  "anyhow",
  "futures",
