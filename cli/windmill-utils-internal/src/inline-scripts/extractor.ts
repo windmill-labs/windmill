@@ -20,15 +20,26 @@ interface InlineScript {
  * @param defaultTs - Default TypeScript runtime to use ("bun" or "deno")
  * @returns Array of inline scripts with their paths and content
  */
+
+interface PathAssigner {
+  assignPath(summary: string | undefined, language: string): [string, string];
+}
+const INLINE_SCRIPT = "inline_script";
 export function extractInlineScripts(
   modules: FlowModule[],
   mapping: Record<string, string> = {},
   separator: string = "/",
-  defaultTs?: "bun" | "deno"
+  defaultTs?: "bun" | "deno",
+  pathAssigner?: PathAssigner
 ): InlineScript[] {
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
-      const [basePath, ext] = assignPath(m.id, m.value.language, defaultTs);
+      let basePath, ext;
+      if (pathAssigner) {
+        [basePath, ext] = pathAssigner.assignPath(m.summary, m.value.language);
+      } else {
+        [basePath, ext] = assignPath(m.id, m.value.language, defaultTs);
+      }
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
