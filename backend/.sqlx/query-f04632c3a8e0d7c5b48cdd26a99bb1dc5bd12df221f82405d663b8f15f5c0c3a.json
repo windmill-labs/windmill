@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deployment_metadata (workspace_id, path, app_version, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4, $5)\n                        ON CONFLICT (workspace_id, path) DO UPDATE SET callback_job_ids = $4, deployment_msg = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f04632c3a8e0d7c5b48cdd26a99bb1dc5bd12df221f82405d663b8f15f5c0c3a"
+}

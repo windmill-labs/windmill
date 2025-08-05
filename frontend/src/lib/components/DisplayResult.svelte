@@ -89,6 +89,7 @@
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 	}
@@ -110,6 +111,7 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		fixTableSizingToParent = false,
 		copilot_fix,
 		children
 	}: Props = $props()
@@ -525,7 +527,9 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
+		class="inline-highlight relative grow flex flex-col h-full {['plain', 'markdown'].includes(
+			resultKind ?? ''
+		)
 			? ''
 			: 'min-h-[160px]'}"
 	>
@@ -580,16 +584,31 @@
 					{/if}
 				</div>
 			</div>
-			<div class="grow">
+			<div class="grow relative">
 				{#if !forceJson && resultKind === 'table-col'}
 					{@const data = 'table-col' in result ? result['table-col'] : result}
-					<AutoDataTable objects={objectOfArraysToObjects(data)} />
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={objectOfArraysToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row'}
 					{@const data = 'table-row' in result ? result['table-row'] : result}
-					<AutoDataTable objects={arrayOfRowsToObjects(data)} />
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={arrayOfRowsToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
 					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
-					<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={handleArrayOfObjectsHeaders(data)}
+					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
 						{#if !requireHtmlApproval || enableHtml}

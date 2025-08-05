@@ -29,8 +29,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
-    INIT_SCRIPT_TAG,
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
+    WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -79,6 +79,7 @@ async fn process_jc(
             parent_job = field::Empty,
             otel.name = field::Empty,
             success = %success,
+            labels = field::Empty,
         )
     } else {
         tracing::span!(
@@ -94,6 +95,7 @@ async fn process_jc(
             success = %success,
             error.message = field::Empty,
             error.name = field::Empty,
+            labels = field::Empty,
         )
     };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
@@ -101,6 +103,12 @@ async fn process_jc(
     } else {
         jc.job.id
     };
+
+    if let Some(labels) = jc.result.wm_labels() {
+        if !labels.is_empty() {
+            span.record("labels", labels.join(","));
+        }
+    }
     windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
@@ -644,13 +652,14 @@ async fn handle_non_flow_job_error(
     job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
-    err: Value,
+    err_string: String,
+    err_json: Value,
     worker_name: &str,
 ) -> Result<WrappedError, Error> {
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("Unexpected error during job execution:\n{err:#?}"),
+        format!("Unexpected error during job execution:\n{err_string}"),
         &db.into(),
     )
     .await;
@@ -659,7 +668,7 @@ async fn handle_non_flow_job_error(
         job,
         mem_peak,
         canceled_by,
-        err,
+        err_json,
         worker_name,
         false,
         None,
@@ -682,7 +691,8 @@ pub async fn handle_job_error(
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
-    let err = error_to_value(err);
+    let err_string = format!("{}: {}", err.name(), err.to_string());
+    let err_json = error_to_value(err);
 
     let update_job_future = || async {
         handle_non_flow_job_error(
@@ -690,7 +700,8 @@ pub async fn handle_job_error(
             job,
             mem_peak,
             canceled_by.clone(),
-            err.clone(),
+            err_string,
+            err_json.clone(),
             worker_name,
         )
         .await
@@ -709,8 +720,8 @@ pub async fn handle_job_error(
             (job.id, Uuid::nil())
         };
 
-        let wrapped_error = WrappedError { error: err.clone() };
-        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
+        let wrapped_error = WrappedError { error: err_json.clone() };
+        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,

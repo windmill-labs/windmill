@@ -25,6 +25,7 @@
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
 		onClear?: () => void
+		excludedValues?: string[]
 	}
 
 	let {
@@ -39,7 +40,8 @@
 		expressOAuthSetup = false,
 		defaultValues = undefined,
 		placeholder = undefined,
-		onClear = undefined
+		onClear = undefined,
+		excludedValues = undefined
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -104,6 +106,7 @@
 			const nc = resources
 				.flat()
 				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+				.filter((x) => !excludedValues || !excludedValues.includes(x.path))
 				.map((x) => ({
 					value: x.path,
 					label: x.path,
@@ -138,6 +141,13 @@
 			}
 		})
 		untrack(() => loadResources(resourceType))
+	})
+
+	$effect(() => {
+		excludedValues
+		if ($workspaceStore && resourceType && !disabled) {
+			untrack(() => loadResources(resourceType))
+		}
 	})
 
 	let appConnect: AppConnect | undefined = $state()

@@ -27,8 +27,10 @@ use serde::Serialize;
 use windmill_common::flows::InputTransform;
 use windmill_common::worker::WORKER_CONFIG;
 
+#[cfg(feature = "python")]
+use windmill_common::flow_status::{FlowStatus, FlowStatusModule, RestartedFrom};
+
 use windmill_common::{
-    flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, JobPayload, RawCode},
     jwt::JWT_SECRET,
@@ -119,7 +121,9 @@ fn next_worker_name() -> String {
 
 pub struct ApiServer {
     pub addr: std::net::SocketAddr,
+    #[allow(unused)]
     tx: tokio::sync::broadcast::Sender<()>,
+    #[allow(unused)]
     task: tokio::task::JoinHandle<anyhow::Result<()>>,
 }
 
@@ -153,6 +157,7 @@ impl ApiServer {
         Self { addr, tx, task }
     }
 
+    #[allow(unused)]
     async fn close(self) -> anyhow::Result<()> {
         println!("closing api server");
         let Self { tx, task, .. } = self;
@@ -193,11 +198,13 @@ async fn set_jwt_secret() -> () {
 }
 
 mod suspend_resume {
-
+    #[cfg(feature = "deno_core")]
     use serde_json::json;
 
+    #[cfg(feature = "deno_core")]
     use super::*;
 
+    #[cfg(feature = "deno_core")]
     async fn wait_until_flow_suspends(
         flow: Uuid,
         mut queue: impl Stream<Item = Uuid> + Unpin,
@@ -218,6 +225,7 @@ mod suspend_resume {
         }
     }
 
+    #[cfg(feature = "deno_core")]
     fn flow() -> FlowValue {
         serde_json::from_value(serde_json::json!({
                 "modules": [{
@@ -462,11 +470,11 @@ mod suspend_resume {
     }
 }
 
+#[cfg(feature = "deno_core")]
 mod retry {
+    use super::*;
     use serde_json::json;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    use super::*;
 
     /// test helper provides some external state to help steps fail at specific points
     struct Server {
@@ -536,6 +544,7 @@ def main(last, port):
 "#
     }
 
+    #[cfg(feature = "deno_core")]
     fn flow_forloop_retry() -> FlowValue {
         serde_json::from_value(serde_json::json!({
             "modules": [{
@@ -1073,6 +1082,7 @@ async fn listen_for_completed_jobs(db: &Pool<Postgres>) -> impl Stream<Item = Uu
     listen_for_uuid_on(db, "completed").await
 }
 
+#[cfg(feature = "deno_core")]
 async fn listen_for_queue(db: &Pool<Postgres>) -> impl Stream<Item = Uuid> + Unpin {
     listen_for_uuid_on(db, "queued").await
 }
