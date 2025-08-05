@@ -49,6 +49,7 @@
 	let showCliInstructions = $state(false)
 	let previewResult = $state<SyncResponse | SettingsResponse | null>(null)
 	let settingsApplied = $state(false)
+	let previewAttempted = $state(false)
 
 	// Helper functions to reduce type casting repetition
 	const getSettingsChanges = (result: SyncResponse | SettingsResponse | null) => {
@@ -108,8 +109,9 @@
 			showCliInstructions = false
 			previewResult = null
 			settingsApplied = false
-		} else if (settingsOnly && !previewResult && !isPreviewLoading) {
-			// Auto-trigger settings preview when modal opens in settings-only mode
+			previewAttempted = false
+		} else if (settingsOnly && !previewResult && !isPreviewLoading && !previewAttempted) {
+			// Auto-trigger settings preview when modal opens in settings-only mode (only once)
 			executeJob(true, true)
 		}
 	})
@@ -124,6 +126,7 @@
 			previewResult = null
 			previewJobId = null
 			previewJobStatus = undefined
+			previewAttempted = true
 		} else {
 			isApplying = true
 			applyError = ''
@@ -295,7 +298,10 @@
 				<Button
 					size="md"
 					color="dark"
-					onclick={() => executeJob(true, settingsOnly)}
+					onclick={() => {
+						previewAttempted = false // Allow manual retry
+						executeJob(true, settingsOnly)
+					}}
 					disabled={isPreviewLoading}
 					startIcon={{
 						icon: isPreviewLoading ? Loader2 : undefined,

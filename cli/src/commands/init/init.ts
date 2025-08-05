@@ -71,9 +71,12 @@ async function initAction(opts: InitOptions) {
         // Determine binding behavior based on flags
         const shouldBind = opts.bindProfile === true;
         const shouldPrompt =
-          opts.bindProfile === undefined && Deno.stdin.isTerminal();
+          opts.bindProfile === undefined &&
+          Deno.stdin.isTerminal() &&
+          !opts.useDefault;
         const shouldSkip =
           opts.bindProfile === false ||
+          opts.useDefault ||
           (!Deno.stdin.isTerminal() && opts.bindProfile === undefined);
 
         if (shouldSkip) {
@@ -312,4 +315,4 @@ const command = new Command()
   .option("--no-bind-profile", "Skip workspace profile binding prompt")
   .action(initAction as any);
 
-export default command; 
+export default command;
