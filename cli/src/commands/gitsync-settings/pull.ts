@@ -3,7 +3,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 
@@ -15,7 +15,6 @@ import {
   generateStructuredDiff,
   generateChanges,
   displayChanges,
-  getCurrentSettings,
   applyBackendSettingsToBranch,
   normalizeRepoPath,
   outputResult
@@ -132,21 +131,71 @@ export async function pullGitSyncSettings(
     // Convert backend settings to SyncOptions format
     const backendSyncOptions: SyncOptions = GitSyncSettingsConverter.fromBackendFormat(selectedRepo.settings);
 
-    // Check if wmill.yaml exists - require it for git-sync settings commands
+    // Check if wmill.yaml exists - create a default one if it doesn't exist
+    let wmillYamlExists = true;
     try {
       await Deno.stat("wmill.yaml");
     } catch (error) {
-      log.error(
-        colors.red(
-          "No wmill.yaml file found. Please run 'wmill init' first to create the configuration file.",
-        ),
-      );
-      Deno.exit(1);
+      wmillYamlExists = false;
+      if (!opts.jsonOutput) {
+        log.info(
+          colors.yellow(
+            "No wmill.yaml file found. Will create one with backend git-sync settings.",
+          ),
+        );
+      }
     }
 
-    // Read current local configuration
-    const localConfig = await readConfigFile();
+    let localConfig: SyncOptions;
+    if (wmillYamlExists) {
+      localConfig = await readConfigFile();
+    } else {
+      localConfig = { ...DEFAULT_SYNC_OPTIONS };
+    }
 
+    // Handle the case where wmill.yaml doesn't exist - just create it with backend settings
+    if (!wmillYamlExists) {
+      // When creating from scratch, just apply backend settings directly
+      let updatedConfig = { ...localConfig };
+
+      // Apply backend settings to the default config
+      Object.assign(updatedConfig, backendSyncOptions);
+
+      // Add git branch structure if in a git repository
+      if (isGitRepository()) {
+        const currentBranch = getCurrentGitBranch();
+        if (currentBranch) {
+          if (!updatedConfig.git_branches) {
+            updatedConfig.git_branches = {};
+          }
+          if (!updatedConfig.git_branches[currentBranch]) {
+            updatedConfig.git_branches[currentBranch] = { overrides: {} };
+          }
+        }
+      }
+
+      // Write the new configuration
+      await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
+
+      if (opts.jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: true,
+            message: "wmill.yaml created with backend git-sync settings",
+            repository: selectedRepo.git_repo_resource_path,
+          }),
+        );
+      } else {
+        log.info(
+          colors.green(
+            `wmill.yaml created with git-sync settings from ${selectedRepo.git_repo_resource_path}`,
+          ),
+        );
+      }
+      return;
+    }
+
+    // For existing wmill.yaml files, continue with the normal flow
     // Calculate current settings once and reuse throughout
     const currentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
 
@@ -304,7 +353,7 @@ export async function pullGitSyncSettings(
     );
     const hasActualChanges = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
-    if (!hasActualChanges) {
+    if (!hasActualChanges && wmillYamlExists) {
       // Even if no changes, check if we need to create empty branch structure
       let needsBranchStructure = false;
       if (isGitRepository()) {

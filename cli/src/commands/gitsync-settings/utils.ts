@@ -77,11 +77,6 @@ export function applyBackendSettingsToBranch(
   return updatedConfig;
 }
 
-// Helper function to get current effective settings
-export async function getCurrentSettings(localConfig: SyncOptions): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, undefined, true); // Skip branch validation for gitsync-settings
-}
-
 // Select repository interactively if multiple exist
 export async function selectAndLogRepository(
   repositories: GitSyncRepository[],

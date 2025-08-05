@@ -12,7 +12,6 @@ import { handleLegacyRepositoryMigration } from "./legacySettings.ts";
 import {
   selectAndLogRepository,
   generateStructuredDiff,
-  getCurrentSettings,
   generateChanges,
   displayChanges,
   normalizeRepoPath,
