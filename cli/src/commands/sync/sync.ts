@@ -1063,7 +1063,7 @@ export async function pull(
 ) {
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration();
+    await validateBranchConfiguration(false, opts.yes);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1399,7 +1399,7 @@ export async function push(
 ) {
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration();
+    await validateBranchConfiguration(false, opts.yes);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);

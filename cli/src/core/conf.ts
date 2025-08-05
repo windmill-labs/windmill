@@ -142,7 +142,7 @@ export async function mergeConfigWithConfigFile<T>(
 }
 
 // Validate branch configuration early in the process
-export async function validateBranchConfiguration(skipValidation?: boolean): Promise<void> {
+export async function validateBranchConfiguration(skipValidation?: boolean, autoAccept?: boolean): Promise<void> {
   if (skipValidation || !isGitRepository()) {
     return;
   }
@@ -171,7 +171,7 @@ export async function validateBranchConfiguration(skipValidation?: boolean): Pro
         `Available branches: ${availableBranches}`
       );
 
-      const shouldCreate = await Confirm.prompt({
+      const shouldCreate = autoAccept || await Confirm.prompt({
         message: `Create empty branch configuration for '${currentBranch}'?`,
         default: true,
       });
