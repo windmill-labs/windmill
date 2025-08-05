@@ -1,0 +1,10 @@
+[package]
+name = "windmill-tool-registry"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+http = "1"
+serde_json = "1"
+inventory = "0.3"
+schemars = "0.8" 

@@ -32,6 +32,8 @@ use rmcp::transport::streamable_http_server::{
 };
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
+use windmill_tool_registry;
+
 /// Transforms the path for workspace scripts/flows.
 ///
 /// This function takes a path and a type string.
@@ -1130,6 +1132,20 @@ impl ServerHandler for Runner {
                 )
                 .await?,
             );
+        }
+
+        // Add endpoint tools from the inventory registry
+        for endpoint_tool in windmill_tool_registry::all_tools() {
+            let mut input_schema_map = serde_json::Map::new();
+            input_schema_map.insert("type".to_string(), serde_json::Value::String("object".to_string()));
+            input_schema_map.insert("properties".to_string(), serde_json::Value::Object(serde_json::Map::new()));
+            
+            tools.push(Tool {
+                name: endpoint_tool.name.clone(),
+                description: Some(endpoint_tool.description.clone()),
+                input_schema: Arc::new(input_schema_map),
+                annotations: None,
+            });
         }
 
         Ok(ListToolsResult { tools, next_cursor: None })

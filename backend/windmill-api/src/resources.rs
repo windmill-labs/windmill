@@ -36,6 +36,7 @@ use windmill_common::{
     variables,
     worker::CLOUD_HOSTED,
 };
+use windmill_tool_macros::windmill_tool;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -200,6 +201,21 @@ async fn list_search_resources(
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+#[windmill_tool(
+    name = "list_resources",
+    description = "List resources in a workspace",
+    method = "GET", 
+    path = "/list"
+)]
+async fn list_resources_tool(args: serde_json::Value) -> serde_json::Value {
+    // For now, return a simple mock response
+    // In step 4 we'll implement the actual call forwarding
+    serde_json::json!({
+        "message": "list_resources tool called",
+        "args": args
+    })
 }
 
 async fn list_resources(
@@ -1274,6 +1290,4 @@ where
             }
         }
     };
-
-    Ok(resource)
 }
