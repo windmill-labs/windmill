@@ -6127,19 +6127,23 @@ async fn get_job_update_data(
 
     if only_result.unwrap_or(false) {
         let result = if let Some(tags) = tags {
-            let r = sqlx::query!(
-                "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
+            let get_stream = true;
+            let r = if get_stream {
+                sqlx::query!(
+                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
                 v2_job_queue.running as \"running: Option<bool>\"
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
                 LEFT JOIN v2_job_completed USING (id)
                 WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
-                w_id,
-                job_id,
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+                    w_id,
+                    job_id,
+                )
+                .fetch_optional(db)
+                .await?
+                .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+            } else {
+            };
 
             if !tags.contains(&r.tag.as_str()) {
                 return Err(Error::NotAuthorized(format!(
