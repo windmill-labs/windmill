@@ -58,6 +58,7 @@
 	})
 
 	let css = $state(initCss($app.css?.displaycomponent, customCss))
+	let loading = $state(false)
 </script>
 
 {#each Object.keys(components['displaycomponent'].initialData.configuration) as key (key)}
@@ -86,7 +87,7 @@
 	{id}
 	bind:initializing
 	bind:result
-	bind:result_stream
+	bind:loading
 >
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
@@ -112,6 +113,7 @@
 			)}
 		>
 			<DisplayResult
+				{loading}
 				workspaceId={workspace}
 				{result}
 				{result_stream}

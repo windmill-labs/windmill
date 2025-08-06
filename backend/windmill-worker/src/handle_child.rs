@@ -7,7 +7,7 @@ use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
-use windmill_common::result_stream::{extract_stream_from_logs};
+use windmill_common::result_stream::extract_stream_from_logs;
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -479,11 +479,13 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
-            tracing::error!("nstream: {}", nstream);
             (do_write, write_result) = tokio::spawn(async move {
                 if !nstream.is_empty() {
                     if let Err(err) = append_result_stream(&conn, &w_id, &job_id, &nstream).await {
-                            tracing::error!("Unable to send result stream for job {job_id}. Error was: {:?}", err);
+                        tracing::error!(
+                            "Unable to send result stream for job {job_id}. Error was: {:?}",
+                            err
+                        );
                     }
                 }
                 append_job_logs(

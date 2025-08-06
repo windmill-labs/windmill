@@ -83,10 +83,17 @@
 		subflowParentsDurationStatuses?: Writable<Record<string, DurationStatus>>[]
 		isForloopSelected?: boolean
 		parentRecursiveRefresh?: Record<string, (clear, root) => Promise<void>>
-		job?: Job | undefined
+		job?: (Job & { result_stream?: string }) | undefined
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		onResultStreamUpdate?: ({
+			jobId,
+			result_stream
+		}: {
+			jobId: string
+			result_stream?: string
+		}) => void
 		customUi?: {
 			tagLabel?: string | undefined
 		}
@@ -119,8 +126,24 @@
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = writable({}),
 		localDurationStatuses = writable({}),
-		customUi
+		customUi,
+		onResultStreamUpdate = undefined
 	}: Props = $props()
+
+	let resultStreams: Record<string, string | undefined> = $state({})
+
+	if (onResultStreamUpdate == undefined) {
+		onResultStreamUpdate = ({
+			jobId,
+			result_stream
+		}: {
+			jobId: string
+			result_stream?: string
+		}) => {
+			resultStreams[jobId] = result_stream
+		}
+	}
+
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
 	// Add support for the input args assets shown as an asset node
@@ -512,6 +535,9 @@
 					jobLoader?.watchJob(jobId, {
 						change(newJob) {
 							setJob(newJob, true)
+						},
+						resultStreamUpdate({ id, result_stream }: { id: string; result_stream?: string }) {
+							onResultStreamUpdate?.({ jobId: id, result_stream })
 						}
 					})
 				}
@@ -955,6 +981,7 @@
 					<DisplayResult
 						workspaceId={job?.workspace_id}
 						{jobId}
+						result_stream={job?.result_stream}
 						result={jobResults}
 						language={job?.language}
 					/>
@@ -972,6 +999,7 @@
 					{innerModules}
 					{suspendStatus}
 					{hideJobId}
+					result_streams={resultStreams}
 				/>
 			</div>
 		{/if}
@@ -1063,6 +1091,7 @@
 										storedListJobs[j] = job
 										innerJobLoaded(job, j, false, force)
 									}}
+									{onResultStreamUpdate}
 								/>
 							</div>
 						{/if}
@@ -1138,6 +1167,7 @@
 											{reducedPolling}
 											{workspaceId}
 											jobId={failedRetry}
+											{onResultStreamUpdate}
 										/>
 									</div>
 								{/each}
@@ -1170,6 +1200,7 @@
 											let { force, job } = e.detail
 											onJobsLoaded(mod, job, force)
 										}}
+										{onResultStreamUpdate}
 									/>
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">no subflow (empty loop?)</div>
@@ -1201,6 +1232,7 @@
 											let { job, force } = e.detail
 											onJobsLoaded(mod, job, force)
 										}}
+										{onResultStreamUpdate}
 									/>
 								{/if}
 							{:else}
@@ -1424,6 +1456,7 @@
 											waitingForExecutor={node.type == 'WaitingForExecutor'}
 											refreshLog={node.type == 'InProgress'}
 											col
+											result_stream={resultStreams[node.job_id ?? '']}
 											result={node.result}
 											tag={node.tag}
 											logs={node.logs}

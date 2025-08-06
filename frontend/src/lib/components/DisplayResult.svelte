@@ -84,6 +84,7 @@
 		noControls?: boolean
 		drawerOpen?: boolean
 		nodeId?: string | undefined
+		loading?: boolean | undefined
 		language?: string | undefined
 		appPath?: string | undefined
 		customUi?: DisplayResultUi | undefined
@@ -116,7 +117,8 @@
 		result_stream = undefined,
 		fixTableSizingToParent = false,
 		copilot_fix,
-		children
+		children,
+		loading = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -701,7 +703,7 @@
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
 							>{typeof result === 'string' ? result : result?.['result']}</pre
-						>{#if !noControls}
+						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
 									on:click={() =>

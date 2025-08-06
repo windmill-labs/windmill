@@ -228,6 +228,15 @@
 				loading = false
 				dispatch('done', { id, result })
 			},
+			resultStreamUpdate({
+				id,
+				result_stream: nresult_stream
+			}: {
+				id: string
+				result_stream?: string
+			}) {
+				setResult(nresult_stream, id)
+			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()
 				let jobId = id

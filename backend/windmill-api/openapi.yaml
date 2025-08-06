@@ -7707,6 +7707,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: stream_offset
+          in: query
+          schema:
+            type: integer
         - name: get_progress
           in: query
           schema:
@@ -7736,7 +7740,9 @@ paths:
                     type: integer
                   progress:
                     type: integer
-                  result_stream:
+                  stream_offset:
+                    type: integer
+                  new_result_stream:
                     type: string
                   flow_status:
                     $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"

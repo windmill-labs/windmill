@@ -23,6 +23,7 @@
 		cancel?: ({ id }: { id: string }) => void
 		started?: ({ id }: { id: string }) => void
 		running?: ({ id }: { id: string }) => void
+		resultStreamUpdate?: ({ id, result_stream }: { id: string; result_stream?: string }) => void
 	}
 
 	interface Props {
@@ -72,6 +73,7 @@
 	let errorIteration = 0
 
 	let logOffset = 0
+	let resultStreamOffset = 0
 	let lastCallbacks: Callbacks | undefined = undefined
 
 	let finished: string[] = []
@@ -192,6 +194,9 @@
 		if (logOffset == 0) {
 			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
 		}
+		if (resultStreamOffset == 0) {
+			resultStreamOffset = job?.result_stream?.length ? job.result_stream?.length + 1 : 0
+		}
 	}
 	export async function getLogs() {
 		if (job) {
@@ -283,6 +288,7 @@
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
+		resultStreamOffset = 0
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
@@ -355,17 +361,24 @@
 			}
 		}
 
-		if (previewJobUpdates.result_stream) {
+		if (previewJobUpdates.new_result_stream) {
 			if (!job.result_stream) {
-				job.result_stream = previewJobUpdates.result_stream
+				job.result_stream = previewJobUpdates.new_result_stream
 			} else {
-				job.result_stream = job.result_stream.concat(previewJobUpdates.result_stream)
+				job.result_stream = job.result_stream.concat(previewJobUpdates.new_result_stream)
 			}
-			console.log('job.result_stream', job.result_stream)
+			callbacks?.resultStreamUpdate?.({
+				id: job.id,
+				result_stream: job.result_stream
+			})
 		}
 
 		if (previewJobUpdates.log_offset) {
 			logOffset = previewJobUpdates.log_offset ?? 0
+		}
+
+		if (previewJobUpdates.stream_offset) {
+			resultStreamOffset = previewJobUpdates.stream_offset ?? 0
 		}
 
 		if (previewJobUpdates.flow_status) {
@@ -511,6 +524,7 @@
 		callbacks?: Callbacks
 	): Promise<boolean> {
 		let isCompleted = false
+		let resultOnlyResultStream: string = ''
 		if (isCurrentJob(id)) {
 			try {
 				// First load the job to get initial state
@@ -520,6 +534,13 @@
 						id,
 						noLogs: noLogs,
 						noCode
+					})
+				}
+
+				if (!onlyResult) {
+					callbacks?.resultStreamUpdate?.({
+						id,
+						result_stream: undefined
 					})
 				}
 
@@ -565,6 +586,9 @@
 					if (noLogs) {
 						params.set('no_logs', 'true')
 					}
+					if (resultStreamOffset) {
+						params.set('stream_offset', resultStreamOffset.toString())
+					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
 
@@ -606,6 +630,17 @@
 								updateJobFromProgress(previewJobUpdates, job, callbacks)
 							} else if (onlyResult && callbacks?.running && previewJobUpdates.running) {
 								callbacks?.running?.({ id })
+							}
+
+							if (onlyResult && previewJobUpdates.new_result_stream) {
+								resultOnlyResultStream = resultOnlyResultStream.concat(
+									previewJobUpdates.new_result_stream
+								)
+								// console.log('resultOnlyResultStream', resultOnlyResultStream)
+								callbacks?.resultStreamUpdate?.({
+									id,
+									result_stream: resultOnlyResultStream
+								})
 							}
 
 							// Check if job is completed
