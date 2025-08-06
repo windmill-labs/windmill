@@ -920,19 +920,27 @@ pub async fn eval_fetch_timeout(
             if !extra_logs.is_empty() {
                 append_logs(&job_id, w_id_.as_str(), format!("{extra_logs}"), &conn_).await;
             }
+            let w_id = w_id_.clone();
             let handle = tokio::spawn(async move {
-                let mut logs = String::new();
+                let mut result_stream = String::new();
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
-                        // tracing::info!("stream: |{}|", stream);
-                        logs.push_str(&stream);
+                        use crate::job_logger::append_result_stream;
+
+                        result_stream.push_str(&stream);
+                        if let Err(e) =
+                            append_result_stream(&conn_, &w_id, &job_id, &result_stream).await
+                        {
+                            tracing::error!("failed to append result stream for job {job_id}: {e}");
+                        }
+                    } else {
+                        append_logs(&job_id, w_id_.as_str(), log, &conn_).await;
                     }
-                    append_logs(&job_id, w_id_.as_str(), log, &conn_).await;
                 }
-                if !logs.is_empty() {
-                    Some(logs)
+                if !result_stream.is_empty() {
+                    Some(result_stream)
                 } else {
                     None
                 }

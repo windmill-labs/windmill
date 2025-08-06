@@ -62,18 +62,31 @@ pub async fn append_job_logs(
     }
 }
 
-pub async fn append_result_stream(conn: &Connection, workspace_id: &str, job_id: &Uuid, nstream: &str) -> error::Result<()> {
+pub async fn append_result_stream(
+    conn: &Connection,
+    workspace_id: &str,
+    job_id: &Uuid,
+    nstream: &str,
+) -> error::Result<()> {
     match conn {
-        Connection::Sql(db)  => {
+        Connection::Sql(db) => {
             append_result_stream_db(db, workspace_id, job_id, nstream).await?;
         }
-        _ => {
-            // append_logs(&job_id, w_id, logs, &conn).await;
+        Connection::Http(client) => {
+            if let Err(e) = client
+                .post::<_, String>(
+                    &format!("/api/w/{}/agent_workers/push_logs/{}", workspace_id, job_id),
+                    None,
+                    &nstream,
+                )
+                .await
+            {
+                tracing::error!(%job_id, %e, "error sending result stream for  job {job_id}: {e}");
+            };
         }
     }
     Ok(())
 }
-
 
 pub async fn append_logs_with_compaction(
     job_id: &Uuid,
