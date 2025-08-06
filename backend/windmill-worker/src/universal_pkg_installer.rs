@@ -402,11 +402,9 @@ async fn spawn_wrapped_installation_threads<
         let permit = permit.unwrap();
 
         let action = match strategy {
-            InstallStrategy::Single(ref callback) => Action::Install({
-                let mut cmd = callback(dep.clone())?;
-                cmd.env_clear();
-                start_child_process(cmd, &installer_executable_name).await?
-            }),
+            InstallStrategy::Single(ref callback) => Action::Install(
+                start_child_process(callback(dep.clone())?, &installer_executable_name).await?,
+            ),
             InstallStrategy::AllAtOnce(ref rw_lock) => Action::AddToBulk(Arc::clone(rw_lock)),
         };
         let task_fut = try_install_one_detached(
