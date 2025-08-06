@@ -276,7 +276,7 @@
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let error: string | undefined = $state(undefined)
 	let editor: SimpleEditor | undefined = $state(undefined)
-
+	let dynamicSelectEditor: Editor | undefined = $state(undefined)
 	export function updateJson() {
 		schemaString = JSON.stringify(schema, null, '\t')
 		editor?.setCode(schemaString)
@@ -335,7 +335,7 @@
 					(props.format?.startsWith('dynselect-') || props.format?.startsWith('dynselect_'))
 				)
 			})
-			.map(([fieldName, _]) => fieldName.toLowerCase().replace(/\s+/g, '_'))
+			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
 	)
 
 	let typeOptions = [
@@ -359,7 +359,7 @@
 			.join('')
 	}
 
-	function pushNewFn(functionName: string, lang: DynSelectLang = 'bun') {
+	function updateDynSelectCode(functionName: string, lang: DynSelectLang = 'bun') {
 		const generateFn = DynamicSelect.getGenerateTemplateFn(lang)
 		const code = generateFn(functionName)
 		dynSelectCode = dynSelectCode ? dynSelectCode.concat(code) : code
@@ -479,11 +479,11 @@
 										{#key dynSelectLang}
 											<div class="border w-full h-full">
 												<Editor
+													bind:this={dynamicSelectEditor}
 													class="flex flex-1 grow h-80 w-full"
-													automaticLayout
 													scriptLang={dynSelectLang}
 													useWebsockets={false}
-													fixedOverflowWidgets={false}
+													automaticLayout
 													bind:code={dynSelectCode}
 												/>
 											</div>
@@ -680,14 +680,14 @@
 																							format: 'resource-s3_object'
 																						}
 																					} else if (isDynSelect) {
-																						const functionName = argName
-																							.replace(/\s+/g, '_')
+																						const functionName = argName.replace(/\s+/g, '_')
 																						schema.properties[argName] = {
 																							...emptyProperty,
 																							type: 'object',
 																							format: 'dynselect-' + functionName
 																						}
-																						pushNewFn(argName, dynSelectLang)
+																						updateDynSelectCode(argName, dynSelectLang)
+																						dynamicSelectEditor?.setCode(dynSelectCode || '')
 																					} else if (isOneOf) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
