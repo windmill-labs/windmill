@@ -930,8 +930,7 @@ pub async fn eval_fetch_timeout(
                         use crate::job_logger::append_result_stream;
 
                         result_stream.push_str(&stream);
-                        if let Err(e) =
-                            append_result_stream(&conn_, &w_id, &job_id, &result_stream).await
+                        if let Err(e) = append_result_stream(&conn_, &w_id, &job_id, &stream).await
                         {
                             tracing::error!("failed to append result stream for job {job_id}: {e}");
                         }
