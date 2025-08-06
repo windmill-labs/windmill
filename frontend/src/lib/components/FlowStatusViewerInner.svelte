@@ -1011,8 +1011,8 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
-					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 					<Tab value="logs"><span class="font-semibold">Logs</span></Tab>
+					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>

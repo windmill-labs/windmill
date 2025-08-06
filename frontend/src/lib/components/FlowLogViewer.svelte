@@ -244,6 +244,11 @@
 		</li>
 
 		{#each logEntries as entry (entry.id)}
+			{@const isLeafStep =
+				entry.stepType !== 'branchall' &&
+				entry.stepType !== 'branchone' &&
+				entry.stepType !== 'forloopflow' &&
+				entry.stepType !== 'whileloopflow'}
 			<li class="border-b border-gray-200 dark:border-gray-700 flex">
 				<div class="py-2 leading-tight align-top">
 					<button
@@ -326,7 +331,7 @@
 							</div>
 						</div>
 
-						{#if entry.stepType !== 'branchall' && entry.stepType !== 'branchone' && entry.stepType !== 'forloopflow' && entry.stepType !== 'whileloopflow'}
+						{#if isLeafStep}
 							<a
 								href={getJobLink(entry.jobId)}
 								class="text-xs text-primary hover:underline font-mono"
@@ -342,7 +347,7 @@
 						<div class="my-1 transition-all duration-200 ease-in-out">
 							<!-- Show input arguments -->
 							<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
-							{#if entry.args && Object.keys(entry.args).length > 0}
+							{#if isLeafStep && entry.args && Object.keys(entry.args).length > 0}
 								<div class="mb-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -438,7 +443,7 @@
 
 							<!-- Show result if completed -->
 							<!-- Todo: show result for subflows -->
-							{#if entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
+							{#if isLeafStep && entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
 								<div class="mb-2 mt-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
