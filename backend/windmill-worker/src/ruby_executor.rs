@@ -333,7 +333,7 @@ Your Gemfile syntax will continue to work as-is."
         .await;
 
         let mut cmd = Command::new(if cfg!(windows) {
-            "bundle"
+            "bundle.bat"
         } else {
             BUNDLE_PATH.as_str()
         });
@@ -609,7 +609,7 @@ async fn install<'a>(
                 cmd
             } else {
                 Command::new(if cfg!(windows) {
-                    "gem"
+                    "gem.cmd"
                 } else {
                     GEM_PATH.as_str()
                 })
@@ -675,6 +675,10 @@ async fn install<'a>(
                     .env(
                         "TMP",
                         std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                    )
+                    .env(
+                        "SYSTEMDRIVE",
+                        std::env::var("SYSTEMDRIVE").unwrap_or_else(|_| String::from("C:")),
                     );
             }
 
@@ -820,7 +824,7 @@ mount {{
         .await;
 
         let mut cmd = Command::new(if cfg!(windows) {
-            "ruby"
+            "ruby.exe"
         } else {
             RUBY_PATH.as_str()
         });
