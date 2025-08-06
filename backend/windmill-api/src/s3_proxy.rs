@@ -6,6 +6,7 @@ use axum::{
     routing::{get, put},
     Extension, Router,
 };
+use object_store::PutMultipartOpts;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -14,8 +15,8 @@ use windmill_common::{
 
 use crate::{
     auth::AuthCache,
-    db::{ApiAuthed, DB},
-    job_helpers_ee::{get_workspace_s3_resource, read_object_streamable},
+    db::DB,
+    job_helpers_ee::{get_workspace_s3_resource, read_object_streamable, upload_file_from_req},
 };
 
 pub fn workspaced_unauthed_service() -> Router {
@@ -53,6 +54,37 @@ async fn get_object(
     let stream = result.into_stream();
     let stream_body = axum::body::Body::from_stream(stream);
     Ok(stream_body.into_response())
+}
+
+async fn put_object(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, storage_str, object_key)): Path<(String, String, String)>,
+    Extension(auth_cache): Extension<Arc<AuthCache>>,
+    req: Request<axum::body::Body>,
+) -> Result<()> {
+    let token = get_token(&req)?;
+    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), token).await else {
+        return Err(Error::NotAuthorized("Invalid token".to_string()));
+    };
+    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+
+    let (_, s3_resource) =
+        get_workspace_s3_resource(&authed, &db, Some(user_db), token, &w_id, storage).await?;
+    let s3_resource = s3_resource.ok_or_else(|| {
+        Error::InternalErr(format!(
+            "Storage {} not found at the workspace level",
+            storage_str
+        ))
+    })?;
+    let s3_client = build_object_store_client(&s3_resource).await?;
+    upload_file_from_req(
+        s3_client,
+        &object_key,
+        req,
+        PutMultipartOpts { ..Default::default() },
+    )
+    .await
 }
 
 fn get_token(req: &Request<axum::body::Body>) -> Result<&str> {
