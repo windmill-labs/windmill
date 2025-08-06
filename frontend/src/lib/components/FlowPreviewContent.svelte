@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
+	import { type Job, JobService, type RestartedFrom, type OpenFlow, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -504,11 +504,12 @@
 										savedArgs = previewArgs.val
 									}}
 									bind:isValid
-									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] && flowStore.val.schema?.['x-windmill-dyn-select-lang']
+									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
+									flowStore.val.schema?.['x-windmill-dyn-select-lang']
 										? {
 												type: 'inline',
 												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as import('$lib/gen').ScriptLang
+												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
 											}
 										: undefined}
 								/>

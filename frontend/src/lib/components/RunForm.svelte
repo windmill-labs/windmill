@@ -21,6 +21,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
+	import { type ScriptLang } from '$lib/gen'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -261,8 +262,13 @@
 									type: 'hash',
 									hash: runnable.hash
 								}
-							: runnable.schema?.['x-windmill-dyn-select-code'] && runnable.schema?.['x-windmill-dyn-select-lang']
-								? { type: 'inline', code: runnable.schema['x-windmill-dyn-select-code'] as string, lang: runnable.schema['x-windmill-dyn-select-lang'] as import('$lib/gen').ScriptLang }
+							: runnable.schema?.['x-windmill-dyn-select-code'] &&
+								  runnable.schema?.['x-windmill-dyn-select-lang']
+								? {
+										type: 'inline',
+										code: runnable.schema['x-windmill-dyn-select-code'] as string,
+										lang: runnable.schema['x-windmill-dyn-select-lang'] as ScriptLang
+									}
 								: undefined}
 						prettifyHeader
 						{noVariablePicker}
