@@ -570,54 +570,6 @@ impl Runner {
         Ok(hub_response.asks)
     }
 
-    /// Transforms a value if it's an object.
-    ///
-    /// This function takes a key and a value, and a schema object.
-    /// If the value is a string that starts with "$res:", it returns the value as is.
-    /// Otherwise, it checks if the key is defined in the schema and if it's an object type.
-    /// If it is, it transforms the value to a string. This is because some clients do not support object types.
-    /// # Parameters
-    /// - `key`: The key of the value to transform.
-    /// - `value`: The value to transform.
-    /// - `schema_obj`: The schema object.
-    ///
-    /// # Returns
-    /// - `Value`: The transformed value.
-    fn transform_value_if_object(
-        key: &str,
-        value: &Value,
-        schema_obj: &Option<SchemaType>,
-    ) -> Value {
-        if value.is_string() && value.as_str().unwrap().starts_with("$res:") {
-            return value.clone();
-        }
-
-        let schema_obj = match schema_obj {
-            Some(s) => s,
-            None => return value.clone(),
-        };
-
-        // Check if property is defined in schema and is an object type
-        let is_obj_type = match schema_obj.properties.get(key) {
-            Some(property) => {
-                let prop_type = property.get("type").and_then(|t| t.as_str());
-                prop_type == Some("object")
-            }
-            None => false,
-        };
-
-        // If it's an object type and we received a string, try to parse it
-        if is_obj_type && value.is_string() {
-            if let Some(str_val) = value.as_str() {
-                if let Ok(obj_val) = serde_json::from_str::<serde_json::Value>(str_val) {
-                    return obj_val;
-                }
-            }
-        }
-
-        value.clone()
-    }
-
     /// Reverses the transformation of a key.
     ///
     /// This function takes a transformed key and a schema object.
@@ -716,17 +668,6 @@ impl Runner {
 
         for (_key, prop_value) in schema_obj.properties.iter_mut() {
             if let serde_json::Value::Object(prop_map) = prop_value {
-                // transform object properties to string because some client does not support object, might change in the future
-                if let Some(type_value) = prop_map.get("type") {
-                    if let serde_json::Value::String(type_str) = type_value {
-                        if type_str == "object" {
-                            prop_map.insert(
-                                "type".to_string(),
-                                serde_json::Value::String("string".to_string()),
-                            );
-                        }
-                    }
-                }
                 // if property is a resource, fetch the resource type infos, and add each available resource to the description
                 if let Some(format_value) = prop_map.get("format") {
                     if let serde_json::Value::String(format_str) = format_value {
@@ -736,10 +677,7 @@ impl Runner {
                             let resource_type = resources_types
                                 .iter()
                                 .find(|rt| rt.name == resource_type_key);
-                            let resource_type_obj = resource_type.cloned().unwrap_or_else(|| {
-                                tracing::info!("Resource type not found: {}", resource_type_key);
-                                ResourceType { name: resource_type_key.clone(), description: None }
-                            });
+                            let resource_type_obj = resource_type.cloned();
 
                             if !resources_cache.contains_key(&resource_type_key) {
                                 let available_resources = Runner::inner_get_resources(
@@ -767,18 +705,21 @@ impl Runner {
 
                             if let Some(resource_cache) = resources_cache.get(&resource_type_key) {
                                 let resources_count = resource_cache.len();
-                                let description = format!(
-                                    "This is a resource named `{}` with the following description: `{}`.\nThe path of the resource should be used to specify the resource.\n{}",
-                                    resource_type_obj.name,
-                                    resource_type_obj.description.as_deref().unwrap_or("No description"),
-                                    if resources_count == 0 {
-                                        "This resource does not have any available instances, you should create one from your windmill workspace."
-                                    } else if resources_count > 1 {
-                                        "This resource has multiple available instances, you should precisely select the one you want to use."
-                                    } else {
-                                        "There is 1 resource available."
-                                    }
-                                );
+                                let description = match resource_type_obj {
+                                    Some(resource_type_obj) => format!(
+                                        "This is a resource named `{}` with the following description: `{}`.\nThe path of the resource should be used to specify the resource.\n{}",
+                                        resource_type_obj.name,
+                                        resource_type_obj.description.as_deref().unwrap_or("No description"),
+                                        if resources_count == 0 {
+                                            "This resource does not have any available instances, you should create one from your windmill workspace."
+                                        } else if resources_count > 1 {
+                                            "This resource has multiple available instances, you should precisely select the one you want to use."
+                                        } else {
+                                            "There is 1 resource available."
+                                        }
+                                    ),
+                                    None => "An object parameter.".to_string()
+                                };
                                 prop_map.insert(
                                     "type".to_string(),
                                     serde_json::Value::String("string".to_string()),
@@ -1177,10 +1118,7 @@ impl ServerHandler for Runner {
             for (k, v) in map {
                 // need to transform back the key without invalid characters to the original key
                 let original_key = Runner::reverse_transform_key(&k, &schema_obj);
-
-                // object properties are transformed to string because some client does not support object, might change in the future
-                let transformed_v = Runner::transform_value_if_object(&k, &v, &schema_obj);
-                args_hash.insert(original_key, to_raw_value(&transformed_v));
+                args_hash.insert(original_key, to_raw_value(&v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
