@@ -36,25 +36,32 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the variable"
                 },
                 "value": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The value of the variable"
                 },
                 "is_secret": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the variable is a secret"
                 },
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The description of the variable"
                 },
                 "account": {
-                        "type": "integer"
+                        "type": "integer",
+                        "description": "The account identifier"
                 },
                 "is_oauth": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the variable is an OAuth variable"
                 },
                 "expires_at": {
                         "type": "string",
+                        "description": "The expiration date of the variable",
                         "format": "date-time"
                 }
         },
@@ -75,8 +82,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -95,8 +101,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -117,16 +122,20 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the variable"
                 },
                 "value": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The new value of the variable"
                 },
                 "is_secret": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the variable is a secret"
                 },
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The new description of the variable"
                 }
         }
 })),
@@ -140,8 +149,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -210,14 +218,17 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the resource"
                 },
                 "value": {},
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The description of the resource"
                 },
                 "resource_type": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The resource_type associated with the resource"
                 }
         },
         "required": [
@@ -236,8 +247,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -256,8 +266,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -269,12 +278,18 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the resource"
                 },
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The new description of the resource"
                 },
-                "value": {}
+                "value": {},
+                "resource_type": {
+                        "type": "string",
+                        "description": "The new resource_type to be associated with the resource"
+                }
         }
 })),
     },
@@ -287,8 +302,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -588,34 +602,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
     },
     EndpointTool {
-        name: Cow::Borrowed("cancelQueuedJob"),
-        description: Cow::Borrowed("cancel queued or running job"),
-        path: Cow::Borrowed("/w/{workspace}/jobs_u/queue/cancel/{id}"),
-        method: http::Method::POST,
-        path_params_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The UUID identifier of the job"
-                }
-        },
-        "required": [
-                "id"
-        ]
-})),
-        query_params_schema: None,
-        body_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "reason": {
-                        "type": "string"
-                }
-        }
-})),
-    },
-    EndpointTool {
         name: Cow::Borrowed("createSchedule"),
         description: Cow::Borrowed("create schedule"),
         path: Cow::Borrowed("/w/{workspace}/schedules/create"),
@@ -626,81 +612,105 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path where the schedule will be created"
                 },
                 "schedule": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The cron schedule to trigger the script or flow"
                 },
                 "timezone": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The timezone to use for the cron schedule"
                 },
                 "script_path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger"
                 },
                 "is_flow": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule is for a flow"
                 },
                 "args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "enabled": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule is enabled"
                 },
                 "on_failure": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on failure"
                 },
                 "on_failure_times": {
-                        "type": "number"
+                        "type": "number",
+                        "description": "The number of times to retry on failure"
                 },
                 "on_failure_exact": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule should only run on the exact time"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "on_recovery": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on recovery"
                 },
                 "on_recovery_times": {
-                        "type": "number"
+                        "type": "number",
+                        "description": "The number of times to retry on recovery"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "on_success": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on success"
                 },
                 "on_success_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "ws_error_handler_muted": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry"
+                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
+                        "description": "The retry configuration for the schedule"
                 },
                 "no_flow_overlap": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule should not run if a flow is already running"
                 },
                 "summary": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The summary of the schedule"
                 },
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The description of the schedule"
                 },
                 "tag": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The tag of the schedule"
                 },
                 "paused_until": {
                         "type": "string",
+                        "description": "The date and time the schedule will be paused until",
                         "format": "date-time"
                 },
                 "cron_version": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The version of the cron schedule to use (last is v2)"
                 }
         },
         "required": [
@@ -722,8 +732,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -735,69 +744,89 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "schedule": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The cron schedule to trigger the script or flow"
                 },
                 "timezone": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The timezone to use for the cron schedule"
                 },
                 "args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "on_failure": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on failure"
                 },
                 "on_failure_times": {
-                        "type": "number"
+                        "type": "number",
+                        "description": "The number of times to retry on failure"
                 },
                 "on_failure_exact": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule should only run on the exact time"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "on_recovery": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on recovery"
                 },
                 "on_recovery_times": {
-                        "type": "number"
+                        "type": "number",
+                        "description": "The number of times to retry on recovery"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "on_success": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The path to the script or flow to trigger on success"
                 },
                 "on_success_extra_args": {
                         "type": "object",
+                        "description": "The arguments to pass to the script or flow",
                         "additionalProperties": {}
                 },
                 "ws_error_handler_muted": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry"
+                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
+                        "description": "The retry configuration for the schedule"
                 },
                 "no_flow_overlap": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether the schedule should not run if a flow is already running"
                 },
                 "summary": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The summary of the schedule"
                 },
                 "description": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The description of the schedule"
                 },
                 "tag": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The tag of the schedule"
                 },
                 "paused_until": {
                         "type": "string",
+                        "description": "The date and time the schedule will be paused until",
                         "format": "date-time"
                 },
                 "cron_version": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The version of the cron schedule to use (last is v2)"
                 }
         },
         "required": [
@@ -818,8 +847,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [
@@ -838,8 +866,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string",
-                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                        "type": "string"
                 }
         },
         "required": [

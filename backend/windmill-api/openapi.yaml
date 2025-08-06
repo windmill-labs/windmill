@@ -13272,21 +13272,18 @@ components:
       name: id
       in: path
       required: true
-      description: The unique identifier for the resource
       schema:
         type: string
     Key:
       name: key
       in: path
       required: true
-      description: The key identifier for the resource
       schema:
         type: string
     WorkspaceId:
       name: workspace
       in: path
       required: true
-      description: The workspace identifier
       schema:
         type: string
     PublicationName:
@@ -13300,49 +13297,42 @@ components:
       name: version
       in: path
       required: true
-      description: The version identifier
       schema:
         type: number
     Token:
       name: token
       in: path
       required: true
-      description: The authentication token
       schema:
         type: string
     AccountId:
       name: id
       in: path
       required: true
-      description: The account identifier
       schema:
         type: integer
     ClientName:
       name: client_name
       in: path
       required: true
-      description: The client name identifier
       schema:
         type: string
     ScriptPath:
       name: path
       in: path
       required: true
-      description: The path to the script
       schema:
         type: string
     ScriptHash:
       name: hash
       in: path
       required: true
-      description: The hash of the script
       schema:
         type: string
     JobId:
       name: id
       in: path
       required: true
-      description: The UUID identifier of the job
       schema:
         type: string
         format: uuid
@@ -13350,35 +13340,30 @@ components:
       name: path
       in: path
       required: true
-      description: The path to the resource (e.g., script, flow, variable, etc.)
       schema:
         type: string
     CustomPath:
       name: custom_path
       in: path
       required: true
-      description: The custom path identifier
       schema:
         type: string
     PathId:
       name: id
       in: path
       required: true
-      description: The numeric identifier for the path
       schema:
         type: integer
     PathVersion:
       name: version
       in: path
       required: true
-      description: The version number of the resource
       schema:
         type: integer
     Name:
       name: name
       in: path
       required: true
-      description: The name of the resource
       schema:
         type: string
     Page:
@@ -13654,40 +13639,34 @@ components:
     RunnableId:
       name: runnable_id
       in: query
-      description: The identifier of the runnable (script or flow)
       schema:
         type: string
     RunnableTypeQuery:
       name: runnable_type
       in: query
-      description: The type of runnable (ScriptPath, ScriptHash, or FlowPath)
       schema:
         $ref: "#/components/schemas/RunnableType"
     InputId:
       name: input
       in: path
       required: true
-      description: The identifier of the saved input
       schema:
         type: string
     GetStarted:
       name: get_started
       in: query
-      description: Whether to show getting started information
       schema:
         type: boolean
     ConcurrencyId:
       name: concurrency_id
       in: path
       required: true
-      description: The concurrency identifier for limiting concurrent execution
       schema:
         type: string
     RunnableKind:
       name: runnable_kind
       in: path
       required: true
-      description: The kind of runnable resource (script or flow)
       schema:
         type: string
         enum: [script, flow]
@@ -14065,6 +14044,7 @@ components:
 
     ScriptArgs:
       type: object
+      description: The arguments to pass to the script or flow
       additionalProperties: {}
 
     Input:
@@ -14567,18 +14547,25 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The description of the variable
         account:
           type: integer
+          description: The account identifier
         is_oauth:
           type: boolean
+          description: Whether the variable is an OAuth variable
         expires_at:
           type: string
+          description: The expiration date of the variable
           format: date-time
       required:
         - path
@@ -14591,12 +14578,16 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The new value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The new description of the variable
 
     AuditLog:
       type: object
@@ -14929,11 +14920,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         value: {}
         description:
           type: string
+          description: The description of the resource
         resource_type:
           type: string
+          description: The resource_type associated with the resource
       required:
         - path
         - value
@@ -14944,9 +14938,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         description:
           type: string
+          description: The new description of the resource
         value: {}
+        resource_type:
+          type: string
+          description: The new resource_type to be associated with the resource
 
     Resource:
       type: object
@@ -15147,54 +15146,78 @@ components:
       properties:
         path:
           type: string
+          description: The path where the schedule will be created
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         script_path:
           type: string
+          description: The path to the script or flow to trigger
         is_flow:
           type: boolean
+          description: Whether the schedule is for a flow
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         enabled:
           type: boolean
+          description: Whether the schedule is enabled
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - path
         - schedule
@@ -15208,46 +15231,66 @@ components:
       properties:
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - schedule
         - timezone
