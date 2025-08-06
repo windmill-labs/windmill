@@ -728,6 +728,50 @@ paths:
               schema:
                 type: boolean
 
+  /settings/databases_exist:
+    post:
+      summary: checks that all given databases exist or else return the ones that don't
+      operationId: databasesExist
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: databases that do not exist
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /settings/create_ducklake_database/{name}:
+    post:
+      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
+      operationId: createDucklakeDatabase
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to create
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /settings/global/{key}:
     get:
       summary: get global settings
@@ -1918,6 +1962,8 @@ paths:
                     type: boolean
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
+                  ducklake:
+                    $ref: "#/components/schemas/DucklakeSettings"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   deploy_ui:
@@ -2421,6 +2467,51 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+
+  /w/{workspace}/workspaces/list_ducklakes:
+    get:
+      summary: list ducklakes
+      operationId: listDucklakes
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/edit_ducklake_config:
+    post:
+      summary: edit ducklake settings
+      operationId: editDucklakeConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Ducklake settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  $ref: "#/components/schemas/DucklakeSettings"
 
       responses:
         "200":
@@ -13976,10 +14067,7 @@ components:
               path:
                 type: string
               kind:
-                type: string
-                enum:
-                  - s3object
-                  - resource
+                $ref: "#/components/schemas/AssetKind"
               access_type:
                 type: string
                 enum: [r, w, rw]
@@ -17133,6 +17221,39 @@ components:
               public_resource:
                 type: boolean
 
+    DucklakeSettings:
+      type: object
+      required: [ducklakes]
+      properties:
+        ducklakes:
+          type: object
+          additionalProperties:
+            type: object
+            required: [catalog, storage]
+            properties:
+              catalog:
+                type: object
+                properties:
+                  resource_type:
+                    type: string
+                    enum:
+                      - postgresql
+                      - mysql
+                      - instance
+                  resource_path:
+                    type: string
+                required:
+                  - resource_type
+              storage:
+                type: object
+                properties:
+                  storage:
+                    type: string
+                  path:
+                    type: string
+                required:
+                  - path
+
     WindmillLargeFile:
       type: object
       properties:
@@ -17711,6 +17832,7 @@ components:
       enum:
         - s3object
         - resource
+        - ducklake
     Asset:
       type: object
       properties:

@@ -38,17 +38,18 @@ use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
+use windmill_common::workspaces::GitRepositorySettings;
+#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-#[cfg(feature = "enterprise")]
-use windmill_common::workspaces::GitRepositorySettings;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -114,9 +115,14 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route("/edit_ducklake_config", post(edit_ducklake_config))
+        .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
-        .route("/delete_git_sync_repository", delete(delete_git_sync_repository))
+        .route(
+            "/delete_git_sync_repository",
+            delete(delete_git_sync_repository),
+        )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
@@ -229,6 +235,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
@@ -296,9 +304,19 @@ struct LargeFileStorageWithSecondary {
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDucklakeConfig {
+    settings: DucklakeSettings,
 }
 
 #[derive(Deserialize)]
@@ -439,7 +457,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, ducklake, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_optional(&mut *tx)
@@ -867,6 +885,90 @@ async fn edit_large_file_storage_config(
     ))
 }
 
+async fn list_ducklakes(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(ducklakes))
+}
+
+async fn edit_ducklake_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDucklakeConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_ducklake_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("ducklake", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that all ducklake catalog resources exist to prevent
+    // exploiting the shared property to see any resource
+    for dl in new_config.settings.ducklakes.values() {
+        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+            continue;
+        }
+        let catalog_res = sqlx::query_scalar!(
+            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &dl.catalog.resource_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if catalog_res.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Ducklake catalog resource {} not found in workspace {}",
+                dl.catalog.resource_path, &w_id
+            )));
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET ducklake = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit ducklake config for workspace {}", &w_id))
+}
+
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
     #[cfg(feature = "enterprise")]
@@ -890,12 +992,16 @@ pub struct DeleteGitSyncRepositoryRequest {
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     // Must start with $res: prefix
     if !path.starts_with("$res:") {
-        return Err(Error::BadRequest("Resource path must start with '$res:'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:'".to_string(),
+        ));
     }
 
     // Extract the actual path after $res:
@@ -903,19 +1009,29 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
 
     // Basic validation: must start with f/ or u/ and contain at least one slash
     if !actual_path.starts_with("f/") && !actual_path.starts_with("u/") {
-        return Err(Error::BadRequest("Resource path must start with '$res:f/' or '$res:u/'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:f/' or '$res:u/'".to_string(),
+        ));
     }
 
     // Must have at least 3 parts (type, folder/user, name)
     let parts: Vec<&str> = actual_path.split('/').collect();
     if parts.len() < 3 || parts.iter().any(|part| part.is_empty()) {
-        return Err(Error::BadRequest("Invalid resource path format".to_string()));
+        return Err(Error::BadRequest(
+            "Invalid resource path format".to_string(),
+        ));
     }
 
     // Resource name validation (last part)
     let resource_name = parts.last().unwrap();
-    if !resource_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err(Error::BadRequest("Resource name can only contain alphanumeric characters, underscores, and hyphens".to_string()));
+    if !resource_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(
+            "Resource name can only contain alphanumeric characters, underscores, and hyphens"
+                .to_string(),
+        ));
     }
 
     Ok(())
@@ -927,11 +1043,15 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     workspace_id: &str,
 ) {
     // Check if all repositories are in new format (have settings field)
-    let all_repos_migrated = git_sync_settings.repositories.iter()
+    let all_repos_migrated = git_sync_settings
+        .repositories
+        .iter()
         .all(|repo| repo.settings.is_some());
 
     // If all repos are migrated and we still have legacy workspace-level settings
-    if all_repos_migrated && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some()) {
+    if all_repos_migrated
+        && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some())
+    {
         tracing::info!(
             workspace_id = workspace_id,
             "All git sync repositories migrated to new format, cleaning up legacy workspace-level settings"
@@ -1073,16 +1193,29 @@ async fn edit_git_sync_repository(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("repository_path", new_config.git_repo_resource_path.as_str()), ("repository_data", &format!("{:?}", new_config.repository))].into()),
+        Some(
+            [
+                (
+                    "repository_path",
+                    new_config.git_repo_resource_path.as_str(),
+                ),
+                ("repository_data", &format!("{:?}", new_config.repository)),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
     // Check if repository exists before modifying
-    let repo_exists = git_sync_settings.repositories.iter()
+    let repo_exists = git_sync_settings
+        .repositories
+        .iter()
         .any(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     // Find and update the specific repository, or add it if it doesn't exist
-    let repo_found = git_sync_settings.repositories.iter_mut()
+    let repo_found = git_sync_settings
+        .repositories
+        .iter_mut()
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
@@ -1117,7 +1250,8 @@ async fn edit_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' {}",
+        Some(format!(
+            "Git sync repository '{}' {}",
             new_config.git_repo_resource_path,
             if repo_exists { "updated" } else { "added" }
         )),
@@ -1125,7 +1259,8 @@ async fn edit_git_sync_repository(
     )
     .await?;
 
-    Ok(format!("{} git sync repository '{}' for workspace {}",
+    Ok(format!(
+        "{} git sync repository '{}' for workspace {}",
         if repo_exists { "Updated" } else { "Added" },
         new_config.git_repo_resource_path,
         &w_id
@@ -1156,7 +1291,9 @@ async fn delete_git_sync_repository(
 
     // For deletion, only validate that path is not empty to allow cleanup of malformed entries
     if request.git_repo_resource_path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
@@ -1182,7 +1319,9 @@ async fn delete_git_sync_repository(
 
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
-    git_sync_settings.repositories.retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
+    git_sync_settings
+        .repositories
+        .retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
 
     if git_sync_settings.repositories.len() == original_count {
         return Err(Error::BadRequest(format!(
@@ -1227,12 +1366,18 @@ async fn delete_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' deleted", request.git_repo_resource_path)),
+        Some(format!(
+            "Git sync repository '{}' deleted",
+            request.git_repo_resource_path
+        )),
         false,
     )
     .await?;
 
-    Ok(format!("Deleted git sync repository '{}' from workspace {}", request.git_repo_resource_path, &w_id))
+    Ok(format!(
+        "Deleted git sync repository '{}' from workspace {}",
+        request.git_repo_resource_path, &w_id
+    ))
 }
 
 #[derive(Debug, Deserialize)]

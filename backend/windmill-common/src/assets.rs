@@ -11,6 +11,7 @@ pub enum AssetKind {
     Resource,
     // Avoid unnexpected crashes when deserializing old assets
     Variable, // Deprecated
+    Ducklake,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]

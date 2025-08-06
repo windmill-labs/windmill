@@ -19,6 +19,7 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
+use itertools::Itertools;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
@@ -595,6 +596,30 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
     }
 }
 
+// build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
+pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
+    args.iter()
+        .filter_map(|(k, v)| {
+            if let Some(value) = v {
+                Some(format!("{}{}{}", k, eq, value))
+            } else {
+                None
+            }
+        })
+        .join(sep)
+}
+
+// Some errors (duckdb) leak the password in the error message
+pub fn sanitize_string_from_password(s: &str, passwd: &str) -> Option<String> {
+    if s.contains(passwd) {
+        return Some(s.replace(passwd, "******"));
+    }
+    // Do NOT check substrings
+    // In the case the user finds a string and notices that it gets substituted,
+    // He can very easily find the next character in O(1) and thus the entire password
+    None
+}
+
 pub enum ScheduleType {
     Croner(Cron),
     Cron(cron::Schedule),
@@ -857,5 +882,25 @@ impl Display for RunnableKind {
             RunnableKind::Flow => "flow",
         };
         write!(f, "{}", runnable_kind)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_build_arg_str() {
+        let r = build_arg_str(
+            &[
+                ("host", Some("localhost")),
+                ("port", Some("5432")),
+                ("password", None),
+                ("user", Some("postgres")),
+                ("dbname", Some("test_db")),
+            ],
+            " ",
+            "=",
+        );
+        assert_eq!(r, "host=localhost port=5432 user=postgres dbname=test_db");
     }
 }

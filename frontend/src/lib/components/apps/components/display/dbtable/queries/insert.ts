@@ -14,6 +14,8 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 			return columns.map(() => `?`).join(', ')
 		case 'bigquery':
 			return columns.map((c) => `@${c.field}`).join(', ')
+		case 'duckdb':
+			return columns.map((c) => `$${c.field}`).join(', ')
 		default:
 			throw new Error('Unsupported database type')
 	}

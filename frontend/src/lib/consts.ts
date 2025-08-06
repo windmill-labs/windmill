@@ -259,5 +259,6 @@ export const DB_TYPES: Record<DbType, string[]> = {
 	ms_sql_server: MSSQL_TYPES,
 	mysql: MYSQL_TYPES,
 	postgresql: POSTGRES_TYPES,
-	snowflake: SNOWFLAKE_TYPES
+	snowflake: SNOWFLAKE_TYPES,
+	duckdb: DUCKDB_TYPES
 }
