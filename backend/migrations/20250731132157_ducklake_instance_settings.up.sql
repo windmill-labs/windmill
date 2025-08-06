@@ -1,7 +1,5 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 INSERT INTO global_settings (name, value)
-VALUES ('ducklake_user_pg_pwd', ('"' || encode(gen_random_bytes(32), 'base64') || '"')::jsonb)
+VALUES ('ducklake_user_pg_pwd', ('"' || gen_random_uuid()::text || '"')::jsonb)
 ON CONFLICT DO NOTHING;
 
 -- Cannot simply create the user because Postgres expect a static string for the password
