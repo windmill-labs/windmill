@@ -36,7 +36,6 @@ use windmill_common::{
     variables,
     worker::CLOUD_HOSTED,
 };
-use windmill_tool_macros::windmill_tool;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -203,21 +202,6 @@ async fn list_search_resources(
     Ok(Json(rows))
 }
 
-fn workspace_path_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "required": ["workspace_id"],
-        "properties": { "workspace_id": { "type": "string" } }
-    })
-}
-
-#[windmill_tool(
-    name = "list_resources",
-    description = "List resources in a workspace",
-    method = "GET",
-    path = "/api/w/:workspace_id/resources/list",
-    path_params_fn = "workspace_path_schema"
-)]
 async fn list_resources(
     authed: ApiAuthed,
     Query(lq): Query<ListResourceQuery>,

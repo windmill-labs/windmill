@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::{to_bytes, Body};
+use axum::body::{to_bytes};
 use axum::Router;
 use axum::{extract::Path, http::Request, middleware::Next, response::Response};
 use rmcp::{
@@ -18,7 +18,7 @@ use sqlx::FromRow;
 use tokio::try_join;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
-use windmill_common::{DB, HUB_BASE_URL, BASE_URL};
+use windmill_common::{DB, HUB_BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
@@ -32,7 +32,94 @@ use rmcp::transport::streamable_http_server::{
 };
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
-use windmill_tool_registry;
+use crate::mcp_tools::{all_tools, EndpointTool};
+
+pub fn endpoint_tools_to_mcp_tools(endpoint_tools: Vec<EndpointTool>) -> Vec<Tool> {
+    endpoint_tools.into_iter().map(|tool| endpoint_tool_to_mcp_tool(&tool)).collect()
+}
+
+pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
+    // Combine all schemas into a single input schema
+    let mut combined_properties = serde_json::Map::new();
+    let mut combined_required = Vec::new();
+    
+    // Add path parameters
+    if let Some(path_schema) = &tool.path_params_schema {
+        if let Some(props) = path_schema.get("properties").and_then(|p| p.as_object()) {
+            for (key, value) in props {
+                combined_properties.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(required) = path_schema.get("required").and_then(|r| r.as_array()) {
+            for req in required {
+                if let Some(req_str) = req.as_str() {
+                    combined_required.push(req_str.to_string());
+                }
+            }
+        }
+    }
+    
+    // Add query parameters
+    if let Some(query_schema) = &tool.query_params_schema {
+        if let Some(props) = query_schema.get("properties").and_then(|p| p.as_object()) {
+            for (key, value) in props {
+                combined_properties.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(required) = query_schema.get("required").and_then(|r| r.as_array()) {
+            for req in required {
+                if let Some(req_str) = req.as_str() {
+                    combined_required.push(req_str.to_string());
+                }
+            }
+        }
+    }
+    
+    // Add body parameters
+    if let Some(body_schema) = &tool.body_schema {
+        if let Some(props) = body_schema.get("properties").and_then(|p| p.as_object()) {
+            for (key, value) in props {
+                combined_properties.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(required) = body_schema.get("required").and_then(|r| r.as_array()) {
+            for req in required {
+                if let Some(req_str) = req.as_str() {
+                    combined_required.push(req_str.to_string());
+                }
+            }
+        }
+    }
+    
+    let combined_schema = serde_json::json!({
+        "type": "object",
+        "properties": combined_properties,
+        "required": combined_required
+    });
+    
+    Tool {
+        name: tool.name.clone(),
+        description: Some(tool.description.clone()),
+        input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
+        annotations: Some(ToolAnnotations {
+            title: Some(format!("{} {}", 
+                match tool.method {
+                    http::Method::GET => "GET",
+                    http::Method::POST => "POST", 
+                    http::Method::PUT => "PUT",
+                    http::Method::DELETE => "DELETE",
+                    http::Method::PATCH => "PATCH",
+                    _ => "UNKNOWN"
+                }, 
+                tool.path
+            )),
+            read_only_hint: None,
+            destructive_hint: None,
+            idempotent_hint: None,
+            open_world_hint: None,
+        }),
+    }
+}
 
 /// Transforms the path for workspace scripts/flows.
 ///
@@ -845,83 +932,145 @@ impl Runner {
 }
 
 async fn call_endpoint_tool(
-    tool: &windmill_tool_registry::EndpointTool,
+    tool: &crate::mcp_tools::EndpointTool,
     args: serde_json::Value,
-    token: Option<&str>,
+    workspace_id: &str,
 ) -> Result<serde_json::Value, Error> {
-    // Extract sections from args
-    let path_params = args.get("path_params").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
-    let query_params = args.get("query").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
-    let body_params = args.get("body").cloned().unwrap_or(serde_json::Value::Null);
-
-    // Substitute path parameters in the URL template
-    let mut url_path = tool.path.to_string();
-    if let serde_json::Value::Object(params) = path_params {
-        for (key, value) in params {
-            println!("key: {}, value: {:?}", key, value);
-            let placeholder = format!(":{}", key);
-            if let Some(str_val) = value.as_str() {
-                url_path = url_path.replace(&placeholder, str_val);
-            }
-        }
-    }
-
-    // Build query string
-    let mut query_string = String::new();
-    if let serde_json::Value::Object(params) = query_params {
-        let mut pairs = Vec::new();
-        for (key, value) in params {
-            if let Some(str_val) = value.as_str() {
-                pairs.push(format!("{}={}", 
-                    urlencoding::encode(&key), 
-                    urlencoding::encode(str_val)
-                ));
-            }
-        }
-        if !pairs.is_empty() {
-            query_string = format!("?{}", pairs.join("&"));
-        }
-    }
-
-    let full_url = format!("{}{}{}", BASE_URL.read().await, url_path, query_string);
+    let method = &tool.method;
+    let mut path_template = tool.path.to_string();
     
-    println!("Making HTTP request to: {}", full_url);
+    // Substitute path parameters
+    if let serde_json::Value::Object(args_map) = &args {
+        if let Some(path_schema) = &tool.path_params_schema {
+            if let Some(path_props) = path_schema.get("properties").and_then(|p| p.as_object()) {
+                for (param_name, _) in path_props {
+                    let placeholder = format!("{{{}}}", param_name);
+                    if path_template.contains(&placeholder) {
+                        if let Some(param_value) = args_map.get(param_name) {
+                            if let Some(str_val) = param_value.as_str() {
+                                path_template = path_template.replace(&placeholder, str_val);
+                            }
+                        } else if param_name == "workspace" {
+                            // Use the current workspace if not provided
+                            path_template = path_template.replace(&placeholder, workspace_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build query parameters
+    let mut query_params = Vec::new();
+    if let serde_json::Value::Object(args_map) = &args {
+        if let Some(query_schema) = &tool.query_params_schema {
+            if let Some(query_props) = query_schema.get("properties").and_then(|p| p.as_object()) {
+                for (param_name, _) in query_props {
+                    if let Some(value) = args_map.get(param_name) {
+                        if let Some(str_val) = value.as_str() {
+                            query_params.push(format!("{}={}", 
+                                urlencoding::encode(param_name), 
+                                urlencoding::encode(str_val)
+                            ));
+                        } else if let Some(num_val) = value.as_number() {
+                            query_params.push(format!("{}={}", param_name, num_val));
+                        } else if let Some(bool_val) = value.as_bool() {
+                            query_params.push(format!("{}={}", param_name, bool_val));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let query_string = if query_params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query_params.join("&"))
+    };
 
-    // Use reqwest to make the HTTP call
-    let client = reqwest::Client::new();
-    let mut request = client.request(
-        tool.method.clone().try_into().map_err(|_| {
-            Error::internal_error("Invalid HTTP method", None)
-        })?,
-        &full_url
-    );
+    // Prepare body for non-GET requests
+    let body_json = if method != &http::Method::GET {
+        if let Some(body_schema) = &tool.body_schema {
+            if let serde_json::Value::Object(args_map) = &args {
+                if let Some(body_props) = body_schema.get("properties").and_then(|p| p.as_object()) {
+                    let mut body_map = serde_json::Map::new();
+                    for (param_name, _) in body_props {
+                        if let Some(value) = args_map.get(param_name) {
+                            body_map.insert(param_name.clone(), value.clone());
+                        }
+                    }
+                    if !body_map.is_empty() {
+                        Some(serde_json::Value::Object(body_map))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
-    // Add body for POST/PUT/PATCH requests
-    if !body_params.is_null() && matches!(tool.method, http::Method::POST | http::Method::PUT | http::Method::PATCH) {
-        request = request.json(&body_params);
+    // Build the full URL - assume we're making internal requests to the same server
+    let base_url = std::env::var("WM_BASE_URL")
+        .or_else(|_| std::env::var("BASE_URL"))
+        .unwrap_or_else(|_| "http://localhost:8000".to_string());
+    let full_url = format!("{}/api{}{}", base_url, path_template, query_string);
+
+    // Create the HTTP request
+    let client = &crate::HTTP_CLIENT;
+    let mut request_builder = match method {
+        &http::Method::GET => client.get(&full_url),
+        &http::Method::POST => client.post(&full_url),
+        &http::Method::PUT => client.put(&full_url),
+        &http::Method::DELETE => client.delete(&full_url),
+        &http::Method::PATCH => client.patch(&full_url),
+        _ => return Err(Error::invalid_params(
+            format!("Unsupported HTTP method: {}", method),
+            Some(tool.name.clone().into())
+        )),
+    };
+
+    // Add authorization header
+    // if let Some(token) = &authed.token {
+    //     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
+    // }
+
+    // Add body for non-GET requests
+    if let Some(body) = body_json {
+        request_builder = request_builder
+            .header("Content-Type", "application/json")
+            .json(&body);
     }
 
-    if let Some(token) = token {
-        request = request.header("Authorization", format!("Bearer {}", token));
-    }
-
-    let response = request.send().await.map_err(|e| {
-        println!("HTTP request failed: {}", e);
-        Error::internal_error("HTTP request failed", None)
+    // Execute the request
+    let response = request_builder.send().await.map_err(|e| {
+        Error::internal_error(format!("Failed to execute request: {}", e), None)
     })?;
 
     let status = response.status();
-    let body_text = response.text().await.map_err(|_| {
-        Error::internal_error("Failed to read response body", None)
+    let response_text = response.text().await.map_err(|e| {
+        Error::internal_error(format!("Failed to read response text: {}", e), None)
     })?;
 
     if status.is_success() {
-        // Try to parse as JSON, fallback to string
-        let parsed_json = serde_json::from_str(&body_text)
-            .unwrap_or_else(|_| serde_json::Value::String(body_text));
-        Ok(parsed_json)
+        // Try to parse as JSON, fallback to string if not valid JSON
+        match serde_json::from_str::<serde_json::Value>(&response_text) {
+            Ok(json_value) => Ok(json_value),
+            Err(_) => Ok(serde_json::Value::String(response_text)),
+        }
     } else {
-        Err(Error::internal_error(format!("Endpoint returned {}: {}", status, body_text), None))
+        Err(Error::internal_error(
+            format!("HTTP {} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), response_text),
+            None
+        ))
     }
 }
 
@@ -990,34 +1139,19 @@ impl ServerHandler for Runner {
             })
             .map(|w_id| w_id.0.clone())?;
 
-        // First, check if this is an endpoint tool
-        for endpoint_tool in windmill_tool_registry::all_tools() {
-            if endpoint_tool.name == request.name {
-                // Extract token from query parameters
-                let token = http_parts.uri.query()
-                    .and_then(|query| {
-                        println!("query: {:?}", query);
-                        query.split('&')
-                            .find_map(|param| {
-                                let mut parts = param.split('=');
-                                if parts.next() == Some("token") {
-                                    parts.next()
-                                } else {
-                                    None
-                                }
-                            })
-                    });
-                println!("token: {:?}", token);
-
-                // Forward to actual HTTP endpoint
-                let result = call_endpoint_tool(endpoint_tool, args.clone(), token).await?;
+        // Check if this is a generated endpoint tool
+        let endpoint_tools = all_tools();
+        for endpoint_tool in endpoint_tools {
+            if endpoint_tool.name.as_ref() == request.name {
+                // This is an endpoint tool, forward to the actual HTTP endpoint
+                let result = call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id).await?;
                 return Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
                 )]));
             }
         }
 
-        // If not an endpoint tool, continue with script/flow logic
+        // Continue with script/flow logic
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
 
@@ -1136,6 +1270,8 @@ impl ServerHandler for Runner {
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
+        println!("authed: {:?}", authed.token_prefix);
+
         Runner::check_scopes(authed)?;
 
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
@@ -1243,31 +1379,10 @@ impl ServerHandler for Runner {
             );
         }
 
-        // Add endpoint tools from the inventory registry
-        for endpoint_tool in windmill_tool_registry::all_tools() {
-            let mut root = serde_json::Map::new();
-            root.insert("type".to_string(), serde_json::Value::String("object".to_string()));
-            let mut props = serde_json::Map::new();
-
-            if let Some(f) = endpoint_tool.path_params_schema {
-                props.insert("path_params".to_string(), f());
-            }
-            if let Some(f) = endpoint_tool.query_schema {
-                props.insert("query".to_string(), f());
-            }
-            if let Some(f) = endpoint_tool.body_schema {
-                props.insert("body".to_string(), f());
-            }
-
-            root.insert("properties".to_string(), serde_json::Value::Object(props));
-
-            tools.push(Tool {
-                name: endpoint_tool.name.clone(),
-                description: Some(endpoint_tool.description.clone()),
-                input_schema: Arc::new(root),
-                annotations: None,
-            });
-        }
+        // Add endpoint tools from the generated MCP tools
+        let endpoint_tools = all_tools();
+        let mut mcp_tools_converted = endpoint_tools_to_mcp_tools(endpoint_tools);
+        tools.append(&mut mcp_tools_converted);
 
         Ok(ListToolsResult { tools, next_cursor: None })
     }

@@ -3742,6 +3742,7 @@ paths:
     post:
       summary: create resource
       operationId: createResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3908,6 +3909,7 @@ paths:
     get:
       summary: list resources
       operationId: listResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:

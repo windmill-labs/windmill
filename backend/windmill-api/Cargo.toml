@@ -49,9 +49,6 @@ windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-git-sync.workspace = true
-# Tool registration dependencies
-windmill-tool-macros = { path = "../windmill-tool-macros" }
-windmill-tool-registry = { path = "../windmill-tool-registry" }
 inventory = "0.3"
 windmill-indexer = { workspace = true, optional = true }
 windmill-worker.workspace = true

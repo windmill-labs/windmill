@@ -14912,8 +14912,6 @@ dependencies = [
  "windmill-parser-py-imports",
  "windmill-parser-ts",
  "windmill-queue",
- "windmill-tool-macros",
- "windmill-tool-registry",
  "windmill-worker",
 ]
 
@@ -15339,30 +15337,6 @@ dependencies = [
  "wasm-bindgen-test",
  "windmill-parser",
  "windmill-parser-sql",
-]
-
-[[package]]
-name = "windmill-tool-macros"
-version = "0.1.0"
-dependencies = [
- "http 0.2.12",
- "inventory",
- "proc-macro2",
- "quote",
- "schemars 0.8.22",
- "serde_json",
- "syn 2.0.104",
- "windmill-tool-registry",
-]
-
-[[package]]
-name = "windmill-tool-registry"
-version = "0.1.0"
-dependencies = [
- "http 1.3.1",
- "inventory",
- "schemars 0.8.22",
- "serde_json",
 ]
 
 [[package]]

@@ -201,6 +201,8 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
+#[cfg(feature = "mcp")]
+mod mcp_tools;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
