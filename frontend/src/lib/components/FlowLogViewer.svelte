@@ -128,10 +128,10 @@
 		}
 	}
 
-	function isExpanded(id: string): boolean {
+	function isExpanded(id: string, isRunning: boolean = false): boolean {
 		// If explicitly set in expandedRows, use that value
 		// Otherwise, fall back to allExpanded
-		return expandedRows[id] ?? (allExpanded || false)
+		return expandedRows[id] ?? (allExpanded || isRunning)
 	}
 </script>
 
@@ -167,7 +167,7 @@
 						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
 						onclick={() => toggleExpanded(`flow-${flowId}`)}
 					>
-						{#if isExpanded(`flow-${flowId}`)}
+						{#if isExpanded(`flow-${flowId}`, flowData.status === 'QueuedJob')}
 							<ChevronDown size={8} />
 						{:else}
 							<ChevronRight size={8} />
@@ -212,7 +212,7 @@
 					</a>
 				</div>
 
-				{#if level === 0 || isExpanded(`flow-${flowId}`)}
+				{#if level === 0 || isExpanded(`flow-${flowId}`, flowData.status === 'QueuedJob')}
 					<div class="mb-2 transition-all duration-200 ease-in-out">
 						<!-- Show flow input arguments -->
 						{#if showResultsInputs && flowData.inputs && Object.keys(flowData.inputs).length > 0}
@@ -265,13 +265,15 @@
 										entry.stepType !== 'branchone' &&
 										entry.stepType !== 'forloopflow' &&
 										entry.stepType !== 'whileloopflow'}
+									{@const isRunning =
+										entry.status === 'InProgress' || entry.status === 'WaitingForExecutor'}
 									<li class="border-b border-gray-200 dark:border-gray-700 flex">
 										<div class="py-2 leading-tight align-top">
 											<button
 												class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
 												onclick={() => toggleExpanded(entry.id)}
 											>
-												{#if isExpanded(entry.id)}
+												{#if isExpanded(entry.id, isRunning)}
 													<ChevronDown size={8} />
 												{:else}
 													<ChevronRight size={8} />
@@ -365,7 +367,7 @@
 												{/if}
 											</div>
 
-											{#if isExpanded(entry.id)}
+											{#if isExpanded(entry.id, isRunning)}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show input arguments -->
 													<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
