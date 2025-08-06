@@ -13,7 +13,8 @@ export const forbiddenIds: string[] = [
 	'new',
 	'in',
 	'failure',
-	'preprocessor'
+	'preprocessor',
+	'as'
 ]
 
 export function numberToChars(n: number) {

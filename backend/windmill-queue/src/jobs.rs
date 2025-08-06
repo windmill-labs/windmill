@@ -1281,7 +1281,7 @@ async fn restart_job_if_perpetual_inner(
 
 #[cfg(feature = "enterprise")]
 async fn has_failure_module(db: &Pool<Postgres>, job: &MiniPulledJob) -> bool {
-    if let Ok(flow) = cache::job::fetch_flow(db, job.kind, job.runnable_id).await {
+    if let Ok(flow) = cache::job::fetch_flow(db, &job.kind, job.runnable_id).await {
         return flow.value().failure_module.is_some();
     }
     sqlx::query_scalar!(
@@ -4785,7 +4785,7 @@ async fn restarted_flows_resolution(
         ))
     })?;
 
-    let flow_data = cache::job::fetch_flow(db, row.job_kind, row.script_hash)
+    let flow_data = cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
         .or_else(|_| cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow))
         .await?;
     let flow_value = flow_data.value();

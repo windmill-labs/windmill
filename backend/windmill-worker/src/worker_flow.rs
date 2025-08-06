@@ -287,7 +287,7 @@ pub async fn update_flow_status_after_job_completion_internal(
              ))
          })?;
 
-        let flow_data = cache::job::fetch_flow(db, job_kind, script_hash)
+        let flow_data = cache::job::fetch_flow(db, &job_kind, script_hash)
             .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
             .await?;
         let flow_value = flow_data.value();

@@ -382,7 +382,7 @@ pub async fn process_result(
         Err(e) => {
             let error_value = match e {
                 Error::ExitStatus(program, i) => {
-                    let res = read_result(job_dir).await.ok();
+                    let res = read_result(job_dir, None).await.ok();
 
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
                         res.unwrap()

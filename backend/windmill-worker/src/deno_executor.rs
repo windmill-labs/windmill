@@ -283,6 +283,10 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
+function isAsyncIterable(obj) {{
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
 async function run() {{
     {dates}
     {preprocessor}
@@ -291,6 +295,12 @@ async function run() {{
         throw new Error("{main_name} function is missing");
     }}
     let res: any = await {main_name}(...argsArr);
+    if (isAsyncIterable(res)) {{
+        for await (const chunk of res) {{
+            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+        }}
+        res = null;
+    }}
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
@@ -408,7 +418,7 @@ try {{
     };
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -445,7 +455,7 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn build_import_map(

@@ -364,7 +364,7 @@ pub async fn install_bun_lockfile(
             occupancy_metrics,
             None,
         )
-        .await?
+        .await?;
     } else {
         Box::into_pin(child_process.wait()).await?;
     }
@@ -1081,6 +1081,10 @@ function argsObjToArr({{ {spread} }}) {{
     return [ {spread} ];
 }}
 
+function isAsyncIterable(obj) {{
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
@@ -1093,6 +1097,12 @@ async function run() {{
         throw new Error("{main_name} function is missing");
     }}
     let res = await Main.{main_name}(...argsArr);
+    if (isAsyncIterable(res)) {{
+        for await (const chunk of res) {{
+            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+        }}
+        res = null;
+    }}
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -1441,7 +1451,7 @@ try {{
         .await?
     };
 
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -1474,7 +1484,7 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMap<String, String> {

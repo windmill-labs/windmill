@@ -111,7 +111,6 @@
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						on:click={btn.buttonProps.onClick}
 						btnClasses="hidden md:flex items-center gap-1"
 					>
 						{btn.label}
@@ -119,7 +118,6 @@
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						on:click={btn.buttonProps.onClick}
 						iconOnly
 						btnClasses="flex md:hidden items-center gap-1"
 					>

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) + 1 AS stream_offset\n                 FROM v2_job_completed  FULL OUTER JOIN job_result_stream rs ON rs.job_id = v2_job_completed.id WHERE (v2_job_completed.id = $2 AND v2_job_completed.workspace_id = $1 OR rs.workspace_id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "result_stream: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "stream_offset",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "9f5b677a02690d3e4b4a5f5e141c7107077bbe90423102b5469e219f2a8b9293"
+}

@@ -408,7 +408,7 @@ func Run(req Req) (interface{{}}, error){{
         run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
         start_child_process(run_go, &compiled_executable_name).await?
     };
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -425,7 +425,7 @@ func Run(req Req) (interface{{}}, error){{
     )
     .await?;
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn gen_go_mod(

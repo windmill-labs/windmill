@@ -20,7 +20,6 @@ use crate::{
 };
 use windmill_common::client::AuthedClient;
 
-
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {
     static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
@@ -69,7 +68,7 @@ pub async fn handle_nu_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawV
     }
     // --- Retrieve results ---
     {
-        read_result(&args.job_dir).await
+        read_result(&args.job_dir, None).await
     }
 }
 
@@ -341,7 +340,8 @@ async fn run<'a>(
         &mut Some(occupancy_metrics),
         None,
     )
-    .await
+    .await?;
+    Ok(())
 }
 // #[cfg(test)]
 // mod test {

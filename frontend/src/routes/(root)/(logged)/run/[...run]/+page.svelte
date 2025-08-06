@@ -68,7 +68,7 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -97,7 +97,7 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 
-	let job: Job | undefined = $state()
+	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
 	let scriptProgress: number | undefined = $state(undefined)
@@ -122,6 +122,8 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	let manuallySetLogs: boolean = $state(false)
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -173,7 +175,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result != undefined) {
+		if (job && (job.result || job.result_stream)) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -182,6 +184,11 @@
 
 	async function getJob() {
 		await jobLoader?.watchJob($page.params.run, {
+			change(job: Job & { result_stream?: string }) {
+				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
+					viewTab = 'result'
+				}
+			},
 			done(job) {
 				if (job?.['result'] != undefined) {
 					viewTab = 'result'
@@ -366,13 +373,7 @@
 			runImmediatelyLoading = false
 		}
 	}
-	$effect(() => {
-		job?.logs == undefined &&
-			job &&
-			viewTab == 'logs' &&
-			isNotFlow(job?.job_kind) &&
-			jobLoader?.getLogs()
-	})
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
@@ -427,7 +428,6 @@
 {/if}
 {#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
 	<JobLoader
-		lazyLogs
 		bind:scriptProgress
 		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
@@ -933,7 +933,12 @@
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
-					<Tabs bind:selected={viewTab}>
+					<Tabs
+						bind:selected={viewTab}
+						onTabClick={(value) => {
+							manuallySetLogs = value == 'logs'
+						}}
+					>
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
@@ -975,9 +980,10 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							{:else if job !== undefined && (job.result || job.result_stream)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
+									result_stream={job.result_stream}
 									jobId={job?.id}
 									result={job.result}
 									language={job?.language}

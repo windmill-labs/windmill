@@ -14,6 +14,7 @@
 	interface Props {
 		waitingForExecutor?: boolean
 		result: any
+		result_stream?: string
 		logs: string | undefined
 		col?: boolean
 		noBorder?: boolean
@@ -31,6 +32,7 @@
 	let {
 		waitingForExecutor = false,
 		result,
+		result_stream,
 		logs = $bindable(),
 		col = false,
 		noBorder = false,
@@ -105,8 +107,8 @@
 >
 	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
-		{#if result !== undefined}
-			<DisplayResult {workspaceId} {jobId} {filename} {result} />
+		{#if result !== undefined || result_stream !== undefined}
+			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}

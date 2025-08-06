@@ -28,7 +28,7 @@
 
 	let { id, blankLink = false, workspace }: Props = $props()
 
-	let job: Job | undefined = $state(undefined)
+	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
 	let result: any = $state()
 
@@ -82,7 +82,7 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<JobLoader lazyLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
+<JobLoader noLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
@@ -239,7 +239,7 @@
 								{:else}
 									<Skeleton layout={[[5]]} />
 								{/if}
-							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}

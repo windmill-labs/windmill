@@ -39,6 +39,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -83,12 +84,14 @@
 		noControls?: boolean
 		drawerOpen?: boolean
 		nodeId?: string | undefined
+		loading?: boolean | undefined
 		language?: string | undefined
 		appPath?: string | undefined
 		customUi?: DisplayResultUi | undefined
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		result_stream?: string | undefined
 		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -111,9 +114,11 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		result_stream = undefined,
 		fixTableSizingToParent = false,
 		copilot_fix,
-		children
+		children,
+		loading = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -487,7 +492,15 @@
 </script>
 
 <HighlightTheme />
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex flex-col w-full gap-2">
+		<div class="flex items-center gap-2 text-tertiary">
+			<Loader2 class="animate-spin" size={16} /> Streaming result
+		</div>
+		<ResultStreamDisplay {result_stream} />
+	</div>
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
@@ -690,7 +703,7 @@
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
 							>{typeof result === 'string' ? result : result?.['result']}</pre
-						>{#if !noControls}
+						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
 									on:click={() =>
