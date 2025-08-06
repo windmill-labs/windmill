@@ -15306,8 +15306,6 @@ components:
       required:
         - schedule
         - timezone
-        - script_path
-        - is_flow
         - args
 
     TriggerExtraProperty:

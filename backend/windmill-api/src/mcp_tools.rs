@@ -811,7 +811,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createSchedule"),
         description: Cow::Borrowed("create schedule"),
-        instructions: Cow::Borrowed("Create a new schedule.
+        instructions: Cow::Borrowed("Creates a new schedule.
 The schedule should include seconds.
 You should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.
 "),
@@ -937,7 +937,10 @@ You should get the schema of the script or flow before creating the schedule to 
     EndpointTool {
         name: Cow::Borrowed("updateSchedule"),
         description: Cow::Borrowed("update schedule"),
-        instructions: Cow::Borrowed(""),
+        instructions: Cow::Borrowed("Updates a schedule.
+The schedule should include seconds.
+You should get the schema of the script or flow before updating the schedule to correctly specify the arguments needed.
+"),
         path: Cow::Borrowed("/w/{workspace}/schedules/update/{path}"),
         method: http::Method::POST,
         path_params_schema: Some(serde_json::json!({
@@ -1044,8 +1047,6 @@ You should get the schema of the script or flow before creating the schedule to 
         "required": [
                 "schedule",
                 "timezone",
-                "script_path",
-                "is_flow",
                 "args"
         ]
 })),
