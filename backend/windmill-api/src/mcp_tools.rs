@@ -17,6 +17,180 @@ pub struct EndpointTool {
 pub fn all_tools() -> Vec<EndpointTool> {
     vec![
     EndpointTool {
+        name: Cow::Borrowed("createVariable"),
+        description: Cow::Borrowed("create variable"),
+        path: Cow::Borrowed("/w/{workspace}/variables/create"),
+        method: http::Method::POST,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "already_encrypted": {
+                        "type": "boolean",
+                        "description": "whether the variable is already encrypted (default false)"
+                }
+        },
+        "required": []
+})),
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "string"
+                },
+                "is_secret": {
+                        "type": "boolean"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "account": {
+                        "type": "integer"
+                },
+                "is_oauth": {
+                        "type": "boolean"
+                },
+                "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                }
+        },
+        "required": [
+                "path",
+                "value",
+                "is_secret",
+                "description"
+        ]
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteVariable"),
+        description: Cow::Borrowed("delete variable"),
+        path: Cow::Borrowed("/w/{workspace}/variables/delete/{path}"),
+        method: http::Method::DELETE,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateVariable"),
+        description: Cow::Borrowed("update variable"),
+        path: Cow::Borrowed("/w/{workspace}/variables/update/{path}"),
+        method: http::Method::POST,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "already_encrypted": {
+                        "type": "boolean",
+                        "description": "whether the variable is already encrypted (default false)"
+                }
+        },
+        "required": []
+})),
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "string"
+                },
+                "is_secret": {
+                        "type": "boolean"
+                },
+                "description": {
+                        "type": "string"
+                }
+        }
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("getVariable"),
+        description: Cow::Borrowed("get variable"),
+        path: Cow::Borrowed("/w/{workspace}/variables/get/{path}"),
+        method: http::Method::GET,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "decrypt_secret": {
+                        "type": "boolean",
+                        "description": "ask to decrypt secret if this variable is secret\n(if not secret no effect, default: true)\n"
+                },
+                "include_encrypted": {
+                        "type": "boolean",
+                        "description": "ask to include the encrypted value if secret and decrypt secret is not true (default: false)\n"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listVariable"),
+        description: Cow::Borrowed("list variables"),
+        path: Cow::Borrowed("/w/{workspace}/variables/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path_start": {
+                        "type": "string",
+                        "description": "filter variables by path prefix"
+                },
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("createResource"),
         description: Cow::Borrowed("create resource"),
         path: Cow::Borrowed("/w/{workspace}/resources/create"),
@@ -26,7 +200,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "type": "object",
         "properties": {
                 "update_if_exists": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "update the resource if it already exists (default false)"
                 }
         },
         "required": []
@@ -51,6 +226,77 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type"
         ]
 })),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteResource"),
+        description: Cow::Borrowed("delete resource"),
+        path: Cow::Borrowed("/w/{workspace}/resources/delete/{path}"),
+        method: http::Method::DELETE,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateResource"),
+        description: Cow::Borrowed("update resource"),
+        path: Cow::Borrowed("/w/{workspace}/resources/update/{path}"),
+        method: http::Method::POST,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "value": {}
+        }
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("getResource"),
+        description: Cow::Borrowed("get resource"),
+        path: Cow::Borrowed("/w/{workspace}/resources/get/{path}"),
+        method: http::Method::GET,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResource"),
@@ -78,7 +324,589 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "description": "resource_types to not list from, separated by ',',"
                 },
                 "path_start": {
+                        "type": "string",
+                        "description": "filter resources by path prefix"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listQueue"),
+        description: Cow::Borrowed("list all queued jobs"),
+        path: Cow::Borrowed("/w/{workspace}/jobs/queue/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "order_desc": {
+                        "type": "boolean",
+                        "description": "order by desc order (default true)"
+                },
+                "created_by": {
+                        "type": "string",
+                        "description": "mask to filter exact matching user creator"
+                },
+                "parent_job": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The parent job that is at the origin and responsible for the execution of this script if any"
+                },
+                "worker": {
+                        "type": "string",
+                        "description": "worker this job was ran on"
+                },
+                "script_path_exact": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "script_path_start": {
+                        "type": "string",
+                        "description": "mask to filter matching starting path"
+                },
+                "schedule_path": {
+                        "type": "string",
+                        "description": "mask to filter by schedule path"
+                },
+                "script_hash": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "started_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started before (inclusive) timestamp"
+                },
+                "started_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started after (exclusive) timestamp"
+                },
+                "success": {
+                        "type": "boolean",
+                        "description": "filter on successful jobs"
+                },
+                "scheduled_for_before_now": {
+                        "type": "boolean",
+                        "description": "filter on jobs scheduled_for before now (hence waitinf for a worker)"
+                },
+                "job_kinds": {
+                        "type": "string",
+                        "description": "filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,"
+                },
+                "suspended": {
+                        "type": "boolean",
+                        "description": "filter on suspended jobs"
+                },
+                "running": {
+                        "type": "boolean",
+                        "description": "filter on running jobs"
+                },
+                "args": {
+                        "type": "string",
+                        "description": "filter on jobs containing those args as a json subset (@> in postgres)"
+                },
+                "result": {
+                        "type": "string",
+                        "description": "filter on jobs containing those result as a json subset (@> in postgres)"
+                },
+                "allow_wildcards": {
+                        "type": "boolean",
+                        "description": "allow wildcards (*) in the filter of label, tag, worker"
+                },
+                "tag": {
+                        "type": "string",
+                        "description": "filter on jobs with a given tag/worker group"
+                },
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "all_workspaces": {
+                        "type": "boolean",
+                        "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)"
+                },
+                "is_not_schedule": {
+                        "type": "boolean",
+                        "description": "is not a scheduled job"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listJobs"),
+        description: Cow::Borrowed("list all jobs"),
+        path: Cow::Borrowed("/w/{workspace}/jobs/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "created_by": {
+                        "type": "string",
+                        "description": "mask to filter exact matching user creator"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')"
+                },
+                "worker": {
+                        "type": "string",
+                        "description": "worker this job was ran on"
+                },
+                "parent_job": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The parent job that is at the origin and responsible for the execution of this script if any"
+                },
+                "script_path_exact": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "script_path_start": {
+                        "type": "string",
+                        "description": "mask to filter matching starting path"
+                },
+                "schedule_path": {
+                        "type": "string",
+                        "description": "mask to filter by schedule path"
+                },
+                "script_hash": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "started_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started before (inclusive) timestamp"
+                },
+                "started_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started after (exclusive) timestamp"
+                },
+                "created_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on created before (inclusive) timestamp"
+                },
+                "created_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on created after (exclusive) timestamp"
+                },
+                "created_or_started_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on created_at for non non started job and started_at otherwise before (inclusive) timestamp"
+                },
+                "running": {
+                        "type": "boolean",
+                        "description": "filter on running jobs"
+                },
+                "scheduled_for_before_now": {
+                        "type": "boolean",
+                        "description": "filter on jobs scheduled_for before now (hence waitinf for a worker)"
+                },
+                "created_or_started_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp"
+                },
+                "created_or_started_after_completed_jobs": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp but only for the completed jobs"
+                },
+                "job_kinds": {
+                        "type": "string",
+                        "description": "filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,"
+                },
+                "suspended": {
+                        "type": "boolean",
+                        "description": "filter on suspended jobs"
+                },
+                "args": {
+                        "type": "string",
+                        "description": "filter on jobs containing those args as a json subset (@> in postgres)"
+                },
+                "tag": {
+                        "type": "string",
+                        "description": "filter on jobs with a given tag/worker group"
+                },
+                "result": {
+                        "type": "string",
+                        "description": "filter on jobs containing those result as a json subset (@> in postgres)"
+                },
+                "allow_wildcards": {
+                        "type": "boolean",
+                        "description": "allow wildcards (*) in the filter of label, tag, worker"
+                },
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "is_skipped": {
+                        "type": "boolean",
+                        "description": "is the job skipped"
+                },
+                "is_flow_step": {
+                        "type": "boolean",
+                        "description": "is the job a flow step"
+                },
+                "has_null_parent": {
+                        "type": "boolean",
+                        "description": "has null parent"
+                },
+                "success": {
+                        "type": "boolean",
+                        "description": "filter on successful jobs"
+                },
+                "all_workspaces": {
+                        "type": "boolean",
+                        "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)"
+                },
+                "is_not_schedule": {
+                        "type": "boolean",
+                        "description": "is not a scheduled job"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("cancelQueuedJob"),
+        description: Cow::Borrowed("cancel queued or running job"),
+        path: Cow::Borrowed("/w/{workspace}/jobs_u/queue/cancel/{id}"),
+        method: http::Method::POST,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The UUID identifier of the job"
+                }
+        },
+        "required": [
+                "id"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "reason": {
                         "type": "string"
+                }
+        }
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("createSchedule"),
+        description: Cow::Borrowed("create schedule"),
+        path: Cow::Borrowed("/w/{workspace}/schedules/create"),
+        method: http::Method::POST,
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "schedule": {
+                        "type": "string"
+                },
+                "timezone": {
+                        "type": "string"
+                },
+                "script_path": {
+                        "type": "string"
+                },
+                "is_flow": {
+                        "type": "boolean"
+                },
+                "args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "enabled": {
+                        "type": "boolean"
+                },
+                "on_failure": {
+                        "type": "string"
+                },
+                "on_failure_times": {
+                        "type": "number"
+                },
+                "on_failure_exact": {
+                        "type": "boolean"
+                },
+                "on_failure_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "on_recovery": {
+                        "type": "string"
+                },
+                "on_recovery_times": {
+                        "type": "number"
+                },
+                "on_recovery_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "on_success": {
+                        "type": "string"
+                },
+                "on_success_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "ws_error_handler_muted": {
+                        "type": "boolean"
+                },
+                "retry": {
+                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry"
+                },
+                "no_flow_overlap": {
+                        "type": "boolean"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "paused_until": {
+                        "type": "string",
+                        "format": "date-time"
+                },
+                "cron_version": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path",
+                "schedule",
+                "timezone",
+                "script_path",
+                "is_flow",
+                "args"
+        ]
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateSchedule"),
+        description: Cow::Borrowed("update schedule"),
+        path: Cow::Borrowed("/w/{workspace}/schedules/update/{path}"),
+        method: http::Method::POST,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "schedule": {
+                        "type": "string"
+                },
+                "timezone": {
+                        "type": "string"
+                },
+                "args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "on_failure": {
+                        "type": "string"
+                },
+                "on_failure_times": {
+                        "type": "number"
+                },
+                "on_failure_exact": {
+                        "type": "boolean"
+                },
+                "on_failure_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "on_recovery": {
+                        "type": "string"
+                },
+                "on_recovery_times": {
+                        "type": "number"
+                },
+                "on_recovery_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "on_success": {
+                        "type": "string"
+                },
+                "on_success_extra_args": {
+                        "type": "object",
+                        "additionalProperties": {}
+                },
+                "ws_error_handler_muted": {
+                        "type": "boolean"
+                },
+                "retry": {
+                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry"
+                },
+                "no_flow_overlap": {
+                        "type": "boolean"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "paused_until": {
+                        "type": "string",
+                        "format": "date-time"
+                },
+                "cron_version": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "schedule",
+                "timezone",
+                "script_path",
+                "is_flow",
+                "args"
+        ]
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteSchedule"),
+        description: Cow::Borrowed("delete schedule"),
+        path: Cow::Borrowed("/w/{workspace}/schedules/delete/{path}"),
+        method: http::Method::DELETE,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("getSchedule"),
+        description: Cow::Borrowed("get schedule"),
+        path: Cow::Borrowed("/w/{workspace}/schedules/get/{path}"),
+        method: http::Method::GET,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string",
+                        "description": "The path to the resource (e.g., script, flow, variable, etc.)"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listSchedules"),
+        description: Cow::Borrowed("list schedules"),
+        path: Cow::Borrowed("/w/{workspace}/schedules/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "args": {
+                        "type": "string",
+                        "description": "filter on jobs containing those args as a json subset (@> in postgres)"
+                },
+                "path": {
+                        "type": "string",
+                        "description": "filter by path"
+                },
+                "is_flow": {
+                        "type": "boolean",
+                        "description": "filter schedules by whether they target a flow"
+                },
+                "path_start": {
+                        "type": "string",
+                        "description": "filter schedules by path prefix"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listWorkers"),
+        description: Cow::Borrowed("list workers"),
+        path: Cow::Borrowed("/workers/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "ping_since": {
+                        "type": "integer",
+                        "description": "number of seconds the worker must have had a last ping more recent of (default to 300)"
                 }
         },
         "required": []

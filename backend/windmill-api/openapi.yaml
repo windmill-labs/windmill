@@ -2978,11 +2978,13 @@ paths:
     post:
       summary: create variable
       operationId: createVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3028,6 +3030,7 @@ paths:
     delete:
       summary: delete variable
       operationId: deleteVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3045,12 +3048,14 @@ paths:
     post:
       summary: update variable
       operationId: updateVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3073,6 +3078,7 @@ paths:
     get:
       summary: get variable
       operationId: getVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3137,11 +3143,13 @@ paths:
     get:
       summary: list variables
       operationId: listVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: path_start
+          description: filter variables by path prefix
           in: query
           schema:
             type: string
@@ -3748,6 +3756,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: update_if_exists
+          description: update the resource if it already exists (default false)
           in: query
           schema:
             type: boolean
@@ -3770,6 +3779,7 @@ paths:
     delete:
       summary: delete resource
       operationId: deleteResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3787,6 +3797,7 @@ paths:
     post:
       summary: update resource
       operationId: updateResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3837,6 +3848,7 @@ paths:
     get:
       summary: get resource
       operationId: getResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3927,6 +3939,7 @@ paths:
           schema:
             type: string
         - name: path_start
+          description: filter resources by path prefix
           in: query
           schema:
             type: string
@@ -7158,6 +7171,7 @@ paths:
     get:
       summary: list all queued jobs
       operationId: listQueue
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -7497,6 +7511,7 @@ paths:
     get:
       summary: list all jobs
       operationId: listJobs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -8437,6 +8452,7 @@ paths:
     post:
       summary: create schedule
       operationId: createSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8460,6 +8476,7 @@ paths:
     post:
       summary: update schedule
       operationId: updateSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8514,6 +8531,7 @@ paths:
     delete:
       summary: delete schedule
       operationId: deleteSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8531,6 +8549,7 @@ paths:
     get:
       summary: get schedule
       operationId: getSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8565,6 +8584,7 @@ paths:
     get:
       summary: list schedules
       operationId: listSchedules
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8578,10 +8598,12 @@ paths:
           schema:
             type: string
         - name: is_flow
+          description: filter schedules by whether they target a flow
           in: query
           schema:
             type: boolean
         - name: path_start
+          description: filter schedules by path prefix
           in: query
           schema:
             type: string
@@ -11186,6 +11208,7 @@ paths:
     get:
       summary: list workers
       operationId: listWorkers
+      x-mcp-tool: true
       tags:
         - worker
       parameters:
@@ -13249,66 +13272,77 @@ components:
       name: id
       in: path
       required: true
+      description: The unique identifier for the resource
       schema:
         type: string
     Key:
       name: key
       in: path
       required: true
+      description: The key identifier for the resource
       schema:
         type: string
     WorkspaceId:
       name: workspace
       in: path
       required: true
+      description: The workspace identifier
       schema:
         type: string
     PublicationName:
       name: publication
       in: path
       required: true
+      description: The name of the publication
       schema:
         type: string
     VersionId:
       name: version
       in: path
       required: true
+      description: The version identifier
       schema:
         type: number
     Token:
       name: token
       in: path
       required: true
+      description: The authentication token
       schema:
         type: string
     AccountId:
       name: id
       in: path
       required: true
+      description: The account identifier
       schema:
         type: integer
     ClientName:
       name: client_name
       in: path
       required: true
+      description: The client name identifier
       schema:
         type: string
     ScriptPath:
       name: path
       in: path
       required: true
+      description: The path to the script
       schema:
         type: string
     ScriptHash:
       name: hash
       in: path
       required: true
+      description: The hash of the script
       schema:
         type: string
     JobId:
       name: id
       in: path
       required: true
+      description: The UUID identifier of the job
       schema:
         type: string
         format: uuid
@@ -13316,30 +13350,35 @@ components:
       name: path
       in: path
       required: true
+      description: The path to the resource (e.g., script, flow, variable, etc.)
       schema:
         type: string
     CustomPath:
       name: custom_path
       in: path
       required: true
+      description: The custom path identifier
       schema:
         type: string
     PathId:
       name: id
       in: path
       required: true
+      description: The numeric identifier for the path
       schema:
         type: integer
     PathVersion:
       name: version
       in: path
       required: true
+      description: The version number of the resource
       schema:
         type: integer
     Name:
       name: name
       in: path
       required: true
+      description: The name of the resource
       schema:
         type: string
     Page:
@@ -13615,34 +13654,40 @@ components:
     RunnableId:
       name: runnable_id
       in: query
+      description: The identifier of the runnable (script or flow)
       schema:
         type: string
     RunnableTypeQuery:
       name: runnable_type
       in: query
+      description: The type of runnable (ScriptPath, ScriptHash, or FlowPath)
       schema:
         $ref: "#/components/schemas/RunnableType"
     InputId:
       name: input
       in: path
       required: true
+      description: The identifier of the saved input
       schema:
         type: string
     GetStarted:
       name: get_started
       in: query
+      description: Whether to show getting started information
       schema:
         type: boolean
     ConcurrencyId:
       name: concurrency_id
       in: path
       required: true
+      description: The concurrency identifier for limiting concurrent execution
       schema:
         type: string
     RunnableKind:
       name: runnable_kind
       in: path
       required: true
+      description: The kind of runnable resource (script or flow)
       schema:
         type: string
         enum: [script, flow]
