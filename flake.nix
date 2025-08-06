@@ -107,6 +107,34 @@
             glibc_multi
           ]);
         };
+        devShells."cli" = pkgs.mkShell {
+          shellHook = ''
+            if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              export FLAKE_ROOT="$(git rev-parse --show-toplevel)"
+            else
+              # Fallback to PWD if not in a git repository
+              export FLAKE_ROOT="$PWD"
+            fi
+            wm-cli-deps
+          '';
+          buildInputs = buildInputs ++ [
+            pkgs.deno
+          ];
+          packages = [
+            (pkgs.writeScriptBin "wm-cli" ''
+              deno run -A --no-check $FLAKE_ROOT/cli/src/main.ts $*
+            '')
+            (pkgs.writeScriptBin "wm-cli-deps" ''
+              pushd $FLAKE_ROOT/cli/
+              ${
+                if pkgs.stdenv.isDarwin
+                then "./gen_wm_client_mac.sh && ./windmill-utils-internal/gen_wm_client_mac.sh"
+                else "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
+              }
+              popd
+            '')
+          ];
+        };
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ [
