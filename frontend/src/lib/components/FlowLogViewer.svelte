@@ -233,7 +233,7 @@
 							</div>
 						{/if}
 
-						<!-- Flow steps will be rendered here by the main loop -->
+						<!-- Flow logs -->
 						{#if flowData.logs}
 							<div class="mb-2">
 								<LogViewer
@@ -247,6 +247,255 @@
 									noPadding
 								/>
 							</div>
+						{/if}
+
+						<!-- Flow steps - nested as children -->
+						{#if logEntries.length > 0}
+							<ul
+								class="w-full font-mono text-xs bg-surface-secondary list-none border-l border-gray-200 dark:border-gray-700"
+							>
+								{#each logEntries as entry (entry.id)}
+									{@const isLeafStep =
+										entry.stepType !== 'branchall' &&
+										entry.stepType !== 'branchone' &&
+										entry.stepType !== 'forloopflow' &&
+										entry.stepType !== 'whileloopflow'}
+									<li class="border-b border-gray-200 dark:border-gray-700 flex">
+										<div class="py-2 leading-tight align-top">
+											<button
+												class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+												onclick={() => toggleExpanded(entry.id)}
+											>
+												{#if isExpanded(entry.id)}
+													<ChevronDown size={8} />
+												{:else}
+													<ChevronRight size={8} />
+												{/if}
+											</button>
+										</div>
+										<div class="w-full leading-tight">
+											<!-- svelte-ignore a11y_click_events_have_key_events -->
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<div
+												class="py-1 flex items-center justify-between cursor-pointer {entry.status ===
+													'WaitingForPriorSteps' ||
+												entry.status === 'WaitingForEvents' ||
+												entry.status === 'WaitingForExecutor'
+													? 'opacity-50'
+													: ''}"
+												onclick={() => toggleExpanded(entry.id)}
+											>
+												<div class="flex items-center gap-2 grow min-w-0">
+													<!-- Status dot -->
+													<div
+														class="w-1.5 h-1.5 rounded-full {getStatusDot(
+															entry.status
+														)} flex-shrink-0"
+													></div>
+
+													<div class="flex items-center gap-2">
+														<span class="text-xs font-mono">
+															<b>
+																{#if entry.stepType === 'forloopflow'}
+																	For loop
+																{:else if entry.stepType === 'whileloopflow'}
+																	While loop
+																{:else if entry.stepType === 'branchall'}
+																	Branch to all
+																{:else if entry.stepType === 'branchone'}
+																	Branch to one
+																{:else if entry.stepType === 'flow'}
+																	Flow
+																{:else}
+																	Step
+																{/if}
+																{entry.stepId}
+															</b>
+															{#if entry.summary}
+																: {entry.summary}
+															{/if}
+														</span>
+														{#if entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
+															<span
+																class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
+															>
+																iteration
+																<select
+																	value={getSelectedIteration(entry.stepId)}
+																	onchange={(e) => {
+																		const target = e.target as HTMLSelectElement
+																		handleIterationChange(
+																			entry.stepId,
+																			Number(target.value),
+																			entry.stepData.subflows?.[Number(target.value)]?.jobId ?? ''
+																		)
+																	}}
+																	onclick={(e) => e.stopPropagation()}
+																	class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
+																>
+																	{#each entry.stepData.subflows as _, index}
+																		<option value={index}>
+																			{index + 1}
+																		</option>
+																	{/each}
+																</select>
+																{`/${entry.stepData.iterationTotal}`}
+															</span>
+														{/if}
+													</div>
+												</div>
+
+												{#if isLeafStep}
+													<a
+														href={getJobLink(entry.jobId)}
+														class="text-xs text-primary hover:underline font-mono"
+														target="_blank"
+														rel="noopener noreferrer"
+													>
+														{truncateRev(entry.jobId, 10)}
+													</a>
+												{/if}
+											</div>
+
+											{#if isExpanded(entry.id)}
+												<div class="my-1 transition-all duration-200 ease-in-out">
+													<!-- Show input arguments -->
+													<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
+													{#if showResultsInputs && isLeafStep && entry.args && Object.keys(entry.args).length > 0}
+														<div class="mb-2">
+															<!-- svelte-ignore a11y_click_events_have_key_events -->
+															<!-- svelte-ignore a11y_no_static_element_interactions -->
+															<div
+																class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+																onclick={() => toggleExpanded(`${entry.id}-input`)}
+															>
+																{#if isExpanded(`${entry.id}-input`)}
+																	<ChevronDown size={10} />
+																{:else}
+																	<ChevronRight size={10} />
+																{/if}
+																Input:
+															</div>
+															{#if isExpanded(`${entry.id}-input`)}
+																<div class="pl-4">
+																	<ObjectViewer json={entry.args} pureViewer={true} />
+																</div>
+															{/if}
+														</div>
+													{/if}
+
+													<!-- Show subflows for complex step types -->
+													{#if entry.stepData.subflows && entry.stepData.subflows.length > 0}
+														{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
+															{#if entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
+																<div class="border-l mb-2">
+																	<FlowLogViewer
+																		flowData={entry.stepData.subflows[
+																			getSelectedIteration(entry.stepId)
+																		]}
+																		{expandedRows}
+																		{allExpanded}
+																		{showResultsInputs}
+																		{toggleExpanded}
+																		toggleExpandAll={undefined}
+																		{onSelectedIteration}
+																		{getSelectedIteration}
+																		{workspaceId}
+																		{render}
+																		level={level + 1}
+																		flowId={entry.stepId}
+																	/>
+																</div>
+															{/if}
+														{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
+															<!-- This is a branch, show all subflows -->
+															<div class="mb-2">
+																{#each entry.stepData.subflows as subflow}
+																	<div class="mb-2 border-l">
+																		<FlowLogViewer
+																			flowData={subflow}
+																			{expandedRows}
+																			{allExpanded}
+																			{showResultsInputs}
+																			{toggleExpanded}
+																			toggleExpandAll={undefined}
+																			{onSelectedIteration}
+																			{getSelectedIteration}
+																			{workspaceId}
+																			{render}
+																			level={level + 1}
+																			flowId={subflow.jobId}
+																		/>
+																	</div>
+																{/each}
+															</div>
+														{:else if entry.stepType === 'flow'}
+															<div class="mb-2">
+																<FlowLogViewer
+																	flowData={entry.stepData.subflows[0]}
+																	{expandedRows}
+																	{allExpanded}
+																	{showResultsInputs}
+																	{toggleExpanded}
+																	toggleExpandAll={undefined}
+																	{onSelectedIteration}
+																	{getSelectedIteration}
+																	{workspaceId}
+																	{render}
+																	level={level + 1}
+																	flowId={entry.stepId}
+																/>
+															</div>
+														{/if}
+													{:else if entry.logs}
+														<div class="mb-2">
+															<LogViewer
+																content={entry.logs}
+																jobId={entry.jobId}
+																isLoading={false}
+																small={true}
+																download={false}
+																noAutoScroll={true}
+																tag={undefined}
+																noPadding
+															/>
+														</div>
+													{:else if entry.jobId && !entry.stepData.subflows}
+														<div class="mb-2">
+															<div class="text-xs text-tertiary font-mono"> No logs available </div>
+														</div>
+													{/if}
+
+													<!-- Show result if completed -->
+													<!-- Todo: show result for subflows -->
+													{#if showResultsInputs && isLeafStep && entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
+														<div class="mb-2 mt-2">
+															<!-- svelte-ignore a11y_click_events_have_key_events -->
+															<!-- svelte-ignore a11y_no_static_element_interactions -->
+															<div
+																class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+																onclick={() => toggleExpanded(`${entry.id}-result`)}
+															>
+																{#if isExpanded(`${entry.id}-result`)}
+																	<ChevronDown size={10} />
+																{:else}
+																	<ChevronRight size={10} />
+																{/if}
+																Result:
+															</div>
+															{#if isExpanded(`${entry.id}-result`)}
+																<div class="pl-4">
+																	<ObjectViewer json={entry.result} pureViewer={true} />
+																</div>
+															{/if}
+														</div>
+													{/if}
+												</div>
+											{/if}
+										</div>
+									</li>
+								{/each}
+							</ul>
 						{/if}
 
 						<!-- Show flow result if completed -->
@@ -276,243 +525,6 @@
 				{/if}
 			</div>
 		</li>
-
-		{#each logEntries as entry (entry.id)}
-			{@const isLeafStep =
-				entry.stepType !== 'branchall' &&
-				entry.stepType !== 'branchone' &&
-				entry.stepType !== 'forloopflow' &&
-				entry.stepType !== 'whileloopflow'}
-			<li class="border-b border-gray-200 dark:border-gray-700 flex">
-				<div class="py-2 leading-tight align-top">
-					<button
-						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-						onclick={() => toggleExpanded(entry.id)}
-					>
-						{#if isExpanded(entry.id)}
-							<ChevronDown size={8} />
-						{:else}
-							<ChevronRight size={8} />
-						{/if}
-					</button>
-				</div>
-				<div class="w-full leading-tight">
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="py-1 flex items-center justify-between cursor-pointer {entry.status ===
-							'WaitingForPriorSteps' ||
-						entry.status === 'WaitingForEvents' ||
-						entry.status === 'WaitingForExecutor'
-							? 'opacity-50'
-							: ''}"
-						onclick={() => toggleExpanded(entry.id)}
-					>
-						<div class="flex items-center gap-2 grow min-w-0">
-							<!-- Status dot -->
-							<div class="w-1.5 h-1.5 rounded-full {getStatusDot(entry.status)} flex-shrink-0"
-							></div>
-
-							<div class="flex items-center gap-2">
-								<span class="text-xs font-mono">
-									<b>
-										{#if entry.stepType === 'forloopflow'}
-											For loop
-										{:else if entry.stepType === 'whileloopflow'}
-											While loop
-										{:else if entry.stepType === 'branchall'}
-											Branch to all
-										{:else if entry.stepType === 'branchone'}
-											Branch to one
-										{:else if entry.stepType === 'flow'}
-											Flow
-										{:else}
-											Step
-										{/if}
-										{entry.stepId}
-									</b>
-									{#if entry.summary}
-										: {entry.summary}
-									{/if}
-								</span>
-								{#if entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
-									<span
-										class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
-									>
-										iteration
-										<select
-											value={getSelectedIteration(entry.stepId)}
-											onchange={(e) => {
-												const target = e.target as HTMLSelectElement
-												handleIterationChange(
-													entry.stepId,
-													Number(target.value),
-													entry.stepData.subflows?.[Number(target.value)]?.jobId ?? ''
-												)
-											}}
-											onclick={(e) => e.stopPropagation()}
-											class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
-										>
-											{#each entry.stepData.subflows as _, index}
-												<option value={index}>
-													{index + 1}
-												</option>
-											{/each}
-										</select>
-										{`/${entry.stepData.iterationTotal}`}
-									</span>
-								{/if}
-							</div>
-						</div>
-
-						{#if isLeafStep}
-							<a
-								href={getJobLink(entry.jobId)}
-								class="text-xs text-primary hover:underline font-mono"
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{truncateRev(entry.jobId, 10)}
-							</a>
-						{/if}
-					</div>
-
-					{#if isExpanded(entry.id)}
-						<div class="my-1 transition-all duration-200 ease-in-out">
-							<!-- Show input arguments -->
-							<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
-							{#if showResultsInputs && isLeafStep && entry.args && Object.keys(entry.args).length > 0}
-								<div class="mb-2">
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-										onclick={() => toggleExpanded(`${entry.id}-input`)}
-									>
-										{#if isExpanded(`${entry.id}-input`)}
-											<ChevronDown size={10} />
-										{:else}
-											<ChevronRight size={10} />
-										{/if}
-										Input:
-									</div>
-									{#if isExpanded(`${entry.id}-input`)}
-										<div class="pl-4">
-											<ObjectViewer json={entry.args} pureViewer={true} />
-										</div>
-									{/if}
-								</div>
-							{/if}
-
-							<!-- Show subflows for complex step types -->
-							{#if entry.stepData.subflows && entry.stepData.subflows.length > 0}
-								{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
-									{#if entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
-										<div class="border-l mb-2">
-											<FlowLogViewer
-												flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
-												{expandedRows}
-												{allExpanded}
-												{showResultsInputs}
-												{toggleExpanded}
-												toggleExpandAll={undefined}
-												{onSelectedIteration}
-												{getSelectedIteration}
-												{workspaceId}
-												{render}
-												level={level + 1}
-												flowId={entry.stepId}
-											/>
-										</div>
-									{/if}
-								{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
-									<!-- This is a branch, show all subflows -->
-									<div class="mb-2">
-										{#each entry.stepData.subflows as subflow}
-											<div class="mb-2 border-l">
-												<FlowLogViewer
-													flowData={subflow}
-													{expandedRows}
-													{allExpanded}
-													{showResultsInputs}
-													{toggleExpanded}
-													toggleExpandAll={undefined}
-													{onSelectedIteration}
-													{getSelectedIteration}
-													{workspaceId}
-													{render}
-													level={level + 1}
-													flowId={subflow.jobId}
-												/>
-											</div>
-										{/each}
-									</div>
-								{:else if entry.stepType === 'flow'}
-									<div class="mb-2">
-										<FlowLogViewer
-											flowData={entry.stepData.subflows[0]}
-											{expandedRows}
-											{allExpanded}
-											{showResultsInputs}
-											{toggleExpanded}
-											toggleExpandAll={undefined}
-											{onSelectedIteration}
-											{getSelectedIteration}
-											{workspaceId}
-											{render}
-											level={level + 1}
-											flowId={entry.stepId}
-										/>
-									</div>
-								{/if}
-							{:else if entry.logs}
-								<div class="mb-2">
-									<LogViewer
-										content={entry.logs}
-										jobId={entry.jobId}
-										isLoading={false}
-										small={true}
-										download={false}
-										noAutoScroll={true}
-										tag={undefined}
-										noPadding
-									/>
-								</div>
-							{:else if entry.jobId && !entry.stepData.subflows}
-								<div class="mb-2">
-									<div class="text-xs text-tertiary font-mono"> No logs available </div>
-								</div>
-							{/if}
-
-							<!-- Show result if completed -->
-							<!-- Todo: show result for subflows -->
-							{#if showResultsInputs && isLeafStep && entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
-								<div class="mb-2 mt-2">
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-										onclick={() => toggleExpanded(`${entry.id}-result`)}
-									>
-										{#if isExpanded(`${entry.id}-result`)}
-											<ChevronDown size={10} />
-										{:else}
-											<ChevronRight size={10} />
-										{/if}
-										Result:
-									</div>
-									{#if isExpanded(`${entry.id}-result`)}
-										<div class="pl-4">
-											<ObjectViewer json={entry.result} pureViewer={true} />
-										</div>
-									{/if}
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</li>
-		{/each}
 	</ul>
 {/if}
 
