@@ -7,7 +7,7 @@
 
 	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { AppService, DraftService, SettingService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
@@ -113,7 +113,6 @@
 					policy: any
 					draft_only?: boolean
 					custom_path?: string
-					workspaced_route?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -411,8 +410,7 @@
 					summary: $summary,
 					policy,
 					deployment_message: deploymentMsg,
-					custom_path: customPath,
-					workspaced_route: workspaced_route
+					custom_path: customPath
 				}
 			})
 			savedApp = {
@@ -420,8 +418,7 @@
 				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath,
-				workspaced_route: workspaced_route
+				custom_path: customPath
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -509,8 +506,7 @@
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				workspaced_route: workspaced_route
+					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
 			}
 		})
 		savedApp = {
@@ -518,8 +514,7 @@
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
-			custom_path: customPath,
-			workspaced_route: workspaced_route
+			custom_path: customPath
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -581,8 +576,7 @@
 					summary: $summary,
 					policy,
 					draft_only: true,
-					custom_path: customPath,
-					workspaced_route: workspaced_route
+					custom_path: customPath
 				}
 			})
 			await DraftService.createDraft({
@@ -595,8 +589,7 @@
 						path: newEditedPath,
 						summary: $summary,
 						policy,
-						custom_path: customPath,
-						workspaced_route: workspaced_route
+						custom_path: customPath
 					}
 				}
 			})
@@ -611,11 +604,9 @@
 					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
-					custom_path: customPath,
-					workspaced_route: workspaced_route
+					custom_path: customPath
 				},
-				custom_path: customPath,
-				workspaced_route: workspaced_route
+				custom_path: customPath
 			}
 
 			draftDrawerOpen = false
@@ -670,8 +661,7 @@
 						policy,
 						path: newEditedPath || path,
 						draft_only: true,
-						custom_path: customPath,
-						workspaced_route: workspaced_route
+						custom_path: customPath
 					}
 				})
 			}
@@ -685,8 +675,7 @@
 						summary: $summary,
 						policy,
 						path: newEditedPath || path,
-						custom_path: customPath,
-						workspaced_route: workspaced_route
+						custom_path: customPath
 					}
 				}
 			})
@@ -699,8 +688,7 @@
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
-							custom_path: customPath,
-							workspaced_route: workspaced_route
+							custom_path: customPath
 						}
 					: savedApp),
 				draft: {
@@ -708,8 +696,7 @@
 					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
-					custom_path: customPath,
-					workspaced_route: workspaced_route
+					custom_path: customPath
 				}
 			}
 
@@ -944,16 +931,25 @@
 	let customPath = $state(savedApp?.custom_path)
 	let dirtyCustomPath = $state(false)
 	let customPathError = $state('')
-	let workspaced_route = $state(savedApp?.workspaced_route ?? false)
+	let globalWorkspacedRoute = $state(false)
+
+	async function loadGlobalWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'app_workspaced_route' })
+			globalWorkspacedRoute = (setting as boolean) ?? false
+		} catch (error) {
+			globalWorkspacedRoute = false
+		}
+	}
+
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
-			customPath,
-			workspacedRoute: workspaced_route
+			customPath
 		})
 	}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	async function validateCustomPath(customPath: string, workspaced_route: boolean): Promise<void> {
+	async function validateCustomPath(customPath: string): Promise<void> {
 		customPathError = ''
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -961,10 +957,7 @@
 		validateTimeout = setTimeout(async () => {
 			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
 				customPathError = 'Invalid path'
-			} else if (
-				(customPath !== savedApp?.custom_path || workspaced_route != savedApp?.workspaced_route) &&
-				(await appExists(customPath))
-			) {
+			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
 				customPathError = 'Path already taken'
 			} else {
 				customPathError = ''
@@ -972,6 +965,12 @@
 			validateTimeout = undefined
 		}, 500)
 	}
+
+	$effect(() => {
+		customPath
+		loadGlobalWorkspacedRouteSetting()
+	})
+
 	$effect(() => {
 		if ($openDebugRun == undefined) {
 			$openDebugRun = (jobId: string) => {
@@ -989,12 +988,12 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() || workspaced_route ? $workspaceStore + '/' : ''
+			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
 		}${customPath}`
 	)
 	$effect(() => {
-		;[customPath, workspaced_route]
-		untrack(() => customPath !== undefined && validateCustomPath(customPath, workspaced_route))
+		customPath
+		untrack(() => customPath !== undefined && validateCustomPath(customPath))
 	})
 </script>
 
@@ -1292,23 +1291,6 @@
 
 				{#if customPath !== undefined}
 					<div class="flex flex-col gap-2">
-						{#if !isCloudHosted()}
-							<div class="mt-2">
-								<Toggle
-									size="sm"
-									checked={workspaced_route}
-									disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-									on:change={() => {
-										workspaced_route = !workspaced_route
-									}}
-									options={{
-										right: 'Prefix with workspace',
-										rightTooltip:
-											'Prefixes the custom path with the workspace ID (e.g., /a/{workspace_id}/{custom_path}). Note: deploying the app to another workspace updates the URL workspace prefix accordingly.'
-									}}
-								/>
-							</div>
-						{/if}
 						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
 							<div>Custom path</div>
 						</div>

@@ -225,6 +225,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
+		},
+		{
+			label: 'App workspace prefix',
+			description:
+				'Prefix all app custom URLs with the workspace ID. When enabled, apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path}',
+			key: 'app_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'Auth/OAuth/SAML': [],

@@ -57,6 +57,7 @@ use windmill_common::{
     cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
+    global_settings::{load_value_from_global_settings, APP_WORKSPACED_ROUTE_SETTING},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
@@ -280,7 +281,6 @@ pub struct CreateApp {
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -291,7 +291,6 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -974,6 +973,11 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+async fn get_app_workspaced_route_setting(db: &DB) -> Result<bool> {
+    let setting = load_value_from_global_settings(db, APP_WORKSPACED_ROUTE_SETTING).await?;
+    Ok(setting.and_then(|v| v.as_bool()).unwrap_or(false))
+}
+
 async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1005,6 +1009,8 @@ async fn create_app_internal<'a>(
     raw_app: bool,
     mut app: CreateApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
+
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -1047,7 +1053,8 @@ async fn create_app_internal<'a>(
         require_admin(authed.is_admin, &authed.username)?;
 
         let exists =
-            custom_path_exists_inner(&db, &custom_path, &w_id, app.workspaced_route).await?;
+            custom_path_exists_inner(&db, &custom_path, &w_id, Some(as_workspaced_route))
+                .await?;
 
         if exists {
             return Err(Error::BadRequest(format!(
@@ -1076,7 +1083,7 @@ async fn create_app_internal<'a>(
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
             .flatten(),
-        app.workspaced_route.unwrap_or(false)
+        as_workspaced_route
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1337,11 +1344,12 @@ async fn update_app_internal<'a>(
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
     let mut tx = user_db.clone().begin(&authed).await?;
+
+    let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
         || ns.custom_path.is_some()
-        || ns.workspaced_route.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -1398,9 +1406,9 @@ async fn update_app_internal<'a>(
                         path
                     )
                 } else {
-                    let full_custom_path = match ns.workspaced_route {
-                        Some(true) => Cow::Owned(format!("{}/{}", w_id, ncustom_path)),
-                        _ => Cow::Borrowed(ncustom_path),
+                    let full_custom_path = match as_workspaced_route {
+                        true => Cow::Owned(format!("{}/{}", w_id, ncustom_path)),
+                        false => Cow::Borrowed(ncustom_path),
                     };
                     sqlx::query_scalar!(
                         r#"
@@ -1428,10 +1436,6 @@ async fn update_app_internal<'a>(
                 }
                 sqlb.set_str("custom_path", ncustom_path);
             }
-        }
-
-        if let Some(workspaced_route) = ns.workspaced_route {
-            sqlb.set("workspaced_route", workspaced_route);
         }
 
         if let Some(mut npolicy) = ns.policy {

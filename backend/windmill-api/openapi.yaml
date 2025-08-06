@@ -6135,8 +6135,6 @@ paths:
                   type: string
                 custom_path:
                   type: string
-                workspaced_route:
-                  type: boolean
               required:
                 - path
                 - value
@@ -6182,8 +6180,6 @@ paths:
                       type: string
                     custom_path:
                       type: string
-                    workspaced_route:
-                      type: boolean
                   required:
                     - path
                     - value
@@ -6550,8 +6546,6 @@ paths:
                   type: string
                 custom_path:
                   type: string
-                workspaced_route:
-                  type: boolean
       responses:
         "200":
           description: app updated
@@ -6591,8 +6585,6 @@ paths:
                       type: string
                     custom_path:
                       type: string
-                    workspaced_route:
-                      type: boolean
                 js:
                   type: string
                 css:
@@ -6614,11 +6606,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CustomPath"
-        - name: workspaced_route
-          in: query
-          required: false
-          schema:
-            type: boolean
       responses:
         "200":
           description: custom path exists
