@@ -387,7 +387,7 @@
 					<div class="bg-surface-secondary rounded-lg p-3">
 						<div class="text-sm text-tertiary">
 							No settings changes detected. Your local sync filter settings are already up to date with the repository.
-							See the CLI instructions below on how to edit wmill.yaml or
+							See the CLI instructions below on how to edit wmill.yaml
 						</div>
 					</div>
 					<div class="flex justify-start">
