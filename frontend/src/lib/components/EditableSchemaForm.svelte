@@ -445,7 +445,7 @@
 						<div class="h-full">
 							{#if dynSelectFunctions.length > 0}
 								<Section
-									label="Dynamic select function definition"
+									label="Dynamic select functions"
 									collapsable={true}
 									collapsed={false}
 									class="text-sm"

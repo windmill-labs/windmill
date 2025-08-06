@@ -8,9 +8,7 @@
 		debounce,
 		emptyString,
 		getSchemaFromProperties,
-
 		type DynamicSelect
-
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -865,7 +863,7 @@
 		{:else if inputCat == 'dynselect'}
 			<DynSelect
 				name={label}
-				args={otherArgs}
+				{otherArgs}
 				{helperScript}
 				bind:value
 				entrypoint={format?.substring('dynselect_'.length) ?? ''}

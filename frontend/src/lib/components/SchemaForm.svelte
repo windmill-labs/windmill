@@ -318,7 +318,7 @@
 								title={formerProperty?.title}
 								placeholder={formerProperty?.placeholder}
 								orderEditable={dndConfig != undefined}
-								otherArgs={args}
+								otherArgs={{ ...args, [argName]: undefined }}
 								{helperScript}
 								{lightHeader}
 								hideNested={typeof diff[argName].diff === 'object'}
@@ -391,7 +391,7 @@
 									title={schema.properties[argName].title}
 									placeholder={schema.properties[argName].placeholder}
 									orderEditable={dndConfig != undefined}
-									otherArgs={args}
+									otherArgs={{ ...args, [argName]: undefined }}
 									{helperScript}
 									{lightHeader}
 									diffStatus={diff[argName] ?? undefined}
