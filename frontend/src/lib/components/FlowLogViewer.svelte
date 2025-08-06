@@ -146,7 +146,7 @@
 						name="showResultsInputs"
 						id="showResultsInputs"
 						bind:checked={showResultsInputs}
-						class="w-3 h-3 accent-primary"
+						class="w-3 h-4 accent-primary -my-1"
 					/>
 				</div>
 			</div>
@@ -182,9 +182,11 @@
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="py-1 flex items-center justify-between {level > 0
-						? 'cursor-pointer'
-						: ''} {flowData.status === undefined ? 'opacity-50' : ''}"
+					class={twMerge(
+						'py-1 flex items-center justify-between pr-2',
+						level > 0 ? 'cursor-pointer' : '',
+						flowData.status === undefined ? 'opacity-50' : ''
+					)}
 					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
@@ -208,7 +210,7 @@
 						rel="noopener noreferrer"
 						onclick={(e) => e.stopPropagation()}
 					>
-						{truncateRev(flowData.jobId, 10)}
+						{truncateRev(flowData.jobId, 6)}
 					</a>
 				</div>
 
@@ -240,7 +242,7 @@
 
 						<!-- Flow logs -->
 						{#if flowData.logs}
-							<div class="mb-2">
+							<div class="mb-2 pr-2">
 								<LogViewer
 									content={flowData.logs}
 									jobId={flowData.jobId}
@@ -292,7 +294,7 @@
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<div
 												class={twMerge(
-													'py-1 flex items-center justify-between',
+													'py-1 flex items-center justify-between pr-2',
 													isCollapsible ? 'cursor-pointer' : '',
 													entry.status === 'WaitingForPriorSteps' ||
 														entry.status === 'WaitingForEvents' ||
@@ -379,7 +381,7 @@
 														target="_blank"
 														rel="noopener noreferrer"
 													>
-														{truncateRev(entry.jobId, 10)}
+														{truncateRev(entry.jobId, 6)}
 													</a>
 												{/if}
 											</div>
@@ -475,7 +477,7 @@
 															</div>
 														{/if}
 													{:else if entry.logs}
-														<div class="mb-2">
+														<div class="mb-2 pr-2">
 															<LogViewer
 																content={entry.logs}
 																jobId={entry.jobId}
