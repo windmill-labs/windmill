@@ -828,6 +828,10 @@ mount {{
         } else {
             RUBY_PATH.as_str()
         });
+    
+        #[cfg(windows)]
+        let rubylib = rubylib.replace(":", ";");
+
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
