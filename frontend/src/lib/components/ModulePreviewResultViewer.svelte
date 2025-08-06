@@ -57,7 +57,7 @@
 </script>
 
 <Splitpanes horizontal>
-	<Pane size={50} minSize={10} class="text-sm text-tertiary">
+	<Pane size={65} minSize={10} class="text-sm text-tertiary">
 		{#if scriptProgress}
 			<JobProgressBar
 				job={testJob}
@@ -92,7 +92,7 @@
 			{/snippet}
 		</OutputPickerInner>
 	</Pane>
-	<Pane size={50} minSize={10}>
+	<Pane size={35} minSize={10}>
 		{#if (mod.mock?.enabled && preview != 'job') || preview == 'mock'}
 			<LogViewer
 				small

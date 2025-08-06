@@ -30,6 +30,24 @@ pub struct ObjectProperty {
     pub typ: Box<Typ>,
 }
 
+impl ObjectProperty {
+    pub fn new(key: String, typ: Box<Typ>) -> ObjectProperty {
+        ObjectProperty { key, typ }
+    }
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ObjectType {
+    pub name: Option<String>,
+    pub props: Option<Vec<ObjectProperty>>,
+}
+
+impl ObjectType {
+    pub fn new(name: Option<String>, props: Option<Vec<ObjectProperty>>) -> ObjectType {
+        ObjectType { name, props }
+    }
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub struct OneOfVariant {
@@ -51,7 +69,7 @@ pub enum Typ {
     Email,
     Sql,
     DynSelect(String),
-    Object(Vec<ObjectProperty>),
+    Object(ObjectType),
     OneOf(Vec<OneOfVariant>),
     #[default]
     Unknown,
@@ -73,14 +91,17 @@ pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {
         Value::Number(n) if n.is_i64() => Typ::Int,
         Value::Number(_) => Typ::Float,
         Value::Bool(_) => Typ::Bool,
-        Value::Object(o) => Typ::Object(
-            o.iter()
-                .map(|(k, v)| ObjectProperty {
-                    key: k.to_string(),
-                    typ: Box::new(json_to_typ(v, precise_arrays)),
-                })
-                .collect(),
-        ),
+        Value::Object(o) => Typ::Object(ObjectType::new(
+            None,
+            Some(
+                o.iter()
+                    .map(|(k, v)| ObjectProperty {
+                        key: k.to_string(),
+                        typ: Box::new(json_to_typ(v, precise_arrays)),
+                    })
+                    .collect(),
+            ),
+        )),
         Value::Array(a) => Typ::List(Box::new({
             // Check if all variant types are the same
             if !precise_arrays
@@ -96,7 +117,6 @@ pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {
                 Typ::Unknown
             }
         })),
-
         _ => Typ::Unknown,
     }
 }

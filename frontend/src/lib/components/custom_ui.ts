@@ -37,6 +37,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	downloadLogs?: boolean
 	tagSelectPlaceholder?: string
 	tagSelectNoLabel?: boolean
+	tagLabel?: string
 }
 
 export type DisplayResultUi = {
@@ -70,6 +71,8 @@ export type EditorBarUi = {
 	useVsCode?: boolean
 	diffMode?: boolean
 	s3object?: boolean
+	database?: boolean
+	ducklake?: boolean
 }
 
 export type EditableSchemaFormUi = {

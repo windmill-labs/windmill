@@ -3,9 +3,9 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type Script } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow } from '$lib/utils'
+	import { allTrue, computeShow, type DynamicSelect } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -44,10 +44,7 @@
 		onlyMaskPassword?: boolean
 		dndConfig?: DndOptions | undefined
 		items?: { id: string; value: string }[] | undefined
-		helperScript?:
-			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-			| { type: 'hash'; hash: string }
-			| undefined
+		helperScript?: DynamicSelect.HelperScript
 		lightHeader?: boolean
 		diff?: Record<string, SchemaDiff>
 		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
@@ -252,6 +249,7 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
+
 	const actions_render = $derived(actions)
 </script>
 
@@ -320,7 +318,7 @@
 								title={formerProperty?.title}
 								placeholder={formerProperty?.placeholder}
 								orderEditable={dndConfig != undefined}
-								otherArgs={args}
+								otherArgs={{ ...args, [argName]: undefined }}
 								{helperScript}
 								{lightHeader}
 								hideNested={typeof diff[argName].diff === 'object'}
@@ -393,7 +391,7 @@
 									title={schema.properties[argName].title}
 									placeholder={schema.properties[argName].placeholder}
 									orderEditable={dndConfig != undefined}
-									otherArgs={args}
+									otherArgs={{ ...args, [argName]: undefined }}
 									{helperScript}
 									{lightHeader}
 									diffStatus={diff[argName] ?? undefined}

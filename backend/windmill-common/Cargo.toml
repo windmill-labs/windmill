@@ -63,6 +63,7 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+
 aws-smithy-types-convert = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
@@ -82,6 +83,7 @@ openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
 url.workspace = true
+async-recursion.workspace = true
 
 semver.workspace = true
 croner = "2.2.0"

@@ -1,12 +1,25 @@
 use reqwest::header::HeaderMap;
 use uuid::Uuid;
-use windmill_common::{agent_workers::QueueInitJob, worker::HttpClient};
+use windmill_common::{
+    agent_workers::QueueInitJob, worker::HttpClient, workspaces::DucklakeWithConnData,
+};
 use windmill_queue::{JobAndPerms, JobCompleted};
 
 pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Result<Uuid> {
     client
         .post(
             "/api/agent_workers/queue_init_job",
+            None,
+            &QueueInitJob { content: content.to_string() },
+        )
+        .await
+        .and_then(|x: String| Uuid::parse_str(&x).map_err(|e| anyhow::anyhow!(e)))
+}
+
+pub async fn queue_periodic_job(client: &HttpClient, content: &str) -> anyhow::Result<Uuid> {
+    client
+        .post(
+            "/api/agent_workers/queue_periodic_job",
             None,
             &QueueInitJob { content: content.to_string() },
         )
@@ -34,6 +47,20 @@ pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Resul
             None,
             &jc,
         )
+        .await
+}
+
+#[allow(dead_code)]
+pub async fn get_ducklake_from_agent_http(
+    client: &HttpClient,
+    name: &str,
+    w_id: &str,
+) -> anyhow::Result<DucklakeWithConnData> {
+    client
+        .get(&format!(
+            "/api/w/{}/agent_workers/get_ducklake/{}",
+            w_id, &name
+        ))
         .await
 }
 

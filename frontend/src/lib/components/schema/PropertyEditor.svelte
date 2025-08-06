@@ -265,8 +265,6 @@
 									/>
 								</div>
 							{/if}
-						{:else if type == 'object' && format?.startsWith('dynselect-')}
-							<div class="text-tertiary text-xs">No settings available for Dynamic Select</div>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
 								<EditableSchemaForm

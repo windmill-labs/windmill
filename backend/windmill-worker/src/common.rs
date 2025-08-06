@@ -522,7 +522,7 @@ pub async fn update_worker_ping_for_failed_init_script(
 pub fn error_to_value(err: Error) -> serde_json::Value {
     match err {
         Error::JsonErr(err) => err,
-        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
+        _ => json!({"message": err.to_string(), "name": err.name()}),
     }
 }
 

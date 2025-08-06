@@ -84,10 +84,6 @@ jobs:
           cache-workspaces: backend
           toolchain: 1.88.0
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
-
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -104,6 +100,7 @@ jobs:
           allowed_tools: "mcp__github__create_pull_request,Bash"
           custom_instructions: |
             ## IMPORTANT INSTRUCTIONS
+            - Your branch name should be a short description of the requested changes.
             - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
 
             ## Code Quality Requirements

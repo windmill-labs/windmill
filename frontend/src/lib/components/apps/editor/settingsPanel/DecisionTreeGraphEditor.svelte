@@ -40,7 +40,7 @@
 	setContext('DecisionTreeEditor', { selectedNodeId })
 
 	let sortedSelectedNextNodes = $derived(
-		selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
+		[...(selectedNode?.next ?? [])].sort((n1, n2) => n1.id.localeCompare(n2.id))
 	)
 </script>
 
@@ -122,8 +122,8 @@
 												<InputsSpecEditor
 													key={`condition-${selectedNode.id}-${index}`}
 													customTitle={index === 0
-														? 'Goes to the default branch'
-														: `${index > 0 ? 'Otherwise ' : ''}Goes to branch ${index}`}
+														? 'Goes to branch 1'
+														: `${index > 0 ? 'Otherwise g' : 'G'}oes to branch ${index + 1}`}
 													bind:componentInput={subNode.condition}
 													id={selectedNode.id}
 													userInputEnabled={false}

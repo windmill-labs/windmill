@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -224,7 +224,8 @@ where
     Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
-#[derive(Serialize)]
+#[cfg(feature = "enterprise")]
+#[derive(serde::Serialize)]
 pub struct CriticalAlert {
     id: i32,
     alert_type: String,
@@ -450,4 +451,7 @@ pub struct ExpiringCacheEntry<T> {
 pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
     let mut w = lock.write().await;
     *w = value;
+}
+lazy_static::lazy_static! {
+    static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 }

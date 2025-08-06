@@ -41,7 +41,7 @@ import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
-import { argSigToJsonSchemaType } from './inferArgSig.js'
+import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
 
 const loadSchemaLastRun =
@@ -93,7 +93,8 @@ export async function inferAssets(
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			return JSON.parse(parse_assets_sql(code))
+			let r = JSON.parse(parse_assets_sql(code))
+			return r
 		}
 		if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()

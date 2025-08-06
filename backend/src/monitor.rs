@@ -65,7 +65,8 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
+        load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
@@ -213,6 +214,8 @@ pub async fn initial_load(
                     priority_tags_sorted: vec![],
                     dedicated_worker: None,
                     init_bash: load_init_bash_from_env(),
+                    periodic_script_bash: load_periodic_bash_script_from_env(),
+                    periodic_script_interval_seconds: load_periodic_bash_script_interval_from_env(),
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
@@ -1430,6 +1433,17 @@ pub async fn monitor_pool(db: &DB) {
     }
 }
 
+pub struct MonitorIteration {
+    pub rd_shift: u8,
+    pub iter: u64,
+}
+
+impl MonitorIteration {
+    pub fn should_run(&self, period: u8) -> bool {
+        self.iter % (period as u64) == self.rd_shift as u64
+    }
+}
+
 pub async fn monitor_db(
     conn: &Connection,
     base_internal_url: &str,
@@ -1437,6 +1451,7 @@ pub async fn monitor_db(
     _worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
+    iteration: Option<MonitorIteration>,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
@@ -1451,6 +1466,29 @@ pub async fn monitor_db(
             }
         }
     };
+
+    // run every 5 minutes
+    let cleanup_concurrency_counters_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_concurrency_counters_orphaned_keys(&db).await {
+                    tracing::error!("Error cleaning up concurrency counters: {:?}", e);
+                }
+            }
+        }
+    };
+
+    // run every 10 minutes
+    let cleanup_concurrency_counters_empty_keys_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_concurrency_counters_empty_keys(&db).await {
+                    tracing::error!("Error cleaning up concurrency counters: {:?}", e);
+                }
+            }
+        }
+    };
+
     let expired_items_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
@@ -1534,6 +1572,8 @@ pub async fn monitor_db(
         low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
+        cleanup_concurrency_counters_f,
+        cleanup_concurrency_counters_empty_keys_f,
     );
 }
 
@@ -1669,6 +1709,17 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     if let Err(e) = windmill_worker::common::clean_cache().await {
                         tracing::error!("Error cleaning the cache: {e:#}");
                     }
+                }
+
+                if (*wc).periodic_script_bash != config.periodic_script_bash {
+                    tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
+                {
+                    tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
                 }
             }
             drop(wc);
@@ -2063,6 +2114,104 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         )
         .await;
     }
+}
+
+async fn cleanup_concurrency_counters_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+WITH lockable_counters AS (
+    SELECT concurrency_id, job_uuids
+    FROM concurrency_counter
+    WHERE job_uuids != '{}'::jsonb
+    FOR UPDATE SKIP LOCKED
+),
+all_job_uuids AS (
+    SELECT DISTINCT jsonb_object_keys(job_uuids) AS job_uuid
+    FROM lockable_counters
+),
+orphaned_job_uuids AS (
+    SELECT job_uuid
+    FROM all_job_uuids
+    WHERE job_uuid NOT IN (
+        SELECT id::text 
+        FROM v2_job_queue 
+        FOR SHARE SKIP LOCKED
+    )
+),
+orphaned_array AS (
+    SELECT ARRAY(SELECT job_uuid FROM orphaned_job_uuids) AS orphaned_keys
+),
+before_update AS (
+    SELECT lc.concurrency_id, lc.job_uuids, oa.orphaned_keys
+    FROM lockable_counters lc, orphaned_array oa
+    WHERE lc.job_uuids ?| oa.orphaned_keys
+),
+affected_rows AS (
+    UPDATE concurrency_counter 
+    SET job_uuids = job_uuids - orphaned_array.orphaned_keys
+    FROM orphaned_array
+    WHERE concurrency_counter.concurrency_id IN (
+        SELECT concurrency_id FROM before_update
+    )
+    RETURNING concurrency_id, job_uuids AS updated_job_uuids
+),
+expanded_orphaned AS (
+    SELECT bu.concurrency_id, 
+           bu.job_uuids AS original_job_uuids,
+           unnest(bu.orphaned_keys) AS orphaned_key
+    FROM before_update bu
+)
+SELECT 
+    eo.concurrency_id,
+    eo.orphaned_key,
+    eo.original_job_uuids,
+    ar.updated_job_uuids
+FROM expanded_orphaned eo
+JOIN affected_rows ar ON eo.concurrency_id = ar.concurrency_id
+WHERE eo.original_job_uuids ? eo.orphaned_key
+ORDER BY eo.concurrency_id, eo.orphaned_key
+",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} concurrency counters", result.len());
+        for row in result {
+            tracing::info!("Concurrency counter cleaned up: concurrency_id: {}, orphaned_key: {:?}, original_job_uuids: {:?}, updated_job_uuids: {:?}", row.concurrency_id, row.orphaned_key, row.original_job_uuids, row.updated_job_uuids);
+        }
+    }
+    Ok(())
+}
+
+async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+WITH rows_to_delete AS (
+    SELECT concurrency_id
+    FROM concurrency_counter
+    WHERE job_uuids = '{}'::jsonb
+    FOR UPDATE SKIP LOCKED
+)
+DELETE FROM concurrency_counter
+WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING concurrency_id",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!(
+            "Cleaned up {} empty concurrency counters: {:?}",
+            result.len(),
+            result
+                .iter()
+                .map(|x| x.concurrency_id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
+
+    Ok(())
 }
 
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {

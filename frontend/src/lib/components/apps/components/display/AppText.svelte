@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Clipboard } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard, isCodeInjection } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
@@ -73,7 +73,7 @@
 	}
 
 	const outputs = initOutput($worldStore, id, {
-		result,
+		result: untrack(() => result),
 		loading: initializing
 	})
 

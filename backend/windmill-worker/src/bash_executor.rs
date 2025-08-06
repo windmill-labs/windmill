@@ -21,7 +21,9 @@ use windmill_common::{
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
+use windmill_queue::{
+    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
+};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -163,7 +165,10 @@ exit $exit_status
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with("init_script_"))
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -367,6 +372,7 @@ async fn handle_docker_job(
             .await;
             loop {
                 tokio::select! {
+                    biased;
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
@@ -461,21 +467,22 @@ async fn handle_docker_job(
         rm_container(&client, &container_id).await;
 
         return Err(e);
+    } else {
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), logs).await;
+        rm_container(&client, &container_id).await;
+
+        let result = result.unwrap();
+
+        if result.is_some_and(|x| x > 0) {
+            return Err(Error::ExecutionErr(format!(
+                "Docker job completed with unsuccessful exit status: {}",
+                result.unwrap()
+            )));
+        }
+        return Ok(to_raw_value(&json!(format!(
+            "Docker job completed with success exit status"
+        ))));
     }
-
-    rm_container(&client, &container_id).await;
-
-    let result = result.unwrap();
-
-    if result.is_some_and(|x| x > 0) {
-        return Err(Error::ExecutionErr(format!(
-            "Docker job completed with unsuccessful exit status: {}",
-            result.unwrap()
-        )));
-    }
-    return Ok(to_raw_value(&json!(format!(
-        "Docker job completed with success exit status"
-    ))));
 }
 
 #[cfg(feature = "dind")]
@@ -733,7 +740,16 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let nsjail = !*DISABLE_NSJAIL
+        && job
+            .runnable_path
+            .as_ref()
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
+            .unwrap_or(true);
+    let child = if nsjail {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -797,6 +813,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         #[cfg(windows)]
         {
             cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("WINDIR", SYSTEM_ROOT.as_str())
                 .env(
                     "LOCALAPPDATA",
                     std::env::var("LOCALAPPDATA")

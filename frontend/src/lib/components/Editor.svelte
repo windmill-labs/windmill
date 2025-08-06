@@ -1,6 +1,4 @@
-<!-- <script lang="ts"></script> -->
-
-<script context="module">
+<script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import processStdContent from '$lib/process.d.ts.txt?raw'
@@ -76,7 +74,7 @@
 
 	import { sendUserToast } from '$lib/toast'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
@@ -157,49 +155,79 @@
 	import type { Selection } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
-	let divEl: HTMLDivElement | null = null
-	let editor: meditor.IStandaloneCodeEditor | null = null
+	let divEl: HTMLDivElement | null = $state(null)
+	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
 
-	export let code: string = ''
-	export let cmdEnterAction: (() => void) | undefined = undefined
-	export let formatAction: (() => void) | undefined = undefined
-	export let automaticLayout = true
-	export let websocketAlive = {
-		pyright: false,
-		ruff: false,
-		deno: false,
-		go: false,
-		shellcheck: false
+	interface Props {
+		// for related places search: ADD_NEW_LANG
+		code?: string
+		cmdEnterAction?: (() => void) | undefined
+		formatAction?: (() => void) | undefined
+		automaticLayout?: boolean
+		websocketAlive?: any
+		shouldBindKey?: boolean
+		fixedOverflowWidgets?: boolean
+		path?: string | undefined
+		yContent?: Text | undefined
+		awareness?: any | undefined
+		folding?: boolean
+		args?: Record<string, any> | undefined
+		useWebsockets?: boolean
+		small?: boolean
+		scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
+		disabled?: boolean
+		lineNumbersMinChars?: number
+		files?: Record<string, { code: string; readonly?: boolean }> | undefined
+		extraLib?: string | undefined
+		changeTimeout?: number
+		loadAsync?: boolean
+		key?: string | undefined
+		class?: string | undefined
 	}
-	export let shouldBindKey: boolean = true
-	export let fixedOverflowWidgets = true
-	export let path: string | undefined = undefined
-	export let yContent: Text | undefined = undefined
-	export let awareness: any | undefined = undefined
-	export let folding = false
-	export let args: Record<string, any> | undefined = undefined
-	export let useWebsockets: boolean = true
-	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
-	export let disabled: boolean = false
-	export let lineNumbersMinChars = 3
-	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
-	export let extraLib: string | undefined = undefined
-	export let changeTimeout: number = 500
-	export let loadAsync = false
-	export let key: string | undefined = undefined
 
-	let lang = scriptLangToEditorLang(scriptLang)
-	$: lang = scriptLangToEditorLang(scriptLang)
+	let {
+		code = $bindable(),
+		cmdEnterAction = undefined,
+		formatAction = undefined,
+		automaticLayout = true,
+		websocketAlive = $bindable(),
+		shouldBindKey = true,
+		fixedOverflowWidgets = true,
+		path = undefined,
+		yContent = undefined,
+		awareness = undefined,
+		folding = false,
+		args = undefined,
+		useWebsockets = true,
+		small = false,
+		scriptLang,
+		disabled = false,
+		lineNumbersMinChars = 3,
+		files = {},
+		extraLib = undefined,
+		changeTimeout = 500,
+		loadAsync = false,
+		key = undefined,
+		class: clazz = undefined
+	}: Props = $props()
 
-	let filePath = computePath(path)
-	$: filePath = computePath(path)
+	$effect.pre(() => {
+		if (websocketAlive == undefined) {
+			websocketAlive = {
+				pyright: false,
+				ruff: false,
+				deno: false,
+				go: false,
+				shellcheck: false
+			}
+		}
+	})
 
-	let initialPath: string | undefined = path
+	let lang = $state(scriptLangToEditorLang(scriptLang))
 
-	$: path != initialPath &&
-		(scriptLang == 'deno' || scriptLang == 'bun' || scriptLang == 'bunnative') &&
-		handlePathChange()
+	let filePath = $state(computePath(path))
+
+	let initialPath: string | undefined = $state(path)
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
@@ -210,10 +238,13 @@
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
-	let dbSchema: DBSchema | undefined = undefined
+	let dbSchema: DBSchema | undefined = $state(undefined)
 
 	let destroyed = false
-	const uri = computeUri(filePath, scriptLang)
+	const uri = computeUri(
+		untrack(() => filePath),
+		scriptLang
+	)
 
 	console.log('uri', uri)
 
@@ -449,11 +480,7 @@
 
 	let command: IDisposable | undefined = undefined
 
-	let sqlTypeCompletor: IDisposable | undefined = undefined
-
-	$: initialized && lang === 'sql' && scriptLang
-		? addSqlTypeCompletions()
-		: sqlTypeCompletor?.dispose()
+	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
 
 	function addSqlTypeCompletions() {
 		if (sqlTypeCompletor) {
@@ -523,17 +550,12 @@
 		}
 	}
 
-	$: lang && args && $dbSchemas && updateSchema()
-	$: initialized && dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
-
 	function disposeSqlSchemaCompletor() {
 		sqlSchemaCompletor?.dispose()
 	}
-	$: (!dbSchema || lang !== 'sql') && disposeSqlSchemaCompletor()
 	function disposeGaphqlService() {
 		graphqlService = undefined
 	}
-	$: (!dbSchema || lang !== 'graphql') && disposeGaphqlService()
 
 	function addDBSchemaCompletions() {
 		const { lang: schemaLang, schema } = dbSchema || {}
@@ -632,13 +654,13 @@
 		}
 	}
 
-	let reviewingChanges = writable(false)
-	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+	let reviewingChanges = $state(writable(false))
+	let aiChatEditorHandler: AIChatEditorHandler | undefined = $state(undefined)
 
 	// Inline ai chat widget
-	let showInlineAIChat = false
-	let inlineAIChatSelection: Selection | null = null
-	let selectedCode = ''
+	let showInlineAIChat = $state(false)
+	let inlineAIChatSelection: Selection | null = $state(null)
+	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
@@ -653,7 +675,7 @@
 		}
 	}
 
-	let autocompletor: Autocompletor | undefined = undefined
+	let autocompletor: Autocompletor | undefined = $state(undefined)
 
 	function addAutoCompletor(
 		editor: meditor.IStandaloneCodeEditor,
@@ -664,18 +686,6 @@
 		}
 		autocompletor = new Autocompletor(editor, scriptLang)
 	}
-
-	$: $copilotInfo.enabled &&
-		$codeCompletionSessionEnabled &&
-		Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
-		initialized &&
-		editor &&
-		scriptLang &&
-		addAutoCompletor(editor, scriptLang)
-
-	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
-
-	$: !$codeCompletionSessionEnabled && autocompletor?.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -816,6 +826,10 @@
 					try {
 						console.log('starting client')
 						await languageClient.start()
+						// for python we want to use the pyright client for signature help, not ruff
+						if (lang !== 'python' || (lang === 'python' && name == 'pyright')) {
+							autocompletor?.setLanguageClient(languageClient)
+						}
 						console.log('started client')
 					} catch (err) {
 						console.log('err at client')
@@ -1079,32 +1093,20 @@
 	}
 
 	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
-	let model: meditor.ITextModel | undefined = undefined
+	let model: meditor.ITextModel | undefined = $state(undefined)
 
-	let monacoBinding: MonacoBinding | undefined = undefined
+	let monacoBinding: MonacoBinding | undefined = $state(undefined)
 
-	$: if (yContent && awareness && model && editor) {
-		monacoBinding && monacoBinding.destroy()
-		monacoBinding = new MonacoBinding(
-			yContent,
-			model!,
-			new Set([editor as meditor.IStandaloneCodeEditor]),
-			awareness
-		)
-	}
-
-	let initialized = false
+	let initialized = $state(false)
 	let ata: ((s: string | DepsToGet) => void) | undefined = undefined
 
-	let statusDiv: Element | null = null
+	let statusDiv: Element | null = $state(null)
 
 	function saveDraft() {
 		dispatch('saveDraft', code)
 	}
 
-	let vimDisposable: IDisposable | undefined = undefined
-	$: editor && $vimMode && statusDiv && onVimMode()
-	$: !$vimMode && vimDisposable && onVimDisable()
+	let vimDisposable: IDisposable | undefined = $state(undefined)
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -1115,8 +1117,6 @@
 			vimDisposable = initVim(editor, statusDiv, saveDraft)
 		}
 	}
-
-	$: files && model && onFileChanges()
 
 	let svelteRegistered = false
 	let vueRegistered = false
@@ -1209,7 +1209,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang == 'nu' ? 'python' : lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang == 'nu' ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1224,7 +1224,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1468,7 +1468,7 @@
 			})
 			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
-				ata?.(code)
+				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
 		}
@@ -1513,7 +1513,7 @@
 		selectedCode = ''
 	}
 
-	let aiChatInlineWidget: AIChatInlineWidget | null = null
+	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
 
 	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
@@ -1569,6 +1569,76 @@
 			}
 		}
 	}
+	$effect(() => {
+		lang = scriptLangToEditorLang(scriptLang)
+	})
+	$effect(() => {
+		filePath = computePath(path)
+	})
+	$effect(() => {
+		path != initialPath &&
+			(scriptLang == 'deno' || scriptLang == 'bun' || scriptLang == 'bunnative') &&
+			untrack(() => {
+				handlePathChange()
+			})
+	})
+	$effect(() => {
+		initialized && lang === 'sql' && scriptLang
+			? untrack(() => addSqlTypeCompletions())
+			: sqlTypeCompletor?.dispose()
+	})
+	$effect(() => {
+		lang && args && $dbSchemas && untrack(() => updateSchema())
+	})
+	$effect(() => {
+		initialized &&
+			dbSchema &&
+			['sql', 'graphql'].includes(lang) &&
+			untrack(() => addDBSchemaCompletions())
+	})
+	$effect(() => {
+		;(!dbSchema || lang !== 'sql') && untrack(() => disposeSqlSchemaCompletor())
+	})
+	$effect(() => {
+		;(!dbSchema || lang !== 'graphql') && untrack(() => disposeGaphqlService())
+	})
+	$effect(() => {
+		$copilotInfo.enabled &&
+			$codeCompletionSessionEnabled &&
+			Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
+			initialized &&
+			editor &&
+			scriptLang &&
+			untrack(() => editor && addAutoCompletor(editor, scriptLang))
+	})
+	$effect(() => {
+		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
+	})
+	$effect(() => {
+		!$codeCompletionSessionEnabled && autocompletor?.dispose()
+	})
+	$effect(() => {
+		if (yContent && awareness && model && editor) {
+			monacoBinding && monacoBinding.destroy()
+			untrack(() => {
+				monacoBinding = new MonacoBinding(
+					yContent,
+					model!,
+					new Set([editor as meditor.IStandaloneCodeEditor]),
+					awareness
+				)
+			})
+		}
+	})
+	$effect(() => {
+		editor && $vimMode && statusDiv && untrack(() => onVimMode())
+	})
+	$effect(() => {
+		!$vimMode && vimDisposable && untrack(() => onVimDisable())
+	})
+	$effect(() => {
+		files && model && untrack(() => onFileChanges())
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1578,7 +1648,7 @@
 		<FakeMonacoPlaceHolder {code} />
 	</div>
 {/if}
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
+<div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}

@@ -323,8 +323,6 @@ pub async fn create_token_for_owner(
 #[cfg(feature = "aws_auth")]
 pub mod aws {
 
-    use crate::error::to_anyhow;
-
     use super::*;
     use crate::utils::empty_as_none;
     use aws_config::{BehaviorVersion, Region};
@@ -332,7 +330,9 @@ pub mod aws {
         config::Credentials as AwsCredentials,
         operation::{
             assume_role_with_saml::AssumeRoleWithSamlOutput,
-            assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
+            assume_role_with_web_identity::{
+                builders::AssumeRoleWithWebIdentityFluentBuilder, AssumeRoleWithWebIdentityOutput,
+            },
         },
         types::Credentials,
         Client,
@@ -396,33 +396,27 @@ pub mod aws {
         Oidc(OidcAuth),
     }
 
-    pub async fn get_oidc_authentication_data(
-        oidc_auth: OidcAuth,
-        role_session_name: Option<impl ToString>,
+    pub async fn get_assume_role_with_web_identity_fluent_builder(
+        oidc_auth: &OidcAuth,
         token: String,
-    ) -> Result<AssumeRoleWithWebIdentityOutput> {
-        let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
+        role_session_name: Option<impl ToString>,
+    ) -> Result<AssumeRoleWithWebIdentityFluentBuilder> {
+        let region = oidc_auth.region.as_deref().unwrap_or_else(|| "us-east-1");
 
         let credentials = AwsCredentials::new("", "", None, None, "UserInput");
 
         let config = aws_config::defaults(BehaviorVersion::latest())
             .credentials_provider(credentials)
-            .region(Region::new(region.clone()))
+            .region(Region::new(region.to_string()))
             .load()
             .await;
 
         let assume_role_with_web_identity_fluent_builder = Client::new(&config)
             .assume_role_with_web_identity()
-            .set_role_arn(Some(oidc_auth.role_arn))
+            .set_role_arn(Some(oidc_auth.role_arn.to_owned()))
             .set_role_session_name(role_session_name.map(|str| str.to_string()))
             .set_web_identity_token(Some(token));
 
-        let resp = assume_role_with_web_identity_fluent_builder
-            .clone()
-            .send()
-            .await
-            .map_err(to_anyhow)?;
-
-        Ok(resp)
+        Ok(assume_role_with_web_identity_fluent_builder)
     }
 }

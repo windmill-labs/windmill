@@ -72,7 +72,7 @@ export async function processToolCall<T>({
 	messages: ChatCompletionMessageParam[]
 	helpers: T
 	toolCallbacks: ToolCallbacks
-}) {
+}): Promise<ChatCompletionMessageParam> {
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
 		let result = ''
@@ -91,13 +91,20 @@ export async function processToolCall<T>({
 			result =
 				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
 		}
-		messages.push({
-			role: 'tool',
+		const toAdd = {
+			role: 'tool' as const,
 			tool_call_id: toolCall.id,
 			content: result
-		})
+		}
+		return toAdd
 	} catch (err) {
 		console.error(err)
+		return {
+			role: 'tool' as const,
+			tool_call_id: toolCall.id,
+			content:
+				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+		}
 	}
 }
 

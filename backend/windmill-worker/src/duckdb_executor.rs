@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::sync::{Arc, Mutex};
 
 use duckdb::types::TimeUnit;
 use duckdb::{params_from_iter, Row};
@@ -7,17 +8,19 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use tokio::fs::remove_file;
 use tokio::task;
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
+use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_ducklake_from_agent_http;
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -94,18 +97,19 @@ pub async fn do_duckdb(
     column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
+    let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
+
     let result_f = async {
+        let mut hidden_passwords = hidden_passwords.clone();
+        let mut bigquery_credentials = None;
+        let mut duckdb_connection_settings_cache =
+            HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
+
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
-        // Prevent interpolate_named_args from detecting argument identifiers in the signature for
-        // the first query block
-        let query = trunc_sig(query);
-
-        let (_query_with_transformed_s3_uris, mut used_storages) =
-            transform_s3_uris(query, client).await?;
-        let query = _query_with_transformed_s3_uris.as_deref().unwrap_or(query);
+        let query = transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
 
         let job_args = {
             let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
@@ -119,28 +123,17 @@ pub async fn do_duckdb(
                     let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
                         Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
                     })?;
-                    let duckdb_conn_settings: windmill_common::s3_helpers::DuckdbConnectionSettingsResponse = client
-                        .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                            s3_resource_path: None,
-                            storage: s3_obj.storage.clone(),
-                        })
+                    let duckdb_conn_settings: DuckdbConnectionSettingsResponse =
+                        get_duckdb_connection_settings(
+                            &s3_obj.storage,
+                            &mut duckdb_connection_settings_cache,
+                            client,
+                        )
                         .await?;
 
-                    let uri = match (
-                        &duckdb_conn_settings.s3_bucket,
-                        &duckdb_conn_settings.azure_container_path,
-                    ) {
-                        (Some(s3_bucket), None) => format!("s3://{}/{}", s3_bucket, &s3_obj.s3),
-                        (None, Some(az_container)) => format!("{}/{}", az_container, &s3_obj.s3),
-                        _ => {
-                            return Err(Error::ExecutionErr(
-                                "S3Object must have either s3_bucket or azure_container_path"
-                                    .to_string(),
-                            ));
-                        }
-                    };
+                    let uri =
+                        duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, &s3_obj.s3)?;
                     m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
-                    used_storages.insert(s3_obj.storage, duckdb_conn_settings);
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
                         &json_value,
@@ -149,7 +142,6 @@ pub async fn do_duckdb(
                             .clone()
                             .unwrap_or_else(|| "text".to_string())
                             .as_str(),
-                        client,
                     )?;
                     m.insert(sig_arg.name, duckdb_value);
                 }
@@ -157,36 +149,67 @@ pub async fn do_duckdb(
             m
         };
 
-        let query_block_list = parse_sql_blocks(query);
+        let query_block_list = parse_sql_blocks(&query);
 
         // Replace windmill resource ATTACH statements with the real instructions
         let query_block_list = {
             let mut v = vec![];
             for query_block in query_block_list.iter() {
+                let query_block = remove_comments(&query_block);
                 match parse_attach_db_resource(query_block) {
-                    Some(parsed) => v.extend(
-                        transform_attach_db_resource_query(&parsed, &job.id, client).await?,
-                    ),
-                    None => v.push(query_block.to_string()),
+                    Some(parsed) => {
+                        v.extend(
+                            transform_attach_db_resource_query(
+                                &parsed,
+                                &job.id,
+                                client,
+                                &mut hidden_passwords,
+                            )
+                            .await?,
+                        );
+                        if parsed.db_type == "bigquery" {
+                            bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
+                                job.id,
+                                parsed.resource_path,
+                            )?);
+                        }
+                    }
+                    None => match transform_attach_ducklake(
+                        &query_block,
+                        conn,
+                        &mut duckdb_connection_settings_cache,
+                        &mut hidden_passwords,
+                        &job.workspace_id,
+                    )
+                    .await?
+                    {
+                        Some(ducklake_query) => v.extend(ducklake_query),
+                        None => v.push(query_block.to_string()),
+                    },
                 };
             }
             v
         };
 
-        // duckdb::Connection is not Send so we do it in a single blocking task
+        // duckdb::Connection is not Send so we run the queries in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-            for (_, DuckdbConnectionSettingsResponse { connection_settings_str, .. }) in
-                used_storages.into_iter()
+            for DuckdbConnectionSettingsResponse { connection_settings_str, .. } in
+                duckdb_connection_settings_cache.values()
             {
+                hidden_passwords
+                    .lock()
+                    .unwrap()
+                    .push(connection_settings_str.clone());
                 conn.execute_batch(&connection_settings_str)
                     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
             }
 
             let mut result: Option<Box<RawValue>> = None;
             let mut column_order = None;
+
             for (query_block_index, query_block) in query_block_list.iter().enumerate() {
                 result = Some(
                     do_duckdb_inner(
@@ -205,14 +228,9 @@ pub async fn do_duckdb(
         .await
         .map_err(to_anyhow)??;
 
-        *column_order_ref = column_order;
+        drop(bigquery_credentials);
 
-        // BigQuery cleanup
-        let bq_credentials_path = make_bq_credentials_path(&job.id);
-        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
-        if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
-            remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
-        }
+        *column_order_ref = column_order;
         Ok(result)
     };
 
@@ -228,9 +246,21 @@ pub async fn do_duckdb(
         &mut Some(occupancy_metrics),
         Box::pin(futures::stream::once(async { 0 })),
     )
-    .await?;
+    .await;
 
-    Ok(result)
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            // Passwords might appear in the error message
+            let mut err_str = e.to_string();
+            for pwd in hidden_passwords.lock().unwrap().iter() {
+                if let Some(sanitized) = sanitize_string_from_password(&err_str, &pwd.clone()) {
+                    err_str = sanitized;
+                }
+            }
+            Err(Error::ExecutionErr(err_str))
+        }
+    }
 }
 
 fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>> {
@@ -314,7 +344,6 @@ fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>>
 fn json_value_to_duckdb_value(
     json_value: &serde_json::Value,
     arg_type: &str,
-    client: &AuthedClient,
 ) -> Result<duckdb::types::Value> {
     let arg_type = arg_type.to_lowercase();
     let duckdb_value = match json_value {
@@ -372,22 +401,12 @@ fn json_value_to_duckdb_value(
             }
         }
 
-        serde_json::Value::Array(arr) => duckdb::types::Value::Array(
-            arr.iter()
-                .map(|val| json_value_to_duckdb_value(val, arg_type.as_str(), client))
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        serde_json::Value::Object(map) => duckdb::types::Value::Struct(
-            map.iter()
-                .map(|(k, v)| {
-                    Ok::<_, Error>((
-                        k.clone(),
-                        json_value_to_duckdb_value(v, arg_type.as_str(), client)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?
-                .into(),
-        ),
+        serde_json::Value::Array(arr) => {
+            duckdb::types::Value::Text(serde_json::to_string(arr).map_err(to_anyhow)?)
+        }
+        serde_json::Value::Object(map) => {
+            duckdb::types::Value::Text(serde_json::to_string(map).map_err(to_anyhow)?)
+        }
 
         value @ _ => {
             return Err(Error::ExecutionErr(format!(
@@ -410,7 +429,8 @@ fn string_to_duckdb_timestamp(s: &str) -> Result<duckdb::types::Value> {
 
 fn string_to_duckdb_date(s: &str) -> Result<duckdb::types::Value> {
     use chrono::Datelike;
-    let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|e| Error::ExecutionErr(format!("Invalid date format: {}", e)))?;
     Ok(duckdb::types::Value::Date32(date.num_days_from_ce()))
 }
 
@@ -431,7 +451,7 @@ struct ParsedAttachDbResource<'a> {
 }
 fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource<'a>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '(\$res:|res://)([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH '(\$res:|res://)([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
     }
 
     for cap in RE.captures_iter(query) {
@@ -450,25 +470,32 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-async fn transform_attach_db_resource_query(
-    parsed: &ParsedAttachDbResource<'_>,
-    job_id: &Uuid,
-    client: &AuthedClient,
-) -> Result<Vec<String>> {
-    match parsed.db_type.to_lowercase().as_str() {
-        "postgres" => {
-            let resource: PgDatabase = client
-                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                .await?;
-
-            let attach_str = format!(
-                "ATTACH 'dbname={} {} host={} {} {}' AS {} (TYPE postgres{});",
-                resource.dbname,
-                resource
-                    .user
-                    .map(|u| format!("user={}", u))
+fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String> {
+    let s = match db_type.to_lowercase().as_str() {
+        "postgres" | "postgresql" => {
+            let res: PgDatabase = serde_json::from_value(db_resource)?;
+            format!(
+                "dbname={} {} host={} {} {}",
+                res.dbname,
+                res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
+                res.host,
+                res.password
+                    .map(|p| format!("password={}", p))
                     .unwrap_or_default(),
+                res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+            )
+        }
+        #[cfg(feature = "mysql")]
+        "mysql" => {
+            let resource: MysqlDatabase = serde_json::from_value(db_resource)?;
+            format!(
+                "database={} host={} ssl_mode={} {} {} {}",
+                resource.database,
                 resource.host,
+                resource
+                    .ssl
+                    .map(|ssl| if ssl { "required" } else { "disabled" })
+                    .unwrap_or("preferred"),
                 resource
                     .password
                     .map(|p| format!("password={}", p))
@@ -477,76 +504,15 @@ async fn transform_attach_db_resource_query(
                     .port
                     .map(|p| format!("port={}", p))
                     .unwrap_or_default(),
-                parsed.name,
-                parsed.extra_args.unwrap_or("")
-            );
-
-            Ok(vec![
-                "INSTALL postgres;".to_string(),
-                "LOAD postgres;".to_string(),
-                attach_str,
-            ])
-        }
-        "mysql" => {
-            #[cfg(not(feature = "mysql"))]
-            return Err(Error::ExecutionErr(
-                "MySQL feature is not enabled".to_string(),
-            ));
-
-            #[cfg(feature = "mysql")]
-            {
-                let resource: MysqlDatabase = client
-                    .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                    .await?;
-
-                let attach_str = format!(
-                    "ATTACH 'database={} host={} ssl_mode={} {} {} {}' AS {} (TYPE mysql{});",
-                    resource.database,
-                    resource.host,
-                    resource
-                        .ssl
-                        .map(|ssl| if ssl { "required" } else { "disabled" })
-                        .unwrap_or("preferred"),
-                    resource
-                        .password
-                        .map(|p| format!("password={}", p))
-                        .unwrap_or_default(),
-                    resource
-                        .port
-                        .map(|p| format!("port={}", p))
-                        .unwrap_or_default(),
-                    resource
-                        .user
-                        .map(|u| format!("user={}", u))
-                        .unwrap_or_default(),
-                    parsed.name,
-                    parsed.extra_args.unwrap_or("")
-                );
-
-                Ok(vec![
-                    "INSTALL mysql;".to_string(),
-                    "LOAD mysql;".to_string(),
-                    attach_str,
-                ])
-            }
+                resource
+                    .user
+                    .map(|u| format!("user={}", u))
+                    .unwrap_or_default(),
+            )
         }
         "bigquery" => {
-            let resource: Value = client
-                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                .await?;
-            // duckdb's bigquery extension requires a json file as credentials
-            let bq_credentials_path = make_bq_credentials_path(job_id);
-            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
-            tokio::fs::write(&bq_credentials_path, resource.to_string())
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Failed to write BigQuery credentials to {}: {}",
-                        &bq_credentials_path, e
-                    ))
-                })?;
             let project_id: String = serde_json::from_value(
-                resource
+                db_resource
                     .get("project_id")
                     .ok_or_else(|| {
                         Error::ExecutionErr("BigQuery resource must contain project_id".to_string())
@@ -554,39 +520,133 @@ async fn transform_attach_db_resource_query(
                     .to_owned(),
             )
             .map_err(|_e| Error::ExecutionErr("failed project_id deserialize".to_string()))?;
-            let attach_str = format!(
-                "ATTACH 'project={}' as {} (TYPE bigquery{});",
-                project_id,
-                parsed.name,
-                parsed.extra_args.unwrap_or("")
-            )
-            .to_string();
-            Ok(vec![
-                "INSTALL bigquery FROM community;".to_string(),
-                "LOAD bigquery;".to_string(),
-                attach_str,
-            ])
+            format!("project={}", project_id,)
         }
+        _ => {
+            return Err(Error::ExecutionErr(format!(
+                "Unsupported db type in DuckDB ATTACH: {db_type}",
+            )))
+        }
+    };
+    Ok(s)
+}
+
+fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
+    match db_type.to_lowercase().as_str() {
+        "postgres" => Ok("INSTALL postgres;"),
+        "mysql" => {
+            #[cfg(not(feature = "mysql"))]
+            return Err(Error::ExecutionErr(
+                "MySQL feature is not enabled".to_string(),
+            ));
+            #[cfg(feature = "mysql")]
+            Ok("INSTALL mysql;")
+        }
+        "bigquery" => Ok("INSTALL bigquery FROM community;"),
         _ => Err(Error::ExecutionErr(format!(
             "Unsupported db type in DuckDB ATTACH: {}",
-            parsed.db_type
+            db_type
         ))),
     }
 }
 
-// Returns the transformed query and the set of storages used
+async fn transform_attach_db_resource_query(
+    parsed: &ParsedAttachDbResource<'_>,
+    job_id: &Uuid,
+    client: &AuthedClient,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+) -> Result<Vec<String>> {
+    let db_resource: Value = client
+        .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+        .await?;
+    if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    let attach_str = format!(
+        "ATTACH '{}' as {} (TYPE {}{});",
+        format_attach_db_conn_str(db_resource, parsed.db_type)?,
+        parsed.name,
+        parsed.db_type,
+        parsed.extra_args.unwrap_or("")
+    )
+    .to_string();
+
+    Ok(vec![
+        get_attach_db_install_str(parsed.db_type)?.to_string(),
+        format!("LOAD {};", parsed.db_type),
+        attach_str,
+    ])
+}
+
+async fn transform_attach_ducklake(
+    query: &str,
+    conn: &Connection,
+    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    w_id: &str,
+) -> Result<Option<Vec<String>>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
+    }
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
+    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
+    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+    let extra_args = cap
+        .get(3)
+        .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
+        .unwrap_or("".to_string());
+
+    let ducklake = match conn {
+        Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
+        Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
+    };
+    let db_type = match ducklake.catalog.resource_type {
+        DucklakeCatalogResourceType::Instance => "postgres",
+        _ => ducklake.catalog.resource_type.as_ref(),
+    };
+
+    if let Some(pwd) = ducklake
+        .catalog_resource
+        .get("password")
+        .and_then(|p| p.as_str())
+    {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+
+    let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
+
+    let storage_settings = ducklake.storage_settings;
+    let storage = ducklake.storage.storage;
+    if !duckdb_connection_settings_cache.contains_key(&storage) {
+        duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
+    };
+    let s3_network_uri =
+        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake.storage.path)?;
+
+    let attach_str = format!(
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_network_uri}'{extra_args});",
+    );
+
+    let install_db_ext_str = get_attach_db_install_str(db_type)?;
+    Ok(Some(vec![
+        "INSTALL ducklake;".to_string(),
+        install_db_ext_str.to_string(),
+        attach_str,
+    ]))
+}
+
+// Replaces all s3 URIs in the windmill syntax with the actual S3 network URIs
 async fn transform_s3_uris(
     query: &str,
     client: &AuthedClient,
-) -> Result<(
-    Option<String>,
-    HashMap<Option<String>, DuckdbConnectionSettingsResponse>,
-)> {
+    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
+) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']+)'").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']*)'").unwrap();
     }
-    let mut used_storages = HashMap::new();
     for cap in RE.captures_iter(query) {
         if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
             let s3_path = s3_path.as_str();
@@ -596,42 +656,63 @@ async fn transform_s3_uris(
             };
             let original_str_lit =
                 format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
-            let duckdb_conn_settings = client
-                .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                    s3_resource_path: None,
-                    storage: storage.clone(),
-                })
-                .await?;
-            let url = match &duckdb_conn_settings {
-                DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
-                    format!("'s3://{bucket}/{s3_path}'")
-                }
-                DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
-                    format!("'{base}/{s3_path}'")
-                }
-                _ => {
-                    return Err(Error::ExecutionErr(
-                        "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
-                    ))?;
-                }
-            };
+            let duckdb_conn_settings =
+                get_duckdb_connection_settings(&storage, duckdb_connection_settings_cache, client)
+                    .await?;
+            let url = duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, s3_path)?;
+            let url = format!("'{url}'");
             transformed_query = Some(
                 transformed_query
                     .unwrap_or(query.to_string())
                     .replace(&original_str_lit, &url),
             );
-            used_storages.insert(storage, duckdb_conn_settings);
         }
     }
-    Ok((transformed_query, used_storages))
+    Ok(transformed_query.unwrap_or(query.to_string()))
+}
+
+pub fn duckdb_conn_settings_to_s3_network_uri(
+    s: &DuckdbConnectionSettingsResponse,
+    s3_path: &str,
+) -> Result<String> {
+    match &s {
+        DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
+            Ok(format!("s3://{bucket}/{s3_path}"))
+        }
+        DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
+            Ok(format!("{base}/{s3_path}"))
+        }
+        _ => {
+            Err(Error::ExecutionErr(
+                "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
+            ))
+        }
+    }
 }
 
 // BigQuery extension requires a json file as credentials
 // The file path is set as an env var by do_duckdb
 // It is created by transform_attach_db_resource_query (when bigquery is detected)
 // and deleted by do_duckdb after the query is executed
-fn make_bq_credentials_path(job_id: &Uuid) -> String {
-    format!("/tmp/service-account-credentials-{}.json", job_id)
+pub struct UseBigQueryCredentialsFile {
+    path: String,
+}
+impl UseBigQueryCredentialsFile {
+    fn new(job_id: Uuid, bigquery_resource: &str) -> Result<Self> {
+        let path = format!("/tmp/service-account-credentials-{}.json", job_id);
+        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        std::fs::write(&path, bigquery_resource)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write BigQuery creds: {e}")))?;
+        Ok(Self { path })
+    }
+}
+impl Drop for UseBigQueryCredentialsFile {
+    fn drop(&mut self) {
+        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        if matches!(std::fs::exists(&self.path), Ok(true)) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 // duckdb-rs does not support named parameters,
@@ -656,9 +737,87 @@ fn interpolate_named_args<'a>(
     (query, values)
 }
 
-fn trunc_sig(query: &str) -> &str {
-    let idx = query.rfind("-- $").unwrap_or(query.len());
-    // find next \n starting from idx and return everything after it
-    let idx = query[idx..].find('\n').map(|i| i + idx).unwrap_or(0);
-    &query[idx..]
+// input should contain a single statement. remove all comments before and after it
+fn remove_comments(stmt: &str) -> &str {
+    let mut in_stmt = false;
+    let mut in_comment = false;
+    let mut start = None;
+    let mut end = stmt.len();
+
+    let mut c = ' ';
+    for (next_i, next_char) in stmt.char_indices() {
+        if next_i > 0 {
+            let i = next_i - 1;
+            if !in_comment && in_stmt && c == ';' {
+                end = i + 1;
+                break;
+            } else if in_comment && c == '\n' {
+                in_comment = false;
+            } else if c == '-' && next_char == '-' {
+                in_comment = true;
+            } else if !in_comment && !c.is_whitespace() && start == None {
+                start = Some(i);
+                in_stmt = true;
+            }
+        }
+        c = next_char;
+    }
+
+    return &stmt[start.unwrap_or(0)..end];
 }
+
+async fn get_duckdb_connection_settings(
+    storage: &Option<String>,
+    cache: &mut DuckDbConnectionSettingsCache,
+    client: &AuthedClient,
+) -> Result<DuckdbConnectionSettingsResponse> {
+    if let Some(settings) = cache.get(storage) {
+        return Ok(settings.clone());
+    } else {
+        let settings = client
+            .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
+                s3_resource_path: None,
+                storage: storage.clone(),
+            })
+            .await?;
+        cache.insert(storage.clone(), settings.clone());
+        return Ok(settings);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_remove_comments_single_line() {
+        let sql = "-- This is a comment\nSELECT * FROM table;";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_multi_line() {
+        let sql = "-- This is a comment\nSELECT * FROM table;\n-- Another comment";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_inline_comment() {
+        let sql = "   SELECT * FROM table;    -- This is an inline comment  ";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_no_comments() {
+        let sql = "SELECT * FROM table;";
+        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
+    }
+    #[test]
+    fn test_remove_comments_empty_string() {
+        let sql = "";
+        assert_eq!(remove_comments(sql), "");
+    }
+    #[test]
+    fn test_remove_comments_with_whitespace() {
+        let sql = "   -- Comment\n  -- Comment2\n  -- Comment3\n   SELECT\n\n * FROM\n table\n;\n\n -- end comment   ";
+        assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
+    }
+}
+
+type DuckDbConnectionSettingsCache = HashMap<Option<String>, DuckdbConnectionSettingsResponse>;
