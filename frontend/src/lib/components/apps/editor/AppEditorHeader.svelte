@@ -113,6 +113,7 @@
 					policy: any
 					draft_only?: boolean
 					custom_path?: string
+					workspaced_route?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -988,7 +989,9 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
+			isCloudHosted() || (newApp ? globalWorkspacedRoute : savedApp?.workspaced_route)
+				? $workspaceStore + '/'
+				: ''
 		}${customPath}`
 	)
 	$effect(() => {
