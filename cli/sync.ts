@@ -811,7 +811,7 @@ export async function elementsToMap(
         "yml",
         "nu",
         "java",
-        "ruby",
+        "rb",
         // for related places search: ADD_NEW_LANG 
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
