@@ -144,3 +144,24 @@ pub async fn read_object_streamable(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
+
+#[cfg(not(feature = "private"))]
+pub async fn delete_s3_file_internal(
+    authed: &ApiAuthed,
+    db: &DB,
+    UserDB: Option<UserDB>,
+    token: &str,
+    w_id: &str,
+    query: DeleteS3FileQuery,
+) -> error::Result<()> {
+    Err(error::Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "private"))]
+#[derive(Deserialize)]
+pub struct DeleteS3FileQuery {
+    pub file_key: String,
+    pub storage: Option<String>,
+}
