@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { FileSearch, Save, Loader2, CheckCircle2, XCircle } from 'lucide-svelte'
+	import { FileSearch, Save, Loader2, CheckCircle2, XCircle, GitBranch, GitMerge } from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
@@ -49,7 +50,32 @@
 {#if repo}
 	<div class="space-y-4">
 		{#if !repo.detectionState || repo.detectionState === 'idle'}
-			<!-- Step 1: Check repo settings button -->
+			<!-- Step 1: Show toggles first, then check button -->
+			<div class="space-y-3">
+				<Toggle
+					disabled={!repo.git_repo_resource_path}
+					bind:checked={repo.use_individual_branch}
+					options={{
+						left: 'Sync mode',
+						leftTooltip: 'Changes will be committed directly to the branch',
+						right: 'Promotion mode',
+						rightTooltip: "Changes will be made to a new branch per deployed object (prefixed with 'wm_deploy/')"
+					}}
+				/>
+
+				{#if repo.use_individual_branch}
+					<Toggle
+						disabled={!repo.git_repo_resource_path}
+						bind:checked={repo.group_by_folder}
+						options={{
+							right: 'Group all changes from same folder in the same branch',
+							rightTooltip: 'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+						}}
+					/>
+				{/if}
+			</div>
+
+			<!-- Check repo settings button -->
 			<div class="flex justify-start">
 				<Button
 					color="primary"
@@ -69,7 +95,7 @@
 			</div>
 		{:else if repo.detectionState === 'no-wmill'}
 			<!-- No wmill.yaml found - new repository -->
-			<Alert type="info" title="Uninitialized Windmill repository found" class="my-2">
+			<Alert type="info" title="Uninitialized Windmill repository found" class="mb-2">
 				No git sync configuration found. Configure your sync settings below.
 			</Alert>
 
@@ -83,27 +109,19 @@
 				bind:extraIncludes={repo.settings.extra_include_path}
 				isInitialSetup={true}
 				requiresMigration={false}
+				useIndividualBranch={repo.use_individual_branch}
 			/>
 
-			<!-- Toggles for new repositories -->
-			<div class="space-y-3">
-				<Toggle
-					disabled={!repo.git_repo_resource_path}
-					bind:checked={repo.use_individual_branch}
-					options={{
-						right: 'Create one branch per deployed object',
-						rightTooltip: "If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-					}}
-				/>
-
-				<Toggle
-					disabled={!repo.git_repo_resource_path || !repo.use_individual_branch}
-					bind:checked={repo.group_by_folder}
-					options={{
-						right: 'Group deployed objects by folder',
-						rightTooltip: 'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-					}}
-				/>
+			<!-- Display mode settings as prominent text -->
+			<div class="text-base">
+				{#if repo.use_individual_branch}
+					<div><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div>
+					{#if repo.group_by_folder}
+						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
+					{/if}
+				{:else}
+					<div>Sync: <span class="font-bold">Syncing back to branch main</span></div>
+				{/if}
 			</div>
 
 			<!-- Initialize button -->
@@ -118,7 +136,7 @@
 			</div>
 		{:else if repo.detectionState === 'has-wmill'}
 			<!-- wmill.yaml found - existing repository -->
-			<Alert type="success" title="Existing Windmill repository found" class="my-2">
+			<Alert type="success" title="Existing Windmill repository found" class="mb-2">
 				Found existing git sync configuration. Settings loaded from repository.
 			</Alert>
 
@@ -132,27 +150,19 @@
 				bind:extraIncludes={repo.settings.extra_include_path}
 				isInitialSetup={false}
 				requiresMigration={false}
+				useIndividualBranch={repo.use_individual_branch}
 			/>
 
-			<!-- Toggles for existing repositories -->
-			<div class="space-y-3">
-				<Toggle
-					disabled={!repo.git_repo_resource_path}
-					bind:checked={repo.use_individual_branch}
-					options={{
-						right: 'Create one branch per deployed object',
-						rightTooltip: "If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-					}}
-				/>
-
-				<Toggle
-					disabled={!repo.git_repo_resource_path || !repo.use_individual_branch}
-					bind:checked={repo.group_by_folder}
-					options={{
-						right: 'Group deployed objects by folder',
-						rightTooltip: 'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-					}}
-				/>
+			<!-- Display mode settings as prominent text -->
+			<div class="text-base">
+				{#if repo.use_individual_branch}
+					<div><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div>
+					{#if repo.group_by_folder}
+						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
+					{/if}
+				{:else}
+					<div>Sync: <span class="font-bold">Syncing back to branch main</span></div>
+				{/if}
 			</div>
 
 			<!-- Save connection button -->
