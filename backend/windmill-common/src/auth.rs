@@ -297,35 +297,18 @@ pub async fn create_token_for_owner(
         }
     };
 
-    let payload = JWTAuthClaims {
-        email: job_authed.email,
-        username: job_authed.username,
-        is_admin: job_authed.is_admin,
-        is_operator: job_authed.is_operator,
-        groups: job_authed.groups,
-        folders: job_authed.folders,
-        label: Some(label.to_string()),
-        workspace_id: w_id.to_string(),
-        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
-            as usize,
-        job_id: Some(job_id.to_string()),
-        scopes: None,
-        audit_span,
-    };
-
-    let token = jwt::encode_with_internal_secret(&payload)
+    create_jwt_token(job_authed, w_id, expires_in, Some(*job_id), Some(label.to_string()), audit_span, None)
         .await
-        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
-
-    Ok(format!("jwt_{}", token))
 }
 
 pub async fn create_jwt_token(
     authed: Authed,
     workspace_id: &str,
-    label: Option<String>,
     expires_in_seconds: u64,
+    job_id: Option<Uuid>,
+    label: Option<String>,
     audit_span: Option<String>,
+    scopes: Option<Vec<String>>,
 ) -> crate::error::Result<String> {
     let payload = JWTAuthClaims {
         email: authed.email.clone(),
@@ -338,14 +321,14 @@ pub async fn create_jwt_token(
         workspace_id: workspace_id.to_string(),
         exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64))
             .timestamp() as usize,
-        job_id: None,
-        scopes: authed.scopes.clone(),
+        job_id: job_id.map(|id| id.to_string()),
+        scopes,
         audit_span,
     };
 
     let token = jwt::encode_with_internal_secret(&payload)
         .await
-        .with_context(|| "Could not encode JWT token from ApiAuthed")?;
+        .with_context(|| "Could not encode JWT token")?;
 
     Ok(format!("jwt_{}", token))
 }

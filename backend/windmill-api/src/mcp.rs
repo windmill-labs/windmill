@@ -981,7 +981,7 @@ async fn call_endpoint_tool(
 
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(authed, workspace_id, None, 3600, None).await
+    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None).await
         .map_err(|e| Error::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
