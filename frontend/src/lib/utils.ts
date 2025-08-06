@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { DynSelectLang, Job, Script, ScriptLang } from './gen'
+import type { Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -621,13 +621,13 @@ export function ${functionName}() {
 `
 	}
 
-	export const generateDefaultTemplateFn = (functionName: string, lang: DynSelectLang): string => {
+	export const generateDefaultTemplateFn = (functionName: string, lang: ScriptLang): string => {
 		return lang === 'bun'
 			? generateJsFnTemplate(functionName)
 			: generatePythonFnTemplate(functionName)
 	}
 
-	export const getGenerateTemplateFn = (lang: DynSelectLang) => {
+	export const getGenerateTemplateFn = (lang: ScriptLang) => {
 		return lang === 'bun' ? generateJsFnTemplate : generatePythonFnTemplate
 	}
 }

@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type DynSelectLang } from '$lib/gen'
+	import { VariableService, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -67,7 +67,7 @@
 		pannelExtraButtonWidth?: number
 		class?: string
 		dynSelectCode?: string | undefined
-		dynSelectLang?: DynSelectLang | undefined
+		dynSelectLang?: ScriptLang | undefined
 		showDynSelectOpt?: boolean
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
@@ -352,14 +352,14 @@
 		typeOptions.push(['DynSelect', 'dynselect'])
 	}
 
-	function initDynSelectFn(lang: DynSelectLang) {
+	function initDynSelectFn(lang: ScriptLang) {
 		const generateFn = DynamicSelect.getGenerateTemplateFn(lang)
 		return Object.entries(schema?.properties ?? {})
 			.map(([functionName]) => generateFn(functionName))
 			.join('')
 	}
 
-	function updateDynSelectCode(functionName: string, lang: DynSelectLang = 'bun') {
+	function updateDynSelectCode(functionName: string, lang: ScriptLang = 'bun') {
 		const generateFn = DynamicSelect.getGenerateTemplateFn(lang)
 		const code = generateFn(functionName)
 		dynSelectCode = dynSelectCode ? dynSelectCode.concat(code) : code
