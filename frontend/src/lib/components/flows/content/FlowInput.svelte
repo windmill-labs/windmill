@@ -42,7 +42,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import type { DynSelectLang } from '$lib/gen'
+	import type { ScriptLang } from '$lib/gen'
 
 	interface Props {
 		noEditor: boolean
@@ -77,7 +77,7 @@
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
 	let dynSelectCode: string | undefined = $state(undefined)
-	let dynSelectLang: DynSelectLang | undefined = $state(undefined)
+	let dynSelectLang: ScriptLang | undefined = $state(undefined)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
