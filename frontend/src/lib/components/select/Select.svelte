@@ -128,7 +128,7 @@
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			!loading ? '!placeholder-primary' : '',
+			!loading && value ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
