@@ -229,7 +229,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'App workspace prefix',
 			description:
-				'Prefix all app custom URLs with the workspace ID. When enabled, apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path}',
+				'When enabled, all app custom paths will be automatically prefixed with the workspace ID during app creation/update. Apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path}',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',

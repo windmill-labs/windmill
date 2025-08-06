@@ -113,7 +113,6 @@
 					policy: any
 					draft_only?: boolean
 					custom_path?: string
-					workspaced_route?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -987,16 +986,30 @@
 		saveDrawerOpen && untrack(() => compareVersions())
 	})
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
-	let fullCustomUrl = $derived(
-		`${window.location.origin}${base}/a/${
-			isCloudHosted() || (newApp ? globalWorkspacedRoute : savedApp?.workspaced_route)
-				? $workspaceStore + '/'
-				: ''
-		}${customPath}`
-	)
+	let fullCustomUrl = $state('')
+	$effect(() => {
+		let url = `${window.location.origin}${base}/a/`
+		let appendPath: string | undefined = ''
+		if (isCloudHosted()) {
+			appendPath = `${$workspaceStore}/`
+		} else {
+			if (globalWorkspacedRoute) {
+				appendPath = `${$workspaceStore}/`
+				if (customPath?.startsWith(appendPath)) {
+					customPath = customPath.substring(appendPath.length)
+				}
+			}
+		}
+		url += appendPath + customPath
+		fullCustomUrl = url
+	})
 	$effect(() => {
 		customPath
 		untrack(() => customPath !== undefined && validateCustomPath(customPath))
+	})
+
+	$effect(() => {
+		console.log({ pathError, customPathError })
 	})
 </script>
 
@@ -1209,7 +1222,6 @@
 				</Button>
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || customPathError != ''}
 					on:click={() => {
 						if ($appPath == '') {
 							createApp(newEditedPath)
@@ -1294,6 +1306,17 @@
 
 				{#if customPath !== undefined}
 					<div class="flex flex-col gap-2">
+						{#if !isCloudHosted() && globalWorkspacedRoute && newApp}
+							<div
+								class="mt-2 text-xs text-tertiary bg-blue-50 dark:bg-blue-900/20 p-2 rounded border border-blue-200 dark:border-blue-800"
+							>
+								<span class="font-medium"> Workspace prefix enabled:</span> The custom URL will be
+								prefixed with the workspace ID (e.g.,
+								<code class="bg-blue-100 dark:bg-blue-800 px-1 rounded"
+									>/a/{$workspaceStore}/{customPath || 'your-path'}</code
+								>). This is controlled by the instance administrator.
+							</div>
+						{/if}
 						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
 							<div>Custom path</div>
 						</div>

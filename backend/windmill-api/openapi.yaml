@@ -16886,8 +16886,6 @@ components:
           enum: [viewer, publisher, anonymous]
         raw_app:
           type: boolean
-        workspaced_route:
-          type: boolean
       required:
         - id
         - workspace_id
@@ -16992,8 +16990,6 @@ components:
             type: boolean
         custom_path:
           type: string
-        workspaced_route:
-          type: boolean
       required:
         - id
         - workspace_id
