@@ -21,11 +21,8 @@ pub fn workspaced_unauthed_service() -> Router {
 }
 
 async fn get_object(
-    // authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    // Extension(user_db): Extension<UserDB>,
     Path((w_id, storage, file_key)): Path<(String, String, String)>,
-    // Tokened { token }: Tokened,
 ) -> Result<Response> {
     let storage = if storage.is_empty() {
         None
@@ -37,31 +34,20 @@ async fn get_object(
     let Tokened { token } = Tokened { token: "".to_string() };
     let user_db: Option<UserDB> = None;
     let authed = ApiAuthed {
-        email: "backend".to_string(),
-        username: "backend".to_string(),
+        email: "s3_proxy".to_string(),
+        username: "s3_proxy".to_string(),
         is_admin: true,
-        is_operator: false,
-        groups: vec![],
-        folders: vec![],
-        scopes: None,
-        username_override: None,
-        token_prefix: None,
+        ..Default::default()
     };
 
     let (_, s3_resource) =
         get_workspace_s3_resource(&authed, &db, user_db, &token, &w_id, storage).await?;
-
     let s3_resource = s3_resource.ok_or(Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
     ))?;
-
     let s3_client = build_object_store_client(&s3_resource).await?;
-
     let result = read_object_streamable(s3_client, &file_key).await?;
-
     let stream = result.into_stream();
-
     let stream_body = axum::body::Body::from_stream(stream);
-
     Ok(stream_body.into_response())
 }
