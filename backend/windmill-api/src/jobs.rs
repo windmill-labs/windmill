@@ -6255,7 +6255,6 @@ async fn get_job_update_data(
             None
         };
 
-        // tracing::error!("record {:?} {:?} {:?}", stream_offset, record.stream_offset, record.new_result_stream);
         Ok(JobUpdate {
             running: record.running,
             completed: record.completed,
