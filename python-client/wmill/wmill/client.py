@@ -1531,8 +1531,7 @@ def append_to_result_stream(text: str) -> None:
     Args:
         text: text to append to the result stream
     """
-    print(f"WM_STREAM: {text.replace(chr(10), '\\n')}")
-
+    print("WM_STREAM: {}".format(text.replace(chr(10), '\\n')))
 
 def stream_result(stream) -> None:
     """Stream to the result stream.
