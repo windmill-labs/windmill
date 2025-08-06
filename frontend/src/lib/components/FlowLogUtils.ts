@@ -9,6 +9,7 @@ export interface FlowData {
 	status: Job['type']
 	success?: boolean
 	label?: string
+	emptyFlow?: boolean
 }
 
 export interface StepData {
@@ -23,6 +24,7 @@ export interface StepData {
 	subflows?: FlowData[]
 	selectedIteration?: number
 	iterationTotal?: number
+	emptySubflow?: boolean
 	type:
 		| 'script'
 		| 'flow'

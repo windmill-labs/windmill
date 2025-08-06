@@ -267,25 +267,33 @@
 										entry.stepType !== 'whileloopflow'}
 									{@const isRunning =
 										entry.status === 'InProgress' || entry.status === 'WaitingForExecutor'}
+									{@const hasEmptySubflow = entry.stepData.emptySubflow === true}
+									{@const isCollapsible = !hasEmptySubflow}
 									<li class="border-b border-gray-200 dark:border-gray-700 flex">
 										<div class="py-2 leading-tight align-top">
-											<button
-												class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-												onclick={() => toggleExpanded(entry.id)}
-											>
-												{#if isExpanded(entry.id, isRunning)}
-													<ChevronDown size={8} />
-												{:else}
-													<ChevronRight size={8} />
-												{/if}
-											</button>
+											{#if isCollapsible}
+												<button
+													class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+													onclick={() => toggleExpanded(entry.id)}
+												>
+													{#if isExpanded(entry.id, isRunning)}
+														<ChevronDown size={8} />
+													{:else}
+														<ChevronRight size={8} />
+													{/if}
+												</button>
+											{:else}
+												<!-- Empty subflow - no collapse button, just spacing -->
+												<div class="w-4"></div>
+											{/if}
 										</div>
 										<div class="w-full leading-tight">
 											<!-- svelte-ignore a11y_click_events_have_key_events -->
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<div
 												class={twMerge(
-													'py-1 flex items-center justify-between cursor-pointer',
+													'py-1 flex items-center justify-between',
+													isCollapsible ? 'cursor-pointer' : '',
 													entry.status === 'WaitingForPriorSteps' ||
 														entry.status === 'WaitingForEvents' ||
 														entry.status === 'WaitingForExecutor' ||
@@ -293,7 +301,7 @@
 														? 'opacity-50'
 														: ''
 												)}
-												onclick={() => toggleExpanded(entry.id)}
+												onclick={isCollapsible ? () => toggleExpanded(entry.id) : undefined}
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
 													<!-- Status dot -->
@@ -324,8 +332,17 @@
 															{#if entry.summary}
 																: {entry.summary}
 															{/if}
+															{#if hasEmptySubflow}
+																<span class="text-tertiary">
+																	{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
+																		(empty loop)
+																	{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
+																		(no branch)
+																	{/if}
+																</span>
+															{/if}
 														</span>
-														{#if entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
+														{#if !hasEmptySubflow && entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
 															<span
 																class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
 															>
@@ -367,7 +384,7 @@
 												{/if}
 											</div>
 
-											{#if isExpanded(entry.id, isRunning)}
+											{#if isCollapsible && isExpanded(entry.id, isRunning)}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show input arguments -->
 													<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
@@ -395,7 +412,7 @@
 													{/if}
 
 													<!-- Show subflows for complex step types -->
-													{#if entry.stepData.subflows && entry.stepData.subflows.length > 0}
+													{#if !hasEmptySubflow && entry.stepData.subflows && entry.stepData.subflows.length > 0}
 														{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
 															{#if entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
 																<div class="border-l mb-2">

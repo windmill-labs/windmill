@@ -139,6 +139,11 @@
 						stepData.subflows.push(subflowData)
 					}
 				}
+			} else if (
+				module.flow_jobs?.length == 0 &&
+				module.job == '00000000-0000-0000-0000-000000000000'
+			) {
+				stepData.emptySubflow = true
 			}
 
 			steps.push(stepData)
