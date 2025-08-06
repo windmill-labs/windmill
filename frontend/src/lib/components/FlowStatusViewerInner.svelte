@@ -208,7 +208,11 @@
 			state[key]?.selectedForloop != undefined &&
 			newValue.selectedForloop != state[key].selectedForloop
 		) {
-			if (newValue.type == 'InProgress' && state[key]?.type != 'InProgress') {
+			if (
+				newValue.type == 'InProgress' &&
+				state[key]?.type != 'InProgress' &&
+				!(keepType && (state[key]?.type === 'Success' || state[key]?.type === 'Failure'))
+			) {
 				moduleState.update((state) => {
 					state[key].type = 'InProgress'
 					return state

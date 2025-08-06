@@ -276,6 +276,43 @@ async fn reset() -> () {
     todo!()
 }
 
+pub struct PostgresUrlComponents {
+    pub scheme: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub host: String,
+    pub port: Option<u16>,
+    pub database: String,
+    pub ssl_mode: Option<String>,
+}
+
+pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
+    let parsed_url = url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+
+    let scheme = parsed_url.scheme().to_string();
+    let username = parsed_url.username().to_string();
+    let password = parsed_url.password().map(|p| p.to_string());
+    let host = parsed_url.host_str().ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?.to_string();
+    let port = parsed_url.port();
+    let database = parsed_url.path().trim_start_matches('/').to_string();
+    let mut ssl_mode = None;
+    for query in parsed_url.query_pairs() {
+        if query.0 == "sslmode" {
+            ssl_mode = Some(query.1.to_string());
+        }
+    }
+
+    Ok(PostgresUrlComponents {
+        scheme,
+        username: if username.is_empty() { None } else { Some(username) },
+        password,
+        host,
+        port,
+        database,
+        ssl_mode,
+    })
+}
+
 pub async fn get_database_url() -> Result<String, Error> {
     use std::env::var;
     use tokio::fs::File;
