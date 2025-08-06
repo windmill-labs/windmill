@@ -188,7 +188,7 @@ export async function runScriptByHash(
 export function appendToResultStream(
   text: string
 ) {
-  console.log("WM_STREAM: " + text.replaceAll("\n", "\\n"));
+  console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
 }
 
 /**
