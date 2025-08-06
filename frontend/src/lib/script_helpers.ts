@@ -1103,7 +1103,7 @@ def main(
   no_default,
   name = "Nicolas Bourbaki", 
   age = 42,
-  obj = { "even": "hashes" },
+  obj = { "even" : "hashes" },
   list = ["or", "arrays!"]
 )
   puts "Hello World and a warm welcome especially to #{name}"
