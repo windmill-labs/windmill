@@ -472,14 +472,6 @@
 				</Tab>
 				<Tab
 					size="xs"
-					value="ducklake"
-					aiId="workspace-settings-ducklake"
-					aiDescription="Ducklake workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Ducklake</div>
-				</Tab>
-				<Tab
-					size="xs"
 					value="default_app"
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
