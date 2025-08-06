@@ -124,8 +124,8 @@
 
 	$effect(() => {
 		if (schema && dynSelectCode !== undefined && dynSelectLang !== undefined) {
-			if (dynSelectCode) {
-				schema['x-windmill-dyn-select-code'] = dynSelectCode
+			if (dynSelectCode && dynSelectCode.trim()) {
+				schema['x-windmill-dyn-select-code'] = dynSelectCode.trim()
 				schema['x-windmill-dyn-select-lang'] = dynSelectLang
 			} else {
 				delete schema['x-windmill-dyn-select-code']
@@ -681,7 +681,6 @@
 																						}
 																					} else if (isDynSelect) {
 																						const functionName = argName
-																							.toLowerCase()
 																							.replace(/\s+/g, '_')
 																						schema.properties[argName] = {
 																							...emptyProperty,
