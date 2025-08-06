@@ -128,11 +128,9 @@ public class Main {
 }
 `,
   ruby: `
-public class Main {
-  public static void main() {
-    System.out.println("Hello World");
-  }
-}
+def main a, b, c
+  puts a, b, c
+end
 `,
   // for related places search: ADD_NEW_LANG
 };

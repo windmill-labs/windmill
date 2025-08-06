@@ -634,8 +634,8 @@ export async function inferSchema(
     const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_java(content));
   } else if (language === "ruby") {
-    const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
-    inferedSchema = JSON.parse(parse_java(content));
+    const { parse_ruby } = await import("./wasm/ruby/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_ruby(content));
   	// for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
