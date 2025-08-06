@@ -159,16 +159,30 @@ class GemfileProxy
   end
 
   def gem(name, version = nil, require: nil, **kwargs)
-    @gem_calls << { name: name, version: version, require: require, kwargs: kwargs }
-    case require
-    when false
-      # Skip requiring entirely
-    when nil, true
-      Kernel.require(name)
-    else # String or other truthy value
-      Kernel.require(require.to_s)
+      @gem_calls << { name: name, version: version, require: require, kwargs: kwargs }
+
+      case require
+      when false
+        # Skip requiring
+      when nil, true
+        begin
+          Kernel.require(name)
+        rescue LoadError => e
+          warn "WARN: Gem '#{name}' failed to auto-require. Try either:"
+          warn "    `:require => false` or specify exact require path"
+          warn "Warn details: #{e.class}: #{e.message}"
+        end
+      else
+        begin
+          Kernel.require(require.to_s)
+        rescue LoadError => e
+          warn "WARN: Gem '#{name}' failed to auto-require. Try either:"
+          warn "    `:require => false` or specify exact require path"
+          warn "Warn details: #{e.class}: #{e.message}"
+        end
+      end
     end
-  end
+
 
   def call_block(&block)
     instance_eval(&block) if block_given?
