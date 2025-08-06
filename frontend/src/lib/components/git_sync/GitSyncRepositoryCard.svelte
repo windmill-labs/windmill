@@ -1,12 +1,10 @@
 <script lang="ts">
-	import { Save, Trash, XCircle, CheckCircle2, RotateCw, RotateCcw, Download, Upload, GitBranch, GitMerge } from 'lucide-svelte'
+	import { Save, Trash, XCircle, CheckCircle2, RotateCw, RotateCcw, Download, Upload } from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
