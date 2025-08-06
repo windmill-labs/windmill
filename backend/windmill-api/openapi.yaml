@@ -4575,6 +4575,7 @@ paths:
     get:
       summary: list all scripts
       operationId: listScripts
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5540,6 +5541,7 @@ paths:
     get:
       summary: list all flows
       operationId: listFlows
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -15149,7 +15151,7 @@ components:
           description: The path where the schedule will be created
         schedule:
           type: string
-          description: The cron schedule to trigger the script or flow
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
           description: The timezone to use for the cron schedule
@@ -15231,7 +15233,7 @@ components:
       properties:
         schedule:
           type: string
-          description: The cron schedule to trigger the script or flow
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
           description: The timezone to use for the cron schedule

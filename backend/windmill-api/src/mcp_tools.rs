@@ -347,6 +347,142 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("listScripts"),
+        description: Cow::Borrowed("list all scripts"),
+        path: Cow::Borrowed("/w/{workspace}/scripts/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "order_desc": {
+                        "type": "boolean",
+                        "description": "order by desc order (default true)"
+                },
+                "created_by": {
+                        "type": "string",
+                        "description": "mask to filter exact matching user creator"
+                },
+                "path_start": {
+                        "type": "string",
+                        "description": "mask to filter matching starting path"
+                },
+                "path_exact": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "first_parent_hash": {
+                        "type": "string",
+                        "description": "mask to filter scripts whom first direct parent has exact hash"
+                },
+                "last_parent_hash": {
+                        "type": "string",
+                        "description": "mask to filter scripts whom last parent in the chain has exact hash.\nBeware that each script stores only a limited number of parents. Hence\nthe last parent hash for a script is not necessarily its top-most parent.\nTo find the top-most parent you will have to jump from last to last hash\n until finding the parent\n"
+                },
+                "parent_hash": {
+                        "type": "string",
+                        "description": "is the hash present in the array of stored parent hashes for this script.\nThe same warning applies than for last_parent_hash. A script only store a\nlimited number of direct parent\n"
+                },
+                "show_archived": {
+                        "type": "boolean",
+                        "description": "(default false)\nshow only the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare\ned.\n"
+                },
+                "include_without_main": {
+                        "type": "boolean",
+                        "description": "(default false)\ninclude scripts without an exported main function\n"
+                },
+                "include_draft_only": {
+                        "type": "boolean",
+                        "description": "(default false)\ninclude scripts that have no deployed version\n"
+                },
+                "is_template": {
+                        "type": "boolean",
+                        "description": "(default regardless)\nif true show only the templates\nif false show only the non templates\nif not defined, show all regardless of if the script is a template\n"
+                },
+                "kinds": {
+                        "type": "string",
+                        "description": "(default regardless)\nscript kinds to filter, split by comma\n"
+                },
+                "starred_only": {
+                        "type": "boolean",
+                        "description": "(default false)\nshow only the starred items\n"
+                },
+                "with_deployment_msg": {
+                        "type": "boolean",
+                        "description": "(default false)\ninclude deployment message\n"
+                },
+                "languages": {
+                        "type": "string",
+                        "description": "Filter to only include scripts written in the given languages.\nAccepts multiple values as a comma-separated list.\n"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listFlows"),
+        description: Cow::Borrowed("list all flows"),
+        path: Cow::Borrowed("/w/{workspace}/flows/list"),
+        method: http::Method::GET,
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "order_desc": {
+                        "type": "boolean",
+                        "description": "order by desc order (default true)"
+                },
+                "created_by": {
+                        "type": "string",
+                        "description": "mask to filter exact matching user creator"
+                },
+                "path_start": {
+                        "type": "string",
+                        "description": "mask to filter matching starting path"
+                },
+                "path_exact": {
+                        "type": "string",
+                        "description": "mask to filter exact matching path"
+                },
+                "show_archived": {
+                        "type": "boolean",
+                        "description": "(default false)\nshow only the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare displayed.\n"
+                },
+                "starred_only": {
+                        "type": "boolean",
+                        "description": "(default false)\nshow only the starred items\n"
+                },
+                "include_draft_only": {
+                        "type": "boolean",
+                        "description": "(default false)\ninclude items that have no deployed version\n"
+                },
+                "with_deployment_msg": {
+                        "type": "boolean",
+                        "description": "(default false)\ninclude deployment message\n"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("listQueue"),
         description: Cow::Borrowed("list all queued jobs"),
         path: Cow::Borrowed("/w/{workspace}/jobs/queue/list"),
@@ -617,7 +753,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow"
+                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
                 },
                 "timezone": {
                         "type": "string",
@@ -745,7 +881,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "properties": {
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow"
+                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
                 },
                 "timezone": {
                         "type": "string",
