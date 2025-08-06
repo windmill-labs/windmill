@@ -14888,6 +14888,7 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-postgres 0.7.11",
+ "tokio-postgres 0.7.13",
  "tokio-stream",
  "tokio-tar",
  "tokio-tungstenite",
@@ -14961,6 +14962,7 @@ name = "windmill-common"
 version = "1.518.2"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "async-stream",
  "aws-config",
  "aws-sdk-sts",

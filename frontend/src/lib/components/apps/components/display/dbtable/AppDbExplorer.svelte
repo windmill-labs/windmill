@@ -38,6 +38,7 @@
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
+	import { assert } from '$lib/utils'
 
 	interface Props {
 		id: string
@@ -365,11 +366,16 @@
 		gridItem.data = gridItem.data
 		$app = $app
 
+		let resource = resolvedConfig.type.configuration[selected].resource
+		assert('resource starts with $res:', resource?.startsWith('$res:'), resource)
 		let tableMetadata = await loadTableMetaData(
-			resolvedConfig.type.configuration[selected].resource,
+			{
+				type: 'database',
+				resourcePath: resource.substring(5),
+				resourceType: selected
+			},
 			$workspaceStore,
-			resolvedConfig.type.configuration[selected].table,
-			selected
+			resolvedConfig.type.configuration[selected].table
 		)
 
 		if (!tableMetadata) return
