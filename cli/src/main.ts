@@ -8,7 +8,9 @@ import {
 import flow from "./commands/flow/flow.ts";
 import app from "./commands/app/apps.ts";
 import script from "./commands/script/script.ts";
-import workspace, { getActiveWorkspace } from "./commands/workspace/workspace.ts";
+import workspace, {
+  getActiveWorkspace,
+} from "./commands/workspace/workspace.ts";
 import resource from "./commands/resource/resource.ts";
 import resourceType from "./commands/resource-type/resource-type.ts";
 import user from "./commands/user/user.ts";
@@ -167,8 +169,6 @@ const command = new Command()
   )
   .command("completions", new CompletionsCommand());
 
-
-
 async function main() {
   try {
     if (Deno.args.length === 0) {
@@ -205,7 +205,9 @@ async function main() {
     await command.parse(Deno.args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
-      console.log("Server failed. " + (e as any).statusText + ": " + (e as any).body);
+      console.log(
+        "Server failed. " + (e as any).statusText + ": " + (e as any).body
+      );
     }
     throw e;
   }

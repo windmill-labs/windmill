@@ -3,10 +3,9 @@
 	import { Button, Alert } from '$lib/components/common'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
-		import { sendUserToast } from '$lib/toast'
+	import { sendUserToast } from '$lib/toast'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
 	import hubPaths from '$lib/hubPaths.json'
@@ -210,7 +209,7 @@
 				</div>
 
 				{#if !emptyString(repo.git_repo_resource_path)}
-					<div class="flex mb-5 text-normal text-2xs gap-1">
+					<div class="flex text-normal text-2xs gap-1">
 						{#if validation.isDuplicate}
 							<span class="text-red-600">This resource is already used by another repository.</span>
 						{/if}
@@ -237,7 +236,7 @@
 							This repository was initialized from workspace-level legacy Git-Sync settings. Review the filters and press <b>Save</b> to migrate.
 						</Alert>
 					{/if}
-					<div class="flex flex-col mt-5 mb-1 gap-4">
+					<div class="flex flex-col mb-1 gap-4">
 						{#if repo}
 							{#if repo.script_path != hubPaths.gitSync}
 								<Alert type="warning" title="Script version mismatch">
@@ -282,6 +281,7 @@
 									bind:extraIncludes={repo.settings.extra_include_path}
 									isInitialSetup={false}
 									requiresMigration={repo.legacyImported}
+									useIndividualBranch={repo.use_individual_branch}
 								>
 									{#snippet actions()}
 										<Button
@@ -297,27 +297,16 @@
 
 							{#if !repo.isUnsavedConnection}
 								<div class="flex justify-between items-start">
-									<div class="flex flex-col gap-4">
-										<Toggle
-											disabled={emptyString(repo.git_repo_resource_path)}
-											bind:checked={repo.use_individual_branch}
-											options={{
-												right: 'Create one branch per deployed object',
-												rightTooltip:
-													"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-											}}
-										/>
-
-										<Toggle
-											disabled={emptyString(repo.git_repo_resource_path) ||
-												!repo.use_individual_branch}
-											bind:checked={repo.group_by_folder}
-											options={{
-												right: 'Group deployed objects by folder',
-												rightTooltip:
-													'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-											}}
-										/>
+									<!-- Display mode settings as prominent text -->
+									<div class="text-base flex-1 mr-4">
+										{#if repo.use_individual_branch}
+											<div><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div>
+											{#if repo.group_by_folder}
+												<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
+											{/if}
+										{:else}
+											<div>Sync: <span class="font-bold">Syncing back to branch main</span></div>
+										{/if}
 									</div>
 
 									<!-- Manual sync section for existing repos -->

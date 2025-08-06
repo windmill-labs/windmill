@@ -283,7 +283,8 @@ export function createGitSyncContext(workspace: string) {
 					dry_run: true,
 					pull: false,
 					only_wmill_yaml: true,
-					settings_json: JSON.stringify(repo.settings)
+					settings_json: JSON.stringify(repo.settings),
+					use_promotion_overrides: repo.use_individual_branch
 				},
 				skipPreprocessor: true
 			})
@@ -312,7 +313,11 @@ export function createGitSyncContext(workspace: string) {
 								if (response.local) {
 									repo.extractedSettings = response.local
 									// Auto-apply the extracted settings
-									repo.settings = { ...response.local }
+									repo.settings = { 
+										...response.local,
+										exclude_path: response.local.exclude_path || [],
+										extra_include_path: response.local.extra_include_path || []
+									}
 								}
 							}
 						} else if (status.status === 'failure') {
