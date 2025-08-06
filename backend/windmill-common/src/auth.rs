@@ -320,6 +320,36 @@ pub async fn create_token_for_owner(
     Ok(format!("jwt_{}", token))
 }
 
+pub async fn create_jwt_token(
+    authed: Authed,
+    workspace_id: &str,
+    label: Option<String>,
+    expires_in_seconds: u64,
+    audit_span: Option<String>,
+) -> crate::error::Result<String> {
+    let payload = JWTAuthClaims {
+        email: authed.email.clone(),
+        username: authed.username.clone(),
+        is_admin: authed.is_admin,
+        is_operator: authed.is_operator,
+        groups: authed.groups.clone(),
+        folders: authed.folders.clone(),
+        label,
+        workspace_id: workspace_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64))
+            .timestamp() as usize,
+        job_id: None,
+        scopes: authed.scopes.clone(),
+        audit_span,
+    };
+
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| "Could not encode JWT token from ApiAuthed")?;
+
+    Ok(format!("jwt_{}", token))
+}
+
 #[cfg(feature = "aws_auth")]
 pub mod aws {
 

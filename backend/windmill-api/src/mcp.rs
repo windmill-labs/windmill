@@ -16,7 +16,8 @@ use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
-use windmill_common::db::UserDB;
+use windmill_common::auth::create_jwt_token;
+use windmill_common::db::{Authed, UserDB};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
 
@@ -935,6 +936,7 @@ async fn call_endpoint_tool(
     tool: &crate::mcp_tools::EndpointTool,
     args: serde_json::Value,
     workspace_id: &str,
+    api_authed: &ApiAuthed,
 ) -> Result<serde_json::Value, Error> {
     let method = &tool.method;
     let mut path_template = tool.path.to_string();
@@ -1039,9 +1041,10 @@ async fn call_endpoint_tool(
     };
 
     // Add authorization header
-    // if let Some(token) = &authed.token {
-    //     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
-    // }
+    let authed = Authed::from(api_authed.clone());
+    let token = create_jwt_token(authed, workspace_id, None, 3600, None).await
+        .map_err(|e| Error::internal_error(e.to_string(), None))?;
+    request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body for non-GET requests
     if let Some(body) = body_json {
@@ -1144,7 +1147,7 @@ impl ServerHandler for Runner {
         for endpoint_tool in endpoint_tools {
             if endpoint_tool.name.as_ref() == request.name {
                 // This is an endpoint tool, forward to the actual HTTP endpoint
-                let result = call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id).await?;
+                let result = call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id, &authed).await?;
                 return Ok(CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
                 )]));
@@ -1269,8 +1272,6 @@ impl ServerHandler for Runner {
             tracing::error!("ApiAuthed Axum extension not found");
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
-
-        println!("authed: {:?}", authed.token_prefix);
 
         Runner::check_scopes(authed)?;
 
