@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.519.1](https://github.com/windmill-labs/windmill/compare/v1.519.0...v1.519.1) (2025-08-06)
+
+
+### Bug Fixes
+
+* fix python-client f formatting error ([fb9d7d4](https://github.com/windmill-labs/windmill/commit/fb9d7d4c95601965a0c00fe07458ea1b77a0fe69))
+
 ## [1.519.0](https://github.com/windmill-labs/windmill/compare/v1.518.2...v1.519.0) (2025-08-06)
 
 
