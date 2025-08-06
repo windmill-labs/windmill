@@ -17,23 +17,19 @@ use crate::{
 };
 
 pub fn workspaced_unauthed_service() -> Router {
-    Router::new().route("/*key", get(get_object))
+    Router::new()
+        .route("/s3%3A//:storage/*key", get(get_object))
+        .route("/:storage/*key", get(get_object))
 }
 
 async fn get_object(
     Extension(db): Extension<DB>,
-    Path((w_id, full_key)): Path<(String, String)>,
+    Path((w_id, storage, object_key)): Path<(String, String, String)>,
 ) -> Result<Response> {
-    let full_key = full_key.strip_prefix("s3://").unwrap_or(&full_key);
-    let Some((storage, object_key)) = full_key.split_once('/').map(|(s, k)| (s, k)) else {
-        return Err(Error::InternalErr(
-            "Invalid S3 key : no storage".to_string(),
-        ));
-    };
     let storage = if storage.is_empty() {
         None
     } else {
-        Some(storage.to_string())
+        Some(storage)
     };
 
     // temp values
@@ -52,7 +48,7 @@ async fn get_object(
         "No files storage resource defined at the workspace level".to_string(),
     ))?;
     let s3_client = build_object_store_client(&s3_resource).await?;
-    let result = read_object_streamable(s3_client, object_key).await?;
+    let result = read_object_streamable(s3_client, &object_key).await?;
     let stream = result.into_stream();
     let stream_body = axum::body::Body::from_stream(stream);
     Ok(stream_body.into_response())

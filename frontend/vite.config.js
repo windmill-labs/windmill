@@ -18,7 +18,17 @@ const config = {
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost'
+				cookieDomainRewrite: 'localhost',
+				configure: (proxy, options) => {
+					proxy.on('proxyReq', (proxyReq, req, res) => {
+						const regex = /^\/api\/w\/[^/]+\/s3_proxy\/.*$/
+						if (regex.test(req.url)) {
+							// Prevent collapsing slashes during URL normalization
+							const originalPath = req.url
+							proxyReq.path = originalPath
+						}
+					})
+				}
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? 'https://app.windmill.dev',
