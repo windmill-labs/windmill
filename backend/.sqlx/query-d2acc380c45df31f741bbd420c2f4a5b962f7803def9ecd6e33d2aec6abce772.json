@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE \n            flow \n        SET\n            path = $1,\n            summary = $2,\n            description = $3,\n            dependency_job = NULL,\n            lock_error_logs = '',\n            draft_only = NULL,\n            tag = $4,\n            dedicated_worker = $5,\n            visible_to_runner_only = $6,\n            on_behalf_of_email = $7,\n            value = $8,\n            schema = $9::text::json,\n            edited_by = $10,\n            edited_at = now()\n        WHERE \n            path = $11 AND workspace_id = $12",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2acc380c45df31f741bbd420c2f4a5b962f7803def9ecd6e33d2aec6abce772"
+}

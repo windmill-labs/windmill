@@ -7,7 +7,8 @@
 		setInputCat as computeInputCat,
 		debounce,
 		emptyString,
-		getSchemaFromProperties
+		getSchemaFromProperties,
+		type DynamicSelect
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -35,7 +36,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
 	import DynSelect from './DynSelect.svelte'
-	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import MultiSelect from './select/MultiSelect.svelte'
@@ -94,10 +94,7 @@
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
-		helperScript?:
-			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-			| { type: 'hash'; hash: string }
-			| undefined
+		helperScript?: DynamicSelect.HelperScript
 		otherArgs?: Record<string, any>
 		lightHeader?: boolean
 		diffStatus?: SchemaDiff | undefined
@@ -866,7 +863,7 @@
 		{:else if inputCat == 'dynselect'}
 			<DynSelect
 				name={label}
-				args={otherArgs}
+				{otherArgs}
 				{helperScript}
 				bind:value
 				entrypoint={format?.substring('dynselect_'.length) ?? ''}

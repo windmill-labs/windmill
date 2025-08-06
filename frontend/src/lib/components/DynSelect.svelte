@@ -15,33 +15,31 @@
 </script>
 
 <script lang="ts">
-	import type { Script } from '$lib/gen'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { deepEqual } from 'fast-equals'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import Select from './select/Select.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { type DynamicSelect } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
-	import { readFieldsRecursively } from '$lib/utils'
 
 	interface Props {
 		value?: any
-		helperScript?:
-			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-			| { type: 'hash'; hash: string }
+		helperScript?: DynamicSelect.HelperScript
 		entrypoint: string
-		args?: Record<string, any>
+		otherArgs?: Record<string, any>
 		name: string
 	}
 
-	let { value = $bindable(), helperScript, entrypoint, args: _args, name }: Props = $props()
+	let { value = $bindable(), helperScript, entrypoint, otherArgs: otherArgs }: Props = $props()
 
-	let args = $state(structuredClone($state.snapshot(_args)))
-	$effect(() => {
-		readFieldsRecursively(_args, { excludeField: [name] })
-		untrack(() => !deepEqual(args, _args) && (args = $state.snapshot(_args)))
-	})
+	let resultJobLoader: JobLoader | undefined = $state()
+	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
+	let items = $derived(_items.value)
+
+	let filterText: string = $state('')
+	let open: boolean = $state(false)
 
 	async function getItemsFromOptions() {
 		return new Promise<{ label: string; value: any }[]>((resolve, reject) => {
@@ -61,15 +59,14 @@
 						return
 					}
 					if (result.length == 0) resolve([])
+
 					if (result.every((x) => typeof x == 'string')) {
 						result = result.map((x) => ({ label: x, value: x }))
 					} else if (result.find((x) => validSelectObject(x) != undefined)) {
 						reject(validSelectObject(result.find((x) => validSelectObject(x) != undefined)))
-					} else {
-						if (filterText != undefined && filterText != '')
-							result = result.filter((x) => x['label'].includes(filterText))
-						resolve(result)
+						return
 					}
+					resolve(result)
 				},
 				cancel: () => reject(),
 				doneError({ id, error }) {
@@ -81,7 +78,7 @@
 						helperScript?.path ?? 'NO_PATH',
 						helperScript.code,
 						helperScript.lang,
-						{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
 						undefined,
 						undefined,
 						undefined,
@@ -89,22 +86,42 @@
 					)
 				: resultJobLoader?.runScriptByHash(
 						helperScript?.hash ?? 'NO_HASH',
-						{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
 						cb
 					)
 		})
 	}
 
-	let _items = usePromise(getItemsFromOptions)
-	let items = $derived(_items.value)
+	let neverLoaded = $state(true)
+
 	$effect(() => {
-		;[args, name, entrypoint, helperScript, filterText]
-		untrack(() => _items.refresh())
+		if (_items.value && value) {
+			if (!_items.value.find((x) => x.value == value)) {
+				value = undefined
+			}
+		}
 	})
 
-	let resultJobLoader: JobLoader | undefined = $state()
-	let filterText: string = $state('')
-	let open: boolean = $state(false)
+	let lastArgs = $state.snapshot(otherArgs)
+
+	let timeout: NodeJS.Timeout | undefined = $state()
+	let nargs = $state($state.snapshot(otherArgs))
+	$effect(() => {
+		otherArgs
+		untrack(() => clearTimeout(timeout))
+		timeout = setTimeout(() => {
+			nargs = $state.snapshot(otherArgs)
+		}, 1000)
+	})
+
+	$effect(() => {
+		;[filterText, entrypoint, helperScript]
+		if (resultJobLoader && (open || neverLoaded || !deepEqual(lastArgs, nargs))) {
+			neverLoaded = false
+			lastArgs = $state.snapshot(otherArgs)
+			_items.refresh()
+		}
+	})
 </script>
 
 {#if helperScript}

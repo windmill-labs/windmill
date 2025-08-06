@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { VariableService, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -20,13 +20,15 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
-	import { emptyString } from '$lib/utils'
+	import { DynamicSelect, emptyString } from '$lib/utils'
 	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import Section from '$lib/components/Section.svelte'
+	import Editor from './Editor.svelte'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -64,6 +66,9 @@
 		customUi?: EditableSchemaFormUi | undefined
 		pannelExtraButtonWidth?: number
 		class?: string
+		dynSelectCode?: string | undefined
+		dynSelectLang?: ScriptLang | undefined
+		showDynSelectOpt?: boolean
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
@@ -96,6 +101,9 @@
 		customUi = undefined,
 		pannelExtraButtonWidth = 0,
 		class: clazz = '',
+		dynSelectCode = $bindable(),
+		dynSelectLang = $bindable(),
+		showDynSelectOpt = false,
 		openEditTab,
 		addProperty,
 		runButton,
@@ -105,6 +113,24 @@
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		if (dynSelectLang === undefined) {
+			dynSelectLang = schema?.['x-windmill-dyn-select-lang'] || 'bun'
+		}
+		if (dynSelectCode === undefined) {
+			dynSelectCode = schema?.['x-windmill-dyn-select-code'] || ''
+		}
+	})
+
+	$effect(() => {
+		if (schema && dynSelectCode !== undefined && dynSelectLang !== undefined) {
+			if (dynSelectCode && dynSelectCode.trim()) {
+				schema['x-windmill-dyn-select-code'] = dynSelectCode.trim()
+				schema['x-windmill-dyn-select-lang'] = dynSelectLang
+			} else {
+				delete schema['x-windmill-dyn-select-code']
+				delete schema['x-windmill-dyn-select-lang']
+			}
 		}
 	})
 
@@ -183,9 +209,11 @@
 			? property.type
 			: property.format === 'resource-s3_object'
 				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-					? 'oneOf'
-					: 'object'
+				: property.format?.startsWith('dynselect-')
+					? 'dynselect'
+					: property.oneOf && property.oneOf.length >= 2
+						? 'oneOf'
+						: 'object'
 	}
 
 	export function openField(key: string) {
@@ -248,7 +276,7 @@
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let error: string | undefined = $state(undefined)
 	let editor: SimpleEditor | undefined = $state(undefined)
-
+	let dynamicSelectEditor: Editor | undefined = $state(undefined)
 	export function updateJson() {
 		schemaString = JSON.stringify(schema, null, '\t')
 		editor?.setCode(schemaString)
@@ -297,6 +325,45 @@
 	$effect(() => {
 		!!editTab ? openEditTabFn() : closeEditTab()
 	})
+
+	let dynSelectFunctions = $derived(
+		Object.entries(schema?.properties ?? {})
+			.filter(([_, property]) => {
+				const props = property as any
+				return (
+					props.type === 'object' &&
+					(props.format?.startsWith('dynselect-') || props.format?.startsWith('dynselect_'))
+				)
+			})
+			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
+	)
+
+	let typeOptions = [
+		['String', 'string'],
+		['Number', 'number'],
+		['Integer', 'integer'],
+		['Object', 'object'],
+		['OneOf', 'oneOf'],
+		['Array', 'array'],
+		['Boolean', 'boolean'],
+		['S3 Object', 'S3']
+	]
+	if (showDynSelectOpt) {
+		typeOptions.push(['DynSelect', 'dynselect'])
+	}
+
+	function initDynSelectFn(lang: ScriptLang) {
+		const generateFn = DynamicSelect.getGenerateTemplateFn(lang)
+		return Object.entries(schema?.properties ?? {})
+			.map(([functionName]) => generateFn(functionName))
+			.join('')
+	}
+
+	function updateDynSelectCode(functionName: string, lang: ScriptLang = 'bun') {
+		const generateFn = DynamicSelect.getGenerateTemplateFn(lang)
+		const code = generateFn(functionName)
+		dynSelectCode = dynSelectCode ? dynSelectCode.concat(code) : code
+	}
 </script>
 
 <div class="w-full h-full">
@@ -355,6 +422,11 @@
 								}
 								tick().then(() => dispatch('change', schema))
 							}}
+							helperScript={{
+								type: 'inline',
+								code: dynSelectCode!,
+								lang: dynSelectLang!
+							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -369,6 +441,57 @@
 						/>
 
 						{@render runButton?.()}
+
+						<div class="h-full">
+							{#if dynSelectFunctions.length > 0}
+								<Section
+									label="Dynamic select functions"
+									collapsable={true}
+									collapsed={false}
+									class="text-sm"
+								>
+									<div class="flex flex-col gap-2 h-full">
+										{#if dynSelectFunctions.length > 0}
+											<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+												<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+													Expected Functions for Dynamic Select Fields:
+												</div>
+												<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+													{#each dynSelectFunctions as functionName}
+														<li class="font-mono bg-blue-100 dark:bg-blue-800/30 px-2 py-1 rounded">
+															{functionName}()
+														</li>
+													{/each}
+												</ul>
+											</div>
+										{/if}
+										<ToggleButtonGroup
+											bind:selected={dynSelectLang}
+											on:selected={({ detail }) => {
+												dynSelectCode = initDynSelectFn(detail)
+											}}
+										>
+											{#snippet children({ item })}
+												<ToggleButton value="bun" label="Typescript (Bun)" {item} />
+												<ToggleButton value="python3" label="Python" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+										{#key dynSelectLang}
+											<div class="border w-full h-full">
+												<Editor
+													bind:this={dynamicSelectEditor}
+													class="flex flex-1 grow h-80 w-full"
+													scriptLang={dynSelectLang}
+													useWebsockets={false}
+													automaticLayout
+													bind:code={dynSelectCode}
+												/>
+											</div>
+										{/key}
+									</div>
+								</Section>
+							{/if}
+						</div>
 					</div>
 				</div>
 			</Pane>
@@ -530,6 +653,7 @@
 																				(v) => {
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
+																					const isDynSelect = v == 'dynselect'
 
 																					const emptyProperty = {
 																						contentEncoding: undefined,
@@ -555,6 +679,15 @@
 																							type: 'object',
 																							format: 'resource-s3_object'
 																						}
+																					} else if (isDynSelect) {
+																						const functionName = argName.replace(/\s+/g, '_')
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'dynselect-' + functionName
+																						}
+																						updateDynSelectCode(argName, dynSelectLang)
+																						dynamicSelectEditor?.setCode(dynSelectCode || '')
 																					} else if (isOneOf) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
@@ -604,7 +737,7 @@
 																			}}
 																		>
 																			{#snippet children({ item })}
-																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
 																			{/snippet}

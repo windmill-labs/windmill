@@ -60,7 +60,7 @@
 		onCreateItem?: (value: string) => void
 	} = $props()
 
-	let disabled = $derived(_disabled || loading)
+	let disabled = $derived(_disabled || (loading && !value))
 
 	let inputEl: HTMLInputElement | undefined = $state()
 
@@ -121,12 +121,14 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
+		placeholder={loading && !value
+			? 'Loading...'
+			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			value && !loading ? '!placeholder-primary' : '',
+			!loading ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
