@@ -605,9 +605,7 @@ async fn install<'a>(
                         .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
-                // TODO: Check there is env_clear everywhere
-                cmd.env_clear()
-                    .args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
+                cmd.args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
                 cmd
             } else {
                 Command::new(if cfg!(windows) {
@@ -616,7 +614,7 @@ async fn install<'a>(
                     GEM_PATH.as_str()
                 })
             };
-            cmd.current_dir(&job_dir).envs(vec![
+            cmd.env_clear().current_dir(&job_dir).envs(vec![
                 ("PATH".to_owned(), PATH_ENV.clone()),
                 // Make sure there is nothing written to actual home
                 // This way we keep everything clean, organized and maintable
