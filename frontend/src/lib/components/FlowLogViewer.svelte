@@ -8,6 +8,7 @@
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import type { FlowData, StepData } from './FlowLogUtils'
 	import type { FlowStatusModule } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		flowData: FlowData
@@ -161,26 +162,30 @@
 		<!-- Flow entry -->
 		<li class="border-b border-gray-200 dark:border-gray-700 flex">
 			<div class="py-2 leading-tight align-top">
-				<button
-					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-					onclick={() => toggleExpanded(`flow-${flowId}`)}
-				>
-					{#if isExpanded(`flow-${flowId}`)}
-						<ChevronDown size={8} />
-					{:else}
-						<ChevronRight size={8} />
-					{/if}
-				</button>
+				{#if level > 0}
+					<button
+						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+						onclick={() => toggleExpanded(`flow-${flowId}`)}
+					>
+						{#if isExpanded(`flow-${flowId}`)}
+							<ChevronDown size={8} />
+						{:else}
+							<ChevronRight size={8} />
+						{/if}
+					</button>
+				{:else}
+					<!-- Root flow - no collapse button, just spacing -->
+					<div class="w-4"></div>
+				{/if}
 			</div>
 			<div class="w-full leading-tight">
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="py-1 flex items-center justify-between cursor-pointer {flowData.status ===
-					undefined
-						? 'opacity-50'
-						: ''}"
-					onclick={() => toggleExpanded(`flow-${flowId}`)}
+					class="py-1 flex items-center justify-between {level > 0
+						? 'cursor-pointer'
+						: ''} {flowData.status === undefined ? 'opacity-50' : ''}"
+					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
 						<!-- Status dot -->
@@ -207,8 +212,8 @@
 					</a>
 				</div>
 
-				{#if isExpanded(`flow-${flowId}`)}
-					<div class="my-1 transition-all duration-200 ease-in-out">
+				{#if level === 0 || isExpanded(`flow-${flowId}`)}
+					<div class="mb-2 transition-all duration-200 ease-in-out">
 						<!-- Show flow input arguments -->
 						{#if showResultsInputs && flowData.inputs && Object.keys(flowData.inputs).length > 0}
 							<div class="mb-2">
@@ -219,11 +224,11 @@
 									onclick={() => toggleExpanded(`flow-${flowId}-input`)}
 								>
 									{#if isExpanded(`flow-${flowId}-input`)}
-										<ChevronDown size={10} />
+										<ChevronDown size={8} />
 									{:else}
-										<ChevronRight size={10} />
+										<ChevronRight size={8} />
 									{/if}
-									Input:
+									Inputs
 								</div>
 								{#if isExpanded(`flow-${flowId}-input`)}
 									<div class="pl-4">
@@ -277,12 +282,15 @@
 											<!-- svelte-ignore a11y_click_events_have_key_events -->
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<div
-												class="py-1 flex items-center justify-between cursor-pointer {entry.status ===
-													'WaitingForPriorSteps' ||
-												entry.status === 'WaitingForEvents' ||
-												entry.status === 'WaitingForExecutor'
-													? 'opacity-50'
-													: ''}"
+												class={twMerge(
+													'py-1 flex items-center justify-between cursor-pointer',
+													entry.status === 'WaitingForPriorSteps' ||
+														entry.status === 'WaitingForEvents' ||
+														entry.status === 'WaitingForExecutor' ||
+														entry.status === undefined
+														? 'opacity-50'
+														: ''
+												)}
 												onclick={() => toggleExpanded(entry.id)}
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
@@ -296,21 +304,21 @@
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
 															<b>
-																{#if entry.stepType === 'forloopflow'}
-																	For loop
-																{:else if entry.stepType === 'whileloopflow'}
-																	While loop
-																{:else if entry.stepType === 'branchall'}
-																	Branch to all
-																{:else if entry.stepType === 'branchone'}
-																	Branch to one
-																{:else if entry.stepType === 'flow'}
-																	Flow
-																{:else}
-																	Step
-																{/if}
 																{entry.stepId}
 															</b>
+															{#if entry.stepType === 'forloopflow'}
+																For loop
+															{:else if entry.stepType === 'whileloopflow'}
+																While loop
+															{:else if entry.stepType === 'branchall'}
+																Branch to all
+															{:else if entry.stepType === 'branchone'}
+																Branch to one
+															{:else if entry.stepType === 'flow'}
+																Flow
+															{:else}
+																Step
+															{/if}
 															{#if entry.summary}
 																: {entry.summary}
 															{/if}
@@ -370,11 +378,11 @@
 																onclick={() => toggleExpanded(`${entry.id}-input`)}
 															>
 																{#if isExpanded(`${entry.id}-input`)}
-																	<ChevronDown size={10} />
+																	<ChevronDown size={8} />
 																{:else}
-																	<ChevronRight size={10} />
+																	<ChevronRight size={8} />
 																{/if}
-																Input:
+																Input
 															</div>
 															{#if isExpanded(`${entry.id}-input`)}
 																<div class="pl-4">
@@ -411,7 +419,7 @@
 															<!-- This is a branch, show all subflows -->
 															<div class="mb-2">
 																{#each entry.stepData.subflows as subflow}
-																	<div class="mb-2 border-l">
+																	<div class="mb-1 border-l">
 																		<FlowLogViewer
 																			flowData={subflow}
 																			{expandedRows}
@@ -477,11 +485,11 @@
 																onclick={() => toggleExpanded(`${entry.id}-result`)}
 															>
 																{#if isExpanded(`${entry.id}-result`)}
-																	<ChevronDown size={10} />
+																	<ChevronDown size={8} />
 																{:else}
-																	<ChevronRight size={10} />
+																	<ChevronRight size={8} />
 																{/if}
-																Result:
+																Result
 															</div>
 															{#if isExpanded(`${entry.id}-result`)}
 																<div class="pl-4">
@@ -508,11 +516,11 @@
 									onclick={() => toggleExpanded(`flow-${flowId}-result`)}
 								>
 									{#if isExpanded(`flow-${flowId}-result`)}
-										<ChevronDown size={10} />
+										<ChevronDown size={8} />
 									{:else}
-										<ChevronRight size={10} />
+										<ChevronRight size={8} />
 									{/if}
-									Result:
+									Result
 								</div>
 								{#if isExpanded(`flow-${flowId}-result`)}
 									<div class="pl-4">
