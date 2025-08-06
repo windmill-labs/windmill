@@ -941,7 +941,10 @@ async fn call_endpoint_tool(
     let method = &tool.method;
     let mut path_template = tool.path.to_string();
     
-    // Substitute path parameters
+    // Always substitute {workspace} with the current workspace_id first
+    path_template = path_template.replace("{workspace}", workspace_id);
+    
+    // Substitute other path parameters from args
     if let serde_json::Value::Object(args_map) = &args {
         if let Some(path_schema) = &tool.path_params_schema {
             if let Some(path_props) = path_schema.get("properties").and_then(|p| p.as_object()) {
@@ -952,9 +955,6 @@ async fn call_endpoint_tool(
                             if let Some(str_val) = param_value.as_str() {
                                 path_template = path_template.replace(&placeholder, str_val);
                             }
-                        } else if param_name == "workspace" {
-                            // Use the current workspace if not provided
-                            path_template = path_template.replace(&placeholder, workspace_id);
                         }
                     }
                 }

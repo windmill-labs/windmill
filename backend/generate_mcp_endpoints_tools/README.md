@@ -1,7 +1,3 @@
-# Backend Scripts
-
-This directory contains utility scripts for the Windmill backend.
-
 ## MCP Tools Generator
 
 The `generate_mcp_tools.py` script parses the OpenAPI specification and generates Rust code for MCP (Model Context Protocol) tools.

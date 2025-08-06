@@ -49,7 +49,6 @@ windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-git-sync.workspace = true
-inventory = "0.3"
 windmill-indexer = { workspace = true, optional = true }
 windmill-worker.workspace = true
 tokio.workspace = true

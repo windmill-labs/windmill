@@ -60,9 +60,11 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
         
         # Route to appropriate schema based on parameter location
         if param_in == 'path':
-            path_params_schema['properties'][param_name] = param_schema
-            if param_required:
-                path_params_schema['required'].append(param_name)
+            # Skip 'workspace' path parameter as it's automatically provided by the MCP context
+            if param_name != 'workspace':
+                path_params_schema['properties'][param_name] = param_schema
+                if param_required:
+                    path_params_schema['required'].append(param_name)
         elif param_in == 'query':
             query_params_schema['properties'][param_name] = param_schema
             if param_required:

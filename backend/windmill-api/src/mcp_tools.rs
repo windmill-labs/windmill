@@ -21,17 +21,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         description: Cow::Borrowed("create resource"),
         path: Cow::Borrowed("/w/{workspace}/resources/create"),
         method: http::Method::POST,
-        path_params_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "workspace": {
-                        "type": "string"
-                }
-        },
-        "required": [
-                "workspace"
-        ]
-})),
+        path_params_schema: None,
         query_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
@@ -67,17 +57,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         description: Cow::Borrowed("list resources"),
         path: Cow::Borrowed("/w/{workspace}/resources/list"),
         method: http::Method::GET,
-        path_params_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "workspace": {
-                        "type": "string"
-                }
-        },
-        "required": [
-                "workspace"
-        ]
-})),
+        path_params_schema: None,
         query_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
