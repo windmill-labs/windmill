@@ -13,6 +13,7 @@
 		flowData: FlowData
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
+		showResultsInputs?: boolean
 		toggleExpanded: (id: string) => void
 		toggleExpandAll?: () => void
 		workspaceId: string | undefined
@@ -31,6 +32,7 @@
 		flowData,
 		expandedRows,
 		allExpanded,
+		showResultsInputs,
 		toggleExpanded,
 		toggleExpandAll,
 		workspaceId,
@@ -134,7 +136,19 @@
 
 {#if render}
 	{#if level === 0 && toggleExpandAll}
-		<div class="flex justify-end p-2 bg-surface-secondary border-b border-gray-200 dark:border-gray-700">
+		<div class="flex justify-end gap-4 items-center p-2 bg-surface-secondary border-b">
+			<div class="flex items-center gap-2 whitespace-nowrap">
+				<label for="showResultsInputs" class="text-xs text-tertiary">Show inputs/results</label>
+				<div class="flex-shrink-0">
+					<input
+						type="checkbox"
+						name="showResultsInputs"
+						id="showResultsInputs"
+						bind:checked={showResultsInputs}
+						class="w-3 h-3 accent-primary"
+					/>
+				</div>
+			</div>
 			<button
 				onclick={toggleExpandAll}
 				class="text-xs text-tertiary hover:text-primary transition-colors underline"
@@ -196,7 +210,7 @@
 				{#if isExpanded(`flow-${flowId}`)}
 					<div class="my-1 transition-all duration-200 ease-in-out">
 						<!-- Show flow input arguments -->
-						{#if flowData.inputs && Object.keys(flowData.inputs).length > 0}
+						{#if showResultsInputs && flowData.inputs && Object.keys(flowData.inputs).length > 0}
 							<div class="mb-2">
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -236,7 +250,7 @@
 						{/if}
 
 						<!-- Show flow result if completed -->
-						{#if flowData.result !== undefined && flowData.status === 'CompletedJob'}
+						{#if showResultsInputs && flowData.result !== undefined && flowData.status === 'CompletedJob'}
 							<div class="mb-2 mt-2">
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -367,7 +381,7 @@
 						<div class="my-1 transition-all duration-200 ease-in-out">
 							<!-- Show input arguments -->
 							<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
-							{#if isLeafStep && entry.args && Object.keys(entry.args).length > 0}
+							{#if showResultsInputs && isLeafStep && entry.args && Object.keys(entry.args).length > 0}
 								<div class="mb-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -399,6 +413,7 @@
 												flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
 												{expandedRows}
 												{allExpanded}
+												{showResultsInputs}
 												{toggleExpanded}
 												toggleExpandAll={undefined}
 												{onSelectedIteration}
@@ -419,6 +434,7 @@
 													flowData={subflow}
 													{expandedRows}
 													{allExpanded}
+													{showResultsInputs}
 													{toggleExpanded}
 													toggleExpandAll={undefined}
 													{onSelectedIteration}
@@ -437,6 +453,7 @@
 											flowData={entry.stepData.subflows[0]}
 											{expandedRows}
 											{allExpanded}
+											{showResultsInputs}
 											{toggleExpanded}
 											toggleExpandAll={undefined}
 											{onSelectedIteration}
@@ -469,7 +486,7 @@
 
 							<!-- Show result if completed -->
 							<!-- Todo: show result for subflows -->
-							{#if isLeafStep && entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
+							{#if showResultsInputs && isLeafStep && entry.result !== undefined && (entry.status === 'Success' || entry.status === 'Failure')}
 								<div class="mb-2 mt-2">
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->

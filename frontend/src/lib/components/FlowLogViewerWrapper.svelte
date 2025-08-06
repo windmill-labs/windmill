@@ -37,6 +37,7 @@
 	// State for tracking expanded rows - using Record to allow explicit control
 	let expandedRows: Record<string, boolean> = $state({})
 	let allExpanded = $state(false)
+	let showResultsInputs = $state(true)
 
 	// Fetch subflow job data
 	async function fetchSubflowJob(jobId: string): Promise<Job | null> {
@@ -193,6 +194,7 @@
 			{flowData}
 			{expandedRows}
 			{allExpanded}
+			{showResultsInputs}
 			{toggleExpanded}
 			{toggleExpandAll}
 			{onSelectedIteration}
