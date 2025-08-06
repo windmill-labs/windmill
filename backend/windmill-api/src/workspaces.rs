@@ -38,6 +38,8 @@ use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
+use windmill_common::workspaces::GitRepositorySettings;
+#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
@@ -47,8 +49,6 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-#[cfg(feature = "enterprise")]
-use windmill_common::workspaces::GitRepositorySettings;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
@@ -116,7 +116,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
-        .route("/delete_git_sync_repository", delete(delete_git_sync_repository))
+        .route(
+            "/delete_git_sync_repository",
+            delete(delete_git_sync_repository),
+        )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
@@ -166,6 +169,7 @@ pub fn global_service() -> Router {
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
         .route("/create_ephemeral", post(create_ephemeral_workspace))
+        .route("/list_ephemeral", get(list_ephemeral_workspaces))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -312,9 +316,11 @@ struct CreateWorkspace {
 
 #[derive(Deserialize)]
 struct CreateEphemeralWorkspace {
+    id: String,
     name: String,
     username: Option<String>,
     color: Option<String>,
+    parent_workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +342,15 @@ struct UserWorkspace {
     pub username: String,
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
+}
+
+#[derive(Serialize)]
+struct EphemeralWorkspaceInfo {
+    pub ephemeral_workspace_id: String,
+    pub ephemeral_workspace_name: String,
+    pub parent_workspace_id: String,
+    pub parent_workspace_name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
@@ -898,12 +913,16 @@ pub struct DeleteGitSyncRepositoryRequest {
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     // Must start with $res: prefix
     if !path.starts_with("$res:") {
-        return Err(Error::BadRequest("Resource path must start with '$res:'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:'".to_string(),
+        ));
     }
 
     // Extract the actual path after $res:
@@ -911,19 +930,29 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
 
     // Basic validation: must start with f/ or u/ and contain at least one slash
     if !actual_path.starts_with("f/") && !actual_path.starts_with("u/") {
-        return Err(Error::BadRequest("Resource path must start with '$res:f/' or '$res:u/'".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:f/' or '$res:u/'".to_string(),
+        ));
     }
 
     // Must have at least 3 parts (type, folder/user, name)
     let parts: Vec<&str> = actual_path.split('/').collect();
     if parts.len() < 3 || parts.iter().any(|part| part.is_empty()) {
-        return Err(Error::BadRequest("Invalid resource path format".to_string()));
+        return Err(Error::BadRequest(
+            "Invalid resource path format".to_string(),
+        ));
     }
 
     // Resource name validation (last part)
     let resource_name = parts.last().unwrap();
-    if !resource_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err(Error::BadRequest("Resource name can only contain alphanumeric characters, underscores, and hyphens".to_string()));
+    if !resource_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(
+            "Resource name can only contain alphanumeric characters, underscores, and hyphens"
+                .to_string(),
+        ));
     }
 
     Ok(())
@@ -935,11 +964,15 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     workspace_id: &str,
 ) {
     // Check if all repositories are in new format (have settings field)
-    let all_repos_migrated = git_sync_settings.repositories.iter()
+    let all_repos_migrated = git_sync_settings
+        .repositories
+        .iter()
         .all(|repo| repo.settings.is_some());
 
     // If all repos are migrated and we still have legacy workspace-level settings
-    if all_repos_migrated && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some()) {
+    if all_repos_migrated
+        && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some())
+    {
         tracing::info!(
             workspace_id = workspace_id,
             "All git sync repositories migrated to new format, cleaning up legacy workspace-level settings"
@@ -1081,16 +1114,29 @@ async fn edit_git_sync_repository(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("repository_path", new_config.git_repo_resource_path.as_str()), ("repository_data", &format!("{:?}", new_config.repository))].into()),
+        Some(
+            [
+                (
+                    "repository_path",
+                    new_config.git_repo_resource_path.as_str(),
+                ),
+                ("repository_data", &format!("{:?}", new_config.repository)),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
     // Check if repository exists before modifying
-    let repo_exists = git_sync_settings.repositories.iter()
+    let repo_exists = git_sync_settings
+        .repositories
+        .iter()
         .any(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     // Find and update the specific repository, or add it if it doesn't exist
-    let repo_found = git_sync_settings.repositories.iter_mut()
+    let repo_found = git_sync_settings
+        .repositories
+        .iter_mut()
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
@@ -1125,7 +1171,8 @@ async fn edit_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' {}",
+        Some(format!(
+            "Git sync repository '{}' {}",
             new_config.git_repo_resource_path,
             if repo_exists { "updated" } else { "added" }
         )),
@@ -1133,7 +1180,8 @@ async fn edit_git_sync_repository(
     )
     .await?;
 
-    Ok(format!("{} git sync repository '{}' for workspace {}",
+    Ok(format!(
+        "{} git sync repository '{}' for workspace {}",
         if repo_exists { "Updated" } else { "Added" },
         new_config.git_repo_resource_path,
         &w_id
@@ -1164,7 +1212,9 @@ async fn delete_git_sync_repository(
 
     // For deletion, only validate that path is not empty to allow cleanup of malformed entries
     if request.git_repo_resource_path.is_empty() {
-        return Err(Error::BadRequest("Resource path cannot be empty".to_string()));
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
@@ -1190,7 +1240,9 @@ async fn delete_git_sync_repository(
 
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
-    git_sync_settings.repositories.retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
+    git_sync_settings
+        .repositories
+        .retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
 
     if git_sync_settings.repositories.len() == original_count {
         return Err(Error::BadRequest(format!(
@@ -1235,12 +1287,18 @@ async fn delete_git_sync_repository(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
-        Some(format!("Git sync repository '{}' deleted", request.git_repo_resource_path)),
+        Some(format!(
+            "Git sync repository '{}' deleted",
+            request.git_repo_resource_path
+        )),
         false,
     )
     .await?;
 
-    Ok(format!("Deleted git sync repository '{}' from workspace {}", request.git_repo_resource_path, &w_id))
+    Ok(format!(
+        "Deleted git sync repository '{}' from workspace {}",
+        request.git_repo_resource_path, &w_id
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1815,6 +1873,35 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
+async fn list_ephemeral_workspaces(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<EphemeralWorkspaceInfo>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let ephemeral_workspaces = sqlx::query_as!(
+        EphemeralWorkspaceInfo,
+        "SELECT 
+            ew.ephemeral_workspace_id,
+            ew_workspace.name AS ephemeral_workspace_name,
+            ew.parent_workspace_id,
+            parent_workspace.name AS parent_workspace_name,
+            ew.created_at
+        FROM ephemeral_workspace ew
+        JOIN workspace ew_workspace ON ew.ephemeral_workspace_id = ew_workspace.id
+        JOIN workspace parent_workspace ON ew.parent_workspace_id = parent_workspace.id
+        JOIN usr ON usr.workspace_id = ew.ephemeral_workspace_id OR usr.workspace_id = ew.parent_workspace_id
+        WHERE usr.email = $1
+          AND ew_workspace.deleted = false
+          AND parent_workspace.deleted = false
+        ORDER BY ew.created_at DESC",
+        authed.email
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(ephemeral_workspaces))
+}
+
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     if w_id == "global" {
         return Err(windmill_common::error::Error::BadRequest(
@@ -2064,8 +2151,12 @@ async fn create_ephemeral_workspace(
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // Generate unique ephemeral workspace ID with wm-ephemeral prefix
-    let ephemeral_id = generate_unique_ephemeral_id(&mut tx).await?;
-    
+    if !nw.id.starts_with("wm-ephemeral-") {
+        return Err(Error::BadRequest(format!("The id `{}` is invalid for an ephemeral workspace. It should be prefixed by `wm-ephemeral`", nw.id)));
+    }
+
+    let ephemeral_id = nw.id;
+
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner)
@@ -2178,6 +2269,15 @@ async fn create_ephemeral_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // Insert ephemeral workspace parent relationship
+    sqlx::query!(
+        "INSERT INTO ephemeral_workspace (ephemeral_workspace_id, parent_workspace_id) VALUES ($1, $2)",
+        ephemeral_id,
+        nw.parent_workspace_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -2190,34 +2290,6 @@ async fn create_ephemeral_workspace(
     .await?;
     tx.commit().await?;
     Ok(format!("Created ephemeral workspace {}", &ephemeral_id))
-}
-
-async fn generate_unique_ephemeral_id(tx: &mut Transaction<'_, Postgres>) -> Result<String> {
-    let mut attempts = 0;
-    const MAX_ATTEMPTS: i32 = 100;
-    
-    while attempts < MAX_ATTEMPTS {
-        let random_suffix = rd_string(8);
-        let ephemeral_id = format!("wm-ephemeral-{}", random_suffix);
-        
-        // Check if this ID already exists
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
-            ephemeral_id
-        )
-        .fetch_one(&mut **tx)
-        .await?;
-        
-        if !exists.unwrap_or(true) {
-            return Ok(ephemeral_id);
-        }
-        
-        attempts += 1;
-    }
-    
-    Err(Error::InternalErr(
-        "Failed to generate unique ephemeral workspace ID after maximum attempts".to_string(),
-    ))
 }
 
 async fn edit_workspace(

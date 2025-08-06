@@ -695,6 +695,22 @@ paths:
               schema:
                 type: string
 
+  /workspaces/list_ephemeral:
+    get:
+      summary: list all ephemeral workspaces with their parents
+      operationId: listEphemeralWorkspaces
+      tags:
+        - workspace
+      responses:
+        "200":
+          description: list of ephemeral workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EphemeralWorkspaceInfo"
+
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -16678,14 +16694,41 @@ components:
     CreateEphemeralWorkspace:
       type: object
       properties:
+        id:
+          type: string
         name:
           type: string
         username:
           type: string
         color:
           type: string
+        parent_workspace_id:
+          type: string
       required:
+        - id
         - name
+        - parent_workspace_id
+
+    EphemeralWorkspaceInfo:
+      type: object
+      properties:
+        ephemeral_workspace_id:
+          type: string
+        ephemeral_workspace_name:
+          type: string
+        parent_workspace_id:
+          type: string
+        parent_workspace_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - ephemeral_workspace_id
+        - ephemeral_workspace_name
+        - parent_workspace_id
+        - parent_workspace_name
+        - created_at
 
     Workspace:
       type: object
