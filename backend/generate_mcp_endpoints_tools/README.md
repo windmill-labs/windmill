@@ -22,12 +22,13 @@ The script will:
 
 ### Adding MCP Tools
 
-To mark an endpoint as an MCP tool, add `x-mcp-tool: true` to the operation in the OpenAPI spec:
+To mark an endpoint as an MCP tool, add `x-mcp-tool: true` to the operation in the OpenAPI spec. You can also add `x-mcp-instructions` to complete the description of the tool with instructions on how to correctly use the endpoint:
 
 ```yaml
 /w/{workspace}/scripts/list:
   get:
     x-mcp-tool: true
+    x-mcp-instructions: you should call that with this or that arg
     summary: list scripts in workspace
     operationId: listScripts
     # ... rest of endpoint definition
