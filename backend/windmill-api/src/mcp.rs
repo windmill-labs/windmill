@@ -97,10 +97,12 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         "properties": combined_properties,
         "required": combined_required
     });
+
+    let description = format!("{}. {}", tool.description, tool.instructions);
     
     Tool {
         name: tool.name.clone(),
-        description: Some(tool.description.clone()),
+        description: Some(description.into()),
         input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
         annotations: Some(ToolAnnotations {
             title: Some(format!("{} {}", 

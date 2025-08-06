@@ -4951,6 +4951,7 @@ paths:
     get:
       summary: get script by path
       operationId: getScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5723,6 +5724,7 @@ paths:
     get:
       summary: get flow by path
       operationId: getFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -8455,6 +8457,10 @@ paths:
       summary: create schedule
       operationId: createSchedule
       x-mcp-tool: true
+      x-mcp-instructions: |
+        Creates a new schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -8479,6 +8485,10 @@ paths:
       summary: update schedule
       operationId: updateSchedule
       x-mcp-tool: true
+      x-mcp-instructions: |
+        Updates a schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before updating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:

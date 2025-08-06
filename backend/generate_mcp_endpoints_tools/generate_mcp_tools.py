@@ -175,6 +175,7 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                 tool = {
                     'name': operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
                     'description': operation.get('summary', operation.get('description', f'{method.upper()} {path}')),
+                    'instructions': operation.get('x-mcp-instructions', ''),
                     'path': path,
                     'method': method.upper(),
                     'parameters': operation.get('parameters', []),
@@ -195,6 +196,7 @@ use std::borrow::Cow;
 pub struct EndpointTool {
     pub name: Cow<'static, str>,
     pub description: Cow<'static, str>,
+    pub instructions: Cow<'static, str>,
     pub path: Cow<'static, str>,
     pub method: http::Method,
     pub path_params_schema: Option<serde_json::Value>,
@@ -212,6 +214,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     for tool in tools:
         tool_name = tool['name']
         description = tool['description']
+        instructions = tool['instructions']
         path = tool['path']
         method = http_method_to_rust(tool['method'])
         
@@ -228,6 +231,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         tool_def = f"""    EndpointTool {{
         name: Cow::Borrowed("{tool_name}"),
         description: Cow::Borrowed("{description}"),
+        instructions: Cow::Borrowed("{instructions}"),
         path: Cow::Borrowed("{path}"),
         method: {method},
         path_params_schema: {path_params_rust},
@@ -248,6 +252,7 @@ use std::borrow::Cow;
 pub struct EndpointTool {{
     pub name: Cow<'static, str>,
     pub description: Cow<'static, str>,
+    pub instructions: Cow<'static, str>,
     pub path: Cow<'static, str>,
     pub method: http::Method,
     pub path_params_schema: Option<serde_json::Value>,

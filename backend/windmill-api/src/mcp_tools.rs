@@ -7,6 +7,7 @@ use std::borrow::Cow;
 pub struct EndpointTool {
     pub name: Cow<'static, str>,
     pub description: Cow<'static, str>,
+    pub instructions: Cow<'static, str>,
     pub path: Cow<'static, str>,
     pub method: http::Method,
     pub path_params_schema: Option<serde_json::Value>,
@@ -19,6 +20,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createVariable"),
         description: Cow::Borrowed("create variable"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/variables/create"),
         method: http::Method::POST,
         path_params_schema: None,
@@ -76,6 +78,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("deleteVariable"),
         description: Cow::Borrowed("delete variable"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/variables/delete/{path}"),
         method: http::Method::DELETE,
         path_params_schema: Some(serde_json::json!({
@@ -95,6 +98,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("updateVariable"),
         description: Cow::Borrowed("update variable"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/variables/update/{path}"),
         method: http::Method::POST,
         path_params_schema: Some(serde_json::json!({
@@ -143,6 +147,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("getVariable"),
         description: Cow::Borrowed("get variable"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/variables/get/{path}"),
         method: http::Method::GET,
         path_params_schema: Some(serde_json::json!({
@@ -175,6 +180,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listVariable"),
         description: Cow::Borrowed("list variables"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/variables/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -201,6 +207,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createResource"),
         description: Cow::Borrowed("create resource"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/resources/create"),
         method: http::Method::POST,
         path_params_schema: None,
@@ -241,6 +248,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("deleteResource"),
         description: Cow::Borrowed("delete resource"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/resources/delete/{path}"),
         method: http::Method::DELETE,
         path_params_schema: Some(serde_json::json!({
@@ -260,6 +268,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("updateResource"),
         description: Cow::Borrowed("update resource"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/resources/update/{path}"),
         method: http::Method::POST,
         path_params_schema: Some(serde_json::json!({
@@ -296,6 +305,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("getResource"),
         description: Cow::Borrowed("get resource"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/resources/get/{path}"),
         method: http::Method::GET,
         path_params_schema: Some(serde_json::json!({
@@ -315,6 +325,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listResource"),
         description: Cow::Borrowed("list resources"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/resources/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -349,6 +360,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listScripts"),
         description: Cow::Borrowed("list all scripts"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/scripts/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -429,8 +441,37 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("getScriptByPath"),
+        description: Cow::Borrowed("get script by path"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/scripts/get/p/{path}"),
+        method: http::Method::GET,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "with_starred_info": {
+                        "type": "boolean"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("listFlows"),
         description: Cow::Borrowed("list all flows"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/flows/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -483,8 +524,37 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("getFlowByPath"),
+        description: Cow::Borrowed("get flow by path"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/flows/get/{path}"),
+        method: http::Method::GET,
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "with_starred_info": {
+                        "type": "boolean"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("listQueue"),
         description: Cow::Borrowed("list all queued jobs"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/jobs/queue/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -594,6 +664,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listJobs"),
         description: Cow::Borrowed("list all jobs"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/jobs/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -740,6 +811,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createSchedule"),
         description: Cow::Borrowed("create schedule"),
+        instructions: Cow::Borrowed("Create a new schedule.
+The schedule should include seconds.
+You should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.
+"),
         path: Cow::Borrowed("/w/{workspace}/schedules/create"),
         method: http::Method::POST,
         path_params_schema: None,
@@ -862,6 +937,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("updateSchedule"),
         description: Cow::Borrowed("update schedule"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/schedules/update/{path}"),
         method: http::Method::POST,
         path_params_schema: Some(serde_json::json!({
@@ -977,6 +1053,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("deleteSchedule"),
         description: Cow::Borrowed("delete schedule"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/schedules/delete/{path}"),
         method: http::Method::DELETE,
         path_params_schema: Some(serde_json::json!({
@@ -996,6 +1073,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("getSchedule"),
         description: Cow::Borrowed("get schedule"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/schedules/get/{path}"),
         method: http::Method::GET,
         path_params_schema: Some(serde_json::json!({
@@ -1015,6 +1093,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listSchedules"),
         description: Cow::Borrowed("list schedules"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/w/{workspace}/schedules/list"),
         method: http::Method::GET,
         path_params_schema: None,
@@ -1053,6 +1132,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("listWorkers"),
         description: Cow::Borrowed("list workers"),
+        instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/workers/list"),
         method: http::Method::GET,
         path_params_schema: None,
