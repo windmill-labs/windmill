@@ -133,7 +133,7 @@ impl AuthCache {
                             is_operator: claims.is_operator,
                             groups: claims.groups,
                             folders: claims.folders,
-                            scopes: None, // TODO: check if this is correct
+                            scopes: None,
                             username_override,
                             token_prefix: claims.audit_span,
                         };

@@ -328,7 +328,10 @@ pub async fn create_jwt_token(
 
     let token = jwt::encode_with_internal_secret(&payload)
         .await
-        .with_context(|| "Could not encode JWT token")?;
+        .with_context(|| match job_id {
+            Some(job_id) => format!("Could not encode JWT token for job {job_id}"),
+            None => "Could not encode JWT token".to_string(),
+        })?;
 
     Ok(format!("jwt_{}", token))
 }
