@@ -5,7 +5,7 @@ The `generate_mcp_tools.py` script parses the OpenAPI specification and generate
 ### Setup
 
 ```bash
-cd backend/scripts
+cd backend/generate_mcp_endpoints_tools
 pip install -r requirements.txt
 ```
 
