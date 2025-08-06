@@ -142,6 +142,11 @@
         "ordinal": 27,
         "name": "git_app_installations",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 28,
+        "name": "ducklake",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -177,7 +182,8 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "08f288d2781d823e109a9e5b8848234ca7d1efeee9661f3901f298da375e73f7"

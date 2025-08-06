@@ -27,7 +27,7 @@ use crate::{
     DB,
 };
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -91,7 +91,7 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Deserialize, sqlx::FromRow)]
+#[derive(Debug, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
