@@ -2129,6 +2129,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
             AND canceled = false
+            
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )

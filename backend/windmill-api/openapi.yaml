@@ -7798,7 +7798,15 @@ paths:
           in: query
           schema:
             type: integer
+        - name: stream_offset
+          in: query
+          schema:
+            type: integer
         - name: get_progress
+          in: query
+          schema:
+            type: boolean
+        - name: no_logs
           in: query
           schema:
             type: boolean
@@ -7823,6 +7831,10 @@ paths:
                     type: integer
                   progress:
                     type: integer
+                  stream_offset:
+                    type: integer
+                  new_result_stream:
+                    type: string
                   flow_status:
                     $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
                   workflow_as_code_status:
@@ -7850,6 +7862,10 @@ paths:
           schema:
             type: boolean
         - name: only_result
+          in: query
+          schema:
+            type: boolean
+        - name: no_logs
           in: query
           schema:
             type: boolean
@@ -14840,7 +14856,7 @@ components:
                                 - key
                                 - typ
                     required:
-                      - object 
+                      - object
                   - type: object
                     properties:
                       list:
