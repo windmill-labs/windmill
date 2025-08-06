@@ -1274,4 +1274,6 @@ where
             }
         }
     };
+
+    Ok(resource)
 }

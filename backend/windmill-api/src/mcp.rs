@@ -19,7 +19,7 @@ use tokio::try_join;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::{Authed, UserDB};
 use windmill_common::worker::to_raw_value;
-use windmill_common::{DB, HUB_BASE_URL};
+use windmill_common::{DB, HUB_BASE_URL, BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
@@ -1020,11 +1020,7 @@ async fn call_endpoint_tool(
         None
     };
 
-    // Build the full URL - assume we're making internal requests to the same server
-    let base_url = std::env::var("WM_BASE_URL")
-        .or_else(|_| std::env::var("BASE_URL"))
-        .unwrap_or_else(|_| "http://localhost:8000".to_string());
-    let full_url = format!("{}/api{}{}", base_url, path_template, query_string);
+    let full_url = format!("{}/api{}{}", BASE_URL.read().await, path_template, query_string);
 
     // Create the HTTP request
     let client = &crate::HTTP_CLIENT;
@@ -1382,8 +1378,8 @@ impl ServerHandler for Runner {
 
         // Add endpoint tools from the generated MCP tools
         let endpoint_tools = all_tools();
-        let mut mcp_tools_converted = endpoint_tools_to_mcp_tools(endpoint_tools);
-        tools.append(&mut mcp_tools_converted);
+        let mcp_tools_converted = endpoint_tools_to_mcp_tools(endpoint_tools);
+        tools.extend(mcp_tools_converted);
 
         Ok(ListToolsResult { tools, next_cursor: None })
     }
