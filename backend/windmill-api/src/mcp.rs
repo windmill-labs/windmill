@@ -16,10 +16,9 @@ use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
-use windmill_common::auth::create_jwt_token;
-use windmill_common::db::{Authed, UserDB};
+use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
-use windmill_common::{DB, HUB_BASE_URL, BASE_URL};
+use windmill_common::{DB, HUB_BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
@@ -33,96 +32,9 @@ use rmcp::transport::streamable_http_server::{
 };
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
-use crate::mcp_tools::{all_tools, EndpointTool};
+use crate::mcp_tools::all_tools;
+use crate::mcp_utils::{endpoint_tools_to_mcp_tools, call_endpoint_tool};
 
-pub fn endpoint_tools_to_mcp_tools(endpoint_tools: Vec<EndpointTool>) -> Vec<Tool> {
-    endpoint_tools.into_iter().map(|tool| endpoint_tool_to_mcp_tool(&tool)).collect()
-}
-
-pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
-    // Combine all schemas into a single input schema
-    let mut combined_properties = serde_json::Map::new();
-    let mut combined_required = Vec::new();
-    
-    // Add path parameters
-    if let Some(path_schema) = &tool.path_params_schema {
-        if let Some(props) = path_schema.get("properties").and_then(|p| p.as_object()) {
-            for (key, value) in props {
-                combined_properties.insert(key.clone(), value.clone());
-            }
-        }
-        if let Some(required) = path_schema.get("required").and_then(|r| r.as_array()) {
-            for req in required {
-                if let Some(req_str) = req.as_str() {
-                    combined_required.push(req_str.to_string());
-                }
-            }
-        }
-    }
-    
-    // Add query parameters
-    if let Some(query_schema) = &tool.query_params_schema {
-        if let Some(props) = query_schema.get("properties").and_then(|p| p.as_object()) {
-            for (key, value) in props {
-                combined_properties.insert(key.clone(), value.clone());
-            }
-        }
-        if let Some(required) = query_schema.get("required").and_then(|r| r.as_array()) {
-            for req in required {
-                if let Some(req_str) = req.as_str() {
-                    combined_required.push(req_str.to_string());
-                }
-            }
-        }
-    }
-    
-    // Add body parameters
-    if let Some(body_schema) = &tool.body_schema {
-        if let Some(props) = body_schema.get("properties").and_then(|p| p.as_object()) {
-            for (key, value) in props {
-                combined_properties.insert(key.clone(), value.clone());
-            }
-        }
-        if let Some(required) = body_schema.get("required").and_then(|r| r.as_array()) {
-            for req in required {
-                if let Some(req_str) = req.as_str() {
-                    combined_required.push(req_str.to_string());
-                }
-            }
-        }
-    }
-    
-    let combined_schema = serde_json::json!({
-        "type": "object",
-        "properties": combined_properties,
-        "required": combined_required
-    });
-
-    let description = format!("{}. {}", tool.description, tool.instructions);
-    
-    Tool {
-        name: tool.name.clone(),
-        description: Some(description.into()),
-        input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
-        annotations: Some(ToolAnnotations {
-            title: Some(format!("{} {}", 
-                match tool.method {
-                    http::Method::GET => "GET",
-                    http::Method::POST => "POST", 
-                    http::Method::PUT => "PUT",
-                    http::Method::DELETE => "DELETE",
-                    http::Method::PATCH => "PATCH",
-                    _ => "UNKNOWN"
-                }, 
-                tool.path
-            )),
-            read_only_hint: None,
-            destructive_hint: None,
-            idempotent_hint: None,
-            open_world_hint: None,
-        }),
-    }
-}
 
 /// Transforms the path for workspace scripts/flows.
 ///
@@ -875,146 +787,6 @@ impl Runner {
     }
 }
 
-async fn call_endpoint_tool(
-    tool: &crate::mcp_tools::EndpointTool,
-    args: serde_json::Value,
-    workspace_id: &str,
-    api_authed: &ApiAuthed,
-) -> Result<serde_json::Value, Error> {
-    let method = &tool.method;
-    let mut path_template = tool.path.to_string();
-    
-    // Always substitute {workspace} with the current workspace_id first
-    path_template = path_template.replace("{workspace}", workspace_id);
-    
-    // Substitute other path parameters from args
-    if let serde_json::Value::Object(args_map) = &args {
-        if let Some(path_schema) = &tool.path_params_schema {
-            if let Some(path_props) = path_schema.get("properties").and_then(|p| p.as_object()) {
-                for (param_name, _) in path_props {
-                    let placeholder = format!("{{{}}}", param_name);
-                    if path_template.contains(&placeholder) {
-                        if let Some(param_value) = args_map.get(param_name) {
-                            if let Some(str_val) = param_value.as_str() {
-                                path_template = path_template.replace(&placeholder, str_val);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Build query parameters
-    let mut query_params = Vec::new();
-    if let serde_json::Value::Object(args_map) = &args {
-        if let Some(query_schema) = &tool.query_params_schema {
-            if let Some(query_props) = query_schema.get("properties").and_then(|p| p.as_object()) {
-                for (param_name, _) in query_props {
-                    if let Some(value) = args_map.get(param_name) {
-                        if let Some(str_val) = value.as_str() {
-                            query_params.push(format!("{}={}", 
-                                urlencoding::encode(param_name), 
-                                urlencoding::encode(str_val)
-                            ));
-                        } else if let Some(num_val) = value.as_number() {
-                            query_params.push(format!("{}={}", param_name, num_val));
-                        } else if let Some(bool_val) = value.as_bool() {
-                            query_params.push(format!("{}={}", param_name, bool_val));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    let query_string = if query_params.is_empty() {
-        String::new()
-    } else {
-        format!("?{}", query_params.join("&"))
-    };
-
-    // Prepare body for non-GET requests
-    let body_json = if method != &http::Method::GET {
-        if let Some(body_schema) = &tool.body_schema {
-            if let serde_json::Value::Object(args_map) = &args {
-                if let Some(body_props) = body_schema.get("properties").and_then(|p| p.as_object()) {
-                    let mut body_map = serde_json::Map::new();
-                    for (param_name, _) in body_props {
-                        if let Some(value) = args_map.get(param_name) {
-                            body_map.insert(param_name.clone(), value.clone());
-                        }
-                    }
-                    if !body_map.is_empty() {
-                        Some(serde_json::Value::Object(body_map))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let full_url = format!("{}/api{}{}", BASE_URL.read().await, path_template, query_string);
-
-    // Create the HTTP request
-    let client = &crate::HTTP_CLIENT;
-    let mut request_builder = match method {
-        &http::Method::GET => client.get(&full_url),
-        &http::Method::POST => client.post(&full_url),
-        &http::Method::PUT => client.put(&full_url),
-        &http::Method::DELETE => client.delete(&full_url),
-        &http::Method::PATCH => client.patch(&full_url),
-        _ => return Err(Error::invalid_params(
-            format!("Unsupported HTTP method: {}", method),
-            Some(tool.name.clone().into())
-        )),
-    };
-
-    // Add authorization header
-    let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None).await
-        .map_err(|e| Error::internal_error(e.to_string(), None))?;
-    request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
-
-    // Add body for non-GET requests
-    if let Some(body) = body_json {
-        request_builder = request_builder
-            .header("Content-Type", "application/json")
-            .json(&body);
-    }
-
-    // Execute the request
-    let response = request_builder.send().await.map_err(|e| {
-        Error::internal_error(format!("Failed to execute request: {}", e), None)
-    })?;
-
-    let status = response.status();
-    let response_text = response.text().await.map_err(|e| {
-        Error::internal_error(format!("Failed to read response text: {}", e), None)
-    })?;
-
-    if status.is_success() {
-        // Try to parse as JSON, fallback to string if not valid JSON
-        match serde_json::from_str::<serde_json::Value>(&response_text) {
-            Ok(json_value) => Ok(json_value),
-            Err(_) => Ok(serde_json::Value::String(response_text)),
-        }
-    } else {
-        Err(Error::internal_error(
-            format!("HTTP {} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), response_text),
-            None
-        ))
-    }
-}
 
 impl ServerHandler for Runner {
     /// Handles the `CallTool` request from the MCP client.
