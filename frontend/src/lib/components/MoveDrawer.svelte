@@ -55,9 +55,7 @@
 					dedicated_worker: flow.dedicated_worker,
 					ws_error_handler_muted: flow.ws_error_handler_muted,
 					visible_to_runner_only: flow.visible_to_runner_only,
-					on_behalf_of_email: flow.on_behalf_of_email,
-					dyn_select_code: flow.dyn_select_code,
-					dyn_select_lang: flow.dyn_select_lang
+					on_behalf_of_email: flow.on_behalf_of_email
 				}
 			})
 		} else if (kind == 'script') {

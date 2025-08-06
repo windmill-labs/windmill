@@ -16732,11 +16732,6 @@ components:
       additionalProperties:
         type: boolean
 
-    DynSelectLang:
-      type: string
-      enum:
-        - bun
-        - python3
 
     FlowMetadata:
       type: object
@@ -16754,10 +16749,6 @@ components:
           type: boolean
         extra_perms:
           $ref: "#/components/schemas/ExtraPerms"
-        dyn_select_lang:
-          $ref: "#/components/schemas/DynSelectLang"
-        dyn_select_code:
-          type: string
         starred:
           type: boolean
         draft_only:
@@ -16788,10 +16779,6 @@ components:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - type: object
           properties:
-            dyn_select_code:
-              type: string
-            dyn_select_lang:
-              type: "#/components/schemas/DynSelectLang"
             path:
               type: string
             tag:

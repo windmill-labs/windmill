@@ -301,9 +301,7 @@
 						draft_only: true,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email,
-						dyn_select_code: flow.dyn_select_code,
-						dyn_select_lang: flow.dyn_select_lang
+						on_behalf_of_email: flow.on_behalf_of_email
 					}
 				})
 			}
@@ -452,9 +450,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
-						deployment_message: deploymentMsg || undefined,
-						dyn_select_code: flow.dyn_select_code,
-						dyn_select_lang: flow.dyn_select_lang
+						deployment_message: deploymentMsg || undefined
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
@@ -506,8 +502,6 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
-						dyn_select_code: flow.dyn_select_code,
-						dyn_select_lang: flow.dyn_select_lang,
 						deployment_message: deploymentMsg || undefined
 					}
 				})

@@ -115,10 +115,22 @@
 			args = {}
 		}
 		if (dynSelectLang === undefined) {
-			dynSelectLang = 'bun'
+			dynSelectLang = schema?.['x-windmill-dyn-select-lang'] || 'bun'
 		}
 		if (dynSelectCode === undefined) {
-			dynSelectCode = ''
+			dynSelectCode = schema?.['x-windmill-dyn-select-code'] || ''
+		}
+	})
+
+	$effect(() => {
+		if (schema && dynSelectCode !== undefined && dynSelectLang !== undefined) {
+			if (dynSelectCode) {
+				schema['x-windmill-dyn-select-code'] = dynSelectCode
+				schema['x-windmill-dyn-select-lang'] = dynSelectLang
+			} else {
+				delete schema['x-windmill-dyn-select-code']
+				delete schema['x-windmill-dyn-select-lang']
+			}
 		}
 	})
 

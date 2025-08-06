@@ -33,7 +33,6 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::flows::DynSelectScriptLang;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
@@ -415,12 +414,12 @@ async fn create_flow(
         workspace_id, path, summary, description,
         dependency_job, lock_error_logs, draft_only, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
-        value, schema, dyn_select_code, dyn_select_lang, edited_by, edited_at
+        value, schema, edited_by, edited_at
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5, $6,
         $7, $8, $9,
-        $10, $11::text::json, $12, $13, $14, now()
+        $10, $11::text::json, $12, now()
     )"#,
         w_id,
         nf.path,
@@ -437,8 +436,6 @@ async fn create_flow(
         },
         nf.value,
         schema_str,
-        nf.dyn_select_code,
-        nf.dyn_select_lang as Option<DynSelectScriptLang>,
         &authed.username,
     )
     .execute(&mut *tx)
@@ -770,12 +767,10 @@ async fn update_flow(
             on_behalf_of_email = $7,
             value = $8,
             schema = $9::text::json,
-            dyn_select_code = $10,
-            dyn_select_lang = $11,
-            edited_by = $12,
+            edited_by = $10,
             edited_at = now()
         WHERE 
-            path = $13 AND workspace_id = $14",
+            path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.unwrap_or_else(String::new),
@@ -789,8 +784,6 @@ async fn update_flow(
         },
         nf.value,
         schema_str,
-        nf.dyn_select_code,
-        nf.dyn_select_lang as Option<DynSelectScriptLang>,
         authed.username,
         flow_path,
         w_id,
@@ -1098,8 +1091,6 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
-            flow.dyn_select_code,
-            flow.dyn_select_lang,
             flow_version.schema, 
             flow_version.value, 
             flow_version.created_at AS edited_at, 
@@ -1139,8 +1130,6 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
-            flow.dyn_select_code,
-            flow.dyn_select_lang,
             flow_version.schema, 
             flow_version.value, 
             flow_version.created_at AS edited_at, 
@@ -1186,10 +1175,6 @@ pub struct FlowWDraft {
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dyn_select_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dyn_select_lang: Option<DynSelectScriptLang>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -1212,8 +1197,6 @@ async fn get_flow_by_path_w_draft(
             flow.ws_error_handler_muted,
             flow.dedicated_worker,
             draft.value AS draft,
-            flow.dyn_select_code,
-            flow.dyn_select_lang,
             flow.tag,
             flow.visible_to_runner_only,
             flow.on_behalf_of_email

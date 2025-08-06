@@ -75,6 +75,8 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
+	let dynSelectCode: string | undefined = $state(undefined)
+	let dynSelectLang: import('$lib/gen').DynSelectLang | undefined = $state(undefined)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -406,8 +408,8 @@
 					resetArgs()
 				}}
 				bind:isValid
-				bind:dynSelectCode={flowStore.val.dyn_select_code}
-				bind:dynSelectLang={flowStore.val.dyn_select_lang}
+				bind:dynSelectCode
+				bind:dynSelectLang
 			>
 				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>

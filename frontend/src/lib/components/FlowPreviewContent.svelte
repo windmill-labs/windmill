@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -48,8 +48,6 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
-		dynSelectCode?: string
-		dynSelectLang?: ScriptLang
 	}
 
 	let {
@@ -70,9 +68,7 @@
 		onRunPreview,
 		render = false,
 		onJobDone,
-		upToId = undefined,
-		dynSelectCode = undefined,
-		dynSelectLang = undefined
+		upToId = undefined
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -508,11 +504,11 @@
 										savedArgs = previewArgs.val
 									}}
 									bind:isValid
-									helperScript={dynSelectCode && dynSelectLang
+									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] && flowStore.val.schema?.['x-windmill-dyn-select-lang']
 										? {
 												type: 'inline',
-												code: dynSelectCode,
-												lang: dynSelectLang
+												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
+												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as import('$lib/gen').ScriptLang
 											}
 										: undefined}
 								/>

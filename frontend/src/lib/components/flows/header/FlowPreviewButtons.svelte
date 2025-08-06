@@ -18,7 +18,7 @@
 
 	let { loading = false, onRunPreview, onJobDone }: Props = $props()
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
 	let preventEscape = $state(false)
@@ -171,8 +171,6 @@
 			render={previewOpen}
 			{onJobDone}
 			{upToId}
-			dynSelectCode={flowStore.val.dyn_select_code}
-			dynSelectLang={flowStore.val.dyn_select_lang}
 		/>
 	</Drawer>
 {/if}
