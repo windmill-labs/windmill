@@ -34,8 +34,9 @@
 	// Cache for fetched subflow jobs
 	let subflowJobs: Map<string, Job> = $state(new Map())
 
-	// State for tracking expanded rows
-	let expandedRows: Set<string> = $state(new Set())
+	// State for tracking expanded rows - using Record to allow explicit control
+	let expandedRows: Record<string, boolean> = $state({})
+	let allExpanded = $state(false)
 
 	// Fetch subflow job data
 	async function fetchSubflowJob(jobId: string): Promise<Job | null> {
@@ -166,28 +167,34 @@
 	})
 
 	function toggleExpanded(id: string) {
-		if (expandedRows.has(id)) {
-			expandedRows.delete(id)
-		} else {
-			expandedRows.add(id)
-		}
-		expandedRows = new Set(expandedRows)
+		// If not in record, use opposite of allExpanded as new state
+		// If in record, toggle the current state
+		const currentState = expandedRows[id] ?? allExpanded
+		expandedRows[id] = !currentState
+		expandedRows = { ...expandedRows }
 	}
 
 	function getSelectedIteration(stepId: string): number {
 		return $localModuleStates[stepId]?.selectedForloopIndex ?? 0
+	}
+
+	function toggleExpandAll() {
+		allExpanded = !allExpanded
+		expandedRows = {}
 	}
 </script>
 
 <div class="w-full rounded-md overflow-hidden border">
 	{#if flowData}
 		<!-- Log polling component -->
-		<FlowLogsLoader {expandedRows} {workspaceId} {refreshLog} {localModuleStates} />
+		<FlowLogsLoader {expandedRows} {allExpanded} {workspaceId} {refreshLog} {localModuleStates} />
 
 		<FlowLogViewer
 			{flowData}
 			{expandedRows}
+			{allExpanded}
 			{toggleExpanded}
+			{toggleExpandAll}
 			{onSelectedIteration}
 			{workspaceId}
 			{render}

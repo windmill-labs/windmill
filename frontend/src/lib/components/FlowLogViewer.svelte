@@ -11,8 +11,10 @@
 
 	interface Props {
 		flowData: FlowData
-		expandedRows: Set<string>
+		expandedRows: Record<string, boolean>
+		allExpanded?: boolean
 		toggleExpanded: (id: string) => void
+		toggleExpandAll?: () => void
 		workspaceId: string | undefined
 		render: boolean
 		level?: number
@@ -28,7 +30,9 @@
 	let {
 		flowData,
 		expandedRows,
+		allExpanded,
 		toggleExpanded,
+		toggleExpandAll,
 		workspaceId,
 		render,
 		level = 0,
@@ -120,9 +124,25 @@
 			return undefined
 		}
 	}
+
+	function isExpanded(id: string): boolean {
+		// If explicitly set in expandedRows, use that value
+		// Otherwise, fall back to allExpanded
+		return expandedRows[id] ?? (allExpanded || false)
+	}
 </script>
 
 {#if render}
+	{#if level === 0 && toggleExpandAll}
+		<div class="flex justify-end p-2 bg-surface-secondary border-b border-gray-200 dark:border-gray-700">
+			<button
+				onclick={toggleExpandAll}
+				class="text-xs text-tertiary hover:text-primary transition-colors underline"
+			>
+				{allExpanded ? 'Collapse All' : 'Expand All'}
+			</button>
+		</div>
+	{/if}
 	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
 		<!-- Flow entry -->
 		<li class="border-b border-gray-200 dark:border-gray-700 flex">
@@ -131,7 +151,7 @@
 					class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
 					onclick={() => toggleExpanded(`flow-${flowId}`)}
 				>
-					{#if expandedRows.has(`flow-${flowId}`)}
+					{#if isExpanded(`flow-${flowId}`)}
 						<ChevronDown size={8} />
 					{:else}
 						<ChevronRight size={8} />
@@ -173,7 +193,7 @@
 					</a>
 				</div>
 
-				{#if expandedRows.has(`flow-${flowId}`)}
+				{#if isExpanded(`flow-${flowId}`)}
 					<div class="my-1 transition-all duration-200 ease-in-out">
 						<!-- Show flow input arguments -->
 						{#if flowData.inputs && Object.keys(flowData.inputs).length > 0}
@@ -184,14 +204,14 @@
 									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
 									onclick={() => toggleExpanded(`flow-${flowId}-input`)}
 								>
-									{#if expandedRows.has(`flow-${flowId}-input`)}
+									{#if isExpanded(`flow-${flowId}-input`)}
 										<ChevronDown size={10} />
 									{:else}
 										<ChevronRight size={10} />
 									{/if}
 									Input:
 								</div>
-								{#if expandedRows.has(`flow-${flowId}-input`)}
+								{#if isExpanded(`flow-${flowId}-input`)}
 									<div class="pl-4">
 										<ObjectViewer json={flowData.inputs} pureViewer={true} />
 									</div>
@@ -224,14 +244,14 @@
 									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
 									onclick={() => toggleExpanded(`flow-${flowId}-result`)}
 								>
-									{#if expandedRows.has(`flow-${flowId}-result`)}
+									{#if isExpanded(`flow-${flowId}-result`)}
 										<ChevronDown size={10} />
 									{:else}
 										<ChevronRight size={10} />
 									{/if}
 									Result:
 								</div>
-								{#if expandedRows.has(`flow-${flowId}-result`)}
+								{#if isExpanded(`flow-${flowId}-result`)}
 									<div class="pl-4">
 										<ObjectViewer json={flowData.result} pureViewer={true} />
 									</div>
@@ -255,7 +275,7 @@
 						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
 						onclick={() => toggleExpanded(entry.id)}
 					>
-						{#if expandedRows.has(entry.id)}
+						{#if isExpanded(entry.id)}
 							<ChevronDown size={8} />
 						{:else}
 							<ChevronRight size={8} />
@@ -343,7 +363,7 @@
 						{/if}
 					</div>
 
-					{#if expandedRows.has(entry.id)}
+					{#if isExpanded(entry.id)}
 						<div class="my-1 transition-all duration-200 ease-in-out">
 							<!-- Show input arguments -->
 							<!-- Todo: fetch inputs for iterator, branch conditions, etc. -->
@@ -355,14 +375,14 @@
 										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
 										onclick={() => toggleExpanded(`${entry.id}-input`)}
 									>
-										{#if expandedRows.has(`${entry.id}-input`)}
+										{#if isExpanded(`${entry.id}-input`)}
 											<ChevronDown size={10} />
 										{:else}
 											<ChevronRight size={10} />
 										{/if}
 										Input:
 									</div>
-									{#if expandedRows.has(`${entry.id}-input`)}
+									{#if isExpanded(`${entry.id}-input`)}
 										<div class="pl-4">
 											<ObjectViewer json={entry.args} pureViewer={true} />
 										</div>
@@ -378,7 +398,9 @@
 											<FlowLogViewer
 												flowData={entry.stepData.subflows[getSelectedIteration(entry.stepId)]}
 												{expandedRows}
+												{allExpanded}
 												{toggleExpanded}
+												toggleExpandAll={undefined}
 												{onSelectedIteration}
 												{getSelectedIteration}
 												{workspaceId}
@@ -396,7 +418,9 @@
 												<FlowLogViewer
 													flowData={subflow}
 													{expandedRows}
+													{allExpanded}
 													{toggleExpanded}
+													toggleExpandAll={undefined}
 													{onSelectedIteration}
 													{getSelectedIteration}
 													{workspaceId}
@@ -412,7 +436,9 @@
 										<FlowLogViewer
 											flowData={entry.stepData.subflows[0]}
 											{expandedRows}
+											{allExpanded}
 											{toggleExpanded}
+											toggleExpandAll={undefined}
 											{onSelectedIteration}
 											{getSelectedIteration}
 											{workspaceId}
@@ -451,14 +477,14 @@
 										class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
 										onclick={() => toggleExpanded(`${entry.id}-result`)}
 									>
-										{#if expandedRows.has(`${entry.id}-result`)}
+										{#if isExpanded(`${entry.id}-result`)}
 											<ChevronDown size={10} />
 										{:else}
 											<ChevronRight size={10} />
 										{/if}
 										Result:
 									</div>
-									{#if expandedRows.has(`${entry.id}-result`)}
+									{#if isExpanded(`${entry.id}-result`)}
 										<div class="pl-4">
 											<ObjectViewer json={entry.result} pureViewer={true} />
 										</div>

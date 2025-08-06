@@ -6,13 +6,14 @@
 	import { untrack } from 'svelte'
 
 	interface Props {
-		expandedRows: Set<string>
+		expandedRows: Record<string, boolean>
+		allExpanded: boolean
 		workspaceId: string | undefined
 		refreshLog: boolean
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 	}
 
-	let { expandedRows, workspaceId, refreshLog, localModuleStates }: Props = $props()
+	let { expandedRows, allExpanded, workspaceId, refreshLog, localModuleStates }: Props = $props()
 
 	// Track polling state for each job - similar to FlowJobResult.svelte
 	let pollingStates: Record<
@@ -33,7 +34,9 @@
 
 		// Iterate through localModuleStates to find expanded steps with jobIds
 		for (const [moduleId, moduleState] of Object.entries($localModuleStates)) {
-			if (expandedRows.has(moduleId) && moduleState.job_id) {
+			// If not in record, use allExpanded state. Otherwise use the explicit state from record
+			const isExpanded = expandedRows[moduleId] ?? allExpanded
+			if (isExpanded && moduleState.job_id) {
 				jobIds.push(moduleState.job_id)
 			}
 		}
@@ -166,9 +169,10 @@
 		}
 	}
 
-	// React to changes in expanded rows, refresh state, or localModuleStates
+	// React to changes in expanded rows, allExpanded, refresh state, or localModuleStates
 	$effect(() => {
 		expandedRows
+		allExpanded
 		refreshLog
 		$localModuleStates
 		untrack(() => {
