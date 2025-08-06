@@ -64,12 +64,12 @@ pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<String> {
 
     let mut cursor = root_node.walk();
     'top_level: for x in root_node.children(&mut cursor) {
-        dbg!(&x);
         if x.kind() == "call" {
             for (i, n) in x.children(&mut x.walk()).enumerate() {
                 if i == 0
                     && n.kind() == "identifier"
-                    && !dbg!(n.utf8_text(code.as_bytes()))
+                    && !n
+                        .utf8_text(code.as_bytes())
                         .map(|ident| ident == "gemfile")
                         .unwrap_or_default()
                 // TODO: Infer inputs from imports automatically

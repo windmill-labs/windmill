@@ -340,7 +340,7 @@ Your Gemfile syntax will continue to work as-is."
                 (repo.domain(), repo.username(), repo.password())
             {
                 cmd.env(
-                    dbg!(format!(
+                    format!(
                         "BUNDLE_{}",
                         url
                             // Align with bundlers' format. Example:
@@ -348,71 +348,16 @@ Your Gemfile syntax will continue to work as-is."
                             .replace(".", "__")
                             .to_uppercase()
                             // Remove trailing slashes
-                            // TODO: Make work with urls like: https://admin:123@gem1.skyvo.id/sub-path
                             .replace("/", "")
-                    )),
+                    ),
                     // BUNDLE_GEM1__SKYVO__ID=admin:123
                     format!("{usr}:{passwd}"),
                 );
             }
         }
-        // if let Some(repos) = &*RUBY_REPOS.read().await {
-        //     // for cap in SOURCES_RE.captures_iter(&repos) {
-        //     //     if let (Some(url_m), Some(creds_m)) = (cap.name("url"), cap.name("creds")) {
-        //     //         cmd.env(
-        //     //             dbg!(format!(
-        //     //                 "BUNDLE_{}",
-        //     //                 url_m
-        //     //                     .as_str()
-        //     //                     // Alight with bundlers' format. Example:
-        //     //                     // BUNDLE_GEM1__SKYVO__ID
-        //     //                     .replace(".", "__")
-        //     //                     .to_uppercase()
-        //     //                     // Remove trailing slashes
-        //     //                     // TODO: Make work with urls like: https://admin:123@gem1.skyvo.id/sub-path
-        //     //                     .replace("/", "")
-        //     //             )),
-        //     //             // BUNDLE_GEM1__SKYVO__ID=admin:123
-        //     //             dbg!(creds_m.as_str()),
-        //     //         );
-        //     //     }
-        //     // }
-        // }
-
-        // crate::RUBY_REPOS
-        //     .read()
-        //     .await
-        // // Configure proxies
-        // {
-        //     let jps = parse_proxy()?;
-        //     if let Some(val) = jps.https_host {
-        //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.https_port {
-        //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.http_host {
-        //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.http_port {
-        //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.no_proxy {
-        //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
-        //     }
-        // }
-        // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
-        //     cmd.args(&[
-        //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
-        //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
-        //     ]);
-        // }
         cmd.args(&["lock", "--retry", "2"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // .args(&get_repos().await)
-        // .args(&deps.split("\n").collect_vec())
-        // .stderr(Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -424,8 +369,6 @@ Your Gemfile syntax will continue to work as-is."
                 );
         }
         let child = start_child_process(cmd, "bundle").await?;
-
-        // let mut stdout = String::new();
 
         handle_child::handle_child(
             job_id,
@@ -445,7 +388,6 @@ Your Gemfile syntax will continue to work as-is."
         )
         .await?;
 
-        // stdout
         let path_lock = format!("{job_dir}/Gemfile.lock");
         let mut file = File::open(path_lock).await?;
         let mut req_content = "".to_string();

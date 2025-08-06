@@ -4290,26 +4290,6 @@ pub async fn push<'c, 'd>(
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
     
-    dbg!(&language);
-    println!("{:?}", &language);
-    if let Some(language) = language.clone() {
-        // language.to_string();
-        // Print as raw bytes (u8 values):
-        println!("Bytes: {:?}", language.as_str().as_bytes());  // e.g., [114, 117, 98, 121] for "ruby"
-
-        // Print each character with Unicode escapes:
-        println!("Chars:");
-        for (i, c) in language.as_str().chars().enumerate() {
-            println!("  {}: '{}' (U+{:04X})", i, c.escape_debug(), c as u32);
-        }
-
-        // Check for whitespace/control chars:
-        println!("Whitespace check:");
-        println!("  Length: {}", language.as_str().len());  // Should be 4 for "ruby"
-        println!("  Trimmed length: {}", language.as_str().trim().len());  // If differs, whitespace exists
-        println!("  Is ASCII: {}", language.as_str().is_ascii());  // Non-ASCII could cause issues
-        
-    }
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4347,7 +4327,7 @@ pub async fn push<'c, 'd>(
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        dbg!(language) as Option<ScriptLang>,
+        language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
         email,
