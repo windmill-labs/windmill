@@ -139,6 +139,7 @@ fn create_and_run() {
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
+                assets: None,
             },
         ))
         .unwrap();
@@ -250,6 +251,7 @@ fn main() -> anyhow::Result<i32> {
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
+                assets: None,
             },
         ))
         .unwrap();
@@ -322,6 +324,7 @@ async fn simple() {
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
+                assets: None,
             },
         ))
         .await

@@ -1,4 +1,4 @@
-import { assignPath } from "../path-utils/path-assigner";
+import { newPathAssigner } from "../path-utils/path-assigner";
 import { FlowModule } from "../gen/types.gen";
 
 /**
@@ -26,9 +26,11 @@ export function extractInlineScripts(
   separator: string = "/",
   defaultTs?: "bun" | "deno"
 ): InlineScript[] {
+  const pathAssigner = newPathAssigner(defaultTs ?? "bun");
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
-      const [basePath, ext] = assignPath(m.id, m.value.language, defaultTs);
+      let basePath, ext;
+      [basePath, ext] = pathAssigner.assignPath(m.summary, m.value.language);
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
