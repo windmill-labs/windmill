@@ -674,6 +674,27 @@ paths:
               schema:
                 type: string
 
+  /workspaces/create_ephemeral:
+    post:
+      summary: create ephemeral workspace
+      operationId: createEphemeralWorkspace
+      tags:
+        - workspace
+      requestBody:
+        description: new ephemeral workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEphemeralWorkspace"
+      responses:
+        "201":
+          description: ephemeral workspace created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -16652,6 +16673,18 @@ components:
           type: string
       required:
         - id
+        - name
+
+    CreateEphemeralWorkspace:
+      type: object
+      properties:
+        name:
+          type: string
+        username:
+          type: string
+        color:
+          type: string
+      required:
         - name
 
     Workspace:

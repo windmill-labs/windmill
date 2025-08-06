@@ -165,6 +165,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
+        .route("/create_ephemeral", post(create_ephemeral_workspace))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -304,6 +305,13 @@ struct EditLargeFileStorageConfig {
 #[derive(Deserialize)]
 struct CreateWorkspace {
     id: String,
+    name: String,
+    username: Option<String>,
+    color: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateEphemeralWorkspace {
     name: String,
     username: Option<String>,
     color: Option<String>,
@@ -2024,6 +2032,192 @@ async fn create_workspace(
     .await?;
     tx.commit().await?;
     Ok(format!("Created workspace {}", &nw.id))
+}
+
+async fn create_ephemeral_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(nw): Json<CreateEphemeralWorkspace>,
+) -> Result<String> {
+    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+        require_super_admin(&db, &authed.email).await?;
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
+    if *CLOUD_HOSTED {
+        let nb_workspaces = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
+            authed.email
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_workspaces.unwrap_or(0) >= 10 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Generate unique ephemeral workspace ID with wm-ephemeral prefix
+    let ephemeral_id = generate_unique_ephemeral_id(&mut tx).await?;
+    
+    sqlx::query!(
+        "INSERT INTO workspace
+            (id, name, owner)
+            VALUES ($1, $2, $3)",
+        ephemeral_id,
+        nw.name,
+        authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_settings
+            (workspace_id, color)
+            VALUES ($1, $2)",
+        ephemeral_id,
+        nw.color,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let key = rd_string(64);
+    sqlx::query!(
+        "INSERT INTO workspace_key
+            (workspace_id, kind, key)
+            VALUES ($1, 'cloud', $2)",
+        ephemeral_id,
+        &key
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        nw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin)
+            VALUES ($1, $2, $3, true)",
+        ephemeral_id,
+        authed.email,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
+        ephemeral_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr_to_group
+            VALUES ($1, 'all', $2)",
+        ephemeral_id,
+        username
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        ephemeral_id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        ephemeral_id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        ephemeral_id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
+        ephemeral_id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.create_ephemeral",
+        ActionKind::Create,
+        &ephemeral_id,
+        Some(nw.name.as_str()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Created ephemeral workspace {}", &ephemeral_id))
+}
+
+async fn generate_unique_ephemeral_id(tx: &mut Transaction<'_, Postgres>) -> Result<String> {
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: i32 = 100;
+    
+    while attempts < MAX_ATTEMPTS {
+        let random_suffix = rd_string(8);
+        let ephemeral_id = format!("wm-ephemeral-{}", random_suffix);
+        
+        // Check if this ID already exists
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
+            ephemeral_id
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        
+        if !exists.unwrap_or(true) {
+            return Ok(ephemeral_id);
+        }
+        
+        attempts += 1;
+    }
+    
+    Err(Error::InternalErr(
+        "Failed to generate unique ephemeral workspace ID after maximum attempts".to_string(),
+    ))
 }
 
 async fn edit_workspace(
