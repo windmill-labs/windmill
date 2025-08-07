@@ -11778,6 +11778,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: stream_offset
+          in: query
+          schema:
+            type: integer
         - name: get_progress
           in: query
           schema:

@@ -2474,7 +2474,6 @@ paths:
             application/json:
               schema: {}
 
-
   /w/{workspace}/workspaces/list_ducklakes:
     get:
       summary: list ducklakes
@@ -7854,6 +7853,10 @@ paths:
           schema:
             type: boolean
         - name: log_offset
+          in: query
+          schema:
+            type: integer
+        - name: stream_offset
           in: query
           schema:
             type: integer
@@ -16835,7 +16838,6 @@ components:
       type: object
       additionalProperties:
         type: boolean
-
 
     FlowMetadata:
       type: object
