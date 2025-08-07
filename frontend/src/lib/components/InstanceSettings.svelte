@@ -351,6 +351,7 @@
 							bind:oauths
 							bind:snowflakeAccountIdentifier
 							bind:requirePreexistingUserForOauth
+							baseUrl={$values?.base_url}
 						>
 							{#snippet scim()}
 								<div class="flex-col flex gap-2 pb-4">

@@ -12,6 +12,7 @@
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
+	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
@@ -23,6 +24,7 @@
 		snowflakeAccountIdentifier?: string
 		oauths?: Record<string, any>
 		requirePreexistingUserForOauth?: boolean
+		baseUrl?: string
 		scim?: import('svelte').Snippet
 	}
 
@@ -30,6 +32,7 @@
 		snowflakeAccountIdentifier = $bindable(),
 		oauths = $bindable(),
 		requirePreexistingUserForOauth = $bindable(),
+		baseUrl,
 		scim
 	}: Props = $props()
 
@@ -117,8 +120,9 @@
 				<AutheliaSetting bind:value={oauths['authelia']} />
 				<KanidmSetting bind:value={oauths['kanidm']} />
 				<ZitadelSetting bind:value={oauths['zitadel']} />
+				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud'].includes(k) && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">

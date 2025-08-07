@@ -6,6 +6,7 @@
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
@@ -67,6 +68,11 @@
 			type: 'auth0',
 			name: 'Auth0',
 			icon: Auth0
+		},
+		{
+			type: 'nextcloud',
+			name: 'Nextcloud',
+			icon: NextcloudIcon
 		}
 	] as const
 
