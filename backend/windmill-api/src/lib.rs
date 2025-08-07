@@ -635,6 +635,8 @@ pub async fn run_server(
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                .nest("/mcp/w/:workspace_id/list_tools", mcp::list_tools_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -673,7 +675,6 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id/sse", mcp_router.layer(from_extractor::<ApiAuthed>()))
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
