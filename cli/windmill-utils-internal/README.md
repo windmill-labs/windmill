@@ -1,0 +1,33 @@
+# Windmill Utils Internal
+
+Internal TypeScript utility package for Windmill development tools and scripts.
+
+## What this package contains
+
+This package provides internal utilities and tools used by the Windmill CLI, the VS CODE extension, and the frontend.
+
+## Development
+
+To work on this package we need to generate the windmill client, and add .ts extensions to the imports and exports (removed by default for deno compatibily, so that the CLI can use this package).
+
+You just need to run this before working on the package:
+
+```bash
+npm run dev
+```
+
+### Building
+
+To build the package for production:
+
+```bash
+npm run build
+```
+
+### Publishing
+
+To publish the package:
+
+```bash
+./publish
+```
