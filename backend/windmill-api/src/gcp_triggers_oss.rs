@@ -2,22 +2,23 @@
 #[allow(unused)]
 pub use crate::gcp_triggers_ee::*;
 
+use serde_json::value::RawValue;
+use sqlx::prelude::FromRow;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use sqlx::types::Json as SqlxJson;
+use windmill_common::worker::to_raw_value;
+use windmill_common::triggers::TriggerKind;
+use crate::trigger_helpers::TriggerJobArgs;
+
 #[cfg(not(feature = "private"))]
 use {
     crate::db::{ApiAuthed, DB},
-    crate::trigger_helpers::TriggerJobArgs,
     axum::{extract::Request, Router},
     http::HeaderMap,
-    serde::{Deserialize, Serialize},
-    serde_json::value::RawValue,
-    sqlx::prelude::FromRow,
-    sqlx::types::Json as SqlxJson,
-    std::collections::HashMap,
     windmill_common::db::UserDB,
-    windmill_common::worker::to_raw_value,
     windmill_common::{
         error::{Error as WindmillError, Result as WindmillResult},
-        triggers::TriggerKind,
         utils::empty_as_none,
     },
 };
@@ -134,7 +135,6 @@ pub fn gcp_push_route_handler() -> Router {
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
-#[cfg(not(feature = "private"))]
 pub struct GcpTrigger {
     pub gcp_resource_path: String,
     pub subscription_id: String,
@@ -163,7 +163,7 @@ pub struct GcpTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_acknowledge_msg: Option<bool>,
 }
-#[cfg(not(feature = "private"))]
+
 impl TriggerJobArgs<String> for GcpTrigger {
     fn v1_payload_fn(payload: String) -> HashMap<String, Box<RawValue>> {
         HashMap::from([("payload".to_string(), to_raw_value(&payload))])
