@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.520.1](https://github.com/windmill-labs/windmill/compare/v1.520.0...v1.520.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* fix oss build ([32b8e69](https://github.com/windmill-labs/windmill/commit/32b8e692b1e8ba549b75a72ff17300aca6f38f8e))
+
+## [1.520.0](https://github.com/windmill-labs/windmill/compare/v1.519.2...v1.520.0) (2025-08-07)
+
+
+### Features
+
+* add email workspace error handler if smtp is configured ([#6267](https://github.com/windmill-labs/windmill/issues/6267)) ([9fbb199](https://github.com/windmill-labs/windmill/commit/9fbb1992e505d47cbb3750db9c672e69b0d5f8e7))
+* **mcp:** add api endpoints as tools ([#6329](https://github.com/windmill-labs/windmill/issues/6329)) ([4d37463](https://github.com/windmill-labs/windmill/commit/4d3746335e5f9056dafdb0557169f8fae5449005))
+
+
+### Bug Fixes
+
+* improve result stream query efficiency ([9e5a1ce](https://github.com/windmill-labs/windmill/commit/9e5a1cee0cc833d33d3b654cf330723295c3f31a))
+
 ## [1.519.2](https://github.com/windmill-labs/windmill/compare/v1.519.1...v1.519.2) (2025-08-07)
 
 

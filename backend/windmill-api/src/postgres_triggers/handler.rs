@@ -374,7 +374,9 @@ pub async fn create_postgres_trigger(
     Path(w_id): Path<String>,
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("postgres_triggers:write:{}", new_postgres_trigger.path))?;
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", new_postgres_trigger.path)
+    })?;
 
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
@@ -515,32 +517,31 @@ pub async fn list_postgres_triggers(
 ) -> error::JsonResult<Vec<PostgresTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("postgres_trigger")
-        .fields(&[
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "server_id",
-            "last_server_ping",
-            "extra_perms",
-            "error",
-            "enabled",
-            "postgres_resource_path",
-            "replication_slot_name",
-            "publication_name",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("postgres_trigger");
+    sqlb.fields(&[
+        "workspace_id",
+        "path",
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "server_id",
+        "last_server_ping",
+        "extra_perms",
+        "error",
+        "enabled",
+        "postgres_resource_path",
+        "replication_slot_name",
+        "publication_name",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -1204,7 +1205,9 @@ pub async fn update_postgres_trigger(
     Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> Result<String> {
     let workspace_path = path.to_path();
-    check_scopes(&authed, || format!("postgres_triggers:write:{}", workspace_path))?;
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", workspace_path)
+    })?;
 
     let EditPostgresTrigger {
         replication_slot_name,
@@ -1298,7 +1301,7 @@ pub async fn update_postgres_trigger(
         workspace_path,
         error_handler_path,
         error_handler_args as _,
-        retry as _,
+        retry as _
     )
     .execute(&mut *tx)
     .await?;

@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \n                        COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",\n                        jq.running as \"running: Option<bool>\",\n                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",\n                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset\n                    FROM (\n                        SELECT $1::uuid as job_id, $2::text as workspace_id\n                    ) base\n                    LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id\n                    LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id\n                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id\n                    WHERE base.job_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "running: Option<bool>",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "result_stream: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "stream_offset",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "c61f9bad73beb0bc317594f6ca68389c2d0adbef1fb6d73ad23e4153cff44f9e"
+}

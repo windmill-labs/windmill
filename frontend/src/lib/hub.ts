@@ -93,6 +93,7 @@ type HubPaths = {
 	teamsErrorHandler: string
 	teamsRecoveryHandler: string
 	teamsSuccessHandler: string
+	emailErrorHandler: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

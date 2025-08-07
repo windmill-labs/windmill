@@ -12,7 +12,6 @@ use crate::{
     users::fetch_api_authed,
     utils::{check_scopes, non_empty_str, ExpiringCacheEntry},
 };
-
 use anyhow::anyhow;
 use axum::response::Response;
 use axum::{
@@ -197,38 +196,37 @@ async fn list_triggers(
 ) -> error::JsonResult<Vec<HttpTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("http_trigger")
-        .fields(&[
-            "workspace_id",
-            "path",
-            "route_path",
-            "route_path_key",
-            "workspaced_route",
-            "wrap_body",
-            "raw_string",
-            "script_path",
-            "summary",
-            "description",
-            "is_flow",
-            "http_method",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-            "is_async",
-            "authentication_method",
-            "static_asset_config",
-            "is_static_website",
-            "authentication_resource_path",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("http_trigger");
+    sqlb.fields(&[
+        "workspace_id",
+        "path",
+        "route_path",
+        "route_path_key",
+        "workspaced_route",
+        "wrap_body",
+        "raw_string",
+        "script_path",
+        "summary",
+        "description",
+        "is_flow",
+        "http_method",
+        "edited_by",
+        "email",
+        "edited_at",
+        "extra_perms",
+        "is_async",
+        "authentication_method",
+        "static_asset_config",
+        "is_static_website",
+        "authentication_resource_path",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -391,7 +389,7 @@ async fn create_trigger_inner(
         new_http_trigger.is_static_website,
         new_http_trigger.error_handler_path,
         new_http_trigger.error_handler_args as _,
-        new_http_trigger.retry as _,
+        new_http_trigger.retry as _
     )
     .execute(&mut *tx)
     .await?;
