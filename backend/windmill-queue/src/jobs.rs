@@ -1974,10 +1974,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
     extra.insert("email".to_string(), to_raw_value(&email));
-    extra.insert(
-        "base_internal_url".to_string(),
-        to_raw_value(&*BASE_INTERNAL_URL),
-    );
 
     if let Some(failed_times) = failed_times {
         extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
