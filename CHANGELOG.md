@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.520.1](https://github.com/windmill-labs/windmill/compare/v1.520.0...v1.520.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* fix oss build ([32b8e69](https://github.com/windmill-labs/windmill/commit/32b8e692b1e8ba549b75a72ff17300aca6f38f8e))
+
 ## [1.520.0](https://github.com/windmill-labs/windmill/compare/v1.519.2...v1.520.0) (2025-08-07)
 
 
