@@ -8,13 +8,14 @@
 		workspaceUsageStore,
 		workspaceColor
 	} from '$lib/stores'
-	import { Building, Plus, Settings } from 'lucide-svelte'
+	import { Building, Plus, Settings, GitBranch, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
+	import { WorkspaceService, type EphemeralWorkspaceInfo } from '$lib/gen'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -27,6 +28,13 @@
 		createMenu: MenubarBuilders['createMenu']
 		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 		strictWorkspaceSelect?: boolean
+	}
+
+	function removePrefix(str: string, prefix: string): string {
+		if (str.startsWith(prefix)) {
+			return str.substring(prefix.length)
+		}
+		return str
 	}
 
 	let { isCollapsed = false, createMenu, strictWorkspaceSelect = false }: Props = $props()
@@ -56,24 +64,120 @@
 			await goto('/')
 		}
 	}
+
+	// Fetch ephemeral workspace data
+	let ephemeralWorkspaces: EphemeralWorkspaceInfo[] = $state([])
+
+	// Load ephemeral workspaces when component mounts or userWorkspaces change
+	$effect(() => {
+		if ($userWorkspaces) {
+			WorkspaceService.listEphemeralWorkspaces()
+				.then((data) => {
+					ephemeralWorkspaces = data
+				})
+				.catch(() => {
+					ephemeralWorkspaces = []
+				})
+		}
+	})
+
+	// Helper function to check if a workspace is ephemeral
+	function isEphemeralWorkspace(workspaceId: string): boolean {
+		return ephemeralWorkspaces.some((e) => e.ephemeral_workspace_id === workspaceId)
+	}
+
+	function getEphemeralWorkspace(workspaceId: String): EphemeralWorkspaceInfo | undefined {
+		return ephemeralWorkspaces.find((e) => e.ephemeral_workspace_id == workspaceId)
+	}
+
+	// Group workspaces into parent-child hierarchy using Svelte 5 derived
+	const groupedWorkspaces = $derived(() => {
+		if (!$userWorkspaces) return []
+
+		// Create ephemeral workspace lookup map
+		const ephemeralMap = new Map<string, EphemeralWorkspaceInfo>()
+		ephemeralWorkspaces.forEach((e) => {
+			ephemeralMap.set(e.ephemeral_workspace_id, e)
+		})
+
+		// Separate normal workspaces from ephemeral ones
+		const normalWorkspaces = $userWorkspaces.filter((w) => !ephemeralMap.has(w.id))
+		const ephemeralWorkspacesList = $userWorkspaces.filter((w) => ephemeralMap.has(w.id))
+
+		// Create groups: each normal workspace followed by its ephemeral children
+		const groups: Array<{
+			workspace: any
+			isEphemeral: boolean
+			parentId?: string
+			parentName?: string
+		}> = []
+
+		normalWorkspaces.forEach((workspace) => {
+			// Add the parent workspace
+			groups.push({ workspace, isEphemeral: false })
+
+			// Add its ephemeral children
+			const children = ephemeralWorkspacesList.filter((w) => {
+				const ephemeralInfo = ephemeralMap.get(w.id)
+				return ephemeralInfo?.parent_workspace_id === workspace.id
+			})
+			children.forEach((child) => {
+				const ephemeralInfo = ephemeralMap.get(child.id)!
+				groups.push({
+					workspace: child,
+					isEphemeral: true,
+					parentId: ephemeralInfo.parent_workspace_id,
+					parentName: ephemeralInfo.parent_workspace_name
+				})
+			})
+		})
+
+		// Add orphaned ephemeral workspaces (those without a parent in the current list)
+		ephemeralWorkspacesList.forEach((ephemeral) => {
+			const ephemeralInfo = ephemeralMap.get(ephemeral.id)!
+			const hasParent = normalWorkspaces.some((w) => w.id === ephemeralInfo.parent_workspace_id)
+			if (!hasParent) {
+				groups.push({
+					workspace: ephemeral,
+					isEphemeral: true,
+					parentId: ephemeralInfo.parent_workspace_id,
+					parentName: ephemeralInfo.parent_workspace_name
+				})
+			}
+		})
+
+		return groups
+	})
 </script>
 
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
-		<MenuButton
-			class="!text-xs"
-			icon={Building}
-			label={$workspaceStore ?? ''}
-			{isCollapsed}
-			color={$workspaceColor}
-			{trigger}
-		/>
+		{@const ephemeralWorkspace = getEphemeralWorkspace($workspaceStore ?? '')}
+		{#if ephemeralWorkspace}
+			<MenuButton
+				class="!text-xs !text-tertiary"
+				icon={Building}
+				label={ephemeralWorkspace.parent_workspace_id}
+				{isCollapsed}
+				color={$workspaceColor}
+				{trigger}
+			/>
+		{:else}
+			<MenuButton
+				class="!text-xs"
+				icon={Building}
+				label={$workspaceStore ?? ''}
+				{isCollapsed}
+				color={$workspaceColor}
+				{trigger}
+			/>
+		{/if}
 	{/snippet}
 
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each $userWorkspaces as workspace}
+				{#each groupedWorkspaces() as { workspace, isEphemeral, parentId, parentName }}
 					<MenuItem
 						class={twMerge(
 							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
@@ -87,13 +191,34 @@
 						{item}
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
-							<div>
-								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div
-								>
-								<div
-									class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left"
-								>
-									{workspace.id}
+							<div
+								class={twMerge('flex items-center gap-2 min-w-0', isEphemeral ? 'pl-6' : 'pl-4')}
+							>
+								{#if isEphemeral}
+									<GitFork size={12} class="text-tertiary flex-shrink-0" />
+								{/if}
+								<div class="min-w-0 flex-1">
+									<div
+										class={twMerge(
+											'truncate text-left text-[1.2em]',
+											isEphemeral ? 'text-secondary' : 'text-primary'
+										)}
+									>
+										{workspace.name}
+									</div>
+									<div
+										class={twMerge(
+											'font-mono text-2xs whitespace-nowrap truncate text-left',
+											isEphemeral ? 'text-tertiary opacity-75' : 'text-tertiary'
+										)}
+									>
+										{workspace.id}
+									</div>
+									{#if isEphemeral && parentName}
+										<div class="text-tertiary text-2xs truncate">
+											Fork of {parentName}
+										</div>
+									{/if}
 								</div>
 							</div>
 							{#if workspace.color}
@@ -184,3 +309,19 @@
 		{/if}
 	{/snippet}
 </Menu>
+{#if isEphemeralWorkspace($workspaceStore ?? '')}
+	<Menu {createMenu} usePointerDownOutside>
+		{#snippet triggr({ trigger })}
+			<div class="pl-4">
+			<MenuButton
+				class="!text-xs"
+				icon={GitFork}
+				label={removePrefix($workspaceStore ?? '', 'wm-ephemeral-')}
+				{isCollapsed}
+				color={$workspaceColor}
+				{trigger}
+			/>
+			</div>
+		{/snippet}
+	</Menu>
+{/if}

@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService, type EphemeralWorkspaceInfo } from '$lib/gen'
 	import {
 		superadmin,
 		usersWorkspaceStore,
@@ -20,7 +20,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Cog, Crown } from 'lucide-svelte'
+	import { Cog, Crown, GitFork } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -34,6 +34,7 @@
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
+	let ephemeralWorkspaces: EphemeralWorkspaceInfo[] = []
 
 	$: rd = $page.url.searchParams.get('rd')
 
@@ -73,6 +74,14 @@
 		})
 	}
 
+	async function loadEphemeralWorkspaces() {
+		try {
+			ephemeralWorkspaces = await WorkspaceService.listEphemeralWorkspaces()
+		} catch {
+			ephemeralWorkspaces = []
+		}
+	}
+
 	function handleListWorkspaces() {
 		if (list_all_as_super_admin) {
 			loadWorkspacesAsAdmin()
@@ -84,8 +93,48 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
-	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
+	// Group workspaces into parent-child hierarchy
+	$: ephemeralMap = new Map(ephemeralWorkspaces.map(e => [e.ephemeral_workspace_id, e]))
+	$: regularWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins' && !ephemeralMap.has(x.id))
+	$: ephemeralWorkspacesList = (workspaces ?? []).filter((x) => ephemeralMap.has(x.id))
+	$: groupedNonAdminWorkspaces = (() => {
+		const groups: Array<{ workspace: any; isEphemeral: boolean; parentName?: string }> = []
+		
+		// Add regular workspaces and their ephemeral children
+		regularWorkspaces.forEach((workspace) => {
+			groups.push({ workspace, isEphemeral: false })
+			
+			// Add ephemeral children for this parent
+			const children = ephemeralWorkspacesList.filter((w) => {
+				const ephemeralInfo = ephemeralMap.get(w.id)
+				return ephemeralInfo?.parent_workspace_id === workspace.id
+			})
+			children.forEach((child) => {
+				const ephemeralInfo = ephemeralMap.get(child.id)!
+				groups.push({ 
+					workspace: child, 
+					isEphemeral: true, 
+					parentName: ephemeralInfo.parent_workspace_name 
+				})
+			})
+		})
+		
+		// Add orphaned ephemeral workspaces
+		ephemeralWorkspacesList.forEach((ephemeral) => {
+			const ephemeralInfo = ephemeralMap.get(ephemeral.id)!
+			const hasParent = regularWorkspaces.some((w) => w.id === ephemeralInfo.parent_workspace_id)
+			if (!hasParent) {
+				groups.push({ 
+					workspace: ephemeral, 
+					isEphemeral: true, 
+					parentName: ephemeralInfo.parent_workspace_name 
+				})
+			}
+		})
+		
+		return groups
+	})()
+	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -106,6 +155,7 @@
 	refreshSuperadmin()
 	loadInvites()
 	loadWorkspaces()
+	loadEphemeralWorkspaces()
 
 	let loading = false
 
@@ -190,26 +240,36 @@
 				workspace.
 			</p>
 		{/if}
-		{#each nonAdminWorkspaces as workspace (workspace.id)}
-			<label class="block pb-2">
+		{#each groupedNonAdminWorkspaces as { workspace, isEphemeral, parentName } (workspace.id)}
+			<label class="block pb-2" class:pl-6={isEphemeral}>
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
-					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
+					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
 					on:click={async () => {
 						speakFriendAndEnterWorkspace(workspace.id)
 					}}
 				>
-					{#if workspace.color}
-						<span
-							class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
-							style="background-color: {workspace.color}"
-						></span>
+					{#if isEphemeral}
+						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
 					{/if}
-					<span class="font-mono">{workspace.id}</span> - {workspace.name} as
-					<span class="font-mono">{workspace.username}</span>
-					{#if workspace['deleted']}
-						<span class="text-red-500"> (archived)</span>
-					{/if}
+					<div class="flex-1 text-left">
+						{#if workspace.color}
+							<span
+								class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
+								style="background-color: {workspace.color}"
+							></span>
+						{/if}
+						<span class="font-mono" class:text-secondary={isEphemeral}>{workspace.id}</span> - <span class:text-secondary={isEphemeral}>{workspace.name}</span> as
+						<span class="font-mono" class:text-secondary={isEphemeral}>{workspace.username}</span>
+						{#if workspace['deleted']}
+							<span class="text-red-500"> (archived)</span>
+						{/if}
+						{#if isEphemeral && parentName}
+							<div class="text-tertiary text-xs mt-1">
+								Fork of {parentName}
+							</div>
+						{/if}
+					</div>
 				</button>
 				{#if $superadmin && workspace['deleted']}
 					<Button
