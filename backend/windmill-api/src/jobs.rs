@@ -6396,13 +6396,17 @@ async fn get_job_update_data(
             if running.is_some_and(|x| !x) {
                 let r = sqlx::query!(
                     "SELECT 
-                        result as \"result: sqlx::types::Json<Box<RawValue>>\",
-                        v2_job_queue.running as \"running: Option<bool>\",
+                        COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
+                        jq.running as \"running: Option<bool>\",
                         SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
                         CHAR_LENGTH(rs.stream) + 1 AS stream_offset
-                    FROM v2_job_completed FULL OUTER JOIN v2_job_queue USING (id) 
-                    LEFT JOIN job_result_stream rs ON rs.job_id = $1
-                    WHERE (v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2) OR (v2_job_completed.id = $1 AND v2_job_completed.workspace_id = $2)",
+                    FROM (
+                        SELECT $1::uuid as job_id, $2::text as workspace_id
+                    ) base
+                    LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
+                    LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
+                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    WHERE base.job_id = $1",
                     job_id,
                     w_id,
                     stream_offset.unwrap_or(0),
@@ -6415,8 +6419,16 @@ async fn get_job_update_data(
                 }
             } else {
                 let q =  sqlx::query!(
-                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) + 1 AS stream_offset
-                 FROM v2_job_completed  FULL OUTER JOIN job_result_stream rs ON rs.job_id = v2_job_completed.id WHERE ((v2_job_completed.id = $2 AND v2_job_completed.workspace_id = $1) OR (rs.workspace_id = $1 AND rs.job_id = $2))",
+                    "SELECT 
+                        COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\", 
+                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", 
+                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset
+                    FROM (
+                        SELECT $2::uuid as job_id, $1::text as workspace_id
+                    ) base
+                    LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
+                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    WHERE base.job_id = $2",
                     w_id,
                     job_id,
                     stream_offset.unwrap_or(0),
