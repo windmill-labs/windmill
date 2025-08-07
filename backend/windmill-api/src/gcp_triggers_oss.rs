@@ -160,6 +160,8 @@ pub struct GcpTrigger {
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_acknowledge_msg: Option<bool>,
 }
 #[cfg(not(feature = "private"))]
 impl TriggerJobArgs<String> for GcpTrigger {
