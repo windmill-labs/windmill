@@ -15,3 +15,25 @@ pub async fn send_email(
 ) -> crate::error::Result<()> {
     Ok(())
 }
+
+#[cfg(not(feature = "private"))]
+pub async fn send_email_html(
+    _subject: &str,
+    _content: &str,
+    _to: Vec<String>,
+    _smtp: Smtp,
+    _client_timeout: Option<tokio::time::Duration>,
+) -> crate::error::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn send_email_plain_text(
+    _subject: &str,
+    _content: &str,
+    _to: Vec<String>,
+    _smtp: Smtp,
+    _client_timeout: Option<tokio::time::Duration>,
+) -> crate::error::Result<()> {
+    Ok(())
+}

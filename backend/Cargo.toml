@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.519.2"
+version = "1.520.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.519.2"
+version = "1.520.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -77,7 +77,7 @@ mcp = ["windmill-api/mcp"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
-smtp = ["windmill-api/smtp", "windmill-common/smtp"]
+smtp = ["windmill-api/smtp", "windmill-common/smtp", "windmill-queue/smtp"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]

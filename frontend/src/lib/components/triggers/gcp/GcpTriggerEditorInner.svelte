@@ -12,7 +12,8 @@
 		type DeliveryType,
 		type PushConfig,
 		type SubscriptionMode,
-		type Retry
+		type Retry,
+		type ErrorHandler
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -53,12 +54,11 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
-	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('settings')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let auto_acknowledge_msg = $state(true)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -429,7 +429,11 @@
 											{#if !auto_acknowledge_msg}
 												<div class="mt-3">
 													<Alert size="xs" type="warning" title="Manual Acknowledgment Required">
-														You must acknowledge each message in your script/flow code using the `ack_id` provided in the payload data. If messages are not acknowledged within the acknowledgment deadline (by default 600 seconds), GCP will automatically redeliver them in 600 seconds, causing Windmill to reprocess the same messages repeatedly.
+														You must acknowledge each message in your script/flow code using the
+														`ack_id` provided in the payload data. If messages are not acknowledged
+														within the acknowledgment deadline (by default 600 seconds), GCP will
+														automatically redeliver them in 600 seconds, causing Windmill to
+														reprocess the same messages repeatedly.
 													</Alert>
 												</div>
 											{/if}

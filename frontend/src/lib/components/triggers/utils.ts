@@ -4,7 +4,13 @@ import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
-import type { CaptureTriggerKind, Flow, NewScript, TriggersCount } from '$lib/gen/types.gen'
+import type {
+	CaptureTriggerKind,
+	ErrorHandler,
+	Flow,
+	NewScript,
+	TriggersCount
+} from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
@@ -543,14 +549,15 @@ export function filterDraftTriggers(
 	return newSavedValue
 }
 
-export function getHandlerType(scriptPath: string): 'custom' | 'slack' | 'teams' {
+export function getHandlerType(scriptPath: string): ErrorHandler {
 	const handlerMap = {
 		teams: '/workspace-or-schedule-error-handler-teams',
-		slack: '/workspace-or-schedule-error-handler-slack'
+		slack: '/workspace-or-schedule-error-handler-slack',
+		email: '/workspace-or-error-handler-email'
 	}
 	for (const [type, suffix] of Object.entries(handlerMap)) {
 		if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-			return type as 'slack' | 'teams'
+			return type as ErrorHandler
 		}
 	}
 	return 'custom'

@@ -26,13 +26,7 @@ use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{PingJobStatusResponse, BASE_INTERNAL_URL},
-    cache::{unwrap_or_error, RawNode, RawScript},
-    error::{self, to_anyhow},
-    global_settings::CUSTOM_TAGS_SETTING,
-    indexer::TantivyIndexerSettings,
-    server::Smtp,
-    KillpillSender, DB,
+    agent_workers::PingJobStatusResponse, cache::{unwrap_or_error, RawNode, RawScript}, error::{self, to_anyhow}, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, KillpillSender, BASE_INTERNAL_URL, DB
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

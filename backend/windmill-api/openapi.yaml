@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.519.2
+  version: 1.520.0
   title: Windmill API
 
   contact:
@@ -2440,7 +2440,6 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
-
       responses:
         "200":
           description: status
@@ -2448,6 +2447,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/workspaces/edit_large_file_storage_config:
     post:
@@ -3068,11 +3068,13 @@ paths:
     post:
       summary: create variable
       operationId: createVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3118,6 +3120,7 @@ paths:
     delete:
       summary: delete variable
       operationId: deleteVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3135,12 +3138,14 @@ paths:
     post:
       summary: update variable
       operationId: updateVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3163,6 +3168,7 @@ paths:
     get:
       summary: get variable
       operationId: getVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3227,11 +3233,13 @@ paths:
     get:
       summary: list variables
       operationId: listVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: path_start
+          description: filter variables by path prefix
           in: query
           schema:
             type: string
@@ -3832,11 +3840,13 @@ paths:
     post:
       summary: create resource
       operationId: createResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: update_if_exists
+          description: update the resource if it already exists (default false)
           in: query
           schema:
             type: boolean
@@ -3859,6 +3869,7 @@ paths:
     delete:
       summary: delete resource
       operationId: deleteResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3876,6 +3887,7 @@ paths:
     post:
       summary: update resource
       operationId: updateResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3926,6 +3938,7 @@ paths:
     get:
       summary: get resource
       operationId: getResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3998,6 +4011,7 @@ paths:
     get:
       summary: list resources
       operationId: listResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4015,6 +4029,7 @@ paths:
           schema:
             type: string
         - name: path_start
+          description: filter resources by path prefix
           in: query
           schema:
             type: string
@@ -4650,6 +4665,7 @@ paths:
     get:
       summary: list all scripts
       operationId: listScripts
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5025,6 +5041,7 @@ paths:
     get:
       summary: get script by path
       operationId: getScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5615,6 +5632,7 @@ paths:
     get:
       summary: list all flows
       operationId: listFlows
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -5796,6 +5814,7 @@ paths:
     get:
       summary: get flow by path
       operationId: getFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7246,6 +7265,7 @@ paths:
     get:
       summary: list all queued jobs
       operationId: listQueue
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -7585,6 +7605,7 @@ paths:
     get:
       summary: list all jobs
       operationId: listJobs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -8545,6 +8566,11 @@ paths:
     post:
       summary: create schedule
       operationId: createSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: |
+        Creates a new schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -8568,6 +8594,11 @@ paths:
     post:
       summary: update schedule
       operationId: updateSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: |
+        Updates a schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before updating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -8622,6 +8653,7 @@ paths:
     delete:
       summary: delete schedule
       operationId: deleteSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8639,6 +8671,7 @@ paths:
     get:
       summary: get schedule
       operationId: getSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8673,6 +8706,7 @@ paths:
     get:
       summary: list schedules
       operationId: listSchedules
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8686,10 +8720,12 @@ paths:
           schema:
             type: string
         - name: is_flow
+          description: filter schedules by whether they target a flow
           in: query
           schema:
             type: boolean
         - name: path_start
+          description: filter schedules by path prefix
           in: query
           schema:
             type: string
@@ -11294,6 +11330,7 @@ paths:
     get:
       summary: list workers
       operationId: listWorkers
+      x-mcp-tool: true
       tags:
         - worker
       parameters:
@@ -13375,6 +13412,7 @@ components:
       name: publication
       in: path
       required: true
+      description: The name of the publication
       schema:
         type: string
     VersionId:
@@ -14125,6 +14163,7 @@ components:
 
     ScriptArgs:
       type: object
+      description: The arguments to pass to the script or flow
       additionalProperties: {}
 
     Input:
@@ -14627,18 +14666,25 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The description of the variable
         account:
           type: integer
+          description: The account identifier
         is_oauth:
           type: boolean
+          description: Whether the variable is an OAuth variable
         expires_at:
           type: string
+          description: The expiration date of the variable
           format: date-time
       required:
         - path
@@ -14651,12 +14697,16 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The new value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The new description of the variable
 
     AuditLog:
       type: object
@@ -14989,11 +15039,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         value: {}
         description:
           type: string
+          description: The description of the resource
         resource_type:
           type: string
+          description: The resource_type associated with the resource
       required:
         - path
         - value
@@ -15004,9 +15057,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         description:
           type: string
+          description: The new description of the resource
         value: {}
+        resource_type:
+          type: string
+          description: The new resource_type to be associated with the resource
 
     Resource:
       type: object
@@ -15202,59 +15260,91 @@ components:
                   - success
                   - duration_ms
 
+    ErrorHandler:
+      type: string
+      enum:
+        - custom
+        - slack
+        - teams
+        - email
+
     NewSchedule:
       type: object
       properties:
         path:
           type: string
+          description: The path where the schedule will be created
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         script_path:
           type: string
+          description: The path to the script or flow to trigger
         is_flow:
           type: boolean
+          description: Whether the schedule is for a flow
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         enabled:
           type: boolean
+          description: Whether the schedule is enabled
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - path
         - schedule
@@ -15268,51 +15358,69 @@ components:
       properties:
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - schedule
         - timezone
-        - script_path
-        - is_flow
         - args
 
     TriggerExtraProperty:

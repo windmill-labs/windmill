@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, ducklake, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+  "query": "\n        SELECT \n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            auto_invite_domain,\n            auto_invite_operator,\n            auto_add,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            error_handler,\n            error_handler_extra_args,\n            error_handler_muted_on_cancel,\n            large_file_storage,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations\n        FROM \n            workspace_settings\n        WHERE \n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -186,5 +186,5 @@
       false
     ]
   },
-  "hash": "6e60068b582af46afbb93010355cb5e7cc038042a6fa7089f3f73cd137a63956"
+  "hash": "8960b73f0d3cbfa0729d24ecbe3f635592feee6a5724fdff662c6ac1f3c6ddc8"
 }
