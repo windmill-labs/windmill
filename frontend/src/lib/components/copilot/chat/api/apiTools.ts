@@ -1,267 +1,92 @@
 import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
-import { workspaceStore, enterpriseLicense } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
 
-// OpenAPI type definitions
-interface OpenAPIParameter {
+// Type definitions for the EndpointTool from backend
+interface EndpointTool {
 	name: string
-	in: string
-	description?: string
-	required?: boolean
-	schema?: {
-		type?: string
-		format?: string
-	}
+	description: string
+	instructions: string
+	path: string
+	method: string
+	path_params_schema?: any
+	query_params_schema?: any
+	body_schema?: any
 }
 
-interface OpenAPIRequestBody {
-	description?: string
-	required?: boolean
-	content: {
-		[contentType: string]: {
-			schema: {
-				type?: string
-				properties?: Record<string, any>
+function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
+	// Build the parameters schema for OpenAI function calling
+	const parameters: Record<string, any> = {
+		type: 'object',
+		properties: {},
+		required: []
+	}
+
+	// Add path parameters
+	if (endpointTool.path_params_schema?.properties) {
+		for (const [key, schema] of Object.entries(endpointTool.path_params_schema.properties)) {
+			// Skip workspace parameter as it's auto-filled
+			if (key === 'workspace') continue
+			
+			parameters.properties[key] = schema
+			
+			if (endpointTool.path_params_schema.required?.includes(key)) {
+				parameters.required.push(key)
 			}
 		}
 	}
-}
 
-interface OpenAPIOperation {
-	operationId?: string
-	summary?: string
-	description?: string
-	parameters?: OpenAPIParameter[]
-	requestBody?: OpenAPIRequestBody
-	responses?: Record<string, any>
-	tags?: string[]
-}
-
-interface OpenAPIPathItem {
-	get?: OpenAPIOperation
-	post?: OpenAPIOperation
-	put?: OpenAPIOperation
-	delete?: OpenAPIOperation
-	patch?: OpenAPIOperation
-	options?: OpenAPIOperation
-	parameters?: OpenAPIParameter[]
-	summary?: string
-	description?: string
-}
-
-interface OpenAPISpec {
-	paths: {
-		[path: string]: OpenAPIPathItem
-	}
-	components?: {
-		parameters?: {
-			[name: string]: OpenAPIParameter
-		}
-		schemas?: {
-			[name: string]: any
-		}
-	}
-}
-
-interface OpenAPIParameterWithRef {
-	$ref?: string
-	name?: string
-	in?: string
-	description?: string
-	required?: boolean
-	schema?: {
-		type?: string
-		format?: string
-	}
-}
-
-/**
- * Dereferences parameter $ref references in an OpenAPI spec
- * Only resolves parameter references, not schemas or other components
- */
-function dereferenceParameters(spec: OpenAPISpec): OpenAPISpec {
-	if (!spec.components?.parameters) {
-		return spec
-	}
-
-	const resolveParameterRef = (paramRef: OpenAPIParameterWithRef): OpenAPIParameter => {
-		if (paramRef.$ref) {
-			// Extract parameter name from $ref (e.g., "#/components/parameters/WorkspaceId" -> "WorkspaceId")
-			const refPath = paramRef.$ref.split('/')
-			if (refPath.length >= 4 && refPath[1] === 'components' && refPath[2] === 'parameters') {
-				const paramName = refPath[3]
-				const resolvedParam = spec.components?.parameters?.[paramName]
-				if (resolvedParam) {
-					return resolvedParam
-				}
-			}
-			console.warn(`Could not resolve parameter reference: ${paramRef.$ref}`)
-			return paramRef as OpenAPIParameter
-		}
-		return paramRef as OpenAPIParameter
-	}
-
-	const processParameters = (parameters: OpenAPIParameterWithRef[]): OpenAPIParameter[] => {
-		return parameters.map(resolveParameterRef)
-	}
-
-	const dereferencedSpec: OpenAPISpec = {
-		...spec,
-		paths: {}
-	}
-
-	// Process each path
-	for (const [pathKey, pathItem] of Object.entries(spec.paths)) {
-		const newPathItem: OpenAPIPathItem = { ...pathItem }
-
-		// Dereference path-level parameters
-		if (pathItem.parameters) {
-			newPathItem.parameters = processParameters(pathItem.parameters as OpenAPIParameterWithRef[])
-		}
-
-		// Dereference operation-level parameters
-		const methods = ['get', 'post', 'put', 'delete', 'patch', 'options'] as const
-		for (const method of methods) {
-			const operation = pathItem[method]
-			if (operation?.parameters) {
-				newPathItem[method] = {
-					...operation,
-					parameters: processParameters(operation.parameters as OpenAPIParameterWithRef[])
-				}
+	// Add query parameters
+	if (endpointTool.query_params_schema?.properties) {
+		for (const [key, schema] of Object.entries(endpointTool.query_params_schema.properties)) {
+			parameters.properties[key] = schema
+			
+			if (endpointTool.query_params_schema.required?.includes(key)) {
+				parameters.required.push(key)
 			}
 		}
-
-		dereferencedSpec.paths[pathKey] = newPathItem
 	}
 
-	return dereferencedSpec
-}
+	// Add body parameters
+	if (endpointTool.body_schema?.properties) {
+		// For body params, we wrap them in a 'body' object
+		parameters.properties.body = {
+			type: 'object',
+			description: 'Request body',
+			properties: endpointTool.body_schema.properties,
+			required: endpointTool.body_schema.required || []
+		}
+		
+		if (endpointTool.body_schema.required?.length > 0) {
+			parameters.required.push('body')
+		}
+	}
 
-const buildApiCallTools = (
-	name: string,
-	description: string,
-	parameters: any
-): ChatCompletionTool => {
 	return {
 		type: 'function',
 		function: {
-			name,
-			description,
+			name: 'api_' + endpointTool.name,
+			description: endpointTool.instructions || endpointTool.description,
 			parameters
 		}
 	}
 }
 
-export function buildToolsFromOpenApi(
-	openApiSpec: OpenAPISpec,
-	options: {
-		pathFilter?: (path: string) => boolean
-		operationFilter?: (operation: OpenAPIOperation) => boolean
-		methodFilter?: string[]
-	} = {}
-): { tools: ChatCompletionTool[]; endpointMap: Record<string, string> } {
+function buildToolsFromEndpoints(
+	endpointTools: EndpointTool[]
+): { tools: ChatCompletionTool[]; endpointMap: Record<string, { method: string; path: string }> } {
 	const tools: ChatCompletionTool[] = []
-	const endpointMap: Record<string, string> = {}
-	const { pathFilter, methodFilter = ['get', 'post', 'put', 'delete', 'patch'] } = options
+	const endpointMap: Record<string, { method: string; path: string }> = {}
 
-	// Iterate through all paths in the OpenAPI spec
-	for (const [path, pathItem] of Object.entries(openApiSpec.paths)) {
-		if (pathFilter && !pathFilter(path)) continue
-
-		for (const [method, operation] of Object.entries(pathItem)) {
-			// Skip non-operation properties
-			if (
-				method === 'parameters' ||
-				method === 'servers' ||
-				method === 'summary' ||
-				method === 'description'
-			)
-				continue
-
-			// Skip methods not in methodFilter
-			if (!methodFilter.includes(method.toLowerCase())) continue
-
-			// Type cast to OpenAPIOperation
-			const op = operation as OpenAPIOperation
-			if (!op.operationId || !op.summary) {
-				console.error(`Operation ${method} ${path} has no operationId or summary`)
-				continue
-			}
-
-			// Build the parameters schema
-			const parameters: Record<string, any> = {
-				type: 'object',
-				properties: {},
-				required: []
-			}
-
-			// Process path parameters
-			const pathParams = [...(pathItem.parameters || []), ...(op.parameters || [])].filter(
-				(p: OpenAPIParameter) => p.in === 'path'
-			)
-
-			// Process query parameters
-			const queryParams = (op.parameters || []).filter((p: OpenAPIParameter) => p.in === 'query')
-
-			// Add path parameters
-			for (const param of pathParams) {
-				if (param.name === 'workspace') {
-					continue
-				}
-
-				parameters.properties[param.name] = {
-					type: param.schema?.type || 'string',
-					description: param.description || `Path parameter: ${param.name}`
-				}
-
-				if (param.required) {
-					parameters.required.push(param.name)
-				}
-			}
-
-			// Add query parameters
-			for (const param of queryParams) {
-				parameters.properties[param.name] = {
-					type: param.schema?.type || 'string',
-					description: param.description || `Query parameter: ${param.name}`
-				}
-
-				if (param.required) {
-					parameters.required.push(param.name)
-				}
-			}
-
-			// Handle request body if present
-			if (op.requestBody) {
-				const contentType = Object.keys(op.requestBody.content || {})[0]
-				if (contentType) {
-					const schema = op.requestBody.content[contentType].schema
-
-					if (schema) {
-						parameters.properties.body = {
-							type: 'object',
-							description: op.requestBody.description || 'Request body',
-							properties: schema.properties || {}
-						}
-
-						if (op.requestBody.required) {
-							parameters.required.push('body')
-						}
-					}
-				}
-			}
-
-			const tool = buildApiCallTools(
-				'api_' + op.operationId.replace(/\s+/g, ''),
-				op.summary || op.description || `${method.toUpperCase()} ${path}`,
-				parameters
-			)
-
-			// Store the endpoint path in the map
-			endpointMap['api_' + op.operationId.replace(/\s+/g, '')] = `${method.toUpperCase()} ${path}`
-
-			tools.push(tool)
+	for (const endpointTool of endpointTools) {
+		const tool = buildApiCallTool(endpointTool)
+		tools.push(tool)
+		
+		// Store the endpoint info in the map
+		endpointMap['api_' + endpointTool.name] = {
+			method: endpointTool.method,
+			path: endpointTool.path
 		}
 	}
 
@@ -270,31 +95,34 @@ export function buildToolsFromOpenApi(
 
 export function createApiTools(
 	chatTools: ChatCompletionTool[],
-	endpointMap: Record<string, string> = {}
+	endpointMap: Record<string, { method: string; path: string }> = {}
 ): Tool<{}>[] {
 	return chatTools.map((chatTool) => {
 		return {
 			def: chatTool,
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
-				let endpoint = endpointMap[toolName] || ''
-				endpoint = endpoint.replace('{workspace}', get(workspaceStore) as string)
+				const endpoint = endpointMap[toolName]
+				
+				if (!endpoint) {
+					throw new Error(`No endpoint mapping found for tool ${toolName}`)
+				}
 
 				try {
-					// Extract method and path from endpoint
-					const [method, path] = endpoint.split(' ', 2)
-
-					if (!endpoint || !method || !path) {
-						throw new Error(`Invalid endpoint for tool ${toolName}: ${endpoint}`)
-					}
-
+					const workspace = get(workspaceStore) as string
+					let path = endpoint.path.replace('{workspace}', workspace)
+					
 					// Build URL with path parameters
 					let url = `/api${path}`
 					const queryParams: Record<string, string> = {}
+					let requestBody: any = undefined
 
 					// Process arguments
 					for (const [key, value] of Object.entries(args)) {
-						if (key === 'body') continue // Body is handled separately
+						if (key === 'body') {
+							requestBody = value
+							continue
+						}
 
 						// Check if this is a path parameter
 						if (url.includes(`{${key}}`)) {
@@ -304,6 +132,7 @@ export function createApiTools(
 							queryParams[key] = String(value)
 						}
 					}
+
 					// Add query parameters to URL if needed
 					if (Object.keys(queryParams).length > 0) {
 						const searchParams = new URLSearchParams()
@@ -314,13 +143,25 @@ export function createApiTools(
 					}
 
 					// Log the constructed URL
-					console.log(`Calling API: ${method} ${url} with args: ${JSON.stringify(args)}`)
+					console.log(`Calling API: ${endpoint.method} ${url} with args:`, args)
 
 					toolCallbacks.setToolStatus(toolId, `Calling API endpoint (${url})...`)
 
-					const response = await fetch(url, {
-						method: method
-					})
+					const fetchOptions: RequestInit = {
+						method: endpoint.method
+					}
+
+					// Add request body for POST/PUT/PATCH methods
+					if (requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method.toUpperCase())) {
+						fetchOptions.headers = {
+							'Content-Type': 'application/json'
+						}
+						fetchOptions.body = JSON.stringify(requestBody)
+					}
+
+					console.log('fetchOptions', fetchOptions)
+
+					const response = await fetch(url, fetchOptions)
 
 					if (response.ok) {
 						let result = ''
@@ -339,12 +180,13 @@ export function createApiTools(
 						toolCallbacks.setToolStatus(toolId, `API call to ${url} failed`)
 						return JSON.stringify({
 							success: false,
-							data: text
+							error: text,
+							status: response.status
 						})
 					}
 				} catch (error) {
-					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} failed`)
-					console.error(`Error calling API to ${endpoint}:`, error)
+					toolCallbacks.setToolStatus(toolId, `API call failed`)
+					console.error(`Error calling API:`, error)
 					return `Error calling API: ${error instanceof Error ? error.message : String(error)}`
 				}
 			}
@@ -354,36 +196,20 @@ export function createApiTools(
 
 export async function loadApiTools(): Promise<Tool<{}>[]> {
 	try {
-		const response = await fetch('/api/openapi.json')
-		const rawOpenApiSpec = (await response.json()) as OpenAPISpec
-
-		// Dereference parameter references
-		const openApiSpec = dereferenceParameters(rawOpenApiSpec)
-
-		const pathsToInclude = [
-			'jobs',
-			'jobs_u',
-			'scripts',
-			'flows',
-			'resources',
-			'variables',
-			'schedules',
-			'workers'
-		]
-
-		// call srch endpoint to check if it's available
-		if (get(enterpriseLicense)) {
-			const srchResponse = await fetch(`/api/srch/index/search/enabled`)
-			if (srchResponse.ok) {
-				pathsToInclude.push('srch/w') // job search
-			}
+		// Fetch the list of available MCP tools from the backend
+		const response = await fetch(`/api/mcp/w/${get(workspaceStore)}/list_tools`)
+		
+		if (!response.ok) {
+			throw new Error(`Failed to fetch MCP tools: ${response.status} ${response.statusText}`)
 		}
-
-		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
-			pathFilter: (path) => pathsToInclude.some((p) => path.includes(`/${p}/`)),
-			methodFilter: ['get']
-		})
-
+		
+		const endpointTools: EndpointTool[] = await response.json()
+		console.log('Loaded MCP tools:', endpointTools.length, 'tools')
+		
+		// Build tools from the endpoint definitions
+		const { tools: apiTools, endpointMap } = buildToolsFromEndpoints(endpointTools)
+		
+		// Create executable tools
 		const executableApiTools = createApiTools(apiTools, endpointMap)
 		return executableApiTools
 	} catch (error) {
