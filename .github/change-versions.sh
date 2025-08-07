@@ -7,7 +7,7 @@ VERSION=$1
 echo "Updating versions to: $VERSION"
 
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/backend/Cargo.toml
-sed -i -e "/^export const VERSION =/s/= .*/= \"$VERSION\";/" ${root_dirpath}/cli/main.ts
+sed -i -e "/^export const VERSION =/s/= .*/= \"$VERSION\";/" ${root_dirpath}/cli/src/main.ts
 sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" ${root_dirpath}/benchmarks/lib.ts
 sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/backend/windmill-api/openapi.yaml
 sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml

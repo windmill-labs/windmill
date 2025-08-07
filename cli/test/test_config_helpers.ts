@@ -1,4 +1,4 @@
-import { getRootStore } from "../store.ts";
+import { getWorkspaceConfigFilePath } from "../windmill-utils-internal/src/config/config.ts";
 
 /**
  * Create a temporary config directory for testing that doesn't interfere with user's config
@@ -23,7 +23,7 @@ export async function withTestConfig<T>(callback: (testConfigDir: string) => Pro
  * Clear the remotes file in test config directory
  */
 export async function clearTestRemotes(testConfigDir: string): Promise<void> {
-  const remoteFile = (await getRootStore(testConfigDir)) + "remotes.ndjson";
+  const remoteFile = await getWorkspaceConfigFilePath(testConfigDir);
   await Deno.writeTextFile(remoteFile, "");
 }
 

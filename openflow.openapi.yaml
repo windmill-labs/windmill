@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.518.0
+  version: 1.519.2
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -285,6 +285,7 @@ components:
                 enum:
                   - s3object
                   - resource
+                  - ducklake
               access_type:
                 type: string
                 enum: [r, w, rw]

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem)\n        WHERE elem NOT IN (SELECT datname FROM pg_catalog.pg_database);",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "elem",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "543859cf1c8d9e3bf2c2b23d21d096d01fe7a72d749229f21634b549c6b1241a"
+}
