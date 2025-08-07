@@ -2440,7 +2440,6 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
-
       responses:
         "200":
           description: status
@@ -2448,6 +2447,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/workspaces/edit_large_file_storage_config:
     post:
@@ -15201,6 +15201,14 @@ components:
                   - id
                   - success
                   - duration_ms
+
+    ErrorHandler:
+      type: string
+      enum:
+        - custom
+        - slack
+        - teams
+        - email
 
     NewSchedule:
       type: object

@@ -381,6 +381,10 @@ pub struct EditErrorHandler {
     pub error_handler_muted_on_cancel: Option<bool>,
 }
 
+lazy_static::lazy_static! {
+    pub static ref EMAIL_REGEXP: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -457,15 +461,51 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, ducklake, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        r#"
+        SELECT 
+            workspace_id,
+            slack_team_id,
+            teams_team_id,
+            teams_team_name,
+            slack_name,
+            slack_command_script,
+            teams_command_script,
+            slack_email,
+            auto_invite_domain,
+            auto_invite_operator,
+            auto_add,
+            customer_id,
+            plan,
+            webhook,
+            deploy_to,
+            ai_config,
+            error_handler,
+            error_handler_extra_args,
+            error_handler_muted_on_cancel,
+            large_file_storage,
+            ducklake,
+            git_sync,
+            deploy_ui,
+            default_app,
+            default_scripts,
+            mute_critical_alerts,
+            color,
+            operator_settings,
+            git_app_installations
+        FROM 
+            workspace_settings
+        WHERE 
+            workspace_id = $1
+        "#,
         &w_id
     )
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-    tx.commit().await?;
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
 
+    tx.commit().await?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     Ok(Json(settings))
 }
 
@@ -1645,8 +1685,46 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
+        match ee.error_handler_extra_args.as_ref() {
+            Some(extra_args) if extra_args.is_object() => {
+                let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
+                    extra_args["email_recipients"].to_owned(),
+                ) else {
+                    return Err(Error::BadRequest(
+                        "Field `email_recipients` expected to be JSON array".to_string(),
+                    ));
+                };
+
+                if let Some(email_recipients) = email_recipients {
+                    for email in email_recipients {
+                        if !EMAIL_REGEXP.is_match(&email) {
+                            return Err(Error::BadRequest(format!(
+                                "Invalid email format: {}",
+                                email
+                            )));
+                        }
+                    }
+                }
+            }
+            None => {}
+            _ => {
+                return Err(Error::BadRequest(
+                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                ))
+            }
+        }
+
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
+            r#"
+            UPDATE 
+                workspace_settings
+            SET
+                error_handler = $1,
+                error_handler_extra_args = $2,
+                error_handler_muted_on_cancel = $3
+            WHERE 
+                workspace_id = $4
+            "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
@@ -1656,12 +1734,22 @@ async fn edit_error_handler(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
-            &w_id,
+            r#"
+            UPDATE 
+                workspace_settings
+            SET
+                error_handler = NULL,
+                error_handler_extra_args = NULL,
+                error_handler_muted_on_cancel = NULL
+            WHERE 
+                workspace_id = $1
+        "#,
+            &w_id
         )
         .execute(&mut *tx)
         .await?;
     }
+
     audit_log(
         &mut *tx,
         &authed,

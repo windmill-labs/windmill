@@ -10,6 +10,8 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
+	import Description from '$lib/components/Description.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
 		JobService,
@@ -18,17 +20,17 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
+	import type { ErrorHandler, ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
+	import { isCloudHosted } from '$lib/cloud'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
 	const slackSuccessHandler = hubPaths.slackSuccessHandler
-
 	const teamsRecoveryHandler = hubPaths.teamsRecoveryHandler
 	const teamsHandlerScriptPath = hubPaths.teamsErrorHandler
 	const teamsSuccessHandler = hubPaths.teamsSuccessHandler
@@ -38,7 +40,7 @@
 		isEditable: boolean
 		toggleText?: string
 		showScriptHelpText?: boolean
-		handlerSelected: 'custom' | 'slack' | 'teams'
+		handlerSelected: ErrorHandler
 		handlerPath: string | undefined
 		handlerExtraArgs: Record<string, any>
 		customScriptTemplate: string
@@ -51,18 +53,17 @@
 		isEditable,
 		toggleText = 'Enable',
 		showScriptHelpText = false,
-		handlerSelected = $bindable(),
+		handlerSelected = $bindable('custom'),
 		handlerPath = $bindable(),
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip
+		customTabTooltip,
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
 	let isFetching: boolean = $state(false)
-
 	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
 	let teams_team_name: string | undefined = $state(undefined)
 
@@ -71,6 +72,8 @@
 
 	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined =
 		$state()
+	const EMAIL_RECIPIENTS_KEY = 'email_recipients'
+	const CHANNEL_KEY = 'channel'
 
 	async function loadSlackResources() {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -222,6 +225,14 @@
 		}
 	}
 
+	function isEmailHandler(scriptPath: string | undefined) {
+		if (!scriptPath) {
+			return false
+		}
+
+		return scriptPath.startsWith('hub/') && scriptPath.endsWith('/workspace-or-error-handler-email')
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			loadSlackResources()
@@ -237,22 +248,27 @@
 		}
 	})
 
-	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = $state(undefined)
-	let channelCache = $state({
+	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
+	let handlerCache = $state({
 		slack: undefined as string | undefined,
-		teams: undefined as string | undefined
+		teams: undefined as string | undefined,
+		email: undefined as string[] | undefined
 	})
 	$effect(() => {
 		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
-			if (lastHandlerSelected === 'teams' || lastHandlerSelected === 'slack') {
-				channelCache[lastHandlerSelected] = handlerExtraArgs['channel']
+			if (lastHandlerSelected != 'custom') {
+				const key = lastHandlerSelected === 'email' ? EMAIL_RECIPIENTS_KEY : CHANNEL_KEY
+				handlerCache[lastHandlerSelected] = handlerExtraArgs[key]
 			}
 
 			if (handlerSelected === 'custom') {
-				handlerExtraArgs['channel'] = ''
+				handlerExtraArgs[CHANNEL_KEY] = ''
+				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = []
 				handlerPath = undefined
+			} else if (handlerSelected === 'email') {
+				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = handlerCache[handlerSelected] ?? []
 			} else {
-				handlerExtraArgs['channel'] = channelCache[handlerSelected] ?? ''
+				handlerExtraArgs[CHANNEL_KEY] = handlerCache[handlerSelected] ?? ''
 			}
 		}
 
@@ -263,6 +279,7 @@
 		handlerPath &&
 			!isSlackHandler(handlerPath) &&
 			!isTeamsHandler(handlerPath) &&
+			!isEmailHandler(handlerPath) &&
 			loadHandlerScriptArgs(handlerPath, [
 				'path',
 				'workspace_id',
@@ -302,12 +319,19 @@
 				'slack'
 			]).then((schema) => (slackHandlerSchema = schema))
 	})
+
+	$effect(() => {
+		if (handlerSelected === 'email') {
+			handlerPath = hubPaths.emailErrorHandler
+		}
+	})
 </script>
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
 		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
 		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
+		<Tab value="email" disabled={!isEditable}>Email</Tab>
 		<Tab value="custom" disabled={!isEditable}>
 			Custom
 			{@render customTabTooltip?.()}
@@ -334,8 +358,10 @@
 				size="xs"
 				href={customScriptTemplate}
 				disabled={!isEditable}
-				target="_blank">Create from template</Button
+				target="_blank"
 			>
+				Create from template
+			</Button>
 		{/if}
 	</div>
 	{#if showScriptHelpText}
@@ -562,5 +588,47 @@
 				</p>
 			{/if}
 		{/if}
+	{/if}
+{:else if handlerSelected === 'email'}
+	{#if isCloudHosted()}
+		<Alert type="info" title="Email notifications are not available in Cloud">
+			Email notifications for trigger failures are only available in self-hosted Windmill instances.
+		</Alert>
+	{:else}
+		<div class="flex flex-col gap-4 my-4">
+			<Description>
+				Configure email addresses to receive notifications when jobs fail. This feature requires
+				SMTP to be configured.
+			</Description>
+		</div>
+		<div class="flex flex-col gap-2 my-4">
+			<MultiSelect
+				items={[] as { label: string; value: string }[]}
+				bind:value={
+					() => handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? [],
+					(recipients) => (handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = recipients)
+				}
+				placeholder="Enter email addresses..."
+				onCreateItem={(email) => {
+					const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+					if (!emailRegex.test(email)) {
+						sendUserToast('Invalid email format', true)
+						return
+					}
+					const currentArray = handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? []
+					handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = [...currentArray, email]
+				}}
+				class="w-full"
+			/>
+			{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
+				<span class="text-sm text-tertiary">
+					{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
+						EMAIL_RECIPIENTS_KEY
+					]?.length === 1
+						? ''
+						: 's'} configured
+				</span>
+			{/if}
+		</div>
 	{/if}
 {/if}

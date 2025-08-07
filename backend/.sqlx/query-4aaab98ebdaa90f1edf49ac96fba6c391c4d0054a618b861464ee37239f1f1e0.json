@@ -223,7 +223,8 @@
                 "ui",
                 "postgres",
                 "sqs",
-                "gcp"
+                "gcp",
+                "mqtt"
               ]
             }
           }
