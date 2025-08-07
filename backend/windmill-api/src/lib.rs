@@ -21,6 +21,8 @@ use crate::smtp_server_oss::SmtpServer;
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
 #[cfg(feature = "mcp")]
+mod mcp_utils;
+#[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 
 use crate::tracing_init::MyOnFailure;
@@ -201,6 +203,8 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
+#[cfg(feature = "mcp")]
+mod mcp_tools;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 

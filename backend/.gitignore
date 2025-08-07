@@ -8,3 +8,4 @@ index/
 windmill-api/openapi-*.*
 .duckdb/*
 *ee.rs
+generate_mcp_endpoints_tools/venv

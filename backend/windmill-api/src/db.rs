@@ -854,6 +854,22 @@ impl From<ApiAuthed> for Authed {
     }
 }
 
+impl From<Authed> for ApiAuthed {
+    fn from(value: Authed) -> Self {
+        Self {
+            email: value.email,
+            username: value.username,
+            is_admin: value.is_admin,
+            is_operator: value.is_operator,
+            groups: value.groups,
+            folders: value.folders,
+            scopes: value.scopes,
+            username_override: None, // Authed doesn't have this field, so default to None
+            token_prefix: value.token_prefix,
+        }
+    }
+}
+
 impl From<&ApiAuthed> for AuditAuthor {
     fn from(value: &ApiAuthed) -> Self {
         Self {
