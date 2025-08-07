@@ -305,22 +305,6 @@
 											</Subsection>
 										{/if}
 									</div>
-								{:else if delivery_type === 'pull'}
-									<Subsection
-										label="Auto-acknowledge messages"
-										tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
-									>
-										<div class="mt-2">
-											<Toggle bind:checked={auto_acknowledge_msg} />
-										</div>
-										{#if !auto_acknowledge_msg}
-											<div class="mt-3">
-												<Alert size="xs" type="warning" title="Manual Acknowledgment Required">
-													You must acknowledge each message in your script/flow code using the `ack_id` provided in the payload data. If messages are not acknowledged within the acknowledgment deadline (default: 10 seconds), GCP will automatically redeliver them, causing Windmill to reprocess the same messages repeatedly.
-												</Alert>
-											</div>
-										{/if}
-									</Subsection>
 								{/if}
 							</div>
 						{:else if subscription_mode === 'existing'}

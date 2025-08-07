@@ -26,6 +26,8 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import Subsection from '$lib/components/Subsection.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -51,7 +53,7 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
-	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('settings')
 	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -239,6 +241,7 @@
 			delivery_type,
 			delivery_config,
 			base_endpoint,
+			auto_acknowledge_msg,
 			topic_id,
 			path
 		}
@@ -408,19 +411,46 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="settings">Settings</Tab>
 							<Tab value="error_handler">Error Handler</Tab>
 							<Tab value="retries">Retries</Tab>
 						</Tabs>
 						<div class="mt-4">
-							<TriggerRetriesAndErrorHandler
-								{optionTabSelected}
-								{itemKind}
-								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
-								bind:retry
-							/>
+							{#if optionTabSelected === 'settings'}
+								<div class="flex flex-col gap-4">
+									{#if delivery_type === 'pull'}
+										<Subsection
+											label="Auto-acknowledge messages"
+											tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
+										>
+											<div class="mt-2">
+												<Toggle bind:checked={auto_acknowledge_msg} />
+											</div>
+											{#if !auto_acknowledge_msg}
+												<div class="mt-3">
+													<Alert size="xs" type="warning" title="Manual Acknowledgment Required">
+														You must acknowledge each message in your script/flow code using the `ack_id` provided in the payload data. If messages are not acknowledged within the acknowledgment deadline (by default 600 seconds), GCP will automatically redeliver them in 600 seconds, causing Windmill to reprocess the same messages repeatedly.
+													</Alert>
+												</div>
+											{/if}
+										</Subsection>
+									{:else}
+										<div class="flex items-center justify-center h-32 text-tertiary">
+											No settings available for push delivery type
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<TriggerRetriesAndErrorHandler
+									{optionTabSelected}
+									{itemKind}
+									{can_write}
+									bind:errorHandlerSelected
+									bind:error_handler_path
+									bind:error_handler_args
+									bind:retry
+								/>
+							{/if}
 						</div>
 					</div>
 				</div>
