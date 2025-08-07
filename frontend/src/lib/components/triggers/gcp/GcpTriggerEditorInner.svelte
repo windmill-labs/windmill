@@ -54,6 +54,7 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let auto_acknowledge_msg = $state(true)
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
