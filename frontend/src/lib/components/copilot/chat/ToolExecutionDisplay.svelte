@@ -41,7 +41,7 @@
 	const hasParameters = $derived(Object.keys(parameters).length > 0)
 	const hasResult = $derived(result !== undefined && result !== null)
 	
-	// Format JSON for display with syntax highlighting
+	// Format JSON for display
 	function formatJson(obj: any): string {
 		try {
 			return JSON.stringify(obj, null, 2)
@@ -65,101 +65,102 @@
 			console.error('Failed to copy:', err)
 		}
 	}
-	
-	// Simple JSON syntax highlighter
-	function highlightJson(json: string): string {
-		return json
-			.replace(/(".*?":\s*)(".*?")/g, '$1<span class="json-string">$2</span>')
-			.replace(/(".*?":\s*)(\d+)/g, '$1<span class="json-number">$2</span>')
-			.replace(/(".*?":\s*)(true|false)/g, '$1<span class="json-boolean">$2</span>')
-			.replace(/(".*?":\s*)(null)/g, '$1<span class="json-null">$2</span>')
-			.replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
-	}
 </script>
 
-<div class="tool-execution-display">
-	<!-- Collapsed/Expanded Header -->
-	<div class="tool-header">
-		<button 
-			class="tool-header-button"
-			onclick={() => isExpanded = !isExpanded}
-		>
-			<div class="flex items-center gap-2 flex-1">
-				{#if isExpanded}
-					<ChevronDown class="w-3 h-3 text-gray-500" />
-				{:else}
-					<ChevronRight class="w-3 h-3 text-gray-500" />
-				{/if}
-				
-				{#if isLoading}
-					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-400" />
-				{:else if error}
-					<span class="text-red-500">✗</span>
-				{:else if hasResult}
-					<span class="text-green-500">✓</span>
-				{:else}
-					<span class="text-gray-500">○</span>
-				{/if}
-				
-				<span class="tool-name">
-					Called {displayName}
+<div class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs">
+	<!-- Collapsible Header -->
+	<button 
+		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
+		onclick={() => isExpanded = !isExpanded}
+	>
+		<div class="flex items-center gap-2 flex-1">
+			{#if isExpanded}
+				<ChevronDown class="w-3 h-3 text-secondary" />
+			{:else}
+				<ChevronRight class="w-3 h-3 text-secondary" />
+			{/if}
+			
+			{#if isLoading}
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+			{:else if error}
+				<span class="text-red-500">✗</span>
+			{:else if hasResult}
+				<span class="text-green-500">✓</span>
+			{:else}
+				<span class="text-tertiary">○</span>
+			{/if}
+			
+			<span class="text-primary font-medium">
+				Called {displayName}
+			</span>
+		</div>
+		
+		<!-- Status Badge -->
+		<div class="flex items-center gap-2">
+			{#if isLoading}
+				<span class="px-2 py-1 rounded text-2xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+					Running
 				</span>
-				
-				{#if isLoading}
-					<span class="status-badge loading">Running</span>
-				{:else if error}
-					<span class="status-badge error">Failed</span>
-				{:else if hasResult}
-					<span class="status-badge success">Completed</span>
-				{/if}
-			</div>
-		</button>
-	</div>
+			{:else if error}
+				<span class="px-2 py-1 rounded text-2xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700">
+					Failed
+				</span>
+			{:else if hasResult}
+				<span class="px-2 py-1 rounded text-2xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700">
+					Completed
+				</span>
+			{/if}
+		</div>
+	</button>
 	
 	<!-- Expanded Content -->
 	{#if isExpanded}
-		<div class="tool-content">
+		<div class="p-3 bg-surface space-y-3">
 			{#if description}
-				<div class="description-section">
+				<div class="p-2 bg-surface-secondary rounded text-tertiary text-2xs">
 					{description}
 				</div>
 			{/if}
 			
 			<!-- Parameters Section -->
 			{#if hasParameters}
-				<div class="section">
-					<div class="section-header">
-						<span class="section-title">Parameters:</span>
+				<div class="space-y-2">
+					<div class="flex items-center justify-between">
+						<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
+							Parameters:
+						</span>
 						<button 
-							class="copy-button"
+							class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
 							onclick={() => copyToClipboard(formatJson(parameters), 'params')}
 							title="Copy parameters"
 						>
 							{#if copiedParams}
-								<Check class="w-3 h-3" />
+								<Check class="w-3 h-3 text-green-500" />
 							{:else}
 								<Copy class="w-3 h-3" />
 							{/if}
 						</button>
 					</div>
-					<div class="code-block">
-						<pre><code>{@html highlightJson(formatJson(parameters))}</code></pre>
+					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+						<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(parameters)}</pre>
 					</div>
 				</div>
 			{/if}
 			
 			<!-- Result Section -->
-			<div class="section">
-				<div class="section-header">
-					<span class="section-title">Result:</span>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between">
+					<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
+						Result:
+					</span>
 					{#if hasResult && !error}
 						<button 
-							class="copy-button"
+							class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
 							onclick={() => copyToClipboard(formatJson(result), 'result')}
 							title="Copy result"
 						>
 							{#if copiedResult}
-								<Check class="w-3 h-3" />
+								<Check class="w-3 h-3 text-green-500" />
 							{:else}
 								<Copy class="w-3 h-3" />
 							{/if}
@@ -168,235 +169,24 @@
 				</div>
 				
 				{#if isLoading}
-					<div class="loading-state">
+					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
 						<Loader2 class="w-3 h-3 animate-spin" />
-						<span>Executing...</span>
+						<span class="text-2xs">Executing...</span>
 					</div>
 				{:else if error}
-					<div class="code-block error-block">
-						<pre><code>{error}</code></pre>
+					<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+						<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
 					</div>
 				{:else if hasResult}
-					<div class="code-block">
-						<pre><code>{@html highlightJson(formatJson(result))}</code></pre>
+					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+						<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(result)}</pre>
 					</div>
 				{:else}
-					<div class="empty-state">
-						No result yet
+					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+						<span class="text-2xs text-tertiary">No result yet</span>
 					</div>
 				{/if}
 			</div>
 		</div>
 	{/if}
 </div>
-
-<style>
-	.tool-execution-display {
-		background: #1a1a1a;
-		border: 1px solid #333;
-		border-radius: 6px;
-		overflow: hidden;
-		font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-		font-size: 13px;
-	}
-	
-	.tool-header {
-		background: #222;
-		border-bottom: 1px solid #333;
-	}
-	
-	.tool-header-button {
-		width: 100%;
-		padding: 10px 12px;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		background: none;
-		border: none;
-		color: #e0e0e0;
-		cursor: pointer;
-		text-align: left;
-		transition: background-color 0.15s;
-	}
-	
-	.tool-header-button:hover {
-		background: #2a2a2a;
-	}
-	
-	.tool-name {
-		font-weight: 500;
-		color: #e0e0e0;
-	}
-	
-	.status-badge {
-		padding: 2px 8px;
-		border-radius: 4px;
-		font-size: 11px;
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-	
-	.status-badge.loading {
-		background: #2563eb20;
-		color: #60a5fa;
-		border: 1px solid #2563eb40;
-	}
-	
-	.status-badge.success {
-		background: #16a34a20;
-		color: #4ade80;
-		border: 1px solid #16a34a40;
-	}
-	
-	.status-badge.error {
-		background: #dc262620;
-		color: #f87171;
-		border: 1px solid #dc262640;
-	}
-	
-	.tool-content {
-		padding: 12px;
-		background: #1a1a1a;
-	}
-	
-	.description-section {
-		padding: 8px 12px;
-		background: #252525;
-		border-radius: 4px;
-		color: #999;
-		font-size: 12px;
-		margin-bottom: 12px;
-	}
-	
-	.section {
-		margin-bottom: 12px;
-	}
-	
-	.section:last-child {
-		margin-bottom: 0;
-	}
-	
-	.section-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 6px;
-	}
-	
-	.section-title {
-		color: #888;
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-	
-	.copy-button {
-		padding: 4px;
-		background: none;
-		border: none;
-		color: #666;
-		cursor: pointer;
-		border-radius: 3px;
-		transition: all 0.15s;
-	}
-	
-	.copy-button:hover {
-		background: #333;
-		color: #999;
-	}
-	
-	.code-block {
-		background: #0d0d0d;
-		border: 1px solid #2a2a2a;
-		border-radius: 4px;
-		padding: 10px 12px;
-		overflow-x: auto;
-		max-height: 300px;
-		overflow-y: auto;
-	}
-	
-	.code-block pre {
-		margin: 0;
-		white-space: pre-wrap;
-		word-wrap: break-word;
-	}
-	
-	.code-block code {
-		color: #e0e0e0;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-	
-	.error-block {
-		background: #1a0d0d;
-		border-color: #4a1f1f;
-	}
-	
-	.error-block code {
-		color: #f87171;
-	}
-	
-	.loading-state {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 12px;
-		background: #0d0d0d;
-		border: 1px solid #2a2a2a;
-		border-radius: 4px;
-		color: #666;
-		font-size: 12px;
-	}
-	
-	.empty-state {
-		padding: 12px;
-		background: #0d0d0d;
-		border: 1px solid #2a2a2a;
-		border-radius: 4px;
-		color: #555;
-		font-size: 12px;
-		text-align: center;
-	}
-	
-	/* JSON Syntax Highlighting */
-	:global(.json-key) {
-		color: #9cdcfe;
-	}
-	
-	:global(.json-string) {
-		color: #ce9178;
-	}
-	
-	:global(.json-number) {
-		color: #b5cea8;
-	}
-	
-	:global(.json-boolean) {
-		color: #569cd6;
-	}
-	
-	:global(.json-null) {
-		color: #569cd6;
-	}
-	
-	/* Scrollbar styling */
-	.code-block::-webkit-scrollbar {
-		width: 6px;
-		height: 6px;
-	}
-	
-	.code-block::-webkit-scrollbar-track {
-		background: transparent;
-	}
-	
-	.code-block::-webkit-scrollbar-thumb {
-		background: #444;
-		border-radius: 3px;
-	}
-	
-	.code-block::-webkit-scrollbar-thumb:hover {
-		background: #555;
-	}
-</style>
