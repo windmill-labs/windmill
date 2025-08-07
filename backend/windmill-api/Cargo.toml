@@ -144,6 +144,8 @@ aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 rustls = { workspace = true }
 
+aws-sigv4.workspace = true
+aws-sdk-config.workspace = true
 aws-config = { workspace = true, optional = true }
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }

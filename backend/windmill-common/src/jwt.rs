@@ -1,5 +1,5 @@
 use crate::error::{self, to_anyhow, Error};
-use base64::URL_SAFE_NO_PAD;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
@@ -73,5 +73,5 @@ pub async fn generate_signature(header_and_payload: &str) -> anyhow::Result<Stri
 
     // Finalize and encode
     let result = mac.finalize().into_bytes();
-    Ok(base64::encode_config(result, URL_SAFE_NO_PAD))
+    Ok(URL_SAFE_NO_PAD.encode(result))
 }
