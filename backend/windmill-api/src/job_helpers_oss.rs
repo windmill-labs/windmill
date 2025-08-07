@@ -139,7 +139,7 @@ pub async fn download_s3_file_internal(
 pub async fn read_object_streamable(
     s3_client: Arc<dyn ObjectStore>,
     file_key: &str,
-) -> anyhow::Result<Response> {
+) -> error::Result<Response> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
