@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 /*
  * Author: Ruben Fiszel
@@ -654,66 +654,20 @@ async fn update_app_history(
     return Ok(());
 }
 
-async fn custom_path_exists_inner(
-    db: &DB,
-    custom_path: &str,
-    w_id: &str,
-    workspaced_route: bool,
-) -> Result<bool> {
-    let exists = if *CLOUD_HOSTED {
-        sqlx::query_scalar!(
-            r#"
-            SELECT EXISTS(
-                SELECT 
-                    1 
-                FROM 
-                    app 
-                WHERE 
-                    custom_path = $1
-                    AND workspace_id = $2 
-            )
-            "#,
-            w_id,
-            custom_path
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false)
-    } else {
-        let full_custom_path = match workspaced_route {
-            true if !custom_path.starts_with(&format!("{w_id}/")) => {
-                Cow::Owned(format!("{}/{}", w_id, custom_path))
-            }
-            _ => Cow::Borrowed(custom_path),
-        };
-        sqlx::query_scalar!(
-            r#"
-            SELECT EXISTS(
-                SELECT 
-                    1 
-                FROM 
-                    app 
-                WHERE 
-                    custom_path = $1
-            )
-            "#,
-            full_custom_path.as_ref(),
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false)
-    };
-
-    Ok(exists)
-}
-
 async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
     let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
 
-    let exists = custom_path_exists_inner(&db, &custom_path, &w_id, as_workspaced_route).await?;
+    let exists =
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED || as_workspaced_route { Some(&w_id) } else { None }
+        )
+        .fetch_one(&db)
+        .await?.unwrap_or(false);
     Ok(Json(exists))
 }
 
@@ -969,7 +923,7 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
-async fn get_app_workspaced_route_setting(db: &DB) -> Result<bool> {
+pub async fn get_app_workspaced_route_setting(db: &DB) -> Result<bool> {
     let setting = load_value_from_global_settings(db, APP_WORKSPACED_ROUTE_SETTING).await?;
     Ok(setting.and_then(|v| v.as_bool()).unwrap_or(false))
 }
@@ -1043,16 +997,17 @@ async fn create_app_internal<'a>(
             &app.path
         )));
     }
-
-    if let Some(custom_path) = &mut app.custom_path {
+    if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
         let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
 
-        let exists = custom_path_exists_inner(&db, custom_path, &w_id, as_workspaced_route).await?;
-
-        if as_workspaced_route && !custom_path.starts_with(&format!("{w_id}/")) {
-            *custom_path = format!("{}/{}", w_id, custom_path);
-        }
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None }
+        )
+        .fetch_one(&mut *tx)
+        .await?.unwrap_or(false);
 
         if exists {
             return Err(Error::BadRequest(format!(
@@ -1061,7 +1016,6 @@ async fn create_app_internal<'a>(
             )));
         }
     }
-
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         &app.path,
@@ -1380,62 +1334,30 @@ async fn update_app_internal<'a>(
             sqlb.set_str("summary", nsummary);
         }
 
-        if let Some(mut ncustom_path) = ns.custom_path {
+        if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
+            let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists_query = if *CLOUD_HOSTED {
-                    sqlx::query_scalar!(
-                        r#"
-                        SELECT EXISTS(
-                            SELECT 1 
-                            FROM app 
-                            WHERE 
-                                custom_path = $1
-                                AND workspace_id = $2 
-                                AND NOT (path = $3 AND workspace_id = $2)
-                        )
-                        "#,
-                        &*ncustom_path,
-                        w_id,
-                        path
-                    )
-                } else {
-                    let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
+                let exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                    ncustom_path,
+                    if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None },
+                    path,
+                    w_id
+                )
+                .fetch_one(&mut *tx)
+                .await?.unwrap_or(false);
 
-                    ncustom_path = match as_workspaced_route {
-                        true if !ncustom_path.starts_with(&format!("{w_id}/")) => {
-                            format!("{}/{}", w_id, ncustom_path)
-                        }
-                        _ => ncustom_path,
-                    };
-                    sqlx::query_scalar!(
-                        r#"
-                        SELECT EXISTS(
-                            SELECT 
-                                1 
-                            FROM 
-                                app 
-                            WHERE 
-                                custom_path = $1
-                                AND NOT path = $2
-                        )
-                        "#,
-                        &ncustom_path,
-                        path,
-                    )
-                };
-
-                let exists = exists_query.fetch_one(&db).await?.unwrap_or(false);
                 if exists {
                     return Err(Error::BadRequest(format!(
                         "App with custom path {} already exists",
                         ncustom_path
                     )));
                 }
-                sqlb.set_str("custom_path", &ncustom_path);
+                sqlb.set_str("custom_path", ncustom_path);
             }
         }
 

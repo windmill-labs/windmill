@@ -27,15 +27,16 @@ use axum::extract::Query;
 #[cfg(feature = "enterprise")]
 use crate::utils::require_devops_role;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
     email_oss::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
-        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
 };
@@ -247,6 +248,69 @@ pub async fn set_global_setting_internal(
                 sqlx::query!("UPDATE alerts SET acknowledged = true")
                     .execute(db)
                     .await?;
+            }
+        }
+        APP_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = &value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting Expected to be boolean",
+                    APP_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateApp {
+                    custom_path: Option<String>,
+                    path: String,
+                }
+                let duplicate_app = sqlx::query_as!(
+                    DuplicateApp,
+                    r#"
+                        SELECT
+                            path,
+                            custom_path
+                        FROM 
+                            app
+                        WHERE 
+                            custom_path IN (
+                                SELECT 
+                                    custom_path
+                                FROM 
+                                    app
+                                GROUP 
+                                    BY custom_path
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY custom_path
+                        "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_app.is_empty() {
+                    tracing::error!(
+                        "Cannot disabled {} setting as duplicate app with custom path were found: {:?}",
+                        APP_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_app
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateApp>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate custom paths detected".to_string(),
+                        details: duplicate_app,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
             }
         }
         _ => {}

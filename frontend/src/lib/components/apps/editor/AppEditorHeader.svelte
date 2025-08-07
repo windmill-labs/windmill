@@ -674,8 +674,7 @@
 						value: $app!,
 						summary: $summary,
 						policy,
-						path: newEditedPath || path,
-						custom_path: customPath
+						path: newEditedPath || path
 					}
 				}
 			})
@@ -965,12 +964,6 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-
-	$effect(() => {
-		customPath
-		loadGlobalWorkspacedRouteSetting()
-	})
-
 	$effect(() => {
 		if ($openDebugRun == undefined) {
 			$openDebugRun = (jobId: string) => {
@@ -986,31 +979,16 @@
 		saveDrawerOpen && untrack(() => compareVersions())
 	})
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
-	let fullCustomUrl = $state('')
+	let fullCustomUrl = $derived(
+		`${window.location.origin}${base}/a/${
+			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
+		}${customPath}`
+	)
 	$effect(() => {
-		let url = `${window.location.origin}${base}/a/`
-		let appendPath: string | undefined = ''
-		if (isCloudHosted()) {
-			appendPath = `${$workspaceStore}/`
-		} else {
-			if (globalWorkspacedRoute) {
-				appendPath = `${$workspaceStore}/`
-				if (customPath?.startsWith(appendPath)) {
-					customPath = customPath.substring(appendPath.length)
-				}
-			}
-		}
-		url += appendPath + customPath
-		fullCustomUrl = url
-	})
-	$effect(() => {
-		customPath
+		;[customPath]
 		untrack(() => customPath !== undefined && validateCustomPath(customPath))
 	})
-
-	$effect(() => {
-		console.log({ pathError, customPathError })
-	})
+	loadGlobalWorkspacedRouteSetting()
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1222,6 +1200,7 @@
 				</Button>
 				<Button
 					startIcon={{ icon: Save }}
+					disabled={pathError != '' || customPathError != ''}
 					on:click={() => {
 						if ($appPath == '') {
 							createApp(newEditedPath)
@@ -1305,41 +1284,28 @@
 				/>
 
 				{#if customPath !== undefined}
-					<div class="flex flex-col gap-2">
-						{#if !isCloudHosted() && globalWorkspacedRoute && newApp}
-							<div
-								class="mt-2 text-xs text-tertiary bg-blue-50 dark:bg-blue-900/20 p-2 rounded border border-blue-200 dark:border-blue-800"
-							>
-								<span class="font-medium"> Workspace prefix enabled:</span> The custom URL will be
-								prefixed with the workspace ID (e.g.,
-								<code class="bg-blue-100 dark:bg-blue-800 px-1 rounded"
-									>/a/{$workspaceStore}/{customPath || 'your-path'}</code
-								>). This is controlled by the instance administrator.
-							</div>
-						{/if}
-						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-							<div>Custom path</div>
-						</div>
-						<input
-							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-							type="text"
-							autocomplete="off"
-							bind:value={customPath}
-							class={customPathError === ''
-								? ''
-								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-							oninput={() => {
-								dirtyCustomPath = true
-							}}
-						/>
-						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-							<div>Custom public URL</div>
-						</div>
-						<ClipboardPanel content={fullCustomUrl} size="md" />
+					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+						<div>Custom path</div>
+					</div>
+					<input
+						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+						type="text"
+						autocomplete="off"
+						bind:value={customPath}
+						class={customPathError === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						oninput={() => {
+							dirtyCustomPath = true
+						}}
+					/>
+					<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
+						<div>Custom public URL</div>
+					</div>
+					<ClipboardPanel content={fullCustomUrl} size="md" />
 
-						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-							>{dirtyCustomPath ? customPathError : ''}
-						</div>
+					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+						>{dirtyCustomPath ? customPathError : ''}
 					</div>
 				{/if}
 			</div>
