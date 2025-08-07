@@ -3,24 +3,51 @@
 # Set script to exit on any error
 set -e
 
-echo "Removing .ts extensions from imports..."
+# Parse command line arguments
+RESTORE_MODE=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -r)
+            RESTORE_MODE=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [-r]"
+            echo "  -r    Restore .ts extensions to imports/exports"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$RESTORE_MODE" == true ]]; then
+    echo "Adding .ts extensions to imports..."
+    # Only add .ts if the path doesn't already end with .ts or /
+    REGEX='/\.ts["'\'']/! s/(from|import)[[:space:]]+["'\'']([^"'\'']*[^/])(["'\''])/\1 "\2.ts\3/g'
+    SUCCESS_MSG="✓ All .ts extensions added to import/export statements"
+else
+    echo "Removing .ts extensions from imports..."
+    REGEX='s/(from|import)[[:space:]]+["'\'']([^"'\'']*?)\.ts(["'\''])/\1 "\2\3/g'
+    SUCCESS_MSG="✓ All .ts extensions removed from import/export statements"
+fi
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "Detected macOS - using BSD sed"
+    echo "Detected macOS - using GNU sed (gsed)"
+    if ! command -v gsed &> /dev/null; then
+        echo "Error: gsed not found"
+        echo "Run: brew install gnu-sed"
+        exit 1
+    fi
 else
     echo "Detected Linux - using GNU sed"
 fi
+
 find . -name "*.ts" -type f | while read -r file; do
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS BSD sed
-        if ! command -v gsed &> /dev/null; then
-            echo "Error: gsed not found"
-            echo "Run: brew install gnu-sed"
-            exit 1
-        fi
-        gsed -E -i 's/(from|import)[[:space:]]+["'\'']([^"'\'']*?)\.ts(["'\''])/\1 "\2\3/g' "$file"
+        gsed -E -i "$REGEX" "$file"
     else
-        # Linux GNU sed
-        sed -E -i 's/(from|import)[[:space:]]+["'\'']([^"'\'']*?)\.ts(["'\''])/\1 "\2\3/g' "$file"
+        sed -E -i "$REGEX" "$file"
     fi
 done
-echo "✓ All .ts extensions removed from import/export statements"
+
+echo "$SUCCESS_MSG"

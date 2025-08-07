@@ -16,6 +16,12 @@ You just need to run this before working on the package:
 npm run dev
 ```
 
+After you are done with your modifications, add back the .ts extensions:
+
+```bash
+./remove-ts.ext -r
+```
+
 ### Building
 
 To build the package for production:
