@@ -7,7 +7,12 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import { SqsTriggerService, type AwsAuthResourceType, type Retry } from '$lib/gen'
+	import {
+		SqsTriggerService,
+		type AwsAuthResourceType,
+		type ErrorHandler,
+		type Retry
+	} from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -79,7 +84,7 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()

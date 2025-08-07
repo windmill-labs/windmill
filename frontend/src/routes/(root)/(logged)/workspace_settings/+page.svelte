@@ -18,7 +18,10 @@
 		WorkspaceService,
 		ResourceService,
 		SettingService,
-		type AIConfig
+		type AIConfig,
+
+		type ErrorHandler
+
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -49,6 +52,7 @@
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import { untrack } from 'svelte'
+	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
@@ -66,7 +70,7 @@
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
 	let workspaceToDeployTo: string | undefined = $state(undefined)
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
@@ -252,14 +256,7 @@
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
-			errorHandlerSelected = emptyString(errorHandlerScriptPath)
-				? 'custom'
-				: errorHandlerScriptPath.startsWith('hub/') &&
-					  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-					? 'slack'
-					: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
-						? 'teams'
-						: 'custom'
+			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		workspaceDefaultAppPath = settings.default_app
@@ -321,7 +318,7 @@
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -331,7 +328,7 @@
 				requestBody: {
 					error_handler: undefined,
 					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined
+					error_handler_muted_on_cancel: undefined,
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
