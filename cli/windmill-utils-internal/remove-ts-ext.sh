@@ -2,6 +2,7 @@
 
 # Set script to exit on any error
 set -e
+script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse command line arguments
 RESTORE_MODE=false
@@ -42,7 +43,7 @@ else
     echo "Detected Linux - using GNU sed"
 fi
 
-find . -name "*.ts" -type f | while read -r file; do
+find "$script_dirpath" -name "*.ts" -type f | while read -r file; do
     if [[ "$OSTYPE" == "darwin"* ]]; then
         gsed -E -i "$REGEX" "$file"
     else
