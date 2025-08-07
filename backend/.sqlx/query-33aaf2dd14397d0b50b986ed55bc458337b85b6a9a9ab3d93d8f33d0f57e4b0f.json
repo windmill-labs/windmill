@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    gcp_resource_path,\n                    subscription_id,\n                    topic_id,\n                    workspace_id,\n                    delivery_type AS \"delivery_type: _\",\n                    delivery_config AS \"delivery_config: _\",\n                    subscription_mode AS \"subscription_mode: _\",\n                    path,\n                    script_path,\n                    is_flow,\n                    edited_by,\n                    email,\n                    edited_at,\n                    server_id,\n                    last_server_ping,\n                    extra_perms,\n                    error,\n                    enabled,\n                    error_handler_path,\n                    error_handler_args as \"error_handler_args: _\",\n                    retry as \"retry: _\"\n                FROM \n                    gcp_trigger\n                WHERE \n                    workspace_id = $1\n                ",
+  "query": "\n            SELECT\n                gcp_resource_path,\n                subscription_id,\n                topic_id,\n                workspace_id,\n                delivery_type AS \"delivery_type: _\",\n                delivery_config AS \"delivery_config: _\",\n                subscription_mode AS \"subscription_mode: _\",\n                path,\n                script_path,\n                is_flow,\n                edited_by,\n                email,\n                edited_at,\n                server_id,\n                last_server_ping,\n                extra_perms,\n                error,\n                enabled,\n                error_handler_path,\n                error_handler_args as \"error_handler_args: _\",\n                retry as \"retry: _\",\n                auto_acknowledge_msg\n            FROM\n                gcp_trigger\n            WHERE\n                delivery_type != 'push'::DELIVERY_MODE AND\n                enabled IS TRUE\n                AND (last_server_ping IS NULL OR\n                    last_server_ping < now() - interval '15 seconds'\n                )\n            ",
   "describe": {
     "columns": [
       {
@@ -127,12 +127,15 @@
         "ordinal": 20,
         "name": "retry: _",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 21,
+        "name": "auto_acknowledge_msg",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -155,8 +158,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "e82b99583d5d3004b4ad6606e7906b8f95b33c6137f136edabb0255bfa6a98f7"
+  "hash": "33aaf2dd14397d0b50b986ed55bc458337b85b6a9a9ab3d93d8f33d0f57e4b0f"
 }
