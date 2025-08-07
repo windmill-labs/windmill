@@ -14969,6 +14969,7 @@ dependencies = [
  "aws-smithy-types-convert",
  "axum",
  "backon",
+ "base64 0.13.1",
  "bytes",
  "chrono",
  "chrono-tz",

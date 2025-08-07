@@ -10,16 +10,16 @@ use object_store::PutMultipartOpts;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    jwt,
     s3_helpers::build_object_store_client,
 };
 
 use crate::{
     auth::AuthCache,
     db::DB,
-    job_helpers_ee::DeleteS3FileQuery,
     job_helpers_oss::{
         delete_s3_file_internal, get_workspace_s3_resource, read_object_streamable,
-        upload_file_from_req,
+        upload_file_from_req, DeleteS3FileQuery,
     },
 };
 
@@ -41,14 +41,14 @@ async fn get_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<axum::body::Body>,
 ) -> Result<Response> {
-    let token = get_token(&req)?;
-    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), token).await else {
+    let token = get_token(get_header(&req, "Authorization")).await?;
+    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
     let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
 
     let (_, s3_resource) =
-        get_workspace_s3_resource(&authed, &db, Some(user_db), token, &w_id, storage).await?;
+        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -69,14 +69,14 @@ async fn put_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<axum::body::Body>,
 ) -> Result<()> {
-    let token = get_token(&req)?;
-    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), token).await else {
+    let token = get_token(get_header(&req, "Authorization")).await?;
+    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
     let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
 
     let (_, s3_resource) =
-        get_workspace_s3_resource(&authed, &db, Some(user_db), token, &w_id, storage).await?;
+        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -100,8 +100,8 @@ async fn delete_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<axum::body::Body>,
 ) -> Result<()> {
-    let token = get_token(&req)?;
-    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), token).await else {
+    let token = get_token(get_header(&req, "Authorization")).await?;
+    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
     let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
@@ -110,28 +110,44 @@ async fn delete_object(
         &authed,
         &db,
         Some(user_db),
-        token,
+        &token,
         &w_id,
         DeleteS3FileQuery { file_key: object_key, storage },
     )
     .await
 }
 
-fn get_token(req: &Request<axum::body::Body>) -> Result<&str> {
-    get_header(&req, "Authorization")
+async fn get_token(authorization_header: Result<&str>) -> Result<String> {
+    // Access key is the first two parts of the token JWT (header and payload)
+    // Secret key is the third part of the JWT (req_signature)
+
+    // The secret key is never passed in cleartext with the S3 protocol.
+    // It is used as a key to sign the request, we only receive a req_signature.
+    // So what we do is we derive the jwt_signature from the (cleartext) header and payload,
+    // and then we sign the request with that jwt_signature to check that
+    // it corresponds to the received req_signature
+
+    let (access_key, req_signature) = authorization_header
         .map_err(|e| Error::InternalErr(format!("Failed to get token: {}", e)))
-        .and_then(|token| {
-            if token.is_empty() {
-                Err(Error::InternalErr("Missing token".to_string()))
+        .and_then(|authorization| {
+            if authorization.is_empty() {
+                Err(Error::InternalErr("Authorization missing".to_string()))
             } else {
-                let token = token
-                    .split_once(' ')
-                    .map(|(_, t)| t.trim_start_matches("Credential="))
-                    .and_then(|t| t.split_once('/').map(|(t, _)| t))
-                    .ok_or_else(|| Error::InternalErr("Invalid S3 authorization".to_string()))?;
-                Ok(token)
+                let access_key = authorization
+                    .split_once("Credential=")
+                    .and_then(|(_, t)| t.split_once('/').map(|(t, _)| t))
+                    .ok_or_else(|| Error::InternalErr("Couldn't parse credential".to_string()))?;
+                let signature = authorization
+                    .split_once("Signature=")
+                    .map(|(_, t)| t)
+                    .ok_or_else(|| Error::InternalErr("Couldn't parse signature".to_string()))?;
+                Ok((access_key, signature))
             }
-        })
+        })?;
+
+    let jwt_signature = jwt::generate_signature(access_key).await?;
+    let full_token = format!("{}.{}", access_key, jwt_signature);
+    Ok(full_token)
 }
 
 fn get_header<'a>(req: &'a Request<axum::body::Body>, header_name: &str) -> Result<&'a str> {
