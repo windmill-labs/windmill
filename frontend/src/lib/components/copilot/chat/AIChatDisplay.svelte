@@ -83,6 +83,8 @@
 			aiChatManager.setAiChatInput(null)
 		}
 	})
+
+	const isLastMessageTool = $derived(messages.length > 0 && messages[messages.length - 1].role === 'tool')
 </script>
 
 <div class="flex flex-col h-full">
@@ -186,7 +188,7 @@
 						bind:editingMessageIndex
 					/>
 				{/each}
-				{#if aiChatManager.loading && !aiChatManager.currentReply}
+				{#if aiChatManager.loading && !aiChatManager.currentReply && !isLastMessageTool}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>

@@ -2,18 +2,8 @@ import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
-
-// Type definitions for the EndpointTool from backend
-interface EndpointTool {
-	name: string
-	description: string
-	instructions: string
-	path: string
-	method: string
-	path_params_schema?: any
-	query_params_schema?: any
-	body_schema?: any
-}
+import type { EndpointTool } from '$lib/gen/types.gen'
+import { McpService } from '$lib/gen/services.gen'
 
 function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 	// Build the parameters schema for OpenAI function calling
@@ -231,13 +221,10 @@ export function createApiTools(
 export async function loadApiTools(): Promise<Tool<{}>[]> {
 	try {
 		// Fetch the list of available MCP tools from the backend
-		const response = await fetch(`/api/mcp/w/${get(workspaceStore)}/list_tools`)
+		const endpointTools = await McpService.listMcpTools({
+			workspace: get(workspaceStore) as string
+		})
 		
-		if (!response.ok) {
-			throw new Error(`Failed to fetch MCP tools: ${response.status} ${response.statusText}`)
-		}
-		
-		const endpointTools: EndpointTool[] = await response.json()
 		console.log('Loaded MCP tools:', endpointTools.length, 'tools')
 		
 		// Build tools from the endpoint definitions
