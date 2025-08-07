@@ -36,7 +36,6 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
-use windmill_common::BASE_INTERNAL_URL;
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
