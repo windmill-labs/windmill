@@ -459,7 +459,6 @@ async fn get_settings(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
     let mut tx = user_db.begin(&authed).await?;
-
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         r#"
@@ -484,6 +483,7 @@ async fn get_settings(
             error_handler_extra_args,
             error_handler_muted_on_cancel,
             large_file_storage,
+            ducklake,
             git_sync,
             deploy_ui,
             default_app,
@@ -1762,6 +1762,7 @@ async fn edit_error_handler(
     .await?;
     tx.commit().await?;
 
+    // Trigger git sync for error handler changes
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
