@@ -20,7 +20,7 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NSJAIL,
     DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH,
     PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
@@ -296,10 +296,7 @@ pub async fn install_bun_lockfile(
 
     let mut args = vec!["install", "--save-text-lockfile"];
 
-    let no_cache = !npm_mode && std::env::var("BUN_NO_CACHE")
-        .ok()
-        .and_then(|x| x.parse::<bool>().ok())
-        .unwrap_or(false);
+    let no_cache = !npm_mode && *BUN_NO_CACHE;
 
     if no_cache {
         args.push("--no-cache");
