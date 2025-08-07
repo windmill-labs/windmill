@@ -88,8 +88,9 @@
 					result={toolMessage.result}
 					isLoading={toolMessage.isLoading ?? false}
 					error={toolMessage.error}
-					collapsed={!toolMessage.isLoading}
+					collapsed={!toolMessage.isLoading && !toolMessage.needsConfirmation}
 					toolId={toolMessage.tool_call_id}
+					needsConfirmation={toolMessage.needsConfirmation ?? false}
 				/>
 			{:else}
 				{message.content}

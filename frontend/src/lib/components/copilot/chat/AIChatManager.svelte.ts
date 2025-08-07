@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage, type PendingToolCall } from './shared'
+import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -87,9 +87,8 @@ class AIChatManager {
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
 	
-	// Confirmation mechanism state
-	pendingToolCall = $state<PendingToolCall | null>(null)
-	confirmationResolve = $state<((value: boolean) => void) | null>(null)
+	// Confirmation mechanism state - Map of toolId to resolve callback
+	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -156,24 +155,24 @@ class AIChatManager {
 	}
 
 	// Request confirmation from user for a tool call
-	requestConfirmation = (toolCall: PendingToolCall): Promise<boolean> => {
-		console.log('[AIChatManager] requestConfirmation called with:', toolCall)
+	requestConfirmation = (toolId: string): Promise<boolean> => {
+		console.log('[AIChatManager] requestConfirmation called with:', toolId)
 		return new Promise((resolve) => {
-			this.pendingToolCall = toolCall
-			this.confirmationResolve = resolve
-			console.log('[AIChatManager] Confirmation dialog should now be visible, pendingToolCall:', this.pendingToolCall)
+			// Store the callback for this specific tool
+			this.confirmationCallbacks.set(toolId, resolve)
+			console.log('[AIChatManager] Confirmation callback stored for tool:', toolId)
 		})
 	}
 
-	// Handle confirmation response
-	handleConfirmation = (confirmed: boolean) => {
-		console.log('[AIChatManager] handleConfirmation called with:', confirmed)
-		if (this.confirmationResolve) {
-			this.confirmationResolve(confirmed)
-			this.confirmationResolve = null
-			console.log('[AIChatManager] Confirmation resolved')
+	// Handle confirmation response for a specific tool
+	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
+		console.log('[AIChatManager] handleToolConfirmation called for tool:', toolId, 'confirmed:', confirmed)
+		const callback = this.confirmationCallbacks.get(toolId)
+		if (callback) {
+			callback(confirmed)
+			this.confirmationCallbacks.delete(toolId)
+			console.log('[AIChatManager] Confirmation resolved for tool:', toolId)
 		}
-		this.pendingToolCall = null
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
