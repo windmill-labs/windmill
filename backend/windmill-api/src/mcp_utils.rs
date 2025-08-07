@@ -87,7 +87,7 @@ pub async fn call_endpoint_tool(
     };
 
     // Build URL with path substitutions
-    let path_template = substitute_path_params(&tool.path, workspace_id, args_map, &tool.path_params_schema);
+    let path_template = substitute_path_params(&tool.path, workspace_id, args_map, &tool.path_params_schema)?;
     let query_string = build_query_string(args_map, &tool.query_params_schema);
     let full_url = format!("{}/api{}{}", BASE_URL.read().await, path_template, query_string);
 
@@ -117,23 +117,32 @@ fn substitute_path_params(
     workspace_id: &str,
     args_map: &serde_json::Map<String, serde_json::Value>,
     path_schema: &Option<serde_json::Value>,
-) -> String {
+) -> Result<String, Error> {
     let mut path_template = path.replace("{workspace}", workspace_id);
     
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
                 let placeholder = format!("{{{}}}", param_name);
-                if let Some(param_value) = args_map.get(param_name) {
-                    if let Some(str_val) = param_value.as_str() {
-                        path_template = path_template.replace(&placeholder, str_val);
+                match args_map.get(param_name) {
+                    Some(param_value) => {
+                        if let Some(str_val) = param_value.as_str() {
+                            path_template = path_template.replace(&placeholder, str_val);
+                        }
+                    },
+                    None => {
+                        tracing::warn!("Missing required path parameter: {}", param_name);
+                        return Err(Error::invalid_params(
+                            format!("Missing required path parameter: {}", param_name),
+                            None
+                        ));
                     }
                 }
             }
         }
     }
     
-    path_template
+    Ok(path_template)
 }
 
 fn build_query_string(
