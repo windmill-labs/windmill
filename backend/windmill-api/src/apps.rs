@@ -52,7 +52,7 @@ use std::str;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery},
+    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::UserDB,
@@ -157,7 +157,7 @@ pub struct AppVersion {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
@@ -182,7 +182,7 @@ pub struct AppWithLastVersionAndStarred {
 }
 
 #[cfg(feature = "enterprise")]
-#[derive(Serialize, FromRow)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct AppWithLastVersionAndWorkspace {
     #[sqlx(flatten)]
     #[serde(flatten)]
@@ -524,21 +524,36 @@ async fn get_app_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value,
-        app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft"
-        from app
-        INNER JOIN app_version ON
-        app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft ON 
-        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
-        WHERE app.path = $1 AND app.workspace_id = $2"#,
+        r#"
+        SELECT 
+            app.id, 
+            app.path, 
+            app.summary, 
+            app.versions, 
+            app.policy, 
+            app.custom_path,
+            app.extra_perms, 
+            app_version.value,
+            app_version.created_at, 
+            app_version.created_by,
+            app.draft_only,
+            draft.value AS "draft"
+        FROM app
+        INNER JOIN app_version 
+            ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        LEFT JOIN draft 
+            ON app.path = draft.path 
+        AND draft.workspace_id = $2 
+        AND draft.typ = 'app'
+        WHERE app.path = $1 
+        AND app.workspace_id = $2
+    "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", path)?;
@@ -642,11 +657,13 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
+    let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+
     let exists =
         sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+            if *CLOUD_HOSTED || as_workspaced_route { Some(&w_id) } else { None }
         )
         .fetch_one(&db)
         .await?.unwrap_or(false);
@@ -976,11 +993,12 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
+        let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(w_id) } else { None }
+            if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None }
         )
         .fetch_one(&mut *tx)
         .await?.unwrap_or(false);
@@ -1272,6 +1290,7 @@ async fn update_app_internal<'a>(
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
     let mut tx = user_db.clone().begin(&authed).await?;
+
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
@@ -1311,6 +1330,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
+            let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
@@ -1318,7 +1338,7 @@ async fn update_app_internal<'a>(
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
                     ncustom_path,
-                    if *CLOUD_HOSTED { Some(w_id) } else { None },
+                    if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None },
                     path,
                     w_id
                 )

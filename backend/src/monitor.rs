@@ -33,13 +33,13 @@ use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
-use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
+    apps::APP_WORKSPACED_ROUTE,
     auth::create_token_for_owner,
     ee_oss::CriticalErrorChannel,
     error,
@@ -77,6 +77,7 @@ use windmill_common::{
     METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
+use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
@@ -235,6 +236,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_custom_tags_setting(db).await {
             tracing::error!("Error reloading custom tags: {:?}", e)
+        }
+
+        if let Err(e) = reload_app_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading app workspaced route: {:?}", e)
         }
     }
 
@@ -1009,6 +1014,7 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_saml_metadata_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2341,6 +2347,31 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
 
+    Ok(())
+}
+
+pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let app_workspaced_route =
+        load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
+
+    println!("Updating...");
+
+    let ws_route = match app_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                APP_WORKSPACED_ROUTE_SETTING,
+                app_workspaced_route
+            );
+            false
+        }
+    };
+
+    let mut l = APP_WORKSPACED_ROUTE.write().await;
+
+    *l = ws_route;
     Ok(())
 }
 

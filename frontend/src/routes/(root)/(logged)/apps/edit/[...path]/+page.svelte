@@ -88,7 +88,7 @@
 					callback: reloadAction
 				})
 
-				const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+				const draftOrDeployed = cleanValueProperties(savedApp?.draft || savedApp)
 				const urlScript = {
 					...draftOrDeployed,
 					value: stateLoadedFromLocalStorage
