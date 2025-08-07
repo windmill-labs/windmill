@@ -19,7 +19,7 @@ npm run dev
 After you are done with your modifications, add back the .ts extensions:
 
 ```bash
-./remove-ts.ext.sh -r
+./remove-ts-ext.sh -r
 ```
 
 ### Building
