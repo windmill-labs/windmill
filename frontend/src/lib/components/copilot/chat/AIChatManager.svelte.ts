@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
+import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage, type PendingToolCall } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -86,6 +86,10 @@ class AIChatManager {
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
+	
+	// Confirmation mechanism state
+	pendingToolCall = $state<PendingToolCall | null>(null)
+	confirmationResolve = $state<((value: boolean) => void) | null>(null)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -149,6 +153,27 @@ class AIChatManager {
 			console.error('Error loading api tools', err)
 			this.apiTools = []
 		}
+	}
+
+	// Request confirmation from user for a tool call
+	requestConfirmation = (toolCall: PendingToolCall): Promise<boolean> => {
+		console.log('[AIChatManager] requestConfirmation called with:', toolCall)
+		return new Promise((resolve) => {
+			this.pendingToolCall = toolCall
+			this.confirmationResolve = resolve
+			console.log('[AIChatManager] Confirmation dialog should now be visible, pendingToolCall:', this.pendingToolCall)
+		})
+	}
+
+	// Handle confirmation response
+	handleConfirmation = (confirmed: boolean) => {
+		console.log('[AIChatManager] handleConfirmation called with:', confirmed)
+		if (this.confirmationResolve) {
+			this.confirmationResolve(confirmed)
+			this.confirmationResolve = null
+			console.log('[AIChatManager] Confirmation resolved')
+		}
+		this.pendingToolCall = null
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -696,7 +721,8 @@ class AIChatManager {
 							}
 							this.displayMessages.push(newMessage)
 						}
-					}
+					},
+					requestConfirmation: this.requestConfirmation
 				}
 			}
 

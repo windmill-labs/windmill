@@ -89,6 +89,7 @@
 					isLoading={toolMessage.isLoading ?? false}
 					error={toolMessage.error}
 					collapsed={!toolMessage.isLoading}
+					toolId={toolMessage.tool_call_id}
 				/>
 			{:else}
 				{message.content}

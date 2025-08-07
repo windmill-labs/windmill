@@ -80,7 +80,69 @@ export async function processToolCall<T>({
 	toolCallbacks: ToolCallbacks
 }): Promise<ChatCompletionMessageParam> {
 	try {
+		console.log('[processToolCall] Starting tool call:', toolCall.function.name, toolCall.id)
 		const args = JSON.parse(toolCall.function.arguments || '{}')
+		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+		
+		console.log('[processToolCall] Found tool:', tool?.def.function.name, 'requiresConfirmation:', tool?.requiresConfirmation)
+		console.log('[processToolCall] Has requestConfirmation callback:', !!toolCallbacks.requestConfirmation)
+		
+		// First, add the tool to the display with pending status
+		toolCallbacks.setToolStatus(toolCall.id, `Preparing ${toolCall.function.name}...`, {
+			toolName: toolCall.function.name,
+			description: tool?.def.function.description,
+			parameters: args,
+			isLoading: true,
+			startedAt: Date.now()
+		})
+		
+		// Check if tool requires confirmation
+		if (tool?.requiresConfirmation && toolCallbacks.requestConfirmation) {
+			const needsConfirmation = typeof tool.requiresConfirmation === 'function' 
+				? tool.requiresConfirmation(args)
+				: tool.requiresConfirmation
+			
+			console.log('[processToolCall] Needs confirmation:', needsConfirmation)
+			
+			if (needsConfirmation) {
+				// Update status to waiting for confirmation
+				toolCallbacks.setToolStatus(toolCall.id, `Preparing ${toolCall.function.name.replace('api_', '')}...`, {
+					isLoading: true
+				})
+				
+				const pendingCall: PendingToolCall = {
+					toolId: toolCall.id,
+					toolName: toolCall.function.name,
+					description: tool.def.function.description,
+					args,
+					riskLevel: tool.confirmationConfig?.riskLevel,
+					message: tool.confirmationConfig?.message
+				}
+				
+				console.log('[processToolCall] Requesting confirmation for:', pendingCall)
+				const confirmed = await toolCallbacks.requestConfirmation(pendingCall)
+				console.log('[processToolCall] Confirmation result:', confirmed)
+				
+				if (!confirmed) {
+					toolCallbacks.setToolStatus(toolCall.id, 'Cancelled by user', {
+						isLoading: false,
+						completedAt: Date.now(),
+						error: 'Tool execution was cancelled by user'
+					})
+					return {
+						role: 'tool' as const,
+						tool_call_id: toolCall.id,
+						content: 'Tool execution was cancelled by user'
+					}
+				}
+				
+				// Update status to executing after confirmation
+				toolCallbacks.setToolStatus(toolCall.id, `Executing ${toolCall.function.name}...`, {
+					isLoading: true
+				})
+			}
+		}
+		
 		let result = ''
 		try {
 			result = await callTool({
@@ -124,10 +186,26 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	requiresConfirmation?: boolean | ((args: any) => boolean)
+	confirmationConfig?: {
+		message?: string
+		riskLevel?: 'low' | 'medium' | 'high'
+		showParameters?: boolean
+	}
 }
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, content: string, metadata?: Partial<ToolDisplayMessage>) => void
+	requestConfirmation?: (toolCall: PendingToolCall) => Promise<boolean>
+}
+
+export interface PendingToolCall {
+	toolId: string
+	toolName: string
+	description?: string
+	args: any
+	riskLevel?: 'low' | 'medium' | 'high'
+	message?: string
 }
 
 export function createToolDef(

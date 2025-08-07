@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { Loader2, ChevronDown, ChevronRight, Copy, Check } from 'lucide-svelte'
+	import { Loader2, ChevronDown, ChevronRight, Copy, Check, AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import type { PendingToolCall } from './shared'
+	import { aiChatManager } from './AIChatManager.svelte'
 	
 	interface Props {
 		title: string
@@ -8,6 +11,7 @@
 		isLoading?: boolean
 		error?: string
 		collapsed?: boolean
+		toolId?: string
 	}
 	
 	let { 
@@ -17,7 +21,22 @@
 		isLoading = false,
 		error = undefined,
 		collapsed = false,
+		toolId = undefined
 	}: Props = $props()
+	
+	// Access pendingToolCall from aiChatManager
+	const pendingToolCall = $derived(
+		aiChatManager.pendingToolCall && 
+		aiChatManager.pendingToolCall.toolId === toolId 
+			? aiChatManager.pendingToolCall 
+			: null
+	)
+	
+	$effect(() => {
+		if (pendingToolCall) {
+			console.log('[ToolExecutionDisplay] Confirmation needed for:', pendingToolCall, 'toolId:', toolId)
+		}
+	})
 	
 	let isExpanded = $state(!collapsed)
 	let copiedParams = $state(false)
@@ -28,6 +47,40 @@
 	const hasResult = $derived(result !== undefined && result !== null)
 
 	const compactMode = $derived(!hasParameters && !hasResult)
+	
+	// Helper functions for confirmation dialog (keeping logic, not displaying)
+	const getRiskIcon = (level?: string) => {
+		switch (level) {
+			case 'high':
+				return AlertTriangle
+			case 'medium':
+				return Info
+			default:
+				return CheckCircle
+		}
+	}
+	
+	const getRiskColor = (level?: string) => {
+		switch (level) {
+			case 'high':
+				return 'text-red-500 dark:text-red-400'
+			case 'medium':
+				return 'text-yellow-500 dark:text-yellow-400'
+			default:
+				return 'text-blue-500 dark:text-blue-400'
+		}
+	}
+	
+	const getRiskBgColor = (level?: string) => {
+		switch (level) {
+			case 'high':
+				return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+			case 'medium':
+				return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+			default:
+				return 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+		}
+	}
 	
 	// Format JSON for display and parameters
 	function formatJson(obj: any): string {
@@ -127,6 +180,7 @@
 				{/if}
 				
 				<!-- Result Section -->
+				 {#if !pendingToolCall}
 				<div class="space-y-2">
 					<div class="flex items-center justify-between">
 						<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
@@ -166,6 +220,37 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
+
+				<!-- Confirmation Footer -->
+				{#if pendingToolCall}
+					<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-row items-center justify-end gap-2">
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							on:click={() => {
+								console.log('[ToolExecutionDisplay] Cancel clicked')
+								aiChatManager.handleConfirmation(false)
+							}}
+							startIcon={{ icon: XCircle }}
+						>
+							Cancel
+						</Button>
+						<Button
+							variant="border"
+							color="blue"
+							size="xs"
+							on:click={() => {
+								console.log('[ToolExecutionDisplay] Confirm clicked')
+								aiChatManager.handleConfirmation(true)
+							}}
+							startIcon={{ icon: CheckCircle }}
+						>
+							Confirm
+						</Button>
+					</div>
+				{/if}
 		</div>
 	{/if}
 </div>

@@ -88,11 +88,28 @@ export function createApiTools(
 	endpointMap: Record<string, { method: string; path: string }> = {}
 ): Tool<{}>[] {
 	return chatTools.map((chatTool) => {
+		const toolName = chatTool.function.name
+		const endpoint = endpointMap[toolName]
+		const method = endpoint?.method?.toUpperCase() || 'GET'
+		
+		// Determine if tool needs confirmation based on method
+		const needsConfirmation = ['DELETE', 'POST', 'PUT', 'PATCH'].includes(method)
+		const riskLevel = method === 'DELETE' ? 'high' : ['POST', 'PUT', 'PATCH'].includes(method) ? 'medium' : 'low'
+		
+		console.log('[createApiTools] Creating tool:', toolName, 'method:', method, 'needsConfirmation:', needsConfirmation, 'riskLevel:', riskLevel)
+		
 		return {
 			def: chatTool,
+			requiresConfirmation: needsConfirmation,
+			confirmationConfig: {
+				message: `This action will ${method === 'DELETE' ? 'permanently delete' : 'modify'} data via ${method} request`,
+				riskLevel,
+				showParameters: true
+			},
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
 				const endpoint = endpointMap[toolName]
+				console.log('[apiTool] Executing tool:', toolName, 'args:', args)
 				
 				if (!endpoint) {
 					throw new Error(`No endpoint mapping found for tool ${toolName}`)
@@ -156,9 +173,6 @@ export function createApiTools(
 					}
 
 					console.log('fetchOptions', fetchOptions)
-
-					// add fake delay
-					await new Promise((resolve) => setTimeout(resolve, 5000))
 
 					const response = await fetch(url, fetchOptions)
 
