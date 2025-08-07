@@ -63,13 +63,11 @@ async function callTool<T>({
 export async function processToolCall<T>({
 	tools,
 	toolCall,
-	messages,
 	helpers,
 	toolCallbacks
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageToolCall
-	messages: ChatCompletionMessageParam[]
 	helpers: T
 	toolCallbacks: ToolCallbacks
 }): Promise<ChatCompletionMessageParam> {

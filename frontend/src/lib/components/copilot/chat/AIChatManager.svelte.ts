@@ -445,7 +445,6 @@ class AIChatManager {
 							const messageToAdd = await processToolCall({
 								tools,
 								toolCall,
-								messages,
 								helpers,
 								toolCallbacks: callbacks
 							})
