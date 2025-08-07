@@ -2278,6 +2278,16 @@ async fn create_ephemeral_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // Clone all data from the parent workspace
+    sqlx::query!(
+        "SELECT clone_workspace_data($1, $2, $3)",
+        nw.parent_workspace_id,
+        ephemeral_id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
