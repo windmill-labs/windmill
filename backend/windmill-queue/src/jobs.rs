@@ -4182,10 +4182,6 @@ pub async fn push<'c, 'd>(
                     "email".to_string(),
                     InputTransform::Static { value: to_raw_value(&email) },
                 );
-                input_transforms.insert(
-                    "base_internal_url".to_string(),
-                    InputTransform::Static { value: to_raw_value(&*BASE_INTERNAL_URL) },
-                );
                 // for the below transforms to work, make sure that flow_job_id and started_at are added to the eval context when pusing the error handler job
                 input_transforms.insert(
                     "job_id".to_string(),
