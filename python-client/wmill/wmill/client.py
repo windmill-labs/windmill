@@ -1523,3 +1523,21 @@ def parse_variable_syntax(s: str) -> Optional[str]:
     if s.startswith("var://"):
         return s[6:]
     return None
+
+
+def append_to_result_stream(text: str) -> None:
+    """Append a text to the result stream.
+    
+    Args:
+        text: text to append to the result stream
+    """
+    print("WM_STREAM: {}".format(text.replace(chr(10), '\\n')))
+
+def stream_result(stream) -> None:
+    """Stream to the result stream.
+    
+    Args:
+        stream: stream to stream to the result stream
+    """
+    for text in stream:
+        append_to_result_stream(text)

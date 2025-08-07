@@ -37,7 +37,12 @@ import {
 
 import { handleFile } from "../script/script.ts";
 import { deepEqual, isFileResource } from "../../utils/utils.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../core/conf.ts";
+import {
+  SyncOptions,
+  readConfigFile,
+  getEffectiveSettings,
+  validateBranchConfiguration,
+} from "../../core/conf.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
@@ -59,98 +64,13 @@ function mergeCliWithEffectiveOptions<
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options with smart repository detection
+// Resolve effective sync options using branch-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
-  repositoryPath?: string
+  promotion?: string
 ): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
-
-  // If repository path is already specified, use it directly
-  if (repositoryPath) {
-    return getEffectiveSettings(
-      localConfig,
-      workspace.remote,
-      workspace.workspaceId,
-      repositoryPath
-    );
-  }
-
-  // Auto-detect repository from overrides if not specified
-  if (localConfig.overrides) {
-    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
-    const applicableRepos: string[] = [];
-
-    // Find all repository-specific overrides for this workspace
-    for (const key of Object.keys(localConfig.overrides)) {
-      if (key.startsWith(prefix) && !key.endsWith(":*")) {
-        const repo = key.substring(prefix.length);
-        if (repo) {
-          applicableRepos.push(repo);
-        }
-      }
-    }
-
-    if (applicableRepos.length === 1) {
-      // Single repository found - auto-select it
-      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
-      return getEffectiveSettings(
-        localConfig,
-        workspace.remote,
-        workspace.workspaceId,
-        applicableRepos[0]
-      );
-    } else if (applicableRepos.length > 1) {
-      // Multiple repositories found - prompt for selection
-      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-
-      if (isInteractive) {
-        const choices = [
-          {
-            name: "Use top-level settings (no repository-specific override)",
-            value: "",
-          },
-          ...applicableRepos.map((repo) => ({ name: repo, value: repo })),
-        ];
-
-        const selectedRepo = await Select.prompt({
-          message: "Multiple repository overrides found. Select which to use:",
-          options: choices,
-        });
-
-        if (selectedRepo) {
-          log.info(`Selected repository: ${selectedRepo}`);
-        }
-
-        return getEffectiveSettings(
-          localConfig,
-          workspace.remote,
-          workspace.workspaceId,
-          selectedRepo
-        );
-      } else {
-        // Non-interactive mode - list options and use top-level
-        log.warn(
-          `Multiple repository overrides found: ${applicableRepos.join(", ")}`
-        );
-        log.warn(
-          `Running in non-interactive mode. Use --repository flag to specify which one to use.`
-        );
-        log.info(
-          `Falling back to top-level settings (no repository-specific overrides applied)`
-        );
-      }
-    }
-  }
-
-  // No repository overrides found or selected - use top-level settings
-  log.info(`No repository overrides found, using top-level settings`);
-  return getEffectiveSettings(
-    localConfig,
-    workspace.remote,
-    workspace.workspaceId,
-    ""
-  );
+  return await getEffectiveSettings(localConfig, promotion);
 }
 
 type DynFSElement = {
@@ -1138,8 +1058,20 @@ async function buildTracker(changes: Change[]) {
 }
 
 export async function pull(
-  opts: GlobalOptions & SyncOptions & { repository?: string }
+  opts: GlobalOptions &
+    SyncOptions & { repository?: string; promotion?: string }
 ) {
+  // Validate branch configuration early
+  try {
+    await validateBranchConfiguration(false, opts.yes);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1147,10 +1079,10 @@ export async function pull(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
+  // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
-    opts.repository
+    opts.promotion
   );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -1465,13 +1397,24 @@ function removeSuffix(str: string, suffix: string) {
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string }
 ) {
+  // Validate branch configuration early
+  try {
+    await validateBranchConfiguration(false, opts.yes);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
+  // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
-    opts.repository
+    opts.promotion
   );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -2073,6 +2016,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+  )
+  .option(
+    "--promotion <branch:string>",
+    "Use promotionOverrides from the specified branch instead of regular overrides"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)

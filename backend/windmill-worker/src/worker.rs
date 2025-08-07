@@ -2401,7 +2401,7 @@ pub async fn handle_queued_job(
             let flow_data = match preview_data {
                 Some(RawData::Flow(data)) => data,
                 // Not a preview: fetch from the cache or the database.
-                _ => cache::job::fetch_flow(db, job.kind, job.runnable_id).await?,
+                _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
             handle_flow(
                 job,
