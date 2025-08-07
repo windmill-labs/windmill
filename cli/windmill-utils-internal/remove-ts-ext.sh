@@ -43,7 +43,7 @@ else
     echo "Detected Linux - using GNU sed"
 fi
 
-find "$script_dirpath" -name "*.ts" -type f | while read -r file; do
+find "$script_dirpath"/src -name "*.ts" -type f | while read -r file; do
     if [[ "$OSTYPE" == "darwin"* ]]; then
         gsed -E -i "$REGEX" "$file"
     else
