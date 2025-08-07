@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks } from './shared'
+import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -243,11 +243,22 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...', {
+				toolName: 'change_mode',
+				description: 'Change AI assistant mode',
+				parameters: args,
+				isLoading: true
+			})
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode', {
+				toolName: 'change_mode',
+				description: 'Change AI assistant mode',
+				parameters: args,
+				result: 'Mode changed to ' + args.mode,
+				isLoading: false
+			})
 			return 'Mode changed to ' + args.mode
 		}
 	}
@@ -673,14 +684,27 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					setToolStatus: (id, content) => {
+					setToolStatus: (id, content, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)
 						if (existingIdx !== -1) {
-							this.displayMessages[existingIdx].content = content
+							// Update existing tool message with new content and metadata
+							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
+							this.displayMessages[existingIdx] = {
+								...existing,
+								content,
+								...(metadata || {})
+							} as ToolDisplayMessage
 						} else {
-							this.displayMessages.push({ role: 'tool', tool_call_id: id, content })
+							// Create new tool message with metadata
+							const newMessage: ToolDisplayMessage = { 
+								role: 'tool', 
+								tool_call_id: id, 
+								content,
+								...(metadata || {})
+							}
+							this.displayMessages.push(newMessage)
 						}
 					}
 				}

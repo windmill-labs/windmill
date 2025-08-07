@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import type { DisplayMessage } from './shared'
+	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -81,20 +81,16 @@
 			{#if message.role === 'assistant'}
 				<AssistantMessage {message} />
 			{:else if message.role === 'tool'}
+				{@const toolMessage = message as ToolDisplayMessage}
 				<ToolExecutionDisplay
-					toolName="test"
-					description="test"
-					parameters={{
-						param1: 'test',
-						param2: 'test'
-					}}
-					result={{
-						param1: 'test',
-						param2: 'test'
-					}}
-					isLoading={true}
-					error="test"
-					collapsed={false}
+					toolName={toolMessage.toolName ?? 'Tool Execution'}
+					description={toolMessage.description ?? ''}
+					parameters={toolMessage.parameters ?? {}}
+					result={toolMessage.result}
+					isLoading={toolMessage.isLoading ?? false}
+					error={toolMessage.error}
+					collapsed={!toolMessage.isLoading}
+					showDetails={toolMessage.toolName.startsWith('api_')}
 				/>
 			{:else}
 				{message.content}

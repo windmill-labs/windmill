@@ -9,16 +9,17 @@
 		isLoading?: boolean
 		error?: string
 		collapsed?: boolean
+		showDetails?: boolean
 	}
 	
 	let { 
 		toolName, 
-		description = '',
 		parameters = {},
 		result = undefined,
 		isLoading = false,
 		error = undefined,
-		collapsed = false
+		collapsed = false,
+		showDetails = false
 	}: Props = $props()
 	
 	let isExpanded = $state(!collapsed)
@@ -44,6 +45,17 @@
 	// Format JSON for display
 	function formatJson(obj: any): string {
 		try {
+			// If it's already a string, try to parse and re-stringify for formatting
+			if (typeof obj === 'string') {
+				try {
+					const parsed = JSON.parse(obj)
+					return JSON.stringify(parsed, null, 2)
+				} catch {
+					// If it's not valid JSON, return as is
+					return obj
+				}
+			}
+			// Otherwise stringify the object
 			return JSON.stringify(obj, null, 2)
 		} catch {
 			return String(obj)
@@ -90,7 +102,7 @@
 				<span class="text-tertiary">○</span>
 			{/if}
 			
-			<span class="text-primary font-medium">
+			<span class="text-primary font-medium text-2xs">
 				Called {displayName}
 			</span>
 		</div>
@@ -116,77 +128,91 @@
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
-			{#if description}
-				<div class="p-2 bg-surface-secondary rounded text-tertiary text-2xs">
-					{description}
-				</div>
-			{/if}
-			
-			<!-- Parameters Section -->
-			{#if hasParameters}
+			{#if showDetails}
+				<!-- Parameters Section -->
+				{#if hasParameters}
+					<div class="space-y-2">
+						<div class="flex items-center justify-between">
+							<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
+								Parameters:
+							</span>
+							<button 
+								class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
+								onclick={() => copyToClipboard(formatJson(parameters), 'params')}
+								title="Copy parameters"
+							>
+								{#if copiedParams}
+									<Check class="w-3 h-3 text-green-500" />
+								{:else}
+									<Copy class="w-3 h-3" />
+								{/if}
+							</button>
+						</div>
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(parameters)}</pre>
+						</div>
+					</div>
+				{/if}
+				
+				<!-- Result Section -->
 				<div class="space-y-2">
 					<div class="flex items-center justify-between">
 						<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
-							Parameters:
+							Result:
 						</span>
-						<button 
-							class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
-							onclick={() => copyToClipboard(formatJson(parameters), 'params')}
-							title="Copy parameters"
-						>
-							{#if copiedParams}
-								<Check class="w-3 h-3 text-green-500" />
-							{:else}
-								<Copy class="w-3 h-3" />
-							{/if}
-						</button>
+						{#if hasResult && !error}
+							<button 
+								class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
+								onclick={() => copyToClipboard(formatJson(result), 'result')}
+								title="Copy result"
+							>
+								{#if copiedResult}
+									<Check class="w-3 h-3 text-green-500" />
+								{:else}
+									<Copy class="w-3 h-3" />
+								{/if}
+							</button>
+						{/if}
 					</div>
-					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-						<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(parameters)}</pre>
-					</div>
-				</div>
-			{/if}
-			
-			<!-- Result Section -->
-			<div class="space-y-2">
-				<div class="flex items-center justify-between">
-					<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
-						Result:
-					</span>
-					{#if hasResult && !error}
-						<button 
-							class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
-							onclick={() => copyToClipboard(formatJson(result), 'result')}
-							title="Copy result"
-						>
-							{#if copiedResult}
-								<Check class="w-3 h-3 text-green-500" />
-							{:else}
-								<Copy class="w-3 h-3" />
-							{/if}
-						</button>
+					
+					{#if isLoading}
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
+							<Loader2 class="w-3 h-3 animate-spin" />
+							<span class="text-2xs">Executing...</span>
+						</div>
+					{:else if error}
+						<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+							<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
+						</div>
+					{:else if hasResult}
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(result)}</pre>
+						</div>
+					{:else}
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+							<span class="text-2xs text-tertiary">No result yet</span>
+						</div>
 					{/if}
 				</div>
-				
-				{#if isLoading}
-					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
-						<Loader2 class="w-3 h-3 animate-spin" />
-						<span class="text-2xs">Executing...</span>
-					</div>
-				{:else if error}
-					<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-						<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
-					</div>
-				{:else if hasResult}
-					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-						<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(result)}</pre>
-					</div>
-				{:else}
-					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
-						<span class="text-2xs text-tertiary">No result yet</span>
-					</div>
-				{/if}
-			</div>
+			{:else}
+				<!-- Simplified view for non-API modes -->
+				<div class="space-y-2">
+					{#if isLoading}
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
+							<Loader2 class="w-3 h-3 animate-spin" />
+							<span class="text-2xs">Executing...</span>
+						</div>
+					{:else if error}
+						<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3">
+							<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
+						</div>
+					{:else}
+						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+							<span class="text-2xs text-green-600 dark:text-green-400">Tool executed successfully</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

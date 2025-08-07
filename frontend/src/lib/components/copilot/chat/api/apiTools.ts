@@ -161,6 +161,9 @@ export function createApiTools(
 
 					console.log('fetchOptions', fetchOptions)
 
+					// add fake delay
+					await new Promise((resolve) => setTimeout(resolve, 5000))
+
 					const response = await fetch(url, fetchOptions)
 
 					if (response.ok) {

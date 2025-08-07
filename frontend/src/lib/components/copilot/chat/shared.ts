@@ -28,6 +28,14 @@ export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
 	content: string
+	toolName: string
+	description?: string
+	parameters?: any
+	result?: any
+	isLoading?: boolean
+	error?: string
+	startedAt?: number
+	completedAt?: number
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -71,9 +79,26 @@ export async function processToolCall<T>({
 	helpers: T
 	toolCallbacks: ToolCallbacks
 }): Promise<ChatCompletionMessageParam> {
+	const startedAt = Date.now()
+	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+	const toolName = tool?.def.function.name ?? 'Unknown Tool'
+	const description = tool?.def.function.description ?? ''
+	
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
+		
+		// Initialize tool display with parameters
+		toolCallbacks.setToolStatus(toolCall.id, 'Executing...', {
+			toolName,
+			description,
+			parameters: args,
+			isLoading: true,
+			startedAt,
+		})
+		
 		let result = ''
+		let error: string | undefined = undefined
+		
 		try {
 			result = await callTool({
 				tools,
@@ -86,9 +111,24 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
+			error = err instanceof Error ? err.message : 'Unknown error occurred'
 			result =
 				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
 		}
+		
+		// Update tool display with result
+		const completedAt = Date.now()
+		toolCallbacks.setToolStatus(toolCall.id, result, {
+			toolName,
+			description,
+			parameters: args,
+			result: error ? undefined : result,
+			error,
+			isLoading: false,
+			startedAt,
+			completedAt
+		})
+		
 		const toAdd = {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
@@ -97,6 +137,19 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
+		
+		// Update tool display with error
+		toolCallbacks.setToolStatus(toolCall.id, errorMessage, {
+			toolName,
+			description,
+			parameters: {},
+			error: errorMessage,
+			isLoading: false,
+			startedAt,
+			completedAt: Date.now()
+		})
+		
 		return {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
@@ -119,7 +172,7 @@ export interface Tool<T> {
 }
 
 export interface ToolCallbacks {
-	setToolStatus: (id: string, content: string) => void
+	setToolStatus: (id: string, content: string, metadata?: Partial<ToolDisplayMessage>) => void
 }
 
 export function createToolDef(
