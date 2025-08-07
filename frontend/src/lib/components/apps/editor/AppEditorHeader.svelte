@@ -7,7 +7,7 @@
 
 	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { AppService, DraftService, SettingService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
@@ -930,6 +930,17 @@
 	let customPath = $state(savedApp?.custom_path)
 	let dirtyCustomPath = $state(false)
 	let customPathError = $state('')
+	let globalWorkspacedRoute = $state(false)
+
+	async function loadGlobalWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'app_workspaced_route' })
+			globalWorkspacedRoute = (setting as boolean) ?? false
+		} catch (error) {
+			globalWorkspacedRoute = false
+		}
+	}
+
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
@@ -970,13 +981,14 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() ? $workspaceStore + '/' : ''
+			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
 		}${customPath}`
 	)
 	$effect(() => {
 		;[customPath]
 		untrack(() => customPath !== undefined && validateCustomPath(customPath))
 	})
+	loadGlobalWorkspacedRouteSetting()
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
