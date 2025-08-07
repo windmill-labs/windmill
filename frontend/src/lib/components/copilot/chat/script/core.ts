@@ -501,14 +501,14 @@ export function prepareScriptTools(
 	return tools
 }
 
-export async function prepareScriptUserMessage(
+export function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[],
 	options: {
 		isPreprocessor?: boolean
 	} = {}
-): Promise<ChatCompletionUserMessageParam> {
+): ChatCompletionUserMessageParam {
 	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
 	let dbContext = 'DATABASES:\n'

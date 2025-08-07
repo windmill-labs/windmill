@@ -22,7 +22,7 @@ import {
 	prepareScriptTools
 } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
-import { loadApiTools } from './navigator/apiTools'
+import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
@@ -33,12 +33,13 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import { copilotSessionModel, type DBSchemas } from '$lib/stores'
-import { askTools, prepareAskSystemMessage } from './ask/core'
+import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { get } from 'svelte/store'
+import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -48,7 +49,8 @@ export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
 	NAVIGATOR = 'navigator',
-	ASK = 'ask'
+	ASK = 'ask',
+	API = 'api'
 }
 
 class AIChatManager {
@@ -89,7 +91,8 @@ class AIChatManager {
 		script: this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true,
-		ask: true
+		ask: true,
+		api: true
 	})
 
 	open = $derived(chatState.size > 0)
@@ -139,8 +142,8 @@ class AIChatManager {
 	loadApiTools = async () => {
 		try {
 			this.apiTools = await loadApiTools()
-			if (this.mode === AIMode.NAVIGATOR) {
-				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			if (this.mode === AIMode.API) {
+				this.tools = [...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -199,11 +202,15 @@ class AIChatManager {
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			this.systemMessage = prepareAskSystemMessage()
 			this.tools = [...askTools]
+			this.helpers = {}
+		} else if (mode === AIMode.API) {
+			this.systemMessage = prepareApiSystemMessage()
+			this.tools = [...this.apiTools]
 			this.helpers = {}
 		}
 	}
@@ -605,14 +612,29 @@ class AIChatManager {
 			const isPreprocessor =
 				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
 
-			const userMessage =
-				this.mode === AIMode.FLOW
-					? prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
-					: this.mode === AIMode.NAVIGATOR
-						? prepareNavigatorUserMessage(oldInstructions)
-						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-								isPreprocessor
-							})
+			let userMessage: ChatCompletionMessageParam = {
+				role: 'user',
+				content: ''
+			}
+			switch (this.mode) {
+				case AIMode.FLOW:
+					userMessage = prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
+					break
+				case AIMode.NAVIGATOR:
+					userMessage = prepareNavigatorUserMessage(oldInstructions)
+					break
+				case AIMode.ASK:
+					userMessage = prepareAskUserMessage(oldInstructions)
+					break
+				case AIMode.SCRIPT:
+					userMessage = prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
+						isPreprocessor
+					})
+					break
+				case AIMode.API:
+					userMessage = prepareApiUserMessage(oldInstructions)
+					break
+			}
 
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -665,7 +687,7 @@ class AIChatManager {
 				}
 			}
 
-			if (this.mode === AIMode.NAVIGATOR && this.apiTools.length === 0) {
+			if (this.mode === AIMode.API && this.apiTools.length === 0) {
 				await this.loadApiTools()
 			}
 
