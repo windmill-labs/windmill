@@ -82,6 +82,7 @@
 		showTestingBadge?: boolean
 		cloud_subscription_id?: string
 		create_update_subscription_id?: string
+		auto_acknowledge_msg: boolean
 	}
 
 	let {
@@ -95,6 +96,7 @@
 		delivery_config = $bindable(),
 		subscription_mode = $bindable('create_update'),
 		base_endpoint = $bindable(getBaseUrl()),
+		auto_acknowledge_msg = $bindable(true),
 		path = '',
 		showTestingBadge = false,
 		cloud_subscription_id = $bindable(''),
