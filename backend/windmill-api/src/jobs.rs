@@ -6416,7 +6416,7 @@ async fn get_job_update_data(
             } else {
                 let q =  sqlx::query!(
                     "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) + 1 AS stream_offset
-                 FROM v2_job_completed  FULL OUTER JOIN job_result_stream rs ON rs.job_id = v2_job_completed.id WHERE (v2_job_completed.id = $2 AND v2_job_completed.workspace_id = $1 OR rs.workspace_id = $1)",
+                 FROM v2_job_completed  FULL OUTER JOIN job_result_stream rs ON rs.job_id = v2_job_completed.id WHERE ((v2_job_completed.id = $2 AND v2_job_completed.workspace_id = $1) OR (rs.workspace_id = $1 AND rs.job_id = $2))",
                     w_id,
                     job_id,
                     stream_offset.unwrap_or(0),
