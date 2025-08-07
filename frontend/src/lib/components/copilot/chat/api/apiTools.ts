@@ -21,7 +21,7 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 			
 			parameters.properties[key] = schema
 			
-			if (endpointTool.path_params_schema.required?.includes(key)) {
+			if (Array.isArray(endpointTool.path_params_schema.required) && endpointTool.path_params_schema.required.includes(key)) {
 				parameters.required.push(key)
 			}
 		}
@@ -32,7 +32,7 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 		for (const [key, schema] of Object.entries(endpointTool.query_params_schema.properties)) {
 			parameters.properties[key] = schema
 			
-			if (endpointTool.query_params_schema.required?.includes(key)) {
+			if (Array.isArray(endpointTool.query_params_schema.required) && endpointTool.query_params_schema.required.includes(key)) {
 				parameters.required.push(key)
 			}
 		}
@@ -48,7 +48,7 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 			required: endpointTool.body_schema.required || []
 		}
 		
-		if (endpointTool.body_schema.required?.length > 0) {
+		if (Array.isArray(endpointTool.body_schema.required) && endpointTool.body_schema.required.length > 0) {
 			parameters.required.push('body')
 		}
 	}

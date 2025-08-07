@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { ResourceService } from '$lib/gen'
-import { enterpriseLicense, workspaceStore } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { triggerablesByAi } from '../sharedChatState.svelte'
 
