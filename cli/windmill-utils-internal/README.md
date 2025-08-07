@@ -8,7 +8,7 @@ This package provides internal utilities and tools used by the Windmill CLI, the
 
 ## Development
 
-To work on this package we need to generate the windmill client, and remove .ts extensions to the imports and exports (added by default for deno compatibily, so that the CLI can use this package).
+To work on this package we need to generate the windmill client, and remove .ts extensions to the imports and exports (added by default for deno compatibility, so that the CLI can use this package).
 
 You just need to run this before working on the package:
 
@@ -19,7 +19,7 @@ npm run dev
 After you are done with your modifications, add back the .ts extensions:
 
 ```bash
-./remove-ts.ext -r
+./remove-ts.ext.sh -r
 ```
 
 ### Building
@@ -35,5 +35,5 @@ npm run build
 To publish the package:
 
 ```bash
-./publish
+./publish.sh
 ```
