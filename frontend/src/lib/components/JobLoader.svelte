@@ -395,9 +395,10 @@
 			job &&
 			(previewJobUpdates.running ||
 				previewJobUpdates.progress ||
-				previewJobUpdates.new_logs ||
+				previewJobUpdates.log_offset ||
 				previewJobUpdates.flow_status ||
-				previewJobUpdates.mem_peak)
+				previewJobUpdates.mem_peak ||
+				previewJobUpdates.stream_offset)
 		) {
 			callbacks?.change?.(job)
 		}
