@@ -297,7 +297,7 @@ pub async fn set_global_setting_internal(
 
                 if !duplicate_app.is_empty() {
                     tracing::error!(
-                        "Cannot disabled {} setting as duplicate app with custom path were found: {:?}",
+                        "Cannot disable {} setting as duplicate app with custom path were found: {:?}",
                         APP_WORKSPACED_ROUTE_SETTING,
                         &duplicate_app
                     );
