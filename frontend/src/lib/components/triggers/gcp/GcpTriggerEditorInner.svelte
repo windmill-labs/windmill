@@ -27,6 +27,8 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import Subsection from '$lib/components/Subsection.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -52,7 +54,8 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
-	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let auto_acknowledge_msg = $state(true)
+	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -147,6 +150,7 @@
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
+			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			drawerLoading = false
@@ -186,6 +190,7 @@
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
+		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
@@ -224,7 +229,8 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			auto_acknowledge_msg
 		}
 	}
 
@@ -236,6 +242,7 @@
 			delivery_type,
 			delivery_config,
 			base_endpoint,
+			auto_acknowledge_msg,
 			topic_id,
 			path
 		}
@@ -392,6 +399,7 @@
 				bind:delivery_config
 				bind:topic_id
 				bind:subscription_mode
+				bind:auto_acknowledge_msg
 				{path}
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
@@ -404,19 +412,50 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="settings">Settings</Tab>
 							<Tab value="error_handler">Error Handler</Tab>
 							<Tab value="retries">Retries</Tab>
 						</Tabs>
 						<div class="mt-4">
-							<TriggerRetriesAndErrorHandler
-								{optionTabSelected}
-								{itemKind}
-								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
-								bind:retry
-							/>
+							{#if optionTabSelected === 'settings'}
+								<div class="flex flex-col gap-4">
+									{#if delivery_type === 'pull'}
+										<Subsection
+											label="Auto-acknowledge messages"
+											tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
+										>
+											<div class="mt-2">
+												<Toggle bind:checked={auto_acknowledge_msg} />
+											</div>
+											{#if !auto_acknowledge_msg}
+												<div class="mt-3">
+													<Alert size="xs" type="warning" title="Manual Acknowledgment Required">
+														You must acknowledge each message in your script/flow code using the
+														`ack_id` provided in the payload data. If messages are not acknowledged
+														within the acknowledgment deadline (by default 600 seconds), GCP will
+														automatically redeliver them in 600 seconds, causing Windmill to
+														reprocess the same messages repeatedly.
+													</Alert>
+												</div>
+											{/if}
+										</Subsection>
+									{:else}
+										<div class="flex items-center justify-center h-32 text-tertiary">
+											No settings available for push delivery type
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<TriggerRetriesAndErrorHandler
+									{optionTabSelected}
+									{itemKind}
+									{can_write}
+									bind:errorHandlerSelected
+									bind:error_handler_path
+									bind:error_handler_args
+									bind:retry
+								/>
+							{/if}
 						</div>
 					</div>
 				</div>
