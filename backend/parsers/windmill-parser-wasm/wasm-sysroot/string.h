@@ -5,3 +5,7 @@ void *memmove(void *dest, const void *src, unsigned long n);
 void *memset(void *s, int c, unsigned long n);
 int memcmp(const void *ptr1, const void *ptr2, unsigned long n);
 int strncmp(const char *s1, const char *s2, unsigned long n);
+
+// Manually added (needed for Ruby) 
+void *memchr (void *s, int c, size_t n);
+char *strchr (char *s, int c);

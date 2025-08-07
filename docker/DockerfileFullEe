@@ -45,3 +45,6 @@ RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2
 	&& mv ./coursier /usr/bin/coursier \
 	&& chmod +x /usr/bin/coursier
 RUN /usr/bin/java -jar /usr/bin/coursier about
+
+# Ruby
+RUN apt-get install -y ruby ruby-bundler

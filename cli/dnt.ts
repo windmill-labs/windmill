@@ -71,6 +71,8 @@ await build({
       "yaml",
       "csharp",
       "java",
+      "ruby",
+        // for related places search: ADD_NEW_LANG 
     ];
 
     for (const l of dirs) {

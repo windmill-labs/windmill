@@ -4531,7 +4531,6 @@ pub async fn push<'c, 'd>(
     // ).execute(&mut *tx).await {
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
-
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,

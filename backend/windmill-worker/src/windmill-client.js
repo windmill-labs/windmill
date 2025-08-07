@@ -2999,6 +2999,7 @@ var $RawScript = {
         "graphql",
         "nativets",
         "duckdb",
+        "ruby",
         // for related places search: ADD_NEW_LANG
       ],
     },

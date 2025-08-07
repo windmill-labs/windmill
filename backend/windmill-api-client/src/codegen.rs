@@ -1,24 +1,13 @@
-pub use progenitor_client::{ByteStream, Error, ResponseValue};
 #[allow(unused_imports)]
 use progenitor_client::{encode_path, RequestBuilderExt};
+pub use progenitor_client::{ByteStream, Error, ResponseValue};
 #[allow(unused_imports)]
 use reqwest::header::{HeaderMap, HeaderValue};
 pub mod types {
     use serde::{Deserialize, Serialize};
     #[allow(unused_imports)]
     use std::convert::TryFrom;
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum AiProvider {
         #[serde(rename = "openai")]
         Openai,
@@ -132,18 +121,7 @@ pub mod types {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum AppWithLastVersionExecutionMode {
         #[serde(rename = "viewer")]
         Viewer,
@@ -226,18 +204,7 @@ pub mod types {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum AuditLogActionKind {
         Created,
         Updated,
@@ -289,18 +256,7 @@ pub mod types {
             value.parse()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum AuditLogOperation {
         #[serde(rename = "jobs.run")]
         JobsRun,
@@ -555,20 +511,14 @@ pub mod types {
                 Self::IgroupAdduser => "igroup.adduser".to_string(),
                 Self::IgroupRemoveuser => "igroup.removeuser".to_string(),
                 Self::VariablesDecryptSecret => "variables.decrypt_secret".to_string(),
-                Self::WorkspacesEditCommandScript => {
-                    "workspaces.edit_command_script".to_string()
-                }
+                Self::WorkspacesEditCommandScript => "workspaces.edit_command_script".to_string(),
                 Self::WorkspacesEditDeployTo => "workspaces.edit_deploy_to".to_string(),
                 Self::WorkspacesEditAutoInviteDomain => {
                     "workspaces.edit_auto_invite_domain".to_string()
                 }
                 Self::WorkspacesEditWebhook => "workspaces.edit_webhook".to_string(),
-                Self::WorkspacesEditCopilotConfig => {
-                    "workspaces.edit_copilot_config".to_string()
-                }
-                Self::WorkspacesEditErrorHandler => {
-                    "workspaces.edit_error_handler".to_string()
-                }
+                Self::WorkspacesEditCopilotConfig => "workspaces.edit_copilot_config".to_string(),
+                Self::WorkspacesEditErrorHandler => "workspaces.edit_error_handler".to_string(),
                 Self::WorkspacesCreate => "workspaces.create".to_string(),
                 Self::WorkspacesUpdate => "workspaces.update".to_string(),
                 Self::WorkspacesArchive => "workspaces.archive".to_string(),
@@ -657,9 +607,7 @@ pub mod types {
                 "variables.decrypt_secret" => Ok(Self::VariablesDecryptSecret),
                 "workspaces.edit_command_script" => Ok(Self::WorkspacesEditCommandScript),
                 "workspaces.edit_deploy_to" => Ok(Self::WorkspacesEditDeployTo),
-                "workspaces.edit_auto_invite_domain" => {
-                    Ok(Self::WorkspacesEditAutoInviteDomain)
-                }
+                "workspaces.edit_auto_invite_domain" => Ok(Self::WorkspacesEditAutoInviteDomain),
                 "workspaces.edit_webhook" => Ok(Self::WorkspacesEditWebhook),
                 "workspaces.edit_copilot_config" => Ok(Self::WorkspacesEditCopilotConfig),
                 "workspaces.edit_error_handler" => Ok(Self::WorkspacesEditErrorHandler),
@@ -736,18 +684,7 @@ pub mod types {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum BranchAllType {
         #[serde(rename = "branchall")]
         Branchall,
@@ -815,18 +752,7 @@ pub mod types {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum BranchOneType {
         #[serde(rename = "branchone")]
         Branchone,
@@ -899,18 +825,7 @@ pub mod types {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum CaptureTriggerKind {
         #[serde(rename = "webhook")]
         Webhook,
@@ -1036,8 +951,8 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub parent_job: Option<uuid::Uuid>,
         /**The user (u/userfoo) or group (g/groupfoo) whom
-the execution of this script will be permissioned_as and by extension its DT_TOKEN.
-*/
+        the execution of this script will be permissioned_as and by extension its DT_TOKEN.
+        */
         pub permissioned_as: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub preprocessed: Option<bool>,
@@ -1071,18 +986,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum CompletedJobJobKind {
         #[serde(rename = "script")]
         Script,
@@ -1331,18 +1235,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum EditHttpTriggerHttpMethod {
         #[serde(rename = "get")]
         Get,
@@ -1825,7 +1718,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub skip_if_stopped: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub error_message: Option<String>
+        pub error_message: Option<String>,
     }
     impl From<&FlowModuleStopAfterIf> for FlowModuleStopAfterIf {
         fn from(value: &FlowModuleStopAfterIf) -> Self {
@@ -2024,18 +1917,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum FlowStatusModuleBranchChosenType {
         #[serde(rename = "branch")]
         Branch,
@@ -2107,18 +1989,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum FlowStatusModuleType {
         WaitingForPriorSteps,
         WaitingForEvents,
@@ -2263,18 +2134,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum ForloopFlowType {
         #[serde(rename = "forloopflow")]
         Forloopflow,
@@ -2334,18 +2194,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum GitRepositorySettingsExcludeTypesOverrideItem {
         #[serde(rename = "script")]
         Script,
@@ -2371,7 +2220,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Group,
     }
     impl From<&GitRepositorySettingsExcludeTypesOverrideItem>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
+        for GitRepositorySettingsExcludeTypesOverrideItem
+    {
         fn from(value: &GitRepositorySettingsExcludeTypesOverrideItem) -> Self {
             value.clone()
         }
@@ -2418,15 +2268,13 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.parse()
         }
     }
-    impl std::convert::TryFrom<&String>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::convert::TryFrom<&String> for GitRepositorySettingsExcludeTypesOverrideItem {
         type Error = &'static str;
         fn try_from(value: &String) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<String>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::convert::TryFrom<String> for GitRepositorySettingsExcludeTypesOverrideItem {
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
@@ -2464,18 +2312,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum GlobalUserInfoLoginType {
         #[serde(rename = "password")]
         Password,
@@ -2556,18 +2393,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum HttpTriggerHttpMethod {
         #[serde(rename = "get")]
         Get,
@@ -2675,18 +2501,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum IdentityType {
         #[serde(rename = "identity")]
         Identity,
@@ -2790,18 +2605,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum JavascriptTransformType {
         #[serde(rename = "javascript")]
         Javascript,
@@ -2888,18 +2692,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum JobVariant0Type {
         CompletedJob,
     }
@@ -2954,18 +2747,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum JobVariant1Type {
         QueuedJob,
     }
@@ -3026,18 +2808,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum Language {
         Typescript,
     }
@@ -3089,10 +2860,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub s3_resource_path: Option<String>,
         #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-        pub secondary_storage: std::collections::HashMap<
-            String,
-            LargeFileStorageSecondaryStorageValue,
-        >,
+        pub secondary_storage:
+            std::collections::HashMap<String, LargeFileStorageSecondaryStorageValue>,
         #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
         pub type_: Option<LargeFileStorageType>,
     }
@@ -3112,24 +2881,12 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
         pub type_: Option<LargeFileStorageSecondaryStorageValueType>,
     }
-    impl From<&LargeFileStorageSecondaryStorageValue>
-    for LargeFileStorageSecondaryStorageValue {
+    impl From<&LargeFileStorageSecondaryStorageValue> for LargeFileStorageSecondaryStorageValue {
         fn from(value: &LargeFileStorageSecondaryStorageValue) -> Self {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum LargeFileStorageSecondaryStorageValueType {
         S3Storage,
         AzureBlobStorage,
@@ -3137,7 +2894,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         S3AwsOidc,
     }
     impl From<&LargeFileStorageSecondaryStorageValueType>
-    for LargeFileStorageSecondaryStorageValueType {
+        for LargeFileStorageSecondaryStorageValueType
+    {
         fn from(value: &LargeFileStorageSecondaryStorageValueType) -> Self {
             value.clone()
         }
@@ -3182,18 +2940,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.parse()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum LargeFileStorageType {
         S3Storage,
         AzureBlobStorage,
@@ -3263,18 +3010,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum ListableAppExecutionMode {
         #[serde(rename = "viewer")]
         Viewer,
@@ -3498,8 +3234,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             Self::Str(value)
         }
     }
-    impl From<Vec<MainArgSignatureArgsItemTypObjectItem>>
-    for MainArgSignatureArgsItemTyp {
+    impl From<Vec<MainArgSignatureArgsItemTypObjectItem>> for MainArgSignatureArgsItemTyp {
         fn from(value: Vec<MainArgSignatureArgsItemTypObjectItem>) -> Self {
             Self::Object(value)
         }
@@ -3547,8 +3282,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub key: String,
         pub typ: MainArgSignatureArgsItemTypObjectItemTyp,
     }
-    impl From<&MainArgSignatureArgsItemTypObjectItem>
-    for MainArgSignatureArgsItemTypObjectItem {
+    impl From<&MainArgSignatureArgsItemTypObjectItem> for MainArgSignatureArgsItemTypObjectItem {
         fn from(value: &MainArgSignatureArgsItemTypObjectItem) -> Self {
             value.clone()
         }
@@ -3576,8 +3310,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "str")]
         Str(serde_json::Value),
     }
-    impl From<&MainArgSignatureArgsItemTypObjectItemTyp>
-    for MainArgSignatureArgsItemTypObjectItemTyp {
+    impl From<&MainArgSignatureArgsItemTypObjectItemTyp> for MainArgSignatureArgsItemTypObjectItemTyp {
         fn from(value: &MainArgSignatureArgsItemTypObjectItemTyp) -> Self {
             value.clone()
         }
@@ -3587,18 +3320,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             Self::Str(value)
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum MainArgSignatureType {
         Valid,
         Invalid,
@@ -3665,18 +3387,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum MqttClientVersion {
         #[serde(rename = "v3")]
         V3,
@@ -3724,18 +3435,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.parse()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum MqttQoS {
         #[serde(rename = "qos0")]
         Qos0,
@@ -3892,18 +3592,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum NewHttpTriggerHttpMethod {
         #[serde(rename = "get")]
         Get,
@@ -4163,18 +3852,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum NewScriptKind {
         #[serde(rename = "script")]
         Script,
@@ -4443,18 +4121,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum PathFlowType {
         #[serde(rename = "flow")]
         Flow,
@@ -4516,18 +4183,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum PathScriptType {
         #[serde(rename = "script")]
         Script,
@@ -4593,15 +4249,11 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub s3_inputs: Vec<std::collections::HashMap<String, serde_json::Value>>,
         #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-        pub triggerables: std::collections::HashMap<
-            String,
-            std::collections::HashMap<String, serde_json::Value>,
-        >,
+        pub triggerables:
+            std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
         #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-        pub triggerables_v2: std::collections::HashMap<
-            String,
-            std::collections::HashMap<String, serde_json::Value>,
-        >,
+        pub triggerables_v2:
+            std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
     }
     impl From<&Policy> for Policy {
         fn from(value: &Policy) -> Self {
@@ -4620,18 +4272,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum PolicyExecutionMode {
         #[serde(rename = "viewer")]
         Viewer,
@@ -4724,18 +4365,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum PreviewKind {
         #[serde(rename = "code")]
         Code,
@@ -4830,8 +4460,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub parent_job: Option<uuid::Uuid>,
         /**The user (u/userfoo) or group (g/groupfoo) whom
-the execution of this script will be permissioned_as and by extension its DT_TOKEN.
-*/
+        the execution of this script will be permissioned_as and by extension its DT_TOKEN.
+        */
         pub permissioned_as: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub preprocessed: Option<bool>,
@@ -4868,18 +4498,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum QueuedJobJobKind {
         #[serde(rename = "script")]
         Script,
@@ -5013,18 +4632,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum RawScriptLanguage {
         #[serde(rename = "deno")]
         Deno,
@@ -5124,18 +4732,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.parse()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum RawScriptType {
         #[serde(rename = "rawscript")]
         Rawscript,
@@ -5287,18 +4884,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum RunnableType {
         ScriptHash,
         ScriptPath,
@@ -5499,7 +5085,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_behalf_of_email: Option<String>,
         /**The first element is the direct parent of the script, the second is the parent of the first, etc
-*/
+         */
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub parent_hashes: Vec<String>,
         pub path: String,
@@ -5561,18 +5147,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum ScriptKind {
         #[serde(rename = "script")]
         Script,
@@ -5636,18 +5211,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.parse()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum ScriptLang {
         #[serde(rename = "python3")]
         Python3,
@@ -5687,6 +5251,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Csharp,
         #[serde(rename = "nu")]
         Nu,
+        #[serde(rename = "ruby")]
+        Ruby,
+        // for related places search: ADD_NEW_LANG
     }
     impl From<&ScriptLang> for ScriptLang {
         fn from(value: &ScriptLang) -> Self {
@@ -5715,6 +5282,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Ansible => "ansible".to_string(),
                 Self::Csharp => "csharp".to_string(),
                 Self::Nu => "nu".to_string(),
+                Self::Ruby => "ruby".to_string(),
+                // for related places search: ADD_NEW_LANG
             }
         }
     }
@@ -5741,7 +5310,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "ansible" => Ok(Self::Ansible),
                 "csharp" => Ok(Self::Csharp),
                 "nu" => Ok(Self::Nu),
+                "ruby" => Ok(Self::Ruby),
                 _ => Err("invalid value"),
+                // for related places search: ADD_NEW_LANG
             }
         }
     }
@@ -5838,18 +5409,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum StaticTransformType {
         #[serde(rename = "javascript")]
         Javascript,
@@ -6193,18 +5753,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum WhileloopFlowType {
         #[serde(rename = "forloopflow")]
         Forloopflow,
@@ -6279,18 +5828,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum WindmillFilePreviewContentType {
         RawText,
         Csv,
@@ -6407,17 +5945,14 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct WorkflowStatusRecord(
-        pub std::collections::HashMap<String, WorkflowStatus>,
-    );
+    pub struct WorkflowStatusRecord(pub std::collections::HashMap<String, WorkflowStatus>);
     impl std::ops::Deref for WorkflowStatusRecord {
         type Target = std::collections::HashMap<String, WorkflowStatus>;
         fn deref(&self) -> &std::collections::HashMap<String, WorkflowStatus> {
             &self.0
         }
     }
-    impl From<WorkflowStatusRecord>
-    for std::collections::HashMap<String, WorkflowStatus> {
+    impl From<WorkflowStatusRecord> for std::collections::HashMap<String, WorkflowStatus> {
         fn from(value: WorkflowStatusRecord) -> Self {
             value.0
         }
@@ -6427,8 +5962,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    impl From<std::collections::HashMap<String, WorkflowStatus>>
-    for WorkflowStatusRecord {
+    impl From<std::collections::HashMap<String, WorkflowStatus>> for WorkflowStatusRecord {
         fn from(value: std::collections::HashMap<String, WorkflowStatus>) -> Self {
             Self(value)
         }
@@ -6483,18 +6017,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum WorkspaceDeployUiSettingsIncludeTypeItem {
         #[serde(rename = "script")]
         Script,
@@ -6511,8 +6034,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "trigger")]
         Trigger,
     }
-    impl From<&WorkspaceDeployUiSettingsIncludeTypeItem>
-    for WorkspaceDeployUiSettingsIncludeTypeItem {
+    impl From<&WorkspaceDeployUiSettingsIncludeTypeItem> for WorkspaceDeployUiSettingsIncludeTypeItem {
         fn from(value: &WorkspaceDeployUiSettingsIncludeTypeItem) -> Self {
             value.clone()
         }
@@ -6577,18 +6099,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
     pub enum WorkspaceGitSyncSettingsIncludeTypeItem {
         #[serde(rename = "script")]
         Script,
@@ -6613,8 +6124,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "group")]
         Group,
     }
-    impl From<&WorkspaceGitSyncSettingsIncludeTypeItem>
-    for WorkspaceGitSyncSettingsIncludeTypeItem {
+    impl From<&WorkspaceGitSyncSettingsIncludeTypeItem> for WorkspaceGitSyncSettingsIncludeTypeItem {
         fn from(value: &WorkspaceGitSyncSettingsIncludeTypeItem) -> Self {
             value.clone()
         }
@@ -6704,7 +6214,9 @@ impl Client {
         #[cfg(not(target_arch = "wasm32"))]
         let client = {
             let dur = std::time::Duration::from_secs(15);
-            reqwest::ClientBuilder::new().connect_timeout(dur).timeout(dur)
+            reqwest::ClientBuilder::new()
+                .connect_timeout(dur)
+                .timeout(dur)
         };
         #[cfg(target_arch = "wasm32")]
         let client = reqwest::ClientBuilder::new();
@@ -6717,10 +6229,7 @@ impl Client {
     /// `reqwest::Client`, and should include a scheme and hostname,
     /// as well as port and a path stem if applicable.
     pub fn new_with_client(baseurl: &str, client: reqwest::Client) -> Self {
-        Self {
-            baseurl: baseurl.to_string(),
-            client,
-        }
+        Self { baseurl: baseurl.to_string(), client }
     }
     /// Get the base URL to which requests are made.
     pub fn baseurl(&self) -> &String {
@@ -6741,9 +6250,9 @@ impl Client {
 impl Client {
     /**list all workspaces visible to me
 
-Sends a `GET` request to `/workspaces/list`
+    Sends a `GET` request to `/workspaces/list`
 
-*/
+    */
     pub async fn list_workspaces<'a>(
         &'a self,
     ) -> Result<ResponseValue<Vec<types::Workspace>>, Error<()>> {
@@ -6765,19 +6274,21 @@ Sends a `GET` request to `/workspaces/list`
     }
     /**create script
 
-Sends a `POST` request to `/w/{workspace}/scripts/create`
+    Sends a `POST` request to `/w/{workspace}/scripts/create`
 
-Arguments:
-- `workspace`
-- `body`: Partially filled script
-*/
+    Arguments:
+    - `workspace`
+    - `body`: Partially filled script
+    */
     pub async fn create_script<'a>(
         &'a self,
         workspace: &'a str,
         body: &'a types::NewScript,
     ) -> Result<ResponseValue<ByteStream>, Error<()>> {
         let url = format!(
-            "{}/w/{}/scripts/create", self.baseurl, encode_path(& workspace.to_string()),
+            "{}/w/{}/scripts/create",
+            self.baseurl,
+            encode_path(&workspace.to_string()),
         );
         let request = self.client.post(url).json(&body).build()?;
         let result = self.client.execute(request).await;
@@ -6789,9 +6300,9 @@ Arguments:
     }
     /**get flow by path
 
-Sends a `GET` request to `/w/{workspace}/flows/get/{path}`
+    Sends a `GET` request to `/w/{workspace}/flows/get/{path}`
 
-*/
+    */
     pub async fn get_flow_by_path<'a>(
         &'a self,
         workspace: &'a str,
@@ -6799,8 +6310,10 @@ Sends a `GET` request to `/w/{workspace}/flows/get/{path}`
         with_starred_info: Option<bool>,
     ) -> Result<ResponseValue<types::Flow>, Error<()>> {
         let url = format!(
-            "{}/w/{}/flows/get/{}", self.baseurl, encode_path(& workspace.to_string()),
-            encode_path(& path.to_string()),
+            "{}/w/{}/flows/get/{}",
+            self.baseurl,
+            encode_path(&workspace.to_string()),
+            encode_path(&path.to_string()),
         );
         let mut query = Vec::with_capacity(1usize);
         if let Some(v) = &with_starred_info {
@@ -6824,19 +6337,21 @@ Sends a `GET` request to `/w/{workspace}/flows/get/{path}`
     }
     /**create flow
 
-Sends a `POST` request to `/w/{workspace}/flows/create`
+    Sends a `POST` request to `/w/{workspace}/flows/create`
 
-Arguments:
-- `workspace`
-- `body`: Partially filled flow
-*/
+    Arguments:
+    - `workspace`
+    - `body`: Partially filled flow
+    */
     pub async fn create_flow<'a>(
         &'a self,
         workspace: &'a str,
         body: &'a types::CreateFlowBody,
     ) -> Result<ResponseValue<ByteStream>, Error<()>> {
         let url = format!(
-            "{}/w/{}/flows/create", self.baseurl, encode_path(& workspace.to_string()),
+            "{}/w/{}/flows/create",
+            self.baseurl,
+            encode_path(&workspace.to_string()),
         );
         let request = self.client.post(url).json(&body).build()?;
         let result = self.client.execute(request).await;
@@ -6848,20 +6363,21 @@ Arguments:
     }
     /**create schedule
 
-Sends a `POST` request to `/w/{workspace}/schedules/create`
+    Sends a `POST` request to `/w/{workspace}/schedules/create`
 
-Arguments:
-- `workspace`
-- `body`: new schedule
-*/
+    Arguments:
+    - `workspace`
+    - `body`: new schedule
+    */
     pub async fn create_schedule<'a>(
         &'a self,
         workspace: &'a str,
         body: &'a types::NewSchedule,
     ) -> Result<ResponseValue<ByteStream>, Error<()>> {
         let url = format!(
-            "{}/w/{}/schedules/create", self.baseurl, encode_path(& workspace
-            .to_string()),
+            "{}/w/{}/schedules/create",
+            self.baseurl,
+            encode_path(&workspace.to_string()),
         );
         let request = self.client.post(url).json(&body).build()?;
         let result = self.client.execute(request).await;
@@ -6873,13 +6389,13 @@ Arguments:
     }
     /**update schedule
 
-Sends a `POST` request to `/w/{workspace}/schedules/update/{path}`
+    Sends a `POST` request to `/w/{workspace}/schedules/update/{path}`
 
-Arguments:
-- `workspace`
-- `path`
-- `body`: updated schedule
-*/
+    Arguments:
+    - `workspace`
+    - `path`
+    - `body`: updated schedule
+    */
     pub async fn update_schedule<'a>(
         &'a self,
         workspace: &'a str,
@@ -6887,8 +6403,10 @@ Arguments:
         body: &'a types::EditSchedule,
     ) -> Result<ResponseValue<ByteStream>, Error<()>> {
         let url = format!(
-            "{}/w/{}/schedules/update/{}", self.baseurl, encode_path(& workspace
-            .to_string()), encode_path(& path.to_string()),
+            "{}/w/{}/schedules/update/{}",
+            self.baseurl,
+            encode_path(&workspace.to_string()),
+            encode_path(&path.to_string()),
         );
         let request = self.client.post(url).json(&body).build()?;
         let result = self.client.execute(request).await;
