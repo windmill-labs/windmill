@@ -32,11 +32,8 @@
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString } from '$lib/utils'
-	import {
-		RotateCw,
-		Save
-	} from 'lucide-svelte'
+	import { clone, emptyString } from '$lib/utils'
+	import { RotateCw, Save } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -56,6 +53,10 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import DucklakeSettings, {
+		convertDucklakeSettingsFromBackend,
+		type DucklakeSettingsType
+	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -88,6 +89,10 @@
 		secondaryStorage: undefined
 	})
 
+	let ducklakeSettings: DucklakeSettingsType = $state({
+		ducklakes: []
+	})
+	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
 	let workspaceEncryptionKey: string | undefined = $state(undefined)
@@ -107,14 +112,7 @@
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
-
-
 	let loadedSettings = $state(false)
-
-
-
-
-
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -169,7 +167,6 @@
 			sendUserToast(`webhook removed`)
 		}
 	}
-
 
 	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
 		if (emptyString(appPath)) {
@@ -265,6 +262,8 @@
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
+		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
+		ducklakeSavedSettings = clone(ducklakeSettings)
 
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
@@ -335,10 +334,6 @@
 			sendUserToast(`workspace error handler removed`)
 		}
 	}
-
-
-
-
 
 	async function editCriticalAlertMuteSetting() {
 		await SettingService.workspaceMuteCriticalAlertsUi({
@@ -813,6 +808,7 @@
 			/>
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings bind:s3ResourceSettings />
+			<DucklakeSettings bind:ducklakeSettings bind:ducklakeSavedSettings />
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
@@ -914,8 +910,6 @@
 		</div>
 	{/if}
 </CenteredPage>
-
-
 
 <style>
 </style>

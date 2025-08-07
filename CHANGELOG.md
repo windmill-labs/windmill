@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.519.2](https://github.com/windmill-labs/windmill/compare/v1.519.1...v1.519.2) (2025-08-07)
+
+
+### Bug Fixes
+
+* native text response streaming in agent workers ([545d3ce](https://github.com/windmill-labs/windmill/commit/545d3ce74c1edcf588289dc67aa4c365dd48ed10))
+
+## [1.519.1](https://github.com/windmill-labs/windmill/compare/v1.519.0...v1.519.1) (2025-08-06)
+
+
+### Bug Fixes
+
+* fix python-client f formatting error ([fb9d7d4](https://github.com/windmill-labs/windmill/commit/fb9d7d4c95601965a0c00fe07458ea1b77a0fe69))
+
+## [1.519.0](https://github.com/windmill-labs/windmill/compare/v1.518.2...v1.519.0) (2025-08-06)
+
+
+### Features
+
+* add native result streaming ([#6242](https://github.com/windmill-labs/windmill/issues/6242)) ([161dbbc](https://github.com/windmill-labs/windmill/commit/161dbbc6d60ad8b4e7f1ea7afdcae35b2128eeda))
+* Ducklake native support ([#6268](https://github.com/windmill-labs/windmill/issues/6268)) ([e6f1211](https://github.com/windmill-labs/windmill/commit/e6f1211d317ca5c5b33ced324bf914b080d3ce2c))
+* dynamic select in flow ([#6315](https://github.com/windmill-labs/windmill/issues/6315)) ([1bcb043](https://github.com/windmill-labs/windmill/commit/1bcb0431c44be5cc7b99e2131f73f456c1bd91ac))
+* git sync v2 + cli git_branches support ([#6327](https://github.com/windmill-labs/windmill/issues/6327)) ([cb649b2](https://github.com/windmill-labs/windmill/commit/cb649b26893d8829aae0ed8cdf896607a3331804))
+
+
+### Bug Fixes
+
+* **rust-sdk:** revert `openapi-generator-cli` to `7.10.0` ([#6325](https://github.com/windmill-labs/windmill/issues/6325)) ([83aa0d0](https://github.com/windmill-labs/windmill/commit/83aa0d0267fbf2c467c050d21583ddcb49909a8f))
+
 ## [1.518.2](https://github.com/windmill-labs/windmill/compare/v1.518.1...v1.518.2) (2025-08-05)
 
 

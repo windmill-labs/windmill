@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
@@ -14,6 +14,9 @@
 		open?: boolean
 		type?: 'danger' | 'reload'
 		showIcon?: boolean
+		children?: Snippet
+		onConfirmed?: () => void | Promise<void>
+		onCanceled?: () => void
 	}
 
 	const {
@@ -23,7 +26,10 @@
 		loading = false,
 		open = false,
 		type: _type,
-		showIcon = true
+		showIcon = true,
+		children,
+		onConfirmed,
+		onCanceled
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
@@ -36,9 +42,11 @@
 			switch (event.key) {
 				case 'Enter':
 					dispatch('confirmed')
+					onConfirmed?.()
 					break
 				case 'Escape':
 					dispatch('canceled')
+					onCanceled?.()
 					break
 			}
 		}
@@ -107,15 +115,14 @@
 								{title}
 							</h3>
 							<div class="mt-2 text-sm text-secondary">
-								<!-- svelte-ignore slot_element_deprecated -->
-								<slot />
+								{@render children?.()}
 							</div>
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 						<Button
 							disabled={loading}
-							on:click={() => dispatch('confirmed')}
+							on:click={() => (dispatch('confirmed'), onConfirmed?.())}
 							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
@@ -127,7 +134,7 @@
 						</Button>
 						<Button
 							disabled={loading}
-							on:click={() => dispatch('canceled')}
+							on:click={() => (dispatch('canceled'), onCanceled?.())}
 							color="light"
 							size="sm"
 							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}

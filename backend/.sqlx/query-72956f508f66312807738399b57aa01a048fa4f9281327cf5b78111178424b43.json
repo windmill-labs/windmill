@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id AS \"id!\", workspace_id AS \"workspace_id!\", parent_job, is_flow_step,\n            flow_status AS \"flow_status: Box<str>\", last_ping, same_worker\n        FROM v2_as_queue\n        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()\n            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')\n            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval\n            AND canceled = false\n        ",
+  "query": "\n        SELECT\n            id AS \"id!\", workspace_id AS \"workspace_id!\", parent_job, is_flow_step,\n            flow_status AS \"flow_status: Box<str>\", last_ping, same_worker\n        FROM v2_as_queue\n        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()\n            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')\n            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval\n            AND canceled = false\n            \n        ",
   "describe": {
     "columns": [
       {
@@ -54,5 +54,5 @@
       true
     ]
   },
-  "hash": "e653d36b607a16c0dfc0324690942ab25883b53a81ebb581fe019af2ec5eb567"
+  "hash": "72956f508f66312807738399b57aa01a048fa4f9281327cf5b78111178424b43"
 }
