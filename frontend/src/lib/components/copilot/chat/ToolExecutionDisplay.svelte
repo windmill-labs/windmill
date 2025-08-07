@@ -2,47 +2,34 @@
 	import { Loader2, ChevronDown, ChevronRight, Copy, Check } from 'lucide-svelte'
 	
 	interface Props {
-		toolName: string
-		description?: string
+		title: string
 		parameters?: Record<string, any>
 		result?: any
 		isLoading?: boolean
 		error?: string
 		collapsed?: boolean
-		showDetails?: boolean
 	}
 	
 	let { 
-		toolName, 
-		parameters = {},
+		title, 
+		parameters = undefined,
 		result = undefined,
 		isLoading = false,
 		error = undefined,
 		collapsed = false,
-		showDetails = false
 	}: Props = $props()
 	
 	let isExpanded = $state(!collapsed)
 	let copiedParams = $state(false)
 	let copiedResult = $state(false)
 	
-	// Format the tool name for display
-	const displayName = $derived(
-		toolName.startsWith('api_') 
-			? toolName.substring(4)
-				.replace(/([A-Z])/g, ' $1')
-				.replace(/_/g, ' ')
-				.trim()
-				.toLowerCase()
-				.replace(/^\w/, c => c.toUpperCase())
-			: toolName
-	)
-	
 	// Check if we have content to display
-	const hasParameters = $derived(Object.keys(parameters).length > 0)
+	const hasParameters = $derived(parameters !== undefined && Object.keys(parameters).length > 0)
 	const hasResult = $derived(result !== undefined && result !== null)
+
+	const compactMode = $derived(!hasParameters && !hasResult)
 	
-	// Format JSON for display
+	// Format JSON for display and parameters
 	function formatJson(obj: any): string {
 		try {
 			// If it's already a string, try to parse and re-stringify for formatting
@@ -84,51 +71,36 @@
 	<button 
 		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
 		onclick={() => isExpanded = !isExpanded}
+		disabled={compactMode}
 	>
 		<div class="flex items-center gap-2 flex-1">
-			{#if isExpanded}
-				<ChevronDown class="w-3 h-3 text-secondary" />
-			{:else}
-				<ChevronRight class="w-3 h-3 text-secondary" />
+			{#if !compactMode}
+				{#if isExpanded}
+					<ChevronDown class="w-3 h-3 text-secondary" />
+				{:else}
+					<ChevronRight class="w-3 h-3 text-secondary" />
+				{/if}
 			{/if}
 			
 			{#if isLoading}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 			{:else if error}
 				<span class="text-red-500">✗</span>
-			{:else if hasResult}
+			{:else if !isLoading && !error}
 				<span class="text-green-500">✓</span>
 			{:else}
 				<span class="text-tertiary">○</span>
 			{/if}
 			
 			<span class="text-primary font-medium text-2xs">
-				Called {displayName}
+				{title}
 			</span>
-		</div>
-		
-		<!-- Status Badge -->
-		<div class="flex items-center gap-2">
-			{#if isLoading}
-				<span class="px-2 py-1 rounded text-2xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
-					Running
-				</span>
-			{:else if error}
-				<span class="px-2 py-1 rounded text-2xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700">
-					Failed
-				</span>
-			{:else if hasResult}
-				<span class="px-2 py-1 rounded text-2xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700">
-					Completed
-				</span>
-			{/if}
 		</div>
 	</button>
 	
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
-			{#if showDetails}
 				<!-- Parameters Section -->
 				{#if hasParameters}
 					<div class="space-y-2">
@@ -194,25 +166,6 @@
 						</div>
 					{/if}
 				</div>
-			{:else}
-				<!-- Simplified view for non-API modes -->
-				<div class="space-y-2">
-					{#if isLoading}
-						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
-							<Loader2 class="w-3 h-3 animate-spin" />
-							<span class="text-2xs">Executing...</span>
-						</div>
-					{:else if error}
-						<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3">
-							<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
-						</div>
-					{:else}
-						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
-							<span class="text-2xs text-green-600 dark:text-green-400">Tool executed successfully</span>
-						</div>
-					{/if}
-				</div>
-			{/if}
 		</div>
 	{/if}
 </div>

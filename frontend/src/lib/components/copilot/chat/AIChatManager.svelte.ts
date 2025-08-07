@@ -243,22 +243,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...', {
-				toolName: 'change_mode',
-				description: 'Change AI assistant mode',
-				parameters: args,
-				isLoading: true
-			})
+			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode', {
-				toolName: 'change_mode',
-				description: 'Change AI assistant mode',
-				parameters: args,
-				result: 'Mode changed to ' + args.mode,
-				isLoading: false
-			})
+			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
 	}
@@ -698,7 +687,8 @@ class AIChatManager {
 							} as ToolDisplayMessage
 						} else {
 							// Create new tool message with metadata
-							const newMessage: ToolDisplayMessage = { 
+							const newMessage: ToolDisplayMessage = {
+								toolName: metadata?.toolName ?? '',
 								role: 'tool', 
 								tool_call_id: id, 
 								content,

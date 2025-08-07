@@ -3,7 +3,7 @@
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -83,14 +83,12 @@
 			{:else if message.role === 'tool'}
 				{@const toolMessage = message as ToolDisplayMessage}
 				<ToolExecutionDisplay
-					toolName={toolMessage.toolName ?? 'Tool Execution'}
-					description={toolMessage.description ?? ''}
+					title={toolMessage.content ?? 'Tool Execution'}
 					parameters={toolMessage.parameters ?? {}}
 					result={toolMessage.result}
 					isLoading={toolMessage.isLoading ?? false}
 					error={toolMessage.error}
 					collapsed={!toolMessage.isLoading}
-					showDetails={toolMessage.toolName.startsWith('api_')}
 				/>
 			{:else}
 				{message.content}

@@ -145,7 +145,13 @@ export function createApiTools(
 					// Log the constructed URL
 					console.log(`Calling API: ${endpoint.method} ${url} with args:`, args)
 
-					toolCallbacks.setToolStatus(toolId, `Calling API endpoint (${url})...`)
+					toolCallbacks.setToolStatus(toolId, `Calling ${toolName.replace('api_', '')}...`, {
+						toolName: toolName,
+						description: chatTool.function.description,
+						parameters: args,
+						isLoading: true,
+						startedAt: Date.now()
+					})
 
 					const fetchOptions: RequestInit = {
 						method: endpoint.method
@@ -173,24 +179,49 @@ export function createApiTools(
 						} else {
 							result = await response.text()
 						}
-						toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
-						return JSON.stringify({
+						const jsonResult = JSON.stringify({
 							success: true,
 							data: result
 						})
+						toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} completed`, {
+							toolName: toolName,
+							description: chatTool.function.description,
+							parameters: args,
+							result: jsonResult,
+							isLoading: false,
+							completedAt: Date.now()
+						})
+						return jsonResult
 					} else {
 						const text = await response.text()
-						toolCallbacks.setToolStatus(toolId, `API call to ${url} failed`)
-						return JSON.stringify({
+						const jsonResult = JSON.stringify({
 							success: false,
 							error: text,
 							status: response.status
 						})
+						toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} failed`, {
+							toolName: toolName,
+							description: chatTool.function.description,
+							parameters: args,
+							result: jsonResult,
+							error: `HTTP ${response.status}: ${text}`,
+							isLoading: false,
+							completedAt: Date.now()
+						})
+						return jsonResult
 					}
 				} catch (error) {
-					toolCallbacks.setToolStatus(toolId, `API call failed`)
+					const errorMessage = `Error calling API: ${error instanceof Error ? error.message : String(error)}`
+					toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} failed`, {
+						toolName: toolName,
+						description: chatTool.function.description,
+						parameters: args,
+						error: errorMessage,
+						isLoading: false,
+						completedAt: Date.now()
+					})
 					console.error(`Error calling API:`, error)
-					return `Error calling API: ${error instanceof Error ? error.message : String(error)}`
+					return errorMessage
 				}
 			}
 		}

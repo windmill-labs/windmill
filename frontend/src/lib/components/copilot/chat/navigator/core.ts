@@ -289,9 +289,13 @@ const triggerComponentTool: Tool<{}> = {
 const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, 'Scanning the page...')
+		toolCallbacks.setToolStatus(toolId, 'Scanning the page...', {
+			isLoading: true
+		})
 		const components = getTriggerableComponents()
-		toolCallbacks.setToolStatus(toolId, 'Scanned the page')
+		toolCallbacks.setToolStatus(toolId, 'Scanned the page', {
+			isLoading: false
+		})
 		return components
 	}
 }
