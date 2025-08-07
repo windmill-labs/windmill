@@ -52,12 +52,11 @@ use std::str;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery},
+    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
-    global_settings::{load_value_from_global_settings, APP_WORKSPACED_ROUTE_SETTING},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
@@ -658,7 +657,7 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
+    let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
     let exists =
         sqlx::query_scalar!(
@@ -923,11 +922,6 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
-pub async fn get_app_workspaced_route_setting(db: &DB) -> Result<bool> {
-    let setting = load_value_from_global_settings(db, APP_WORKSPACED_ROUTE_SETTING).await?;
-    Ok(setting.and_then(|v| v.as_bool()).unwrap_or(false))
-}
-
 async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -999,7 +993,7 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
+        let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
@@ -1336,7 +1330,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route = get_app_workspaced_route_setting(&db).await?;
+            let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
