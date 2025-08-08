@@ -710,7 +710,6 @@ class AIChatManager {
 						} else {
 							// Create new tool message with metadata
 							const newMessage: ToolDisplayMessage = {
-								toolName: metadata?.toolName ?? '',
 								role: 'tool', 
 								tool_call_id: id, 
 								content,

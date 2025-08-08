@@ -2,45 +2,25 @@
 	import { Loader2, ChevronDown, ChevronRight, Copy, Check, CheckCircle, XCircle } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { aiChatManager } from './AIChatManager.svelte'
+	import type { ToolDisplayMessage } from './shared'
 	
 	interface Props {
-		title: string
-		parameters?: Record<string, any>
-		result?: any
-		isLoading?: boolean
-		error?: string
-		collapsed?: boolean
-		toolId?: string
-		needsConfirmation?: boolean
+		message: ToolDisplayMessage
 	}
 	
 	let { 
-		title, 
-		parameters = undefined,
-		result = undefined,
-		isLoading = false,
-		error = undefined,
-		collapsed = false,
-		toolId = undefined,
-		needsConfirmation = false
+		message,
 	}: Props = $props()
 	
-	$effect(() => {
-		if (needsConfirmation) {
-			console.log('[ToolExecutionDisplay] Confirmation needed for tool:', toolId)
-		}
-	})
-	
-	let isExpanded = $state(!collapsed)
+	let isExpanded = $state(message.isLoading || message.needsConfirmation)
 	let copiedParams = $state(false)
 	let copiedResult = $state(false)
 	
 	// Check if we have content to display
-	const hasParameters = $derived(parameters !== undefined && Object.keys(parameters).length > 0)
-	const hasResult = $derived(result !== undefined && result !== null)
-
+	const hasParameters = $derived(message.parameters !== undefined && Object.keys(message.parameters).length > 0)
+	const hasResult = $derived(message.result !== undefined && message.result !== null)
 	const compactMode = $derived(!hasParameters && !hasResult)
-	
+
 	// Format JSON for display and parameters
 	function formatJson(obj: any): string {
 		try {
@@ -94,18 +74,18 @@
 				{/if}
 			{/if}
 			
-			{#if isLoading}
+			{#if message.isLoading}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-			{:else if error}
+			{:else if message.error}
 				<span class="text-red-500">✗</span>
-			{:else if !isLoading && !error}
+			{:else if !message.isLoading && !message.error}
 				<span class="text-green-500">✓</span>
 			{:else}
 				<span class="text-tertiary">○</span>
 			{/if}
 			
 			<span class="text-primary font-medium text-2xs">
-				{title}
+				{message.content}
 			</span>
 		</div>
 	</button>
@@ -122,7 +102,7 @@
 							</span>
 							<button 
 								class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
-								onclick={() => copyToClipboard(formatJson(parameters), 'params')}
+								onclick={() => copyToClipboard(formatJson(message.parameters), 'params')}
 								title="Copy parameters"
 							>
 								{#if copiedParams}
@@ -133,22 +113,22 @@
 							</button>
 						</div>
 						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(parameters)}</pre>
+							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(message.parameters)}</pre>
 						</div>
 					</div>
 				{/if}
 				
 				<!-- Result Section -->
-				 {#if !needsConfirmation}
+				 {#if !message.needsConfirmation}
 				<div class="space-y-2">
 					<div class="flex items-center justify-between">
 						<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
 							Result:
 						</span>
-						{#if hasResult && !error}
+						{#if hasResult && !message.error}
 							<button 
 								class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
-								onclick={() => copyToClipboard(formatJson(result), 'result')}
+								onclick={() => copyToClipboard(formatJson(message.result), 'result')}
 								title="Copy result"
 							>
 								{#if copiedResult}
@@ -160,18 +140,18 @@
 						{/if}
 					</div>
 					
-					{#if isLoading}
+					{#if message.isLoading}
 						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
 							<Loader2 class="w-3 h-3 animate-spin" />
 							<span class="text-2xs">Executing...</span>
 						</div>
-					{:else if error}
+					{:else if message.error}
 						<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-							<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
+							<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{message.error}</pre>
 						</div>
 					{:else if hasResult}
 						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
-							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(result)}</pre>
+							<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(message.result)}</pre>
 						</div>
 					{:else}
 						<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
@@ -182,16 +162,16 @@
 				{/if}
 
 				<!-- Confirmation Footer -->
-				{#if needsConfirmation}
+				{#if message.needsConfirmation}
 					<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-row items-center justify-end gap-2">
 						<Button
 							variant="border"
 							color="red"
 							size="xs"
 							on:click={() => {
-								console.log('[ToolExecutionDisplay] Cancel clicked for tool:', toolId)
-								if (toolId) {
-									aiChatManager.handleToolConfirmation(toolId, false)
+								console.log('[ToolExecutionDisplay] Cancel clicked for tool:', message.tool_call_id)
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
 								}
 							}}
 							startIcon={{ icon: XCircle }}
@@ -202,9 +182,9 @@
 							color="blue"
 							size="xs"
 							on:click={() => {
-								console.log('[ToolExecutionDisplay] Confirm clicked for tool:', toolId)
-								if (toolId) {
-									aiChatManager.handleToolConfirmation(toolId, true)
+								console.log('[ToolExecutionDisplay] Confirm clicked for tool:', message.tool_call_id)
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
 								}
 							}}
 							startIcon={{ icon: CheckCircle }}

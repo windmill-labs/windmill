@@ -28,16 +28,11 @@ export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
 	content: string
-	toolName: string
-	description?: string
 	parameters?: any
 	result?: any
 	isLoading?: boolean
 	error?: string
-	startedAt?: number
-	completedAt?: number
 	needsConfirmation?: boolean
-	confirmationMessage?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -90,11 +85,7 @@ export async function processToolCall<T>({
 		console.log('[processToolCall] Has requestConfirmation callback:', !!toolCallbacks.requestConfirmation)
 		
 		// Check if tool requires confirmation
-		const needsConfirmation = tool?.requiresConfirmation ? 
-			(typeof tool.requiresConfirmation === 'function' 
-				? tool.requiresConfirmation(args)
-				: tool.requiresConfirmation) 
-			: false
+		const needsConfirmation = tool?.requiresConfirmation
 		
 		console.log('[processToolCall] Needs confirmation:', needsConfirmation)
 		
@@ -102,13 +93,9 @@ export async function processToolCall<T>({
 		toolCallbacks.setToolStatus(toolCall.id, 
 			needsConfirmation ? 'Waiting for confirmation...' : `Preparing ${toolCall.function.name.replace('api_', '')}...`, 
 			{
-				toolName: toolCall.function.name,
-				description: tool?.def.function.description,
 				parameters: args,
 				isLoading: true,
-				startedAt: Date.now(),
 				needsConfirmation: needsConfirmation,
-				confirmationMessage: tool?.confirmationConfig?.message
 			}
 		)
 		
@@ -121,7 +108,6 @@ export async function processToolCall<T>({
 			if (!confirmed) {
 				toolCallbacks.setToolStatus(toolCall.id, 'Cancelled by user', {
 					isLoading: false,
-					completedAt: Date.now(),
 					error: 'Tool execution was cancelled by user',
 					needsConfirmation: false
 				})
@@ -141,8 +127,8 @@ export async function processToolCall<T>({
 		
 		let result = ''
 		try {
-			// fake delay
-			await new Promise((resolve) => setTimeout(resolve, 5000))
+			// TODO: remove fake delay
+			await new Promise((resolve) => setTimeout(resolve, 1000))
 			result = await callTool({
 				tools,
 				functionName: toolCall.function.name,
@@ -184,12 +170,7 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
-	requiresConfirmation?: boolean | ((args: any) => boolean)
-	confirmationConfig?: {
-		message?: string
-		riskLevel?: 'low' | 'medium' | 'high'
-		showParameters?: boolean
-	}
+	requiresConfirmation?: boolean
 }
 
 export interface ToolCallbacks {

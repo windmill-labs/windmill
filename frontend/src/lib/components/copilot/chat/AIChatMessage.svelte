@@ -81,17 +81,7 @@
 			{#if message.role === 'assistant'}
 				<AssistantMessage {message} />
 			{:else if message.role === 'tool'}
-				{@const toolMessage = message as ToolDisplayMessage}
-				<ToolExecutionDisplay
-					title={toolMessage.content ?? 'Tool Execution'}
-					parameters={toolMessage.parameters ?? {}}
-					result={toolMessage.result}
-					isLoading={toolMessage.isLoading ?? false}
-					error={toolMessage.error}
-					collapsed={!toolMessage.isLoading && !toolMessage.needsConfirmation}
-					toolId={toolMessage.tool_call_id}
-					needsConfirmation={toolMessage.needsConfirmation ?? false}
-				/>
+				<ToolExecutionDisplay message={message as ToolDisplayMessage} />
 			{:else}
 				{message.content}
 			{/if}
