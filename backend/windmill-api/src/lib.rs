@@ -547,6 +547,18 @@ pub async fn run_server(
         (Router::new(), Option::<()>::None)
     };
 
+    let mcp_list_tools_service = {
+        #[cfg(feature = "mcp")]
+        {
+            mcp::list_tools_service()
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        {
+            Router::new()
+        }
+    };
+
     #[cfg(feature = "agent_worker_server")]
     let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
         if server_mode {
@@ -636,7 +648,7 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
                 .nest("/mcp/w/:workspace_id/sse", mcp_router)
-                .nest("/mcp/w/:workspace_id/list_tools", mcp::list_tools_service())
+                .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
