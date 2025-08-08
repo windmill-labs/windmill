@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Trigger error handlers',
+		href: 'https://www.windmill.dev/changelog/trigger-error-handlers',
+		date: '2025-07-11'
+	},
+	{
+		label: 'Email error handlers',
+		href: 'https://www.windmill.dev/changelog/email-error-handlers',
+		date: '2025-08-08'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
