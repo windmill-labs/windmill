@@ -33,6 +33,7 @@ export type ToolDisplayMessage = {
 	isLoading?: boolean
 	error?: string
 	needsConfirmation?: boolean
+	showDetails?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -77,36 +78,28 @@ export async function processToolCall<T>({
 	toolCallbacks: ToolCallbacks
 }): Promise<ChatCompletionMessageParam> {
 	try {
-		console.log('[processToolCall] Starting tool call:', toolCall.function.name, toolCall.id)
 		const args = JSON.parse(toolCall.function.arguments || '{}')
 		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-		
-		console.log('[processToolCall] Found tool:', tool?.def.function.name, 'requiresConfirmation:', tool?.requiresConfirmation)
-		console.log('[processToolCall] Has requestConfirmation callback:', !!toolCallbacks.requestConfirmation)
 		
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
 		
-		console.log('[processToolCall] Needs confirmation:', needsConfirmation)
-		
 		// Add the tool to the display with appropriate status
-		toolCallbacks.setToolStatus(toolCall.id, 
-			needsConfirmation ? 'Waiting for confirmation...' : `Preparing ${toolCall.function.name.replace('api_', '')}...`, 
-			{
-				parameters: args,
-				isLoading: true,
-				needsConfirmation: needsConfirmation,
-			}
-		)
+		toolCallbacks.setToolStatus(toolCall.id, {
+			...(needsConfirmation ? { content: 'Waiting for confirmation...' } : {}),
+			parameters: args,
+			isLoading: true,
+			needsConfirmation: needsConfirmation,
+			showDetails: tool?.showDetails
+		})
 		
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			console.log('[processToolCall] Requesting confirmation for:', toolCall.id)
 			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
-			console.log('[processToolCall] Confirmation result:', confirmed)
 			
 			if (!confirmed) {
-				toolCallbacks.setToolStatus(toolCall.id, 'Cancelled by user', {
+				toolCallbacks.setToolStatus(toolCall.id, {
+					content: 'Cancelled by user',
 					isLoading: false,
 					error: 'Tool execution was cancelled by user',
 					needsConfirmation: false
@@ -119,7 +112,7 @@ export async function processToolCall<T>({
 			}
 			
 			// Update status to executing after confirmation
-			toolCallbacks.setToolStatus(toolCall.id, `Executing ${toolCall.function.name.replace('api_', '')}...`, {
+			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: true,
 				needsConfirmation: false
 			})
@@ -127,8 +120,6 @@ export async function processToolCall<T>({
 		
 		let result = ''
 		try {
-			// TODO: remove fake delay
-			await new Promise((resolve) => setTimeout(resolve, 1000))
 			result = await callTool({
 				tools,
 				functionName: toolCall.function.name,
@@ -137,6 +128,9 @@ export async function processToolCall<T>({
 				helpers,
 				toolCallbacks,
 				toolId: toolCall.id
+			})
+			toolCallbacks.setToolStatus(toolCall.id, {
+				isLoading: false,
 			})
 		} catch (err) {
 			console.error(err)
@@ -171,10 +165,11 @@ export interface Tool<T> {
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 	requiresConfirmation?: boolean
+	showDetails?: boolean
 }
 
 export interface ToolCallbacks {
-	setToolStatus: (id: string, content: string, metadata?: Partial<ToolDisplayMessage>) => void
+	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 }
 
@@ -219,19 +214,17 @@ const searchHubScriptsToolDef = createToolDef(
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(
-			toolId,
-			'Searching for hub scripts related to "' + args.query + '"...'
-		)
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Searching for hub scripts related to "' + args.query + '"...'
+		})
 		const parsedArgs = searchHubScriptsSchema.parse(args)
 		const scripts = await ScriptService.queryHubScripts({
 			text: parsedArgs.query,
 			kind: 'script'
 		})
-		toolCallbacks.setToolStatus(
-			toolId,
-			'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
-		)
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
+		})
 		// if withContent, fetch scripts with their content, limit to 3 results
 		const results = await Promise.all(
 			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {

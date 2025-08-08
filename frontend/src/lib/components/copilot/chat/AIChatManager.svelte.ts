@@ -265,11 +265,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
 			return 'Mode changed to ' + args.mode
 		}
 	}
@@ -695,16 +695,15 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					setToolStatus: (id, content, metadata) => {
+					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)
 						if (existingIdx !== -1) {
-							// Update existing tool message with new content and metadata
+							// Update existing tool message with metadata
 							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
 							this.displayMessages[existingIdx] = {
 								...existing,
-								content,
 								...(metadata || {})
 							} as ToolDisplayMessage
 						} else {
@@ -712,7 +711,7 @@ class AIChatManager {
 							const newMessage: ToolDisplayMessage = {
 								role: 'tool', 
 								tool_call_id: id, 
-								content,
+								content: metadata?.content ?? '',
 								...(metadata || {})
 							}
 							this.displayMessages.push(newMessage)

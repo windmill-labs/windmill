@@ -633,13 +633,13 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.setToolStatus(toolId, 'Searching resource types for "' + args.query + '"...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
 		const formattedResourceTypes = await getFormattedResourceTypes(
 			helpers.getLang(),
 			args.query,
 			workspace
 		)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + args.query + '"')
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + args.query + '"' })
 		return formattedResourceTypes
 	}
 }
@@ -650,7 +650,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		if (!args.resourcePath) {
 			throw new Error('Database path not provided')
 		}
-		toolCallbacks.setToolStatus(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
 		const resource = await ResourceService.getResource({
 			workspace: workspace,
 			path: args.resourcePath
@@ -672,7 +672,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Database not found')
 		}
 		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
 		return stringSchema
 	}
 }
@@ -768,9 +768,9 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionTool = {
 export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, 'Searching for relevant packages...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const result = await searchExternalIntegrationResources(args)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return result
 	}
 }

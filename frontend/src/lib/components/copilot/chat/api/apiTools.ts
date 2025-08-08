@@ -101,6 +101,7 @@ export function createApiTools(
 		return {
 			def: chatTool,
 			requiresConfirmation: needsConfirmation,
+			showDetails: true,
 			confirmationConfig: {
 				message: `This action will ${method === 'DELETE' ? 'permanently delete' : 'modify'} data via ${method} request`,
 				riskLevel,
@@ -109,7 +110,6 @@ export function createApiTools(
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
 				const endpoint = endpointMap[toolName]
-				console.log('[apiTool] Executing tool:', toolName, 'args:', args)
 				
 				if (!endpoint) {
 					throw new Error(`No endpoint mapping found for tool ${toolName}`)
@@ -152,12 +152,8 @@ export function createApiTools(
 					// Log the constructed URL
 					console.log(`Calling API: ${endpoint.method} ${url} with args:`, args)
 
-					toolCallbacks.setToolStatus(toolId, `Calling ${toolName.replace('api_', '')}...`, {
-						toolName: toolName,
-						description: chatTool.function.description,
-						parameters: args,
-						isLoading: true,
-						startedAt: Date.now()
+					toolCallbacks.setToolStatus(toolId, {
+						content: `Calling ${toolName.replace('api_', '')}...`,
 					})
 
 					const fetchOptions: RequestInit = {
@@ -187,13 +183,9 @@ export function createApiTools(
 							success: true,
 							data: result
 						})
-						toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} completed`, {
-							toolName: toolName,
-							description: chatTool.function.description,
-							parameters: args,
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Call to ${toolName.replace('api_', '')} completed`,
 							result: jsonResult,
-							isLoading: false,
-							completedAt: Date.now()
 						})
 						return jsonResult
 					} else {
@@ -203,26 +195,18 @@ export function createApiTools(
 							error: text,
 							status: response.status
 						})
-						toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} failed`, {
-							toolName: toolName,
-							description: chatTool.function.description,
-							parameters: args,
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Call to ${toolName.replace('api_', '')} failed`,
 							result: jsonResult,
 							error: `HTTP ${response.status}: ${text}`,
-							isLoading: false,
-							completedAt: Date.now()
 						})
 						return jsonResult
 					}
 				} catch (error) {
 					const errorMessage = `Error calling API: ${error instanceof Error ? error.message : String(error)}`
-					toolCallbacks.setToolStatus(toolId, `Call to ${toolName.replace('api_', '')} failed`, {
-						toolName: toolName,
-						description: chatTool.function.description,
-						parameters: args,
+					toolCallbacks.setToolStatus(toolId, {
+						content: `Call to ${toolName.replace('api_', '')} failed`,
 						error: errorMessage,
-						isLoading: false,
-						completedAt: Date.now()
 					})
 					console.error(`Error calling API:`, error)
 					return errorMessage

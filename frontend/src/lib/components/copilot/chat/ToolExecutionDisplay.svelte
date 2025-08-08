@@ -12,14 +12,15 @@
 		message,
 	}: Props = $props()
 	
-	let isExpanded = $state(message.isLoading || message.needsConfirmation)
+	let isExpanded = $state(message.showDetails || (message.isLoading && message.needsConfirmation))
 	let copiedParams = $state(false)
 	let copiedResult = $state(false)
+
+	$inspect(message)
 	
 	// Check if we have content to display
 	const hasParameters = $derived(message.parameters !== undefined && Object.keys(message.parameters).length > 0)
 	const hasResult = $derived(message.result !== undefined && message.result !== null)
-	const compactMode = $derived(!hasParameters && !hasResult)
 
 	// Format JSON for display and parameters
 	function formatJson(obj: any): string {
@@ -63,10 +64,10 @@
 	<button 
 		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
 		onclick={() => isExpanded = !isExpanded}
-		disabled={compactMode}
+		disabled={!message.showDetails}
 	>
 		<div class="flex items-center gap-2 flex-1">
-			{#if !compactMode}
+			{#if message.showDetails}
 				{#if isExpanded}
 					<ChevronDown class="w-3 h-3 text-secondary" />
 				{:else}
