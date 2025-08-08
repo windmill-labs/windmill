@@ -768,6 +768,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       delivery_type: "push" | "pull";
       headers?: Record<string, string>;
       publish_time?: string;
+      ack_id?: string;
     }
     | {
       kind: "postgres";
@@ -934,6 +935,7 @@ class GcpEvent(TypedDict):
     delivery_type: Literal["push", "pull"]
     headers: Optional[dict[str, str]]
     publish_time: Optional[str]
+    ack_id: Optional[str]
 
 
 class PostgresEvent(TypedDict):
