@@ -2448,7 +2448,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/workspaces/edit_large_file_storage_config:
     post:
       summary: edit large file storage settings
@@ -11352,25 +11351,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /workers/exists_worker_with_tag:
+  /workers/exists_workers_with_tags:
     get:
-      summary: exists worker with tag
-      operationId: existsWorkerWithTag
+      summary: exists workers with tags
+      operationId: existsWorkersWithTags
       tags:
         - worker
       parameters:
-        - name: tag
+        - name: tags
           in: query
           required: true
+          description: comma separated list of tags
           schema:
             type: string
       responses:
         "200":
-          description: whether a worker with the tag exists
+          description: map of tags to whether at least one worker with the tag exists
           content:
             application/json:
               schema:
-                type: boolean
+                type: object
+                additionalProperties:
+                  type: boolean
 
   /workers/queue_metrics:
     get:

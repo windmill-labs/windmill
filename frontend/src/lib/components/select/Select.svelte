@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -33,7 +33,8 @@
 		onFocus,
 		onBlur,
 		onClear,
-		onCreateItem
+		onCreateItem,
+		startSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -58,6 +59,7 @@
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
+		startSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
@@ -147,5 +149,6 @@
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		{startSnippet}
 	/>
 </div>
