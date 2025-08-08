@@ -298,7 +298,9 @@ ORDER BY depth, id
     .collect_vec();
 
     jobs_to_cancel.reverse();
-    tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
+    if !jobs_to_cancel.is_empty() {
+        tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
+    }
 
     let (ntx, _) = cancel_single_job(
         username,
@@ -1934,7 +1936,7 @@ fn get_email_and_permissioned_as(
 
         (email, ERROR_HANDLER_USER_GROUP.to_string())
     };
-    
+
     res
 }
 
