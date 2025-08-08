@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
@@ -141,6 +141,9 @@ lazy_static::lazy_static! {
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
+    static ref STALE_JOB_TRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_TRESHOLD_MINUTES")
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok());
 }
 
 pub async fn initial_load(
@@ -1377,6 +1380,14 @@ pub async fn monitor_db(
         }
     };
 
+    let stale_jobs_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                stale_job_cancellation(&db).await;
+            }
+        }
+    };
+
     // run every 5 minutes
     let cleanup_concurrency_counters_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
@@ -1475,6 +1486,7 @@ pub async fn monitor_db(
     join!(
         expired_items_f,
         zombie_jobs_f,
+        stale_jobs_f,
         expose_queue_metrics_f,
         verify_license_key_f,
         worker_groups_alerts_f,
@@ -1714,6 +1726,67 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
         *l = is_secure;
     }
 
+    Ok(())
+}
+
+async fn stale_job_cancellation(db: &Pool<Postgres>) {
+    if let Some(threshold) = *STALE_JOB_TRESHOLD_MINUTES {
+        let stale_jobs = sqlx::query!(
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            threshold.to_string()
+        )
+        .fetch_all(db)
+            .await
+            .ok()
+            .unwrap_or_else(|| vec![]);
+
+        if !stale_jobs.is_empty() {
+            tracing::info!(
+                "Cancelling {} stale jobs (> {} minutes old)",
+                stale_jobs.len(),
+                threshold
+            );
+        }
+        for job in stale_jobs {
+            if let Err(e) =
+                cancel_stale_job(db, job.id, job.tag, job.workspace_id, job.scheduled_for).await
+            {
+                tracing::error!("Error cancelling stale job {}: {}", job.id, e);
+            }
+        }
+    }
+}
+
+async fn cancel_stale_job(
+    db: &Pool<Postgres>,
+    id: Uuid,
+    tag: String,
+    workspace_id: String,
+    scheduled_for: DateTime<Utc>,
+) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    tracing::error!(
+        "Stale job detected: {} in workspace {} with tag {} (scheduled for: {}) . Cancelling it.",
+        id,
+        workspace_id,
+        tag,
+        scheduled_for
+    );
+    (tx, _) = cancel_job(
+        "monitor",
+        Some(format!(
+            "Stale job cancellation (scheduled for: {})",
+            scheduled_for
+        )),
+        id,
+        &workspace_id,
+        tx,
+        db,
+        true,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
