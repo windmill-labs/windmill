@@ -18,7 +18,8 @@
 		ulClass = '',
 		header,
 		getInputRect,
-		onSelectValue
+		onSelectValue,
+		startSnippet
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -33,6 +34,7 @@
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
+		startSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
 	} = $props()
 
 	let processedItems = $derived(
@@ -137,6 +139,7 @@
 								onSelectValue(item)
 							}}
 						>
+							{@render startSnippet?.({ item })}
 							{item.label || '\xa0'}
 							{#if item.subtitle}
 								<div class="text-xs text-tertiary">{item.subtitle}</div>
