@@ -50,7 +50,7 @@ export enum AIMode {
 	FLOW = 'flow',
 	NAVIGATOR = 'navigator',
 	ASK = 'ask',
-	API = 'api'
+	API = 'API'
 }
 
 class AIChatManager {
@@ -87,15 +87,14 @@ class AIChatManager {
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
 	
-	// Confirmation mechanism state - Map of toolId to resolve callback
-	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
+	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
-		api: true
+		API: true
 	})
 
 	open = $derived(chatState.size > 0)
@@ -159,7 +158,7 @@ class AIChatManager {
 		console.log('[AIChatManager] requestConfirmation called with:', toolId)
 		return new Promise((resolve) => {
 			// Store the callback for this specific tool
-			this.confirmationCallbacks.set(toolId, resolve)
+			this.confirmationCallback = resolve
 			console.log('[AIChatManager] Confirmation callback stored for tool:', toolId)
 		})
 	}
@@ -167,10 +166,9 @@ class AIChatManager {
 	// Handle confirmation response for a specific tool
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
 		console.log('[AIChatManager] handleToolConfirmation called for tool:', toolId, 'confirmed:', confirmed)
-		const callback = this.confirmationCallbacks.get(toolId)
-		if (callback) {
-			callback(confirmed)
-			this.confirmationCallbacks.delete(toolId)
+		if (this.confirmationCallback) {
+			this.confirmationCallback(confirmed)
+			this.confirmationCallback = undefined
 			console.log('[AIChatManager] Confirmation resolved for tool:', toolId)
 		}
 	}
@@ -749,6 +747,10 @@ class AIChatManager {
 	}
 
 	cancel = () => {
+		if (this.confirmationCallback) {
+			this.confirmationCallback(false)
+			this.confirmationCallback = undefined
+		}
 		this.abortController?.abort()
 	}
 
