@@ -666,7 +666,7 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        with wmill.load_s3_file(s3object, s3_resource_path) as file_reader:
+        with wmill.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             print(file_reader.read())
         '''
         """
