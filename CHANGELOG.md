@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.522.0](https://github.com/windmill-labs/windmill/compare/v1.521.0...v1.522.0) (2025-08-08)
+
+
+### Features
+
+* add configurable stale jobs detection and cancellation ([147e697](https://github.com/windmill-labs/windmill/commit/147e6975c4b1e6c63e7b6b77c6645f8c88f0f78b))
+
 ## [1.521.0](https://github.com/windmill-labs/windmill/compare/v1.520.1...v1.521.0) (2025-08-08)
 
 
