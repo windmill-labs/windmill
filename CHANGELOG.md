@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.521.0](https://github.com/windmill-labs/windmill/compare/v1.520.1...v1.521.0) (2025-08-08)
+
+
+### Features
+
+* add instance-wide workspace prefix option for custom app ([#6180](https://github.com/windmill-labs/windmill/issues/6180)) ([414f099](https://github.com/windmill-labs/windmill/commit/414f09918856eb1d577eb7776273b6697d11e848))
+* nextcloud oauth ([#6341](https://github.com/windmill-labs/windmill/issues/6341)) ([755e334](https://github.com/windmill-labs/windmill/commit/755e3343035402b5993a516e58d03c10c47c3a00))
+* togglable manual acknowledgement for gcp trigger ([#6321](https://github.com/windmill-labs/windmill/issues/6321)) ([852bf06](https://github.com/windmill-labs/windmill/commit/852bf064dc4f640dab4248082afade6eae8bb2cc))
+
+
+### Bug Fixes
+
+* display if tag has an active workers attached to it in tag select ([2a64246](https://github.com/windmill-labs/windmill/commit/2a6424672b5ed6adb1a408ddc8acbf7d7b2221ac))
+* do not save license key when renewing if the expiry date is earlier than that of the current key ([#6346](https://github.com/windmill-labs/windmill/issues/6346)) ([5a97258](https://github.com/windmill-labs/windmill/commit/5a97258375d76164ed17f7b258fa9b3222459fe1))
+
 ## [1.520.1](https://github.com/windmill-labs/windmill/compare/v1.520.0...v1.520.1) (2025-08-07)
 
 
