@@ -180,5 +180,13 @@
       "accounting.transactions"
     ]
   },
-  "snowflake_oauth": {}
+  "snowflake_oauth": {},
+  "zoho_us": {
+    "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
+    "token_url": "https://accounts.zoho.com/oauth/v2/token",
+    "scopes": [
+      "ZohoCRM.modules.ALL",
+      "ZohoCRM.modules.attachments.ALL"
+    ]
+  },
 }
