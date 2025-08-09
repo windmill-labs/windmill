@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks } from './shared'
+import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -22,7 +22,7 @@ import {
 	prepareScriptTools
 } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
-import { loadApiTools } from './navigator/apiTools'
+import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
@@ -33,12 +33,13 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import { copilotSessionModel, type DBSchemas } from '$lib/stores'
-import { askTools, prepareAskSystemMessage } from './ask/core'
+import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { get } from 'svelte/store'
+import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -48,7 +49,8 @@ export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
 	NAVIGATOR = 'navigator',
-	ASK = 'ask'
+	ASK = 'ask',
+	API = 'API'
 }
 
 class AIChatManager {
@@ -84,12 +86,15 @@ class AIChatManager {
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
+	
+	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true,
-		ask: true
+		ask: true,
+		API: true
 	})
 
 	open = $derived(chatState.size > 0)
@@ -139,12 +144,32 @@ class AIChatManager {
 	loadApiTools = async () => {
 		try {
 			this.apiTools = await loadApiTools()
-			if (this.mode === AIMode.NAVIGATOR) {
-				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			if (this.mode === AIMode.API) {
+				this.tools = [...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
 			this.apiTools = []
+		}
+	}
+
+	// Request confirmation from user for a tool call
+	requestConfirmation = (toolId: string): Promise<boolean> => {
+		console.log('[AIChatManager] requestConfirmation called with:', toolId)
+		return new Promise((resolve) => {
+			// Store the callback for this specific tool
+			this.confirmationCallback = resolve
+			console.log('[AIChatManager] Confirmation callback stored for tool:', toolId)
+		})
+	}
+
+	// Handle confirmation response for a specific tool
+	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
+		console.log('[AIChatManager] handleToolConfirmation called for tool:', toolId, 'confirmed:', confirmed)
+		if (this.confirmationCallback) {
+			this.confirmationCallback(confirmed)
+			this.confirmationCallback = undefined
+			console.log('[AIChatManager] Confirmation resolved for tool:', toolId)
 		}
 	}
 
@@ -199,11 +224,15 @@ class AIChatManager {
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			this.systemMessage = prepareAskSystemMessage()
 			this.tools = [...askTools]
+			this.helpers = {}
+		} else if (mode === AIMode.API) {
+			this.systemMessage = prepareApiSystemMessage()
+			this.tools = [...this.apiTools]
 			this.helpers = {}
 		}
 	}
@@ -236,11 +265,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
 			return 'Mode changed to ' + args.mode
 		}
 	}
@@ -438,7 +467,6 @@ class AIChatManager {
 							const messageToAdd = await processToolCall({
 								tools,
 								toolCall,
-								messages,
 								helpers,
 								toolCallbacks: callbacks
 							})
@@ -605,14 +633,29 @@ class AIChatManager {
 			const isPreprocessor =
 				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
 
-			const userMessage =
-				this.mode === AIMode.FLOW
-					? prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
-					: this.mode === AIMode.NAVIGATOR
-						? prepareNavigatorUserMessage(oldInstructions)
-						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-								isPreprocessor
-							})
+			let userMessage: ChatCompletionMessageParam = {
+				role: 'user',
+				content: ''
+			}
+			switch (this.mode) {
+				case AIMode.FLOW:
+					userMessage = prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
+					break
+				case AIMode.NAVIGATOR:
+					userMessage = prepareNavigatorUserMessage(oldInstructions)
+					break
+				case AIMode.ASK:
+					userMessage = prepareAskUserMessage(oldInstructions)
+					break
+				case AIMode.SCRIPT:
+					userMessage = prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
+						isPreprocessor
+					})
+					break
+				case AIMode.API:
+					userMessage = prepareApiUserMessage(oldInstructions)
+					break
+			}
 
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -652,20 +695,33 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					setToolStatus: (id, content) => {
+					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)
 						if (existingIdx !== -1) {
-							this.displayMessages[existingIdx].content = content
+							// Update existing tool message with metadata
+							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
+							this.displayMessages[existingIdx] = {
+								...existing,
+								...(metadata || {})
+							} as ToolDisplayMessage
 						} else {
-							this.displayMessages.push({ role: 'tool', tool_call_id: id, content })
+							// Create new tool message with metadata
+							const newMessage: ToolDisplayMessage = {
+								role: 'tool', 
+								tool_call_id: id, 
+								content: metadata?.content ?? '',
+								...(metadata || {})
+							}
+							this.displayMessages.push(newMessage)
 						}
-					}
+					},
+					requestConfirmation: this.requestConfirmation
 				}
 			}
 
-			if (this.mode === AIMode.NAVIGATOR && this.apiTools.length === 0) {
+			if (this.mode === AIMode.API && this.apiTools.length === 0) {
 				await this.loadApiTools()
 			}
 
@@ -689,6 +745,10 @@ class AIChatManager {
 	}
 
 	cancel = () => {
+		if (this.confirmationCallback) {
+			this.confirmationCallback(false)
+			this.confirmationCallback = undefined
+		}
 		this.abortController?.abort()
 	}
 
