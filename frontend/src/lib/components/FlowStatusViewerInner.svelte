@@ -34,6 +34,7 @@
 	import { buildPrefix } from './graph/graphBuilder.svelte'
 	import { parseInputArgsAssets } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
+	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
@@ -926,6 +927,38 @@
 
 	let subflowsSize = $state(500)
 
+	async function onSelectedIteration(
+		detail:
+			| { id: string; index: number; manuallySet: true; moduleId: string }
+			| { manuallySet: false; moduleId: string }
+	) {
+		if (detail.manuallySet) {
+			let rootJobId = detail.id
+			await tick()
+
+			let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+			if (previousId) {
+				await globalRefreshes?.[detail.moduleId]?.(true, previousId)
+			}
+
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForloop: detail.id,
+				selectedForloopIndex: detail.index,
+				selectedForLoopSetManually: true
+			}
+
+			await tick()
+
+			await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
+		} else {
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForLoopSetManually: false
+			}
+		}
+	}
+
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onFlowModuleId())
 	})
@@ -1011,6 +1044,7 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab value="logs"><span class="font-semibold">Logs</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
@@ -1252,6 +1286,16 @@
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
+		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
+			<FlowLogViewerWrapper
+				{job}
+				{localModuleStates}
+				{workspaceId}
+				{render}
+				refreshLog={job.type == 'QueuedJob' || job['running']}
+				{onSelectedIteration}
+			/>
+		</div>
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}
@@ -1305,33 +1349,7 @@
 									selectedNode = e.id
 								}
 							}}
-							onSelectedIteration={async (detail) => {
-								if (detail.manuallySet) {
-									let rootJobId = detail.id
-									await tick()
-
-									let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
-									if (previousId) {
-										await globalRefreshes?.[detail.moduleId]?.(true, previousId)
-									}
-
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForloop: detail.id,
-										selectedForloopIndex: detail.index,
-										selectedForLoopSetManually: true
-									}
-
-									await tick()
-
-									await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
-								} else {
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForLoopSetManually: false
-									}
-								}
-							}}
+							{onSelectedIteration}
 							earlyStop={job.raw_flow?.skip_expr !== undefined}
 							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}
