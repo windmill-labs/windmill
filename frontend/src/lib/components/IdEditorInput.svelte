@@ -11,6 +11,7 @@
 	interface Props {
 		initialId: string
 		reservedIds?: string[]
+		reservedPrefixes?: string[]
 		label?: string
 		value?: any
 		buttonText?: string
@@ -23,6 +24,7 @@
 	let {
 		initialId,
 		reservedIds = [],
+		reservedPrefixes = [],
 		label = 'Component ID',
 		value = $bindable(initialId),
 		buttonText = '',
@@ -44,6 +46,8 @@
 			error = 'The ID must include only letters and numbers and start with a letter'
 		} else if (forbiddenIds.includes(value)) {
 			error = 'This ID is reserved'
+		} else if (reservedPrefixes.some((prefix) => value.startsWith(prefix))) {
+			error = 'This ID uses a reserved prefix'
 		} else if (reservedIds.some((rid) => rid === value)) {
 			error = 'This ID is already in use'
 		} else {
@@ -54,7 +58,7 @@
 	let inputDiv: HTMLInputElement | undefined = $state(undefined)
 
 	$effect(() => {
-		untrack(() => validateId(value, reservedIds))
+		validateId(value, reservedIds, reservedPrefixes)
 	})
 	$effect(() => {
 		inputDiv?.focus()
