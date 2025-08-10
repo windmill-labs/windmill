@@ -74,7 +74,7 @@
 			</div>
 		{:else if prefixOrId != 'bg' && !prefixOrId.startsWith('unused-')}
 			{#each $app.grid as gridItem, index (gridItem?.id)}
-				{#if gridItem?.id == prefixOrId}
+				{#if gridItem?.id == $selectedComponentInEditor}
 					<InlineScriptsPanelWithTable
 						on:createScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
@@ -90,7 +90,7 @@
 			{/each}
 			{#each Object.keys($app.subgrids ?? {}) as subgrid (subgrid)}
 				{#each $app.subgrids?.[subgrid] ?? [] as subgridItem, index (subgridItem?.id)}
-					{#if subgridItem?.id == prefixOrId && $app.subgrids?.[subgrid]}
+					{#if subgridItem?.id == $selectedComponentInEditor && $app.subgrids?.[subgrid]}
 						<InlineScriptsPanelWithTable
 							on:createScriptFromInlineScript={(e) => {
 								createScriptFromInlineScript(
@@ -107,7 +107,7 @@
 			{/each}
 		{:else if prefixOrId != 'bg' && prefixOrId.startsWith('unused-')}
 			{#each $app.unusedInlineScripts as unusedInlineScript, index}
-				{#if `unused-${index}` == prefixOrId}
+				{#if `unused-${index}` == $selectedComponentInEditor}
 					<InlineScriptEditor
 						on:createScriptFromInlineScript={() =>
 							sendUserToast('Cannot save to workspace unused scripts', true)}
