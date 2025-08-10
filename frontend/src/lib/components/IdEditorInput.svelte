@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import { ArrowRight } from 'lucide-svelte'
 	import { Button } from './common'
-	import { untrack } from 'svelte'
 	import { forbiddenIds } from './flows/idUtils'
 	import { slide } from 'svelte/transition'
 
@@ -37,7 +36,7 @@
 	let error = $state('')
 	const regex = acceptUnderScores ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
 
-	function validateId(id: string, reservedIds: string[]) {
+	function validateId(id: string, reservedIds: string[], reservedPrefixes: string[]) {
 		if (id == initialId) {
 			error = ''
 			return
