@@ -6435,7 +6435,6 @@ async fn get_job_update_data(
                 )
                 .fetch_optional(db)
                 .await?;
-                tracing::error!("q {:?}", q);
                 if let Some(r) = q {
                     (r.result.map(|x| x.0), running, r.result_stream.flatten(), r.stream_offset)
                 } else {
