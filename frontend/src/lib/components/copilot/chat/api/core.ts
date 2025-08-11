@@ -5,7 +5,7 @@ import type {
 import type { Tool } from '../shared'
 import { loadApiTools } from './apiTools'
 import { getDocumentationTool } from '../navigator/core'
-import { enterpriseLicense } from '$lib/stores'
+import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 
 export const CHAT_SYSTEM_PROMPT = `
@@ -25,7 +25,7 @@ INSTRUCTIONS:
 - If you need to make multiple related API calls to fulfill a request, do so systematically and explain what you're doing.
 - When showing lists of items, provide meaningful summaries rather than overwhelming the user with raw data.
 - If an API call fails, explain the error clearly and suggest alternatives if applicable.
-${get(enterpriseLicense) ? `- If asked to look through the jobs logs, use the /srch/w/{workspace}/index/search/job endpoint to search for the relevant jobs runs. Then use /w/{workspace}/jobs_u/get to get the logs of each job.` : ''}
+- For endpoints requiring to send a path, ask the user if he wants the path to be on a folder, or to be on its user's folder. Folder path looks like f/{folder_name}/{resource_path}, and user's folder path looks like u/${get(userStore)?.username}/{resource_path}.
 
 
 API CAPABILITIES:
