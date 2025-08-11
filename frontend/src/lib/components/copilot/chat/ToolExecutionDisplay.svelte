@@ -16,8 +16,6 @@
 	let copiedParams = $state(false)
 	let copiedResult = $state(false)
 
-	$inspect(message)
-	
 	// Check if we have content to display
 	const hasParameters = $derived(message.parameters !== undefined && Object.keys(message.parameters).length > 0)
 	const hasResult = $derived(message.result !== undefined && message.result !== null)

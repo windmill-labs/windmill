@@ -49,8 +49,8 @@ export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
 	NAVIGATOR = 'navigator',
-	ASK = 'ask',
-	API = 'API'
+	API = 'API',
+	ASK = 'ask'
 }
 
 class AIChatManager {
@@ -241,14 +241,14 @@ class AIChatManager {
 			function: {
 				name: 'change_mode',
 				description:
-					'Change the AI mode to the one specified. Script mode is used to create scripts, and flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for.',
+					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
 					properties: {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: ['script', 'flow', 'navigator']
+							enum: ['script', 'flow', 'navigator', 'API']
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -698,6 +698,9 @@ class AIChatManager {
 						if (existingIdx !== -1) {
 							// Update existing tool message with metadata
 							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
+							if (existing.content.length === 0 && metadata?.error) {
+								this.displayMessages[existingIdx].content = metadata.error
+							}
 							this.displayMessages[existingIdx] = {
 								...existing,
 								...(metadata || {})
@@ -707,7 +710,7 @@ class AIChatManager {
 							const newMessage: ToolDisplayMessage = {
 								role: 'tool', 
 								tool_call_id: id, 
-								content: metadata?.content ?? '',
+								content: metadata?.content ?? metadata?.error ?? '',
 								...(metadata || {})
 							}
 							this.displayMessages.push(newMessage)

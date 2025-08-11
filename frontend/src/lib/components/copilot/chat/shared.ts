@@ -61,7 +61,7 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
-		throw new Error(`Unknown tool call: ${functionName}`)
+		throw new Error(`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`)
 	}
 	return tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
 }
@@ -138,8 +138,9 @@ export async function processToolCall<T>({
 				isLoading: false,
 				error: 'An error occurred while calling the tool'
 			})
+			const errorMessage = typeof err === 'string' ? err : 'An error occurred while calling the tool'
 			result =
-				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+				`Error while calling tool: ${errorMessage}, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request`
 		}
 		const toAdd = {
 			role: 'tool' as const,
