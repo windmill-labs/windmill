@@ -188,7 +188,7 @@
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
-								<b>Flow</b>
+								{flowId === 'root' ? 'Flow' : 'Subflow'}
 								{#if flowData.label}
 									: {flowData.label}
 								{/if}
@@ -316,7 +316,7 @@
 															{:else if entry.stepType === 'branchone'}
 																Branch to one
 															{:else if entry.stepType === 'flow'}
-																Flow
+																Subflow
 															{:else}
 																Step
 															{/if}
