@@ -252,6 +252,10 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -289,6 +293,8 @@ pub struct EditAutoInvite {
     pub operator: Option<bool>,
     pub invite_all: Option<bool>,
     pub auto_add: Option<bool>,
+    pub auto_add_instance_groups: Option<Vec<String>>,
+    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -462,7 +468,7 @@ async fn get_settings(
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         r#"
-        SELECT 
+        SELECT
             workspace_id,
             slack_team_id,
             teams_team_id,
@@ -491,10 +497,12 @@ async fn get_settings(
             mute_critical_alerts,
             color,
             operator_settings,
-            git_app_installations
-        FROM 
+            git_app_installations,
+            auto_add_instance_groups,
+            auto_add_instance_groups_roles
+        FROM
             workspace_settings
-        WHERE 
+        WHERE
             workspace_id = $1
         "#,
         &w_id
@@ -1716,13 +1724,13 @@ async fn edit_error_handler(
 
         sqlx::query!(
             r#"
-            UPDATE 
+            UPDATE
                 workspace_settings
             SET
                 error_handler = $1,
                 error_handler_extra_args = $2,
                 error_handler_muted_on_cancel = $3
-            WHERE 
+            WHERE
                 workspace_id = $4
             "#,
             error_handler,
@@ -1735,13 +1743,13 @@ async fn edit_error_handler(
     } else {
         sqlx::query!(
             r#"
-            UPDATE 
+            UPDATE
                 workspace_settings
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
                 error_handler_muted_on_cancel = NULL
-            WHERE 
+            WHERE
                 workspace_id = $1
         "#,
             &w_id
