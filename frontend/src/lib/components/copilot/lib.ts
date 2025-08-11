@@ -96,7 +96,9 @@ export async function fetchAvailableModels(
 }
 
 function getModelMaxTokens(model: string) {
-	if (model.startsWith('gpt-4.1')) {
+	if (model.startsWith('gpt-5')) {
+		return 128000
+	} else if (model.startsWith('gpt-4.1')) {
 		return 32768
 	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
@@ -109,6 +111,8 @@ function getModelMaxTokens(model: string) {
 export function getModelContextWindow(model: string) {
 	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
 		return 1000000
+	} else if (model.startsWith('gpt-5')) {
+		return 400000
 	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
 		return 128000
 	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
@@ -126,7 +130,7 @@ function getModelSpecificConfig(
 ) {
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		modelProvider.model.startsWith('o')
+		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
 	) {
 		return {
 			model: modelProvider.model,
