@@ -792,6 +792,7 @@ class AIChatManager {
 	}
 
 	saveAndClear = async () => {
+		this.cancel()
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []
 		this.messages = []
