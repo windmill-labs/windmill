@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, process::Stdio, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
