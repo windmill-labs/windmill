@@ -94,19 +94,11 @@ export function createApiTools(
 		
 		// Determine if tool needs confirmation based on method
 		const needsConfirmation = ['DELETE', 'POST', 'PUT', 'PATCH'].includes(method)
-		const riskLevel = method === 'DELETE' ? 'high' : ['POST', 'PUT', 'PATCH'].includes(method) ? 'medium' : 'low'
-		
-		console.log('[createApiTools] Creating tool:', toolName, 'method:', method, 'needsConfirmation:', needsConfirmation, 'riskLevel:', riskLevel)
 		
 		return {
 			def: chatTool,
 			requiresConfirmation: needsConfirmation,
 			showDetails: true,
-			confirmationConfig: {
-				message: `This action will ${method === 'DELETE' ? 'permanently delete' : 'modify'} data via ${method} request`,
-				riskLevel,
-				showParameters: true
-			},
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
 				const endpoint = endpointMap[toolName]
@@ -149,9 +141,6 @@ export function createApiTools(
 						url += `?${searchParams.toString()}`
 					}
 
-					// Log the constructed URL
-					console.log(`Calling API: ${endpoint.method} ${url} with args:`, args)
-
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Calling ${toolName}...`,
 					})
@@ -167,8 +156,6 @@ export function createApiTools(
 						}
 						fetchOptions.body = JSON.stringify(requestBody)
 					}
-
-					console.log('fetchOptions', fetchOptions)
 
 					const response = await fetch(url, fetchOptions)
 
@@ -222,8 +209,6 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 		const endpointTools = await McpService.listMcpTools({
 			workspace: get(workspaceStore) as string
 		})
-		
-		console.log('Loaded MCP tools:', endpointTools.length, 'tools')
 		
 		// Build tools from the endpoint definitions
 		const { tools: apiTools, endpointMap } = buildToolsFromEndpoints(endpointTools)

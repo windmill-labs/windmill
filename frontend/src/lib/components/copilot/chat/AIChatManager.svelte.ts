@@ -155,21 +155,17 @@ class AIChatManager {
 
 	// Request confirmation from user for a tool call
 	requestConfirmation = (toolId: string): Promise<boolean> => {
-		console.log('[AIChatManager] requestConfirmation called with:', toolId)
 		return new Promise((resolve) => {
 			// Store the callback for this specific tool
 			this.confirmationCallback = resolve
-			console.log('[AIChatManager] Confirmation callback stored for tool:', toolId)
 		})
 	}
 
 	// Handle confirmation response for a specific tool
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
-		console.log('[AIChatManager] handleToolConfirmation called for tool:', toolId, 'confirmed:', confirmed)
 		if (this.confirmationCallback) {
 			this.confirmationCallback(confirmed)
 			this.confirmationCallback = undefined
-			console.log('[AIChatManager] Confirmation resolved for tool:', toolId)
 		}
 	}
 

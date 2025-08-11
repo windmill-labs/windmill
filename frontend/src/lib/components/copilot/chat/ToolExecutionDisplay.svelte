@@ -170,7 +170,7 @@
 							color="red"
 							size="xs"
 							on:click={() => {
-								console.log('[ToolExecutionDisplay] Cancel clicked for tool:', message.tool_call_id)
+								ToolExecutionDisplay] Cancel clicked for tool:', message.tool_call_id)
 								if (message.tool_call_id) {
 									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
 								}
@@ -183,7 +183,6 @@
 							color="blue"
 							size="xs"
 							on:click={() => {
-								console.log('[ToolExecutionDisplay] Confirm clicked for tool:', message.tool_call_id)
 								if (message.tool_call_id) {
 									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
 								}
