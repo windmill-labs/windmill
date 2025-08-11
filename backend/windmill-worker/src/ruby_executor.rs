@@ -35,6 +35,13 @@ lazy_static::lazy_static! {
     static ref RUBY_PATH: String = std::env::var("RUBY_PATH").unwrap_or_else(|_| "/usr/bin/ruby".to_string());
     static ref BUNDLE_PATH: String = std::env::var("RUBY_BUNDLE_PATH").unwrap_or_else(|_| "/usr/bin/bundle".to_string());
     static ref GEM_PATH: String = std::env::var("RUBY_GEM_PATH").unwrap_or_else(|_| "/usr/bin/gem".to_string());
+    static ref RUBY_PROXY_ENVS: Vec<(String, String)> = {
+        PROXY_ENVS
+            .clone()
+            .into_iter()
+            .map(|(k, v)| (k.to_lowercase(), v))
+            .collect()
+    };
 }
 
 const NSJAIL_CONFIG_RUN_RUBY_CONTENT: &str = include_str!("../nsjail/run.ruby.config.proto");
@@ -265,6 +272,7 @@ end
     }
     Ok(())
 }
+
 pub async fn resolve<'a>(
     job_id: &Uuid,
     inner_content: &str,
@@ -346,7 +354,7 @@ Your Gemfile syntax will continue to work as-is."
                 // This way we keep everything clean, organized and maintable
                 ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
             ])
-            .envs(PROXY_ENVS.clone());
+            .envs(RUBY_PROXY_ENVS.clone());
 
         for repo in RUBY_REPOS.read().await.clone().unwrap_or_default() {
             if let (Some(url), usr, Some(passwd)) =
@@ -621,7 +629,7 @@ async fn install<'a>(
                     // This way we keep everything clean, organized and maintable
                     ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
                 ])
-                .envs(PROXY_ENVS.clone());
+                .envs(RUBY_PROXY_ENVS.clone());
 
             // Figure out source
             let source = {
@@ -779,6 +787,7 @@ mount {{
             .env("RUBYLIB", rubylib.as_str())
             .envs(envs)
             .envs(reserved_variables)
+            .envs(RUBY_PROXY_ENVS.clone())
             .envs(PROXY_ENVS.clone())
             .args(vec![
                 "--config",
@@ -787,32 +796,6 @@ mount {{
                 RUBY_PATH.as_str(),
                 "main.rb",
             ]);
-        // if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
-        //     cmd.args(&[
-        //         &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
-        //         &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
-        //     ]);
-        // }
-        // Configure proxies
-        // {
-        //     let jps = parse_proxy()?;
-        //     if let Some(val) = jps.https_host {
-        //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.https_port {
-        //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.http_host {
-        //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.http_port {
-        //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.no_proxy {
-        //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
-        //     }
-        // }
-        // cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         start_child_process(cmd, NSJAIL_PATH.as_str()).await?
@@ -840,26 +823,10 @@ mount {{
             .env("RUBYLIB", rubylib.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
+            .envs(RUBY_PROXY_ENVS.clone())
+            .envs(PROXY_ENVS.clone())
             .envs(envs);
-        // Configure proxies
-        // {
-        //     let jps = parse_proxy()?;
-        //     if let Some(val) = jps.https_host {
-        //         cmd.arg(&format!("-Dhttps.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.https_port {
-        //         cmd.arg(&format!("-Dhttps.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.http_host {
-        //         cmd.arg(&format!("-Dhttp.proxyHost={}", val));
-        //     }
-        //     if let Some(val) = jps.http_port {
-        //         cmd.arg(&format!("-Dhttp.proxyPort={}", val));
-        //     }
-        //     if let Some(val) = jps.no_proxy {
-        //         cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
-        //     }
-        // };
+
         cmd.args(&["main.rb"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
