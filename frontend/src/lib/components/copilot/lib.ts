@@ -95,9 +95,11 @@ export async function fetchAvailableModels(
 	return data?.data.map((m) => m.id) ?? []
 }
 
-function getModelMaxTokens(model: string) {
+function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.startsWith('gpt-5')) {
 		return 128000
+	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+		return 100000
 	} else if (model.startsWith('gpt-4.1')) {
 		return 32768
 	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
@@ -135,7 +137,7 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: getModelMaxTokens(modelProvider.model)
+			max_completion_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
 		}
 	} else {
 		return {
@@ -152,7 +154,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_tokens: getModelMaxTokens(modelProvider.model)
+			max_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
 		}
 	}
 }
