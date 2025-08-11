@@ -10,6 +10,7 @@ export interface FlowData {
 	success?: boolean
 	label?: string
 	emptyFlow?: boolean
+	flow_status?: { step?: number }
 }
 
 export interface StepData {

@@ -160,7 +160,8 @@
 			logs: rootJob.logs || '',
 			steps,
 			status: rootJob.type,
-			label: flowLabel
+			label: flowLabel,
+			flow_status: 'flow_status' in rootJob ? rootJob.flow_status : undefined
 		}
 	}
 

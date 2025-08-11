@@ -121,6 +121,28 @@
 		}
 	}
 
+	function getStepProgress(flowData: FlowData): string {
+		const totalSteps = flowData.steps.length
+		if (totalSteps === 0) return ''
+
+		// If flow is completed, show total steps
+		if (flowData.status === 'CompletedJob') {
+			return ` (${totalSteps} step${totalSteps === 1 ? '' : 's'})`
+		}
+
+		// If flow is running, use flow_status.step if available (like JobStatus.svelte)
+		if (flowData.status === 'QueuedJob') {
+			if (flowData.flow_status?.step !== undefined) {
+				const currentStep = (flowData.flow_status.step ?? 0) + 1
+				return ` (step ${currentStep} of ${totalSteps})`
+			}
+
+			return ''
+		}
+
+		return ''
+	}
+
 	function isExpanded(id: string, isRunning: boolean = false): boolean {
 		// If explicitly set in expandedRows, use that value
 		// Otherwise, fall back to allExpanded
@@ -192,6 +214,7 @@
 								{#if flowData.label}
 									: {flowData.label}
 								{/if}
+								<span class="text-tertiary">{getStepProgress(flowData)}</span>
 							</span>
 						</div>
 					</div>
@@ -538,7 +561,7 @@
 	</ul>
 {/if}
 
-{#snippet flowIcon(status)}
+{#snippet flowIcon(status: FlowStatusModule['type'] | undefined)}
 	{@const colorClass = getStatusColor(status)}
 	<BarsStaggered
 		size={10}
@@ -546,7 +569,7 @@
 	/>
 {/snippet}
 
-{#snippet stepIcon(stepType, status)}
+{#snippet stepIcon(stepType: string | undefined, status: FlowStatusModule['type'] | undefined)}
 	{@const colorClass = getStatusColor(status)}
 	{@const animationClass = status === 'InProgress' ? 'animate-pulse' : ''}
 	{@const classes = `${colorClass} ${animationClass} flex-shrink-0`}
