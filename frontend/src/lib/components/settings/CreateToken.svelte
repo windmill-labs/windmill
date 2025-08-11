@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { IntegrationService, UserService, type NewToken } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
+	import { FlowService, IntegrationService, ScriptService, UserService, type NewToken } from '$lib/gen'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopeSelector from './ScopeSelector.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -18,7 +18,7 @@
 		newTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
-		onTokenCreated?: (token: string) => void
+		onTokenCreated: (token: string) => void
 		displayCreateToken?: boolean
 	}
 
@@ -40,11 +40,13 @@
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
 	let allApps = $state<string[]>([])
+	let loadingRunnables = $state(false)
+	let includedRunnables = $state<string[]>([])
+	
+	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
-
-	const dispatch = createEventDispatcher()
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -92,10 +94,7 @@
 				newToken = `${createdToken}`
 			}
 
-			dispatch('tokenCreated', newToken ?? newMcpToken)
-			if (onTokenCreated) {
-				onTokenCreated(newToken ?? newMcpToken ?? '')
-			}
+			onTokenCreated(newToken ?? newMcpToken ?? '')
 			mcpCreationMode = false
 		} catch (err) {
 			console.error('Failed to create token:', err)
@@ -104,6 +103,8 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+	const warning = $derived(newMcpScope === 'favorites' ? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.` : 'Create your first scripts or flows to make them available via MCP.')
+	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
 
 	$effect(() => {
 		if (mcpCreationMode) {
@@ -132,6 +133,57 @@
 			loadingApps = false
 		}
 	}
+
+	async function getScripts(favoriteOnly: boolean = false, workspace: string) {
+		if (!workspace) {
+			return []
+		}
+		const scripts = await ScriptService.listScripts({
+			starredOnly: favoriteOnly,
+			workspace
+		})
+		return scripts.map((x) => x.path)
+	}
+
+	async function getFlows(favoriteOnly: boolean = false, workspace: string) {
+		if (!workspace) {
+			return []
+		}
+		const flows = await FlowService.listFlows({
+			starredOnly: favoriteOnly,
+			workspace
+		})
+		return flows.map((x) => x.path)
+	}
+
+	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string) {
+		const cacheKey = `${workspace}-${favoriteOnly}`
+		if (runnablesCache.has(cacheKey)) {
+			includedRunnables = runnablesCache.get(cacheKey) || []
+			return
+		}
+
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace), getFlows(favoriteOnly, workspace)])
+			const combined = [...scripts, ...flows]
+			runnablesCache.set(cacheKey, combined)
+			includedRunnables = combined
+		} finally {
+			loadingRunnables = false
+		}
+	}
+
+	$effect(() => {
+		if (mcpCreationMode) {
+			const workspace = newTokenWorkspace || $workspaceStore
+			if (workspace) {
+				getScriptsAndFlows(newMcpScope === 'favorites', workspace)
+			}
+		} else {
+			includedRunnables = []
+		}
+	})
 </script>
 
 <div>
@@ -269,7 +321,44 @@
 						<option value={90 * 24 * 60 * 60}>90d</option>
 					</select>
 				</div>
+			{:else if loadingRunnables}
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+					<div class="flex flex-wrap gap-1">
+						<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
+					</div>
+				</div>
+			{:else}
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					{#if noScriptsOrFlowsAvailableWarning}
+					<Alert type="info" title="No scripts or flows available" size="xs">
+						{noScriptsOrFlowsAvailableWarning}
+					</Alert>
+					{:else}
+						<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+						<div class="flex flex-wrap gap-1">
+
+						{#if includedRunnables.length <= 5}
+							{#each includedRunnables as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+						{:else}
+							{#each includedRunnables.slice(0, 3) as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+							<Badge 
+								rounded 
+								small 
+								color="dark-gray" 
+							>
+								+{includedRunnables.length - 3} more
+							</Badge>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			{/if}
+
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -290,10 +379,10 @@
 	</div>
 
 	{#if newToken}
-		<TokenDisplay token={newToken} type="token" />
+		<TokenDisplay token={newToken} />
 	{/if}
 
 	{#if newMcpToken}
-		<TokenDisplay token={newMcpToken} type="mcp" mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
 	{/if}
 </div>

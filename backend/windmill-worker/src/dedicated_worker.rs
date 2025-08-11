@@ -126,7 +126,7 @@ pub async fn handle_dedicated_process(
         let status = Box::into_pin(child.wait())
             .await
             .expect("child process encountered an error");
-        if let Err(e) = process_status(&cmd_name, status) {
+        if let Err(e) = process_status(&cmd_name, status, vec![]) {
             tracing::error!("child exit status was not success: {e:#}");
         } else {
             tracing::info!("child exit status was success");

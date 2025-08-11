@@ -28,7 +28,7 @@ use crate::{db::ApiAuthed, utils::require_super_admin};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_worker_pings))
-        .route("/exists_worker_with_tag", get(exists_worker_with_tag))
+        .route("/exists_workers_with_tags", get(exists_workers_with_tags))
         .route("/custom_tags", get(get_custom_tags))
         .route(
             "/is_default_tags_per_workspace",
@@ -113,24 +113,38 @@ async fn list_worker_pings(
 }
 
 #[derive(Serialize, Deserialize)]
-struct TagQuery {
-    tag: String,
+struct TagsQuery {
+    tags: String,
 }
 
-async fn exists_worker_with_tag(
+async fn exists_workers_with_tags(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Query(tag_query): Query<TagQuery>,
-) -> JsonResult<bool> {
+    Query(tags_query): Query<TagsQuery>,
+) -> JsonResult<std::collections::HashMap<String, bool>> {
     let mut tx = user_db.begin(&authed).await?;
-    let row = sqlx::query!(
-        "SELECT EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> $1 AND ping_at > now() - interval '1 minute')",
-        &[tag_query.tag]
+    let mut result = std::collections::HashMap::new();
+
+    // Create a query that checks all tags at once using unnest
+    let tags = tags_query
+        .tags
+        .split(',')
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
+    let rows = sqlx::query!(
+        "SELECT tag::text, EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> ARRAY[tag] AND ping_at > now() - interval '1 minute') as exists
+         FROM unnest($1::text[]) as tag",
+        tags.as_slice()
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+
+    for row in rows {
+        result.insert(row.tag.unwrap_or_default(), row.exists.unwrap_or(false));
+    }
+
     tx.commit().await?;
-    Ok(Json(row.exists.unwrap_or(false)))
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]

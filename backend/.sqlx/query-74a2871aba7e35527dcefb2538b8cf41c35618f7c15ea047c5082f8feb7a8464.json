@@ -14,7 +14,8 @@
               "Enum": [
                 "s3object",
                 "resource",
-                "variable"
+                "variable",
+                "ducklake"
               ]
             }
           }

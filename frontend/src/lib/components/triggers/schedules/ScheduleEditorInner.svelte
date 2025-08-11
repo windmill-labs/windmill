@@ -18,7 +18,8 @@
 		type Flow,
 		SettingService,
 		type Retry,
-		type Schedule
+		type Schedule,
+		type ErrorHandler
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
@@ -66,14 +67,14 @@
 	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
 	let errorHandlerPath: string | undefined = $state(undefined)
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let recoveryHandlerPath: string | undefined = $state(undefined)
-	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let recoveryHandlerSelected: ErrorHandler = $state('slack')
 	let recoveryHandlerItemKind: 'flow' | 'script' = $state('script')
 	let recoveryHandlerExtraArgs: Record<string, any> = $state({})
 	let successHandlerPath: string | undefined = $state(undefined)
-	let successHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let successHandlerSelected: ErrorHandler = $state('slack')
 	let successHandlerItemKind: 'flow' | 'script' = $state('script')
 	let successHandlerExtraArgs: Record<string, any> = $state({})
 	let failedTimes = $state(1)
@@ -515,7 +516,7 @@
 	function getHandlerType(
 		isHandler: 'error' | 'recovery' | 'success',
 		scriptPath: string
-	): 'custom' | 'slack' | 'teams' {
+	): ErrorHandler {
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
@@ -533,7 +534,7 @@
 
 		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
 			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as 'custom' | 'slack' | 'teams'
+				return type as ErrorHandler
 			}
 		}
 		return 'custom'

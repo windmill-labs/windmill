@@ -644,35 +644,34 @@ pub async fn list_mqtt_triggers(
 ) -> error::JsonResult<Vec<MqttTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("mqtt_trigger")
-        .fields(&[
-            "mqtt_resource_path",
-            "subscribe_topics",
-            "v3_config",
-            "v5_config",
-            "client_version",
-            "client_id",
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "server_id",
-            "last_server_ping",
-            "extra_perms",
-            "error",
-            "enabled",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ])
-        .order_by("edited_at", true)
-        .and_where("workspace_id = ?".bind(&w_id))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("mqtt_trigger");
+    sqlb.fields(&[
+        "mqtt_resource_path",
+        "subscribe_topics",
+        "v3_config",
+        "v5_config",
+        "client_version",
+        "client_id",
+        "workspace_id",
+        "path",
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "server_id",
+        "last_server_ping",
+        "extra_perms",
+        "error",
+        "enabled",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+    ])
+    .order_by("edited_at", true)
+    .and_where("workspace_id = ?".bind(&w_id))
+    .offset(offset)
+    .limit(per_page);
     if let Some(path) = lst.path {
         sqlb.and_where_eq("script_path", "?".bind(&path));
     }
@@ -760,7 +759,9 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    check_scopes(&authed, || format!("mqtt_triggers:write:{}", workspace_path))?;
+    check_scopes(&authed, || {
+        format!("mqtt_triggers:write:{}", workspace_path)
+    })?;
 
     let EditMqttTrigger {
         mqtt_resource_path,

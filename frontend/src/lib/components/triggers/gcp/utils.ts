@@ -30,6 +30,7 @@ export async function saveGcpTriggerFromCfg(
 			script_path: cfg.script_path,
 			enabled: cfg.enabled,
 			is_flow: cfg.is_flow,
+			auto_acknowledge_msg: cfg.auto_acknowledge_msg,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

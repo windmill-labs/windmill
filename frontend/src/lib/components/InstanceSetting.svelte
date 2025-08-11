@@ -84,6 +84,12 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
+	async function reloadLicenseKey() {
+		$values['license_key'] = await SettingService.getGlobal({
+			key: 'license_key'
+		})
+	}
+
 	if (setting.key == 'license_key') {
 		reloadKeyrenewalAttemptInfo()
 	}
@@ -95,11 +101,11 @@
 				licenseKey: $values['license_key'] || undefined
 			})
 			sendUserToast('Key renewal successful')
-			reloadKeyrenewalAttemptInfo()
+			reloadLicenseKey()
 		} catch (err) {
-			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 			throw err
 		} finally {
+			reloadKeyrenewalAttemptInfo()
 			renewing = false
 		}
 	}

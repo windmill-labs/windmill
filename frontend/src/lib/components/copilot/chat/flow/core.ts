@@ -344,20 +344,18 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Searching for workspace scripts related to "' + args.query + '"...'
-			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Searching for workspace scripts related to "' + args.query + '"...'
+			})
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Found ' +
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Found ' +
 					scriptResults.length +
 					' scripts in the workspace related to "' +
 					args.query +
 					'"'
-			)
+			})
 			return JSON.stringify(scriptResults)
 		}
 	},
@@ -365,9 +363,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: addStepToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = addStepSchema.parse(args)
-			toolCallbacks.setToolStatus(
-				toolId,
-				parsedArgs.location.type === 'after'
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsedArgs.location.type === 'after'
 					? `Adding a step after step '${parsedArgs.location.afterId}'`
 					: parsedArgs.location.type === 'start'
 						? 'Adding a step at the start'
@@ -380,11 +377,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 									: parsedArgs.location.type === 'failure'
 										? 'Adding a failure step'
 										: 'Adding a step'
-			)
+			})
 			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
 			helpers.selectStep(id)
 
-			toolCallbacks.setToolStatus(toolId, `Added step '${id}'`)
+			toolCallbacks.setToolStatus(toolId, { content: `Added step '${id}'` })
 
 			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
 		}
@@ -392,52 +389,52 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: removeStepToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, `Removing step ${args.id}...`)
+			toolCallbacks.setToolStatus(toolId, { content: `Removing step ${args.id}...` })
 			const parsedArgs = removeStepSchema.parse(args)
 			helpers.removeStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Removed step '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, { content: `Removed step '${parsedArgs.id}'` })
 			return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
 		}
 	},
 	{
 		def: getStepInputsToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, `Getting step ${args.id} inputs...`)
+			toolCallbacks.setToolStatus(toolId, { content: `Getting step ${args.id} inputs...` })
 			const parsedArgs = getStepInputsSchema.parse(args)
 			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Retrieved step '${parsedArgs.id}' inputs`)
+			toolCallbacks.setToolStatus(toolId, { content: `Retrieved step '${parsedArgs.id}' inputs` })
 			return YAML.stringify(inputs)
 		}
 	},
 	{
 		def: setStepInputsToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, `Setting step ${args.id} inputs...`)
+			toolCallbacks.setToolStatus(toolId, { content: `Setting step ${args.id} inputs...` })
 			const parsedArgs = setStepInputsSchema.parse(args)
 			await helpers.setStepInputs(parsedArgs.id, parsedArgs.inputs)
 			helpers.selectStep(parsedArgs.id)
 			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Set step '${parsedArgs.id}' inputs`)
+			toolCallbacks.setToolStatus(toolId, { content: `Set step '${parsedArgs.id}' inputs` })
 			return `Step '${parsedArgs.id}' inputs set. New inputs:\n${YAML.stringify(inputs)}`
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, 'Setting step inputs...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting step inputs...' })
 		}
 	},
 	{
 		def: setFlowInputsSchemaToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, 'Setting flow inputs schema...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
 			const parsedArgs = setFlowInputsSchemaSchema.parse(args)
 			const schema = JSON.parse(parsedArgs.schema)
 			await helpers.setFlowInputsSchema(schema)
 			helpers.selectStep('Input')
 			const updatedSchema = await helpers.getFlowInputsSchema()
-			toolCallbacks.setToolStatus(toolId, 'Set flow inputs schema')
+			toolCallbacks.setToolStatus(toolId, { content: 'Set flow inputs schema' })
 			return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, 'Setting flow inputs schema...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
 		}
 	},
 	{
@@ -448,10 +445,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				allowResourcesFetch: true,
 				isPreprocessor: parsedArgs.id === 'preprocessor'
 			})
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Retrieved instructions for code generation in ' + parsedArgs.language
-			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
+			})
 			return langContext
 		}
 	},
@@ -459,14 +455,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: setCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, `Setting code for step '${parsedArgs.id}'...`)
+			toolCallbacks.setToolStatus(toolId, { content: `Setting code for step '${parsedArgs.id}'...` })
 			await helpers.setCode(parsedArgs.id, parsedArgs.code)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Set code for step '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, { content: `Set code for step '${parsedArgs.id}'` })
 			return `Step code set`
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, 'Setting code for step...')
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting code for step...' })
 		}
 	},
 	{
@@ -475,10 +471,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = setBranchPredicateSchema.parse(args)
 			await helpers.setBranchPredicate(parsedArgs.id, parsedArgs.branchIndex, parsedArgs.expression)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(
-				toolId,
-				`Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
+			})
 			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' predicate set`
 		}
 	},
@@ -488,7 +483,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = addBranchSchema.parse(args)
 			await helpers.addBranch(parsedArgs.id)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Added branch to '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, { content: `Added branch to '${parsedArgs.id}'` })
 			return `Branch added to '${parsedArgs.id}'`
 		}
 	},
@@ -498,10 +493,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = removeBranchSchema.parse(args)
 			await helpers.removeBranch(parsedArgs.id, parsedArgs.branchIndex)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(
-				toolId,
-				`Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
+			})
 			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' removed`
 		}
 	},
@@ -511,7 +505,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
 			await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, `Set forloop '${parsedArgs.id}' iterator expression`)
+			toolCallbacks.setToolStatus(toolId, { content: `Set forloop '${parsedArgs.id}' iterator expression` })
 			return `Forloop '${parsedArgs.id}' iterator expression set`
 		}
 	},
@@ -519,16 +513,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
-			toolCallbacks.setToolStatus(
-				toolId,
-				'Searching resource types for "' + parsedArgs.query + '"...'
-			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Searching resource types for "' + parsedArgs.query + '"...'
+			})
 			const formattedResourceTypes = await getFormattedResourceTypes(
 				parsedArgs.language,
 				parsedArgs.query,
 				workspace
 			)
-			toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + parsedArgs.query + '"')
+			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + parsedArgs.query + '"' })
 			return formattedResourceTypes
 		}
 	}

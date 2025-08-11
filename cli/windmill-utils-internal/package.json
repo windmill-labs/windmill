@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "./gen_wm_client.sh && tsc",
-    "build-mac": "./gen_wm_client-mac.sh && tsc",
+    "dev": "./gen_wm_client.sh && ./remove-ts-ext.sh",
+    "build": "./gen_wm_client.sh && ./remove-ts-ext.sh && tsc",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -15,7 +15,7 @@
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
-    "@types/node": "^24.1.0",
+    "@types/node": "^24.2.0",
     "typescript": "^5.0.0"
   },
   "files": [

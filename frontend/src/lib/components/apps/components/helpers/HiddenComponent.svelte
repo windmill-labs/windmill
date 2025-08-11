@@ -18,7 +18,6 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let result: any = $state(noBackend ? runnable.noBackendValue : undefined)
-
 	export function onSuccess() {
 		if (runnable.recomputeIds) {
 			runnable.recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb()))
@@ -40,7 +39,6 @@
 
 {#if runnable && (runnable.type == 'runnableByPath' || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined))}
 	<RunnableComponent
-		hasChildrens={false}
 		render={false}
 		{id}
 		fields={runnable.fields}

@@ -98,6 +98,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
           allowed_tools: "mcp__github__create_pull_request,Bash"
+          allowed_bots: "windmill-internal-app[bot]"
           custom_instructions: |
             ## IMPORTANT INSTRUCTIONS
             - Your branch name should be a short description of the requested changes.
