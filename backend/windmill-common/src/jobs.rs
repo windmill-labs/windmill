@@ -28,6 +28,42 @@ use crate::{
     FlowVersionInfo, ScriptHashInfo,
 };
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Mqtt,
+    Sqs,
+    Postgres,
+    Schedule,
+    Gcp,
+}
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            JobTriggerKind::Webhook => "webhook",
+            JobTriggerKind::Http => "http",
+            JobTriggerKind::Websocket => "websocket",
+            JobTriggerKind::Kafka => "kafka",
+            JobTriggerKind::Email => "email",
+            JobTriggerKind::Nats => "nats",
+            JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Sqs => "sqs",
+            JobTriggerKind::Postgres => "postgres",
+            JobTriggerKind::Schedule => "schedule",
+            JobTriggerKind::Gcp => "gcp",
+        };
+        write!(f, "{}", kind)
+    }
+}
+
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]

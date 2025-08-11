@@ -70,6 +70,8 @@ bytes.workspace = true
 mail-send = { workspace = true, optional = true }
 futures-core.workspace = true
 async-stream.workspace = true
+async-trait.workspace = true
+sql-builder.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
