@@ -6,7 +6,9 @@
 		Repeat,
 		Code,
 		ArrowDownToLine,
-		ArrowDownFromLine
+		ArrowDownFromLine,
+		FoldVertical,
+		UnfoldVertical
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
@@ -162,7 +164,11 @@
 	{#if level === 0 && toggleExpandAll}
 		<div class="flex justify-end gap-4 items-center p-2 bg-surface-secondary border-b">
 			<div class="flex items-center gap-2 whitespace-nowrap">
-				<label for="showResultsInputs" class="text-xs text-tertiary">Show inputs/results</label>
+				<label
+					for="showResultsInputs"
+					class="text-xs text-tertiary hover:text-primary transition-colors"
+					>Show inputs/results</label
+				>
 				<div class="flex-shrink-0">
 					<input
 						type="checkbox"
@@ -175,9 +181,14 @@
 			</div>
 			<button
 				onclick={toggleExpandAll}
-				class="text-xs text-tertiary hover:text-primary transition-colors underline"
+				class="text-xs text-tertiary hover:text-primary transition-colors flex items-center gap-2 min-w-24 justify-end"
 			>
 				{allExpanded ? 'Collapse All' : 'Expand All'}
+				{#if allExpanded}
+					<FoldVertical size={16} />
+				{:else}
+					<UnfoldVertical size={16} />
+				{/if}
 			</button>
 		</div>
 	{/if}
