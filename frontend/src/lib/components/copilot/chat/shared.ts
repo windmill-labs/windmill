@@ -134,6 +134,10 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
+			toolCallbacks.setToolStatus(toolCall.id, {
+				isLoading: false,
+				error: 'An error occurred while calling the tool'
+			})
 			result =
 				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
 		}
