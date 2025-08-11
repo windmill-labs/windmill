@@ -143,7 +143,7 @@
             dotnet-sdk_9
             oracle-instantclient
             ansible
-            ruby
+            ruby_3_4
 
             # LSP/Local dev
             svelte-language-server
