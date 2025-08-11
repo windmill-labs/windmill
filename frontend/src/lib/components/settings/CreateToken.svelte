@@ -18,7 +18,7 @@
 		newTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
-		onTokenCreated?: (token: string) => void
+		onTokenCreated: (token: string) => void
 		displayCreateToken?: boolean
 	}
 
@@ -92,9 +92,7 @@
 				newToken = `${createdToken}`
 			}
 
-			if (onTokenCreated) {
-				onTokenCreated(newToken ?? newMcpToken ?? '')
-			}
+			onTokenCreated(newToken ?? newMcpToken ?? '')
 			mcpCreationMode = false
 		} catch (err) {
 			console.error('Failed to create token:', err)
