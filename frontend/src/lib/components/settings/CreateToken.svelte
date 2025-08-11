@@ -42,7 +42,8 @@
 	let allApps = $state<string[]>([])
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
-	let runnablesCache = $state<Map<string, string[]>>(new Map())
+	
+	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
