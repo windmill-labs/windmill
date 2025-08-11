@@ -42,6 +42,7 @@
 	let allApps = $state<string[]>([])
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
+	let runnablesCache = $state<Map<string, string[]>>(new Map())
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
@@ -155,10 +156,18 @@
 	}
 
 	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string) {
+		const cacheKey = `${workspace}-${favoriteOnly}`
+		if (runnablesCache.has(cacheKey)) {
+			includedRunnables = runnablesCache.get(cacheKey) || []
+			return
+		}
+
 		try {
 			loadingRunnables = true
 			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace), getFlows(favoriteOnly, workspace)])
-			includedRunnables = [...scripts, ...flows]
+			const combined = [...scripts, ...flows]
+			runnablesCache.set(cacheKey, combined)
+			includedRunnables = combined
 		} finally {
 			loadingRunnables = false
 		}
