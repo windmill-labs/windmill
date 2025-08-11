@@ -13,6 +13,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		id: string
@@ -42,10 +43,12 @@
 		}, {})
 	}
 
+	let counter = $state(0)
 	$effect(() => {
 		nodes
 		resolvedConditions = untrack(() => createResolvedConditions())
 		resolvedNext = untrack(() => createResolvedNext())
+		untrack(() => (counter += 1))
 	})
 
 	let everRender = $state(render)
@@ -112,6 +115,7 @@
 				return
 			}
 		}
+		sendUserToast('No next node was an available option', true)
 	}
 	function updateFocusedGrid(nodeId) {
 		currentNodeId = nodeId
@@ -177,30 +181,37 @@
 
 <!-- {JSON.stringify(resolvedConditions)}
 {JSON.stringify(resolvedNext)} -->
-{#if Object.keys(resolvedConditions).length === nodes.length}
-	{#each nodes ?? [] as node (node.id)}
-		{#each node.next ?? [] as next, conditionIndex}
-			{#if next.condition}
+
+{#key counter}
+	{#if Object.keys(resolvedConditions).length === nodes.length}
+		{#each nodes ?? [] as node (node.id)}
+			{#each node.next ?? [] as next, conditionIndex}
+				{#if next.condition}
+					<InputValue
+						key={`condition-${node.id}-${conditionIndex}`}
+						{id}
+						input={next.condition}
+						bind:value={resolvedConditions[node.id][conditionIndex]}
+						field={`condition-${node.id}-${conditionIndex}`}
+					/>
+				{/if}
+			{/each}
+		{/each}
+	{/if}
+
+	{#if Object.keys(resolvedConditions).length === nodes.length}
+		{#each nodes ?? [] as node (node.id)}
+			{#if node.allowed}
 				<InputValue
-					key={`condition-${node.id}-${conditionIndex}`}
+					key="allowed-{node.id}"
 					{id}
-					input={next.condition}
-					bind:value={resolvedConditions[node.id][conditionIndex]}
-					field={`condition-${node.id}-${conditionIndex}`}
+					input={node.allowed}
+					bind:value={resolvedNext[node.id]}
 				/>
 			{/if}
 		{/each}
-	{/each}
-{/if}
-
-{#if Object.keys(resolvedConditions).length === nodes.length}
-	{#each nodes ?? [] as node (node.id)}
-		{#if node.allowed}
-			<InputValue key="allowed" {id} input={node.allowed} bind:value={resolvedNext[node.id]} />
-		{/if}
-	{/each}
-{/if}
-
+	{/if}
+{/key}
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle
 		{id}

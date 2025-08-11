@@ -370,6 +370,7 @@
 			return
 		}
 		try {
+			console.log('fixedOverflowWidgets', fixedOverflowWidgets)
 			editor = meditor.create(divEl as HTMLDivElement, {
 				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
 				model,

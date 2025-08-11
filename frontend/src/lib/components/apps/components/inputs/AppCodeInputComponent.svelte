@@ -7,7 +7,11 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	let { id, configuration, render }: {
+	let {
+		id,
+		configuration,
+		render
+	}: {
 		id: string
 		configuration: RichConfigurations
 		render: boolean
@@ -16,10 +20,9 @@
 	const { componentControl, worldStore, selectedComponent, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = $state(initConfig(
-		components['codeinputcomponent'].initialData.configuration,
-		configuration
-	))
+	let resolvedConfig = $state(
+		initConfig(components['codeinputcomponent'].initialData.configuration, configuration)
+	)
 
 	let code = $state<string | undefined>(undefined)
 	let placeholder = $state<string | undefined>(undefined)
@@ -28,9 +31,11 @@
 	let lastDefaultValue = $state<string | undefined>(undefined)
 
 	let lang = $derived(resolvedConfig?.lang ?? 'javascript')
-	let outputs = $state(initOutput($worldStore, id, {
-		result: ''
-	}))
+	let outputs = $state(
+		initOutput($worldStore, id, {
+			result: ''
+		})
+	)
 
 	$effect(() => {
 		if (defaultValue !== lastDefaultValue) {
@@ -96,9 +101,3 @@
 		{/await}
 	</div>
 {/if}
-
-<style lang="postcss">
-	:global(.suggest-widget) {
-		position: fixed !important;
-	}
-</style>
