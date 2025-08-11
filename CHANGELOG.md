@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.522.1](https://github.com/windmill-labs/windmill/compare/v1.522.0...v1.522.1) (2025-08-11)
+
+
+### Bug Fixes
+
+* **app:** handle inline script of components with underscore in apps ([2648520](https://github.com/windmill-labs/windmill/commit/2648520b53925616b02ecab060e4d2d6db8c2e34))
+* **app:** improve id handling for transformers ([47c6386](https://github.com/windmill-labs/windmill/commit/47c6386d0ff6d59367ee38e0704d0e98802e1bff))
+* improve validate ID for id editors ([ea2f71d](https://github.com/windmill-labs/windmill/commit/ea2f71d8be424fe13772ec1b7eba85d55bc4eae4))
+
 ## [1.522.0](https://github.com/windmill-labs/windmill/compare/v1.521.0...v1.522.0) (2025-08-08)
 
 
