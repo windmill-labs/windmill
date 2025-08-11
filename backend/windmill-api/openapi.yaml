@@ -4212,6 +4212,7 @@ paths:
     get:
       summary: list resource_types
       operationId: listResourceType
+      x-mcp-tool: true
       tags:
         - resource
       parameters:

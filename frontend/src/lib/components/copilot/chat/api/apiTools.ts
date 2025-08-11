@@ -56,7 +56,7 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 	return {
 		type: 'function',
 		function: {
-			name: 'api_' + endpointTool.name,
+			name: endpointTool.name,
 			description: endpointTool.instructions || endpointTool.description,
 			parameters
 		}
@@ -74,7 +74,7 @@ function buildToolsFromEndpoints(
 		tools.push(tool)
 		
 		// Store the endpoint info in the map
-		endpointMap['api_' + endpointTool.name] = {
+		endpointMap[endpointTool.name] = {
 			method: endpointTool.method,
 			path: endpointTool.path
 		}
@@ -153,7 +153,7 @@ export function createApiTools(
 					console.log(`Calling API: ${endpoint.method} ${url} with args:`, args)
 
 					toolCallbacks.setToolStatus(toolId, {
-						content: `Calling ${toolName.replace('api_', '')}...`,
+						content: `Calling ${toolName}...`,
 					})
 
 					const fetchOptions: RequestInit = {
@@ -184,7 +184,7 @@ export function createApiTools(
 							data: result
 						})
 						toolCallbacks.setToolStatus(toolId, {
-							content: `Call to ${toolName.replace('api_', '')} completed`,
+							content: `Call to ${toolName} completed`,
 							result: jsonResult,
 						})
 						return jsonResult
@@ -196,7 +196,7 @@ export function createApiTools(
 							status: response.status
 						})
 						toolCallbacks.setToolStatus(toolId, {
-							content: `Call to ${toolName.replace('api_', '')} failed`,
+							content: `Call to ${toolName} failed`,
 							result: jsonResult,
 							error: `HTTP ${response.status}: ${text}`,
 						})
@@ -205,7 +205,7 @@ export function createApiTools(
 				} catch (error) {
 					const errorMessage = `Error calling API: ${error instanceof Error ? error.message : String(error)}`
 					toolCallbacks.setToolStatus(toolId, {
-						content: `Call to ${toolName.replace('api_', '')} failed`,
+						content: `Call to ${toolName} failed`,
 						error: errorMessage,
 					})
 					console.error(`Error calling API:`, error)

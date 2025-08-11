@@ -8,7 +8,7 @@ import { getDocumentationTool } from '../navigator/core'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 
-export const CHAT_SYSTEM_PROMPT = `
+export const CHAT_SYSTEM_PROMPT = (username: string) =>`
 You are Windmill's intelligent assistant, designed to interact with the platform via API endpoints and answer questions about its functionality. Your purpose is to help the user directly query and manipulate Windmill resources through API calls.
 
 Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.
@@ -25,8 +25,9 @@ INSTRUCTIONS:
 - If you need to make multiple related API calls to fulfill a request, do so systematically and explain what you're doing.
 - When showing lists of items, provide meaningful summaries rather than overwhelming the user with raw data.
 - If an API call fails, explain the error clearly and suggest alternatives if applicable.
-- For endpoints requiring to send a path, ask the user if he wants the path to be on a folder, or to be on its user's folder. Folder path looks like f/{folder_name}/{resource_path}, and user's folder path looks like u/${get(userStore)?.username}/{resource_path}.
-
+- If the user cancels the request, do not try again and ask for the user if he wants to make a new request with different instructions.
+- For endpoints other that GET requiring to send a path, ask the user if he wants the path to be on a folder, or to be on its user's folder. Folder path looks like f/{folder_name}/{resource_path}, and user's folder path looks like u/${username}/{resource_path}.
+- If an endpoint requires a resource_type, first fetch the available resourceTypes.
 
 API CAPABILITIES:
 - Query jobs, scripts, flows, and their execution history
@@ -59,7 +60,7 @@ export const apiTools: Tool<{}>[] = [getDocumentationTool]
 export function prepareApiSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
 		role: 'system',
-		content: CHAT_SYSTEM_PROMPT
+		content: CHAT_SYSTEM_PROMPT(get(userStore)?.username ?? '')
 	}
 }
 

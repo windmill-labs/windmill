@@ -6,7 +6,6 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EndpointTool {
     pub name: Cow<'static, str>,
@@ -18,7 +17,6 @@ pub struct EndpointTool {
     pub query_params_schema: Option<serde_json::Value>,
     pub body_schema: Option<serde_json::Value>,
 }
-
 
 pub fn all_tools() -> Vec<EndpointTool> {
     vec![
@@ -360,6 +358,16 @@ pub fn all_tools() -> Vec<EndpointTool> {
         },
         "required": []
 })),
+        body_schema: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listResourceType"),
+        description: Cow::Borrowed("list resource_types"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/resources/type/list"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: None,
         body_schema: None,
     },
     EndpointTool {
