@@ -142,7 +142,6 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
-libc.workspace = true
 pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
@@ -410,7 +409,6 @@ tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 tree-sitter-ruby = "0.23.0"
-libc = "0.2.171"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }

@@ -14772,7 +14772,6 @@ dependencies = [
  "gethostname",
  "git-version",
  "lazy_static",
- "libc",
  "memchr",
  "object_store",
  "once_cell",
@@ -15231,7 +15230,6 @@ version = "1.523.0"
 dependencies = [
  "anyhow",
  "lazy_static",
- "libc",
  "regex",
  "serde_json",
  "tree-sitter",
