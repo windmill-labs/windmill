@@ -139,17 +139,25 @@
 	}
 
 	async function getScripts(favoriteOnly: boolean = false) {
+		const workspace = newTokenWorkspace || $workspaceStore
+		if (!workspace) {
+			return []
+		}
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
-			workspace: $workspaceStore!
+			workspace
 		})
 		return scripts.map((x) => x.path)
 	}
 
 	async function getFlows(favoriteOnly: boolean = false) {
+		const workspace = newTokenWorkspace || $workspaceStore
+		if (!workspace) {
+			return []
+		}
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
-			workspace: $workspaceStore!
+			workspace
 		})
 		return flows.map((x) => x.path)
 	}
