@@ -415,6 +415,7 @@ impl Windmill {
                     path: None,
                     description: None,
                     value: Some(value),
+                    resource_type: Some(resource_type.to_owned()),
                 },
             )
             .await?;
@@ -825,8 +826,14 @@ impl Windmill {
     }
 
     async fn get_job_status_inner<'a>(&'a self, job_id: &'a str) -> Result<JobStatus, SdkError> {
-        let job =
-            job_api::get_job(&self.client_config, &self.workspace, job_id, Some(true), Some(true)).await?;
+        let job = job_api::get_job(
+            &self.client_config,
+            &self.workspace,
+            job_id,
+            Some(true),
+            Some(true),
+        )
+        .await?;
 
         Ok(match job {
             windmill_api::models::Job::JobOneOf(..) => JobStatus::Completed,
@@ -926,8 +933,14 @@ impl Windmill {
     ) -> MaybeFuture<'a, Result<(), SdkError>> {
         let f = async move {
             let job_id = job_id.unwrap_or(var("WM_JOB_ID")?);
-            let job =
-                job_api::get_job(&self.client_config, &self.workspace, &job_id, Some(true), Some(true)).await?;
+            let job = job_api::get_job(
+                &self.client_config,
+                &self.workspace,
+                &job_id,
+                Some(true),
+                Some(true),
+            )
+            .await?;
 
             let flow_id = match job {
                 windmill_api::models::Job::JobOneOf(job) => job.parent_job,
