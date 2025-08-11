@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, GitBranch, Repeat, Code } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { truncateRev } from '$lib/utils'
@@ -10,6 +10,7 @@
 	import type { FlowStatusModule } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
+	import BarsStaggered from './icons/BarsStaggered.svelte'
 
 	interface Props {
 		flowData: FlowData
@@ -49,16 +50,16 @@
 		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
 	}
 
-	function getStatusDot(status: FlowStatusModule['type'] | undefined) {
-		const statusClasses = {
-			Success: 'bg-green-500',
-			Failure: 'bg-red-500',
-			InProgress: 'bg-yellow-500 animate-pulse',
-			WaitingForPriorSteps: 'bg-gray-400',
-			WaitingForEvents: 'bg-purple-400',
-			WaitingForExecutor: 'bg-gray-400'
+	function getStatusColor(status: FlowStatusModule['type'] | undefined): string {
+		const statusColors = {
+			Success: 'text-green-500',
+			Failure: 'text-red-500',
+			InProgress: 'text-yellow-500',
+			WaitingForPriorSteps: 'text-gray-400',
+			WaitingForEvents: 'text-purple-400',
+			WaitingForExecutor: 'text-gray-400'
 		}
-		return status ? statusClasses[status] : 'bg-gray-400'
+		return status ? statusColors[status] : 'text-gray-400'
 	}
 
 	// Create log entries for display - one entry per step
@@ -182,8 +183,8 @@
 					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
-						<!-- Status dot -->
-						<div class="w-1.5 h-1.5 rounded-full {getStatusDot(getFlowStatus(flowData))}"></div>
+						<!-- Flow icon -->
+						{@render flowIcon(getFlowStatus(flowData))}
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
@@ -298,12 +299,8 @@
 												onclick={isCollapsible ? () => toggleExpanded(entry.id) : undefined}
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
-													<!-- Status dot -->
-													<div
-														class="w-1.5 h-1.5 rounded-full {getStatusDot(
-															entry.status
-														)} flex-shrink-0"
-													></div>
+													<!-- Step icon -->
+													{@render stepIcon(entry.stepType, entry.status)}
 
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
@@ -540,6 +537,29 @@
 		</li>
 	</ul>
 {/if}
+
+{#snippet flowIcon(status)}
+	{@const colorClass = getStatusColor(status)}
+	<BarsStaggered
+		size={10}
+		class={twMerge(colorClass, status === 'InProgress' ? 'animate-pulse' : '', 'flex-shrink-0')}
+	/>
+{/snippet}
+
+{#snippet stepIcon(stepType, status)}
+	{@const colorClass = getStatusColor(status)}
+	{@const animationClass = status === 'InProgress' ? 'animate-pulse' : ''}
+	{@const classes = `${colorClass} ${animationClass} flex-shrink-0`}
+	{#if stepType === 'flow'}
+		<BarsStaggered size={10} class={classes} />
+	{:else if stepType === 'forloopflow' || stepType === 'whileloopflow'}
+		<Repeat size={10} class={classes} />
+	{:else if stepType === 'branchall' || stepType === 'branchone'}
+		<GitBranch size={10} class={classes} />
+	{:else}
+		<Code strokeWidth={2.5} size={10} class={classes} />
+	{/if}
+{/snippet}
 
 <style>
 	.transition-all {
