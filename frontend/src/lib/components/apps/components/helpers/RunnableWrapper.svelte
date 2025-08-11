@@ -301,7 +301,6 @@
 </script>
 
 {#if componentInput === undefined}
-	1
 	{#if !noInitialize}
 		<InitializeComponent {id} />
 	{/if}
@@ -311,7 +310,6 @@
 		{@render nonRenderedPlaceholder?.()}
 	{/if}
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
-	2
 	<RunnableComponent
 		{noInitialize}
 		{allowConcurentRequests}
