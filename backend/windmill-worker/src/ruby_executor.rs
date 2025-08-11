@@ -338,8 +338,7 @@ Your Gemfile syntax will continue to work as-is."
             BUNDLE_PATH.as_str()
         });
 
-        cmd
-            // .env_clear()
+        cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .envs(vec![
                 ("PATH".to_owned(), PATH_ENV.clone()),
@@ -614,12 +613,15 @@ async fn install<'a>(
                     GEM_PATH.as_str()
                 })
             };
-            cmd.env_clear().current_dir(&job_dir).envs(vec![
-                ("PATH".to_owned(), PATH_ENV.clone()),
-                // Make sure there is nothing written to actual home
-                // This way we keep everything clean, organized and maintable
-                ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
-            ]);
+            cmd.env_clear()
+                .current_dir(&job_dir)
+                .envs(vec![
+                    ("PATH".to_owned(), PATH_ENV.clone()),
+                    // Make sure there is nothing written to actual home
+                    // This way we keep everything clean, organized and maintable
+                    ("HOME".to_owned(), RUBY_CACHE_DIR.to_owned()),
+                ])
+                .envs(PROXY_ENVS.clone());
 
             // Figure out source
             let source = {
@@ -828,7 +830,7 @@ mount {{
         } else {
             RUBY_PATH.as_str()
         });
-    
+
         #[cfg(windows)]
         let rubylib = rubylib.replace(":", ";");
 
