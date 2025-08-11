@@ -39,14 +39,7 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
         annotations: Some(rmcp::model::ToolAnnotations {
             title: Some(format!("{} {}", 
-                match tool.method {
-                    http::Method::GET => "GET",
-                    http::Method::POST => "POST", 
-                    http::Method::PUT => "PUT",
-                    http::Method::DELETE => "DELETE",
-                    http::Method::PATCH => "PATCH",
-                    _ => "UNKNOWN"
-                }, 
+                tool.method, 
                 tool.path
             )),
             read_only_hint: None,
@@ -176,11 +169,11 @@ fn build_query_string(
 }
 
 fn build_request_body(
-    method: &http::Method,
+    method: &str,
     args_map: &serde_json::Map<String, serde_json::Value>,
     body_schema: &Option<serde_json::Value>,
 ) -> Option<serde_json::Value> {
-    if method == &http::Method::GET {
+    if method == "GET" {
         return None;
     }
     
@@ -203,7 +196,7 @@ fn build_request_body(
 }
 
 async fn create_http_request(
-    method: &http::Method,
+    method: &str,
     url: &str,
     workspace_id: &str,
     api_authed: &ApiAuthed,
@@ -211,11 +204,11 @@ async fn create_http_request(
 ) -> Result<reqwest::Response, Error> {
     let client = &crate::HTTP_CLIENT;
     let mut request_builder = match method {
-        &http::Method::GET => client.get(url),
-        &http::Method::POST => client.post(url),
-        &http::Method::PUT => client.put(url),
-        &http::Method::DELETE => client.delete(url),
-        &http::Method::PATCH => client.patch(url),
+        "GET" => client.get(url),
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "DELETE" => client.delete(url),
+        "PATCH" => client.patch(url),
         _ => return Err(Error::invalid_params(
             format!("Unsupported HTTP method: {}", method),
             None
