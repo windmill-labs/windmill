@@ -255,7 +255,11 @@
 			return r
 		} catch (e) {
 			error = e.message
-			console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			try {
+				console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			} catch (e) {
+				console.warn('error warning', e)
+			}
 			return value
 		}
 	}

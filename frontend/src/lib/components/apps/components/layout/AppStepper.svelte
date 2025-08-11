@@ -169,8 +169,13 @@
 {/each}
 
 <InitializeComponent {id} />
+
+{#snippet nonRenderedPlaceholder()}
+	{#each tabs ?? [] as _res, i}
+		<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
+	{/each}
+{/snippet}
 <RunnableWrapper
-	hasChildrens
 	{recomputeIds}
 	{render}
 	bind:runnableComponent
@@ -183,6 +188,7 @@
 	{outputs}
 	bind:result
 	errorHandledByComponent={true}
+	{nonRenderedPlaceholder}
 >
 	{#if everRender}
 		<div class="w-full overflow-auto">
@@ -285,8 +291,6 @@
 			{/if}
 		</div>
 	{:else if $app.subgrids}
-		{#each tabs ?? [] as _res, i}
-			<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
-		{/each}
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 </RunnableWrapper>

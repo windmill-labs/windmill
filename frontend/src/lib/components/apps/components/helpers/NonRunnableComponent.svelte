@@ -12,9 +12,9 @@
 		id: string
 		result: any
 		render: boolean
-		hasChildrens: boolean
 		noInitialize: any
 		children?: import('svelte').Snippet
+		nonRenderedPlaceholder?: import('svelte').Snippet
 	}
 
 	let {
@@ -22,9 +22,9 @@
 		id,
 		result = $bindable(),
 		render,
-		hasChildrens,
 		noInitialize,
-		children
+		children,
+		nonRenderedPlaceholder
 	}: Props = $props()
 
 	// Sync the result to the output
@@ -96,11 +96,15 @@
 	<InputValue key="nonrunnable" {id} input={componentInput} bind:value={result} />
 {/if}
 
-{#if render || hasChildrens}
-	<div class={render ? 'h-full w-full' : 'invisible h-0 overflow-hidden'}>
+{#if render}
+	<div class="h-full w-full">
 		{@render children?.()}
 		<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 			<RefreshIndicator {loading} />
 		</div>
+	</div>
+{:else if nonRenderedPlaceholder}
+	<div class="invisible h-0 overflow-hidden">
+		{@render nonRenderedPlaceholder?.()}
 	</div>
 {/if}
