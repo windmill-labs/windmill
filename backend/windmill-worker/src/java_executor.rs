@@ -277,7 +277,7 @@ async fn install<'a>(
                     );
                     Ok(RequiredDependency {
                         path,
-                        s3_handle: format!("{group_id}:{artifact_id}:{version}"),
+                        _s3_handle: format!("{group_id}:{artifact_id}:{version}"),
                         display_name: format!("{artifact_id}:{version}"),
                         custom_payload: (),
                     })
@@ -325,7 +325,7 @@ async fn install<'a>(
             });
             let artifacts = dependencies
                 .into_iter()
-                .map(|e| e.s3_handle)
+                .map(|e| e._s3_handle)
                 .collect::<Vec<String>>();
             cmd.env_clear()
                 .current_dir(&job_dir)

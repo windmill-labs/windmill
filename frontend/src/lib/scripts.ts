@@ -143,8 +143,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['docker', 'Docker'],
 	['nu', 'Nu'],
 	['java', 'Java'],
-	['ruby', 'Ruby'],
-	['duckdb', 'DuckDB']
+	['duckdb', 'DuckDB'],
+	['ruby', 'Ruby']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {

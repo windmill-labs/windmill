@@ -22,7 +22,7 @@ pub struct RequiredDependency<T: Clone + Send + Sync> {
     /// IMPORTANT!: path should not end with '/'
     pub path: String,
     /// Name to use for S3 tars
-    pub s3_handle: String,
+    pub _s3_handle: String,
     /// Display name
     /// Name that will be used for console output and logging
     pub display_name: String,
@@ -30,6 +30,7 @@ pub struct RequiredDependency<T: Clone + Send + Sync> {
     pub custom_payload: T,
 }
 
+#[allow(dead_code)]
 pub enum InstallStrategy<T: Clone + Send + Sync> {
     /// Will invoke callback to install single dependency
     Single(Arc<dyn Fn(RequiredDependency<T>) -> Result<Command, error::Error> + Send + Sync>),
@@ -65,6 +66,7 @@ pub enum InstallStrategy<T: Clone + Send + Sync> {
 /// and if it does not work either, it will invoke `install_fn` closure.
 /// Closure arguments has dependency name as well as it`s expected path in cache.
 /// Closure should return Command that will install dependency to asked place.
+#[allow(dead_code)]
 pub async fn par_install_language_dependencies_all_at_once<
     'a,
     T: Clone + std::marker::Send + Sync + 'a + 'static,
@@ -167,7 +169,7 @@ pub async fn par_install_language_dependencies_all_at_once<
         {
             postinstall_cb(for_all_at_once_copy.clone()).await?;
         }
-        for RequiredDependency { path, s3_handle: _s3_handle, .. } in
+        for RequiredDependency { path, _s3_handle, .. } in
             for_all_at_once_copy.into_iter()
         {
             mark_sucess(path.clone(), job_id, w_id).await;
@@ -224,6 +226,7 @@ pub async fn par_install_language_dependencies_all_at_once<
 /// and if it does not work either, it will invoke `install_fn` closure.
 /// Closure arguments has dependency name as well as it`s expected path in cache.
 /// Closure should return Command that will install dependency to asked place.
+#[allow(dead_code)]
 pub async fn par_install_language_dependencies_seq<
     'a,
     T: Clone + std::marker::Send + Sync + 'a + 'static,
@@ -510,7 +513,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
                 os,
                 dep.path.clone(),
                 _language_name.to_owned(),
-                Some(dep.s3_handle.clone()),
+                Some(dep._s3_handle.clone()),
                 _platform_agnostic,
             ))
         } else {
@@ -526,7 +529,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
             tracing::info!(
                 workspace_id = %w_id,
                 "No tarball was found for {:?} on S3 or different problem occured {job_id}:\n{e}",
-                &dep.s3_handle.clone()
+                &dep._s3_handle.clone()
             );
         } else {
             mark_sucess(dep.path, &job_id, &w_id).await;
@@ -608,7 +611,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
                 let language_name = _language_name.to_string();
                 let platform_agnostic = _platform_agnostic;
                 let path = dep.path.clone();
-                let handle = dep.s3_handle.clone();
+                let handle = dep._s3_handle.clone();
                 tokio::spawn(async move {
                     if let Err(e) = crate::global_cache::build_tar_and_push(
                         os,

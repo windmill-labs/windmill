@@ -266,7 +266,7 @@ fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> anyhow::Result<Op
 mod test {
 
     use serde_json::json;
-    use windmill_parser::{ObjectProperty, Typ};
+    use windmill_parser::{ObjectProperty, ObjectType, Typ};
 
     use super::parse_ruby_sig_meta as parse;
     use super::*;
@@ -365,13 +365,16 @@ end
                 args: vec![Arg {
                     name: "a".into(),
                     has_default: true,
-                    typ: Typ::Object(vec![
-                        ObjectProperty { key: "1".into(), typ: Box::new(Typ::Int) },
-                        ObjectProperty {
-                            key: "2".into(),
-                            typ: Box::new(Typ::List(Box::new(Typ::Int)))
-                        }
-                    ],),
+                    typ: Typ::Object(ObjectType::new(
+                        None,
+                        Some(vec![
+                            ObjectProperty { key: "1".into(), typ: Box::new(Typ::Int) },
+                            ObjectProperty {
+                                key: "2".into(),
+                                typ: Box::new(Typ::List(Box::new(Typ::Int)))
+                            }
+                        ],)
+                    )),
                     default: Some(json!({"1": 4, "2": [ 1, 2, 3 ]})),
                     ..Default::default()
                 },],
@@ -423,10 +426,13 @@ end
                     Arg {
                         name: "e".into(),
                         has_default: true,
-                        typ: Typ::Object(vec![ObjectProperty {
-                            key: "a".into(),
-                            typ: Box::new(Typ::Int)
-                        }]),
+                        typ: Typ::Object(ObjectType::new(
+                            None,
+                            Some(vec![ObjectProperty {
+                                key: "a".into(),
+                                typ: Box::new(Typ::Int)
+                            }])
+                        )),
                         default: Some(json!({"a": 43})),
                         ..Default::default()
                     },

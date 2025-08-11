@@ -111,7 +111,7 @@ pub async fn handle_ruby_job<'a>(
     }
     // --- Retrieve results ---
     {
-        read_result(&args.job_dir).await
+        read_result(&args.job_dir, None).await
     }
 }
 pub async fn prepare<'a>(
@@ -577,7 +577,7 @@ async fn install<'a>(
 
         deps.push(RequiredDependency {
             path,
-            s3_handle: handle,
+            _s3_handle: handle,
             display_name: tl.to_owned(),
             custom_payload,
         });
@@ -857,7 +857,8 @@ mount {{
         &mut Some(occupancy_metrics),
         None,
     )
-    .await
+    .await?;
+    Ok(())
 }
 fn wrap(inner_content: &str) -> Result<String, Error> {
     let sig = parse_ruby_signature(inner_content)?;
