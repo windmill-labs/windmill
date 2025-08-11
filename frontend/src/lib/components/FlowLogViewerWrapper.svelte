@@ -14,7 +14,6 @@
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		workspaceId: string | undefined
 		render: boolean
-		refreshLog?: boolean
 		onSelectedIteration: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
@@ -22,14 +21,7 @@
 		) => Promise<void>
 	}
 
-	let {
-		job,
-		localModuleStates,
-		workspaceId,
-		render,
-		refreshLog = false,
-		onSelectedIteration
-	}: Props = $props()
+	let { job, localModuleStates, workspaceId, render, onSelectedIteration }: Props = $props()
 
 	// Cache for fetched subflow jobs
 	let subflowJobs: Map<string, Job> = $state(new Map())
@@ -235,7 +227,6 @@
 		// If in record, toggle the current state
 		const currentState = expandedRows[id] ?? allExpanded
 		expandedRows[id] = !currentState
-		expandedRows = { ...expandedRows }
 	}
 
 	function getSelectedIteration(stepId: string): number {
@@ -251,7 +242,7 @@
 <div class="w-full rounded-md overflow-hidden border">
 	{#if flowData}
 		<!-- Log polling component -->
-		<FlowLogsLoader {expandedRows} {allExpanded} {workspaceId} {refreshLog} {localModuleStates} />
+		<FlowLogsLoader {expandedRows} {allExpanded} {workspaceId} {localModuleStates} />
 
 		<FlowLogViewer
 			{flowData}

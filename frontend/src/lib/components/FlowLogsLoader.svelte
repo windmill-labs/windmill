@@ -9,107 +9,101 @@
 		expandedRows: Record<string, boolean>
 		allExpanded: boolean
 		workspaceId: string | undefined
-		refreshLog: boolean
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 	}
 
-	let { expandedRows, allExpanded, workspaceId, refreshLog, localModuleStates }: Props = $props()
+	let { expandedRows, allExpanded, workspaceId, localModuleStates }: Props = $props()
 
-	// Simple polling state per job - like FlowJobResult.svelte
+	// Polling state per moduleId - like FlowJobResult.svelte but for multiple modules
 	let pollingStates: Record<
 		string,
 		{
 			iteration: number
 			logOffset: number
-			lastJobId: string
+			lastJobId: string | undefined
 		}
 	> = $state({})
 
-	// Get expanded job IDs that need polling
-	function getExpandedJobIds(): string[] {
-		const jobIds: string[] = []
+	// Get expanded module IDs that need polling
+	function getExpandedModuleIds(): string[] {
+		const moduleIds: string[] = []
 		for (const [moduleId, moduleState] of Object.entries($localModuleStates)) {
 			const isExpanded = expandedRows[moduleId] ?? allExpanded
 			if (isExpanded && moduleState.job_id) {
-				jobIds.push(moduleState.job_id)
+				moduleIds.push(moduleId)
 			}
 		}
-		return jobIds
+		return moduleIds
 	}
 
-	// Simple job change detection and log fetching - like FlowJobResult.svelte
-	async function handleJobPolling(jobId: string) {
-		if (!jobId) return
+	// Handle job change detection and log fetching per module - like FlowJobResult.svelte
+	async function handleModulePolling(moduleId: string) {
+		const moduleState = $localModuleStates[moduleId]
+		if (!moduleState?.job_id) return
 
-		// Initialize state for new job
-		if (!pollingStates[jobId]) {
-			pollingStates[jobId] = {
+		const jobId = moduleState.job_id
+
+		// Check if job ID changed for this module
+		if (!pollingStates[moduleId] || pollingStates[moduleId].lastJobId !== jobId) {
+			// Reset state for new job
+			pollingStates[moduleId] = {
 				iteration: 0,
 				logOffset: 0,
 				lastJobId: jobId
 			}
+			// Clear existing logs when job changes
+			$localModuleStates[moduleId].logs = ''
 		}
 
-		const state = pollingStates[jobId]
+		const state = pollingStates[moduleId]
 		state.iteration += 1
 
 		try {
+			const isInProgress = moduleState.type === 'InProgress'
+			const currentLogsLength = moduleState.logs?.length || 0
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspaceId ?? $workspaceStore!,
 				id: jobId,
-				running: refreshLog,
-				logOffset: state.logOffset === 0 ? getCurrentLogsLength(jobId) : state.logOffset
+				running: isInProgress,
+				logOffset:
+					state.logOffset === 0 ? (currentLogsLength ? currentLogsLength + 1 : 0) : state.logOffset
 			})
 
-			// Update logs
+			// Update logs for this module (like FlowJobResult)
 			if (getUpdate.new_logs) {
-				updateJobLogs(jobId, getUpdate.new_logs)
+				$localModuleStates[moduleId].logs = (moduleState.logs || '') + getUpdate.new_logs
 			}
 
 			// Update offset
 			state.logOffset = getUpdate.log_offset ?? 0
 
-			// Schedule next poll if needed
-			if (refreshLog && getExpandedJobIds().includes(jobId)) {
+			// Schedule next poll if module is still in progress and expanded (like FlowJobResult)
+			if (isInProgress && expandedModuleIds.includes(moduleId)) {
 				const delay = state.iteration < 10 ? 1000 : state.iteration < 20 ? 2000 : 5000
-				setTimeout(() => handleJobPolling(jobId), delay)
+				setTimeout(() => handleModulePolling(moduleId), delay)
 			}
 		} catch (error) {
-			console.error('Failed to get logs for job:', jobId, error)
+			console.error('Failed to get logs for module:', moduleId, 'job:', jobId, error)
 		}
 	}
 
-	// Get current log length for offset calculation
-	function getCurrentLogsLength(jobId: string): number {
-		for (const moduleState of Object.values($localModuleStates)) {
-			if (moduleState.job_id === jobId && moduleState.logs) {
-				return moduleState.logs.length
-			}
-		}
-		return 0
-	}
+	const expandedModuleIds = $derived.by(getExpandedModuleIds)
 
-	// Update job logs in module states
-	function updateJobLogs(jobId: string, newLogs: string) {
-		for (const [moduleId, moduleState] of Object.entries($localModuleStates)) {
-			if (moduleState.job_id === jobId) {
-				$localModuleStates[moduleId].logs = (moduleState.logs || '') + newLogs
-				localModuleStates.update((state) => ({ ...state }))
-				break
-			}
-		}
-	}
-
-	// React to expansion changes only - no circular dependency on localModuleStates
+	// React to expansion and module state changes
 	$effect(() => {
-		expandedRows
-		allExpanded
-		refreshLog
+		expandedModuleIds
 		untrack(() => {
-			// Start polling for all currently expanded jobs
-			for (const jobId of getExpandedJobIds()) {
-				if (!pollingStates[jobId]) {
-					handleJobPolling(jobId)
+			// Handle polling for all currently expanded modules that are in progress
+			for (const moduleId of expandedModuleIds) {
+				const moduleState = $localModuleStates[moduleId]
+				if (moduleState?.job_id) {
+					// Check if we need to start/restart polling for this module
+					if (
+						!pollingStates[moduleId] ||
+						pollingStates[moduleId].lastJobId !== moduleState.job_id
+					) {
+						handleModulePolling(moduleId)
+					}
 				}
 			}
 		})

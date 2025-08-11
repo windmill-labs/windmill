@@ -1260,7 +1260,6 @@
 				{localModuleStates}
 				{workspaceId}
 				{render}
-				refreshLog={job.type == 'QueuedJob' || job['running']}
 				{onSelectedIteration}
 			/>
 		</div>
