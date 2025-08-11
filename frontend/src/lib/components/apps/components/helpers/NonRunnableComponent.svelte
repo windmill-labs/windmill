@@ -77,7 +77,7 @@
 		})
 	}
 
-	$effect.pre(() => {
+	$effect(() => {
 		componentInput.type === 'evalv2' &&
 			componentInput.connections &&
 			untrack(() => builtSubscriptions(componentInput.connections))

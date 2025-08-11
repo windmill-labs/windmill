@@ -130,6 +130,7 @@
 			{@const left = (item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
 
 			<div
+				id={`wm-component-${item.id}`}
 				class="svlt-grid-item"
 				style="width: {width}px; height:{height}px; {onTop
 					? 'z-index: 1000;'
