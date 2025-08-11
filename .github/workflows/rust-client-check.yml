@@ -7,6 +7,7 @@ on:
   push:
     paths:
       - "rust-client/**"
+      - "backend/**/*.rs"
       - "backend/windmill-api/openapi.yaml"
       - "version.txt"
       - "flake.nix"
