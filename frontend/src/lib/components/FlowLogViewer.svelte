@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { ChevronDown, ChevronRight, GitBranch, Repeat, Code } from 'lucide-svelte'
+	import {
+		ChevronDown,
+		ChevronRight,
+		GitBranch,
+		Repeat,
+		Code,
+		ArrowDownToLine,
+		ArrowDownFromLine
+	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { truncateRev } from '$lib/utils'
@@ -232,30 +240,6 @@
 
 				{#if level === 0 || isExpanded(`flow-${flowId}`, flowData.status === 'QueuedJob')}
 					<div class="mb-2 transition-all duration-200 ease-in-out">
-						<!-- Show flow input arguments -->
-						{#if showResultsInputs && flowData.inputs && Object.keys(flowData.inputs).length > 0}
-							<div class="mb-2">
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div
-									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-									onclick={() => toggleExpanded(`flow-${flowId}-input`)}
-								>
-									{#if isExpanded(`flow-${flowId}-input`)}
-										<ChevronDown size={8} />
-									{:else}
-										<ChevronRight size={8} />
-									{/if}
-									Inputs
-								</div>
-								{#if isExpanded(`flow-${flowId}-input`)}
-									<div class="pl-4">
-										<ObjectViewer json={flowData.inputs} pureViewer={true} />
-									</div>
-								{/if}
-							</div>
-						{/if}
-
 						<!-- Flow logs -->
 						{#if flowData.logs}
 							<div class="mb-2 pr-2">
@@ -273,10 +257,50 @@
 						{/if}
 
 						<!-- Flow steps - nested as children -->
-						{#if logEntries.length > 0}
-							<ul
-								class="w-full font-mono text-xs bg-surface-secondary list-none border-l border-gray-200 dark:border-gray-700"
-							>
+						<ul
+							class="w-full font-mono text-xs bg-surface-secondary list-none border-l border-gray-200 dark:border-gray-700"
+						>
+							<!-- Flow inputs as first row entry -->
+							{#if showResultsInputs && flowData.inputs && Object.keys(flowData.inputs).length > 0}
+								<li class="border-b border-gray-200 dark:border-gray-700 flex">
+									<div class="py-2 leading-tight align-top">
+										<button
+											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
+										>
+											{#if isExpanded(`flow-${flowId}-input`)}
+												<ChevronDown size={8} />
+											{:else}
+												<ChevronRight size={8} />
+											{/if}
+										</button>
+									</div>
+
+									<div class="w-full leading-tight">
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<div
+											class="py-1 flex items-center justify-between pr-2 cursor-pointer"
+											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
+										>
+											<div class="flex items-center gap-2 grow min-w-0">
+												<ArrowDownToLine size={10} />
+												<span class="text-xs font-mono">Inputs</span>
+											</div>
+										</div>
+
+										{#if isExpanded(`flow-${flowId}-input`)}
+											<div class="my-1 transition-all duration-200 ease-in-out">
+												<div class="pl-4">
+													<ObjectViewer json={flowData.inputs} pureViewer={true} />
+												</div>
+											</div>
+										{/if}
+									</div>
+								</li>
+							{/if}
+
+							{#if logEntries.length > 0}
 								{#each logEntries as entry (entry.id)}
 									{@const isLeafStep =
 										entry.stepType !== 'branchall' &&
@@ -528,32 +552,47 @@
 										</div>
 									</li>
 								{/each}
-							</ul>
-						{/if}
+							{/if}
 
-						<!-- Show flow result if completed -->
-						{#if showResultsInputs && flowData.result !== undefined && flowData.status === 'CompletedJob'}
-							<div class="mb-2 mt-2">
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div
-									class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-									onclick={() => toggleExpanded(`flow-${flowId}-result`)}
-								>
-									{#if isExpanded(`flow-${flowId}-result`)}
-										<ChevronDown size={8} />
-									{:else}
-										<ChevronRight size={8} />
-									{/if}
-									Result
-								</div>
-								{#if isExpanded(`flow-${flowId}-result`)}
-									<div class="pl-4">
-										<ObjectViewer json={flowData.result} pureViewer={true} />
+							<!-- Flow result as last row entry -->
+							{#if showResultsInputs && flowData.result !== undefined && flowData.status === 'CompletedJob'}
+								<li class="border-b border-gray-200 dark:border-gray-700 flex">
+									<div class="py-2 leading-tight align-top">
+										<button
+											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
+											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
+										>
+											{#if isExpanded(`flow-${flowId}-result`)}
+												<ChevronDown size={8} />
+											{:else}
+												<ChevronRight size={8} />
+											{/if}
+										</button>
 									</div>
-								{/if}
-							</div>
-						{/if}
+									<div class="w-full leading-tight">
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<div
+											class="py-1 flex items-center justify-between pr-2 cursor-pointer"
+											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
+										>
+											<div class="flex items-center gap-2 grow min-w-0">
+												<ArrowDownFromLine size={10} />
+												<span class="text-xs font-mono">Results</span>
+											</div>
+										</div>
+
+										{#if isExpanded(`flow-${flowId}-result`)}
+											<div class="my-1 transition-all duration-200 ease-in-out">
+												<div class="pl-4">
+													<ObjectViewer json={flowData.result} pureViewer={true} />
+												</div>
+											</div>
+										{/if}
+									</div>
+								</li>
+							{/if}
+						</ul>
 					</div>
 				{/if}
 			</div>
