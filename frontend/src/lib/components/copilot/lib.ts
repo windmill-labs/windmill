@@ -23,7 +23,7 @@ import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
+const OPENAI_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano','gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
 
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
