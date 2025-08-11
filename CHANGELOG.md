@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.523.0](https://github.com/windmill-labs/windmill/compare/v1.522.1...v1.523.0) (2025-08-11)
+
+
+### Features
+
+* **aichat:** add api mode to call api endpoints ([#6343](https://github.com/windmill-labs/windmill/issues/6343)) ([2471c7a](https://github.com/windmill-labs/windmill/commit/2471c7acad3404dd37649ed661ab8793607b5a97))
+* **aichat:** add gpt5 compatibility ([#6358](https://github.com/windmill-labs/windmill/issues/6358)) ([49f6a3d](https://github.com/windmill-labs/windmill/commit/49f6a3d979ab8933de197dc0065c2720131fd597))
+
+
+### Bug Fixes
+
+* add extra query params for token request for client credentials ([#6360](https://github.com/windmill-labs/windmill/issues/6360)) ([1112de8](https://github.com/windmill-labs/windmill/commit/1112de87d440db5c8d0ddab6e3812dc432a58705))
+* **app:** improve carousel list recursive error ([a47463e](https://github.com/windmill-labs/windmill/commit/a47463e05398e4ebe0f2d09ee2eba462bcef217b))
+* improve app component loading speed ([13bf33f](https://github.com/windmill-labs/windmill/commit/13bf33f83c6660e05b78a8c941c2adc1b486f810))
+* improve app decision tree behavior ([322f680](https://github.com/windmill-labs/windmill/commit/322f68053a238d6ef7c0116ccfb1a49a19e08f76))
+* remove spurrious error log for apps ([c27df6a](https://github.com/windmill-labs/windmill/commit/c27df6a917d8a585593de0183f7ff1c5bb2a0321))
+
 ## [1.522.1](https://github.com/windmill-labs/windmill/compare/v1.522.0...v1.522.1) (2025-08-11)
 
 
