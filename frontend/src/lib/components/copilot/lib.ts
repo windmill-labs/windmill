@@ -135,7 +135,7 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: 100000
+			max_completion_tokens: getModelMaxTokens(modelProvider.model)
 		}
 	} else {
 		return {
