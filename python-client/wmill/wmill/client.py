@@ -666,7 +666,7 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        with wmill.load_s3_file(s3object, s3_resource_path) as file_reader:
+        with wmill.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             print(file_reader.read())
         '''
         """
@@ -1523,3 +1523,21 @@ def parse_variable_syntax(s: str) -> Optional[str]:
     if s.startswith("var://"):
         return s[6:]
     return None
+
+
+def append_to_result_stream(text: str) -> None:
+    """Append a text to the result stream.
+    
+    Args:
+        text: text to append to the result stream
+    """
+    print("WM_STREAM: {}".format(text.replace(chr(10), '\\n')))
+
+def stream_result(stream) -> None:
+    """Stream to the result stream.
+    
+    Args:
+        stream: stream to stream to the result stream
+    """
+    for text in stream:
+        append_to_result_stream(text)

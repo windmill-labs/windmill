@@ -27,7 +27,7 @@ use serde::Serialize;
 use windmill_common::flows::InputTransform;
 use windmill_common::worker::WORKER_CONFIG;
 
-#[cfg(feature = "python")]
+#[cfg(any(feature = "python", feature = "deno_core"))]
 use windmill_common::flow_status::{FlowStatus, FlowStatusModule, RestartedFrom};
 
 use windmill_common::{

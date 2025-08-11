@@ -12,6 +12,8 @@ use uuid::Uuid;
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 
+pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.dev";
+
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,

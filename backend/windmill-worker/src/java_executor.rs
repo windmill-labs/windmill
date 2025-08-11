@@ -88,7 +88,7 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
     }
     // --- Retrieve results ---
     {
-        read_result(&args.job_dir).await
+        read_result(&args.job_dir, None).await
     }
 }
 
@@ -718,7 +718,8 @@ async fn run<'a>(
         &mut Some(occupancy_metrics),
         None,
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 #[derive(Default, Debug)]

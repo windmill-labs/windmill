@@ -15,6 +15,7 @@
 		children?: import('svelte').Snippet<[any]>
 		content?: import('svelte').Snippet
 		onSelectedChange?: (value: string) => void
+		onTabClick?: (value: string) => void
 	}
 
 	let {
@@ -27,7 +28,8 @@
 		values = undefined,
 		children,
 		content,
-		onSelectedChange
+		onSelectedChange,
+		onTabClick
 	}: Props = $props()
 
 	const selectedStore = writable(selected)
@@ -37,6 +39,7 @@
 		update: (value: string) => {
 			selectedStore.set(value)
 			selected = value
+			onTabClick?.(value)
 		},
 		hashNavigation
 	})
@@ -55,9 +58,11 @@
 			}
 		}
 	}
+
 	$effect(() => {
 		selected && untrack(() => updateSelected())
 	})
+
 	$effect(() => {
 		$selectedStore && untrack(() => onSelectedChange?.($selectedStore))
 	})

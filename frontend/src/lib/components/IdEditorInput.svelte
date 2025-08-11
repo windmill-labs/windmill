@@ -4,13 +4,13 @@
 	const bubble = createBubbler()
 	import { ArrowRight } from 'lucide-svelte'
 	import { Button } from './common'
-	import { untrack } from 'svelte'
 	import { forbiddenIds } from './flows/idUtils'
 	import { slide } from 'svelte/transition'
 
 	interface Props {
 		initialId: string
 		reservedIds?: string[]
+		reservedPrefixes?: string[]
 		label?: string
 		value?: any
 		buttonText?: string
@@ -23,6 +23,7 @@
 	let {
 		initialId,
 		reservedIds = [],
+		reservedPrefixes = [],
 		label = 'Component ID',
 		value = $bindable(initialId),
 		buttonText = '',
@@ -35,7 +36,7 @@
 	let error = $state('')
 	const regex = acceptUnderScores ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
 
-	function validateId(id: string, reservedIds: string[]) {
+	function validateId(id: string, reservedIds: string[], reservedPrefixes: string[]) {
 		if (id == initialId) {
 			error = ''
 			return
@@ -44,6 +45,8 @@
 			error = 'The ID must include only letters and numbers and start with a letter'
 		} else if (forbiddenIds.includes(value)) {
 			error = 'This ID is reserved'
+		} else if (reservedPrefixes.some((prefix) => value.startsWith(prefix))) {
+			error = 'This ID uses a reserved prefix'
 		} else if (reservedIds.some((rid) => rid === value)) {
 			error = 'This ID is already in use'
 		} else {
@@ -54,7 +57,7 @@
 	let inputDiv: HTMLInputElement | undefined = $state(undefined)
 
 	$effect(() => {
-		untrack(() => validateId(value, reservedIds))
+		validateId(value, reservedIds, reservedPrefixes)
 	})
 	$effect(() => {
 		inputDiv?.focus()

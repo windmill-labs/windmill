@@ -600,5 +600,5 @@ pub async fn handle_rust_job(
         None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }

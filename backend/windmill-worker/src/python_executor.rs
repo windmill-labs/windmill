@@ -679,8 +679,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-def res_to_json(res):
-    typ = type(res)
+def res_to_json(res, typ):
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
             res = res.values.tolist()
@@ -704,7 +703,12 @@ try:
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
     res = inner_script.{main_override}(**args)
-    res_json = res_to_json(res)
+    typ = type(res)
+    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+        for chunk in res:
+            print("WM_STREAM: " + chunk.replace('\n', '\\n'))
+        res = None
+    res_json = res_to_json(res, typ)
     with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
@@ -858,7 +862,7 @@ mount {{
         start_child_process(python_cmd, &python_path).await?
     };
 
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -892,7 +896,7 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn prepare_wrapper(

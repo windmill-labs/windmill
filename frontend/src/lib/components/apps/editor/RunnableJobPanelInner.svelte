@@ -42,11 +42,12 @@
 			<div class="break-words relative h-full px-1">
 				<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />
 			</div>
-		{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+		{:else if testJob != undefined && (testJob.type == 'CompletedJob' || testJob.result_stream)}
 			<div class="break-words relative h-full px-1">
 				<DisplayResult
 					bind:drawerOpen={resultDrawerOpen}
 					workspaceId={testJob?.workspace_id}
+					result_stream={testJob?.result_stream}
 					jobId={testJob?.id}
 					result={testJob.result}
 					language={testJob?.language}

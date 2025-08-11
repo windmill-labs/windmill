@@ -3,6 +3,7 @@ import {
   Command,
   log,
   yamlStringify,
+  Confirm,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
@@ -19,6 +20,7 @@ export interface InitOptions {
   token?: string;
   baseUrl?: string;
   configDir?: string;
+  bindProfile?: boolean;
 }
 
 /**
@@ -32,28 +34,113 @@ async function initAction(opts: InitOptions) {
     const { DEFAULT_SYNC_OPTIONS } = await import("../../core/conf.ts");
 
     // Create initial config with defaults
-    const initialConfig = {
-      defaultTs: DEFAULT_SYNC_OPTIONS.defaultTs,
-      includes: DEFAULT_SYNC_OPTIONS.includes,
-      excludes: DEFAULT_SYNC_OPTIONS.excludes,
-      codebases: DEFAULT_SYNC_OPTIONS.codebases,
-      skipVariables: DEFAULT_SYNC_OPTIONS.skipVariables,
-      skipResources: DEFAULT_SYNC_OPTIONS.skipResources,
-      skipSecrets: DEFAULT_SYNC_OPTIONS.skipSecrets,
-      skipScripts: DEFAULT_SYNC_OPTIONS.skipScripts,
-      skipFlows: DEFAULT_SYNC_OPTIONS.skipFlows,
-      skipApps: DEFAULT_SYNC_OPTIONS.skipApps,
-      skipFolders: DEFAULT_SYNC_OPTIONS.skipFolders,
-      includeSchedules: DEFAULT_SYNC_OPTIONS.includeSchedules,
-      includeTriggers: DEFAULT_SYNC_OPTIONS.includeTriggers,
-      overrides: {},
-    };
+    const initialConfig = { ...DEFAULT_SYNC_OPTIONS } as any;
+
+    // Add branch structure
+    const { isGitRepository, getCurrentGitBranch } = await import(
+      "../../utils/git.ts"
+    );
+    if (isGitRepository()) {
+      const currentBranch = getCurrentGitBranch();
+      if (currentBranch) {
+        initialConfig.git_branches = {
+          [currentBranch]: { overrides: {} },
+        };
+      } else {
+        initialConfig.git_branches = {};
+      }
+    } else {
+      initialConfig.git_branches = {};
+    }
 
     await Deno.writeTextFile("wmill.yaml", yamlStringify(initialConfig));
     log.info(colors.green("wmill.yaml created with default settings"));
 
     // Create lock file
     await readLockfile();
+
+    // Offer to bind workspace profile to current branch
+    if (isGitRepository()) {
+      const { getActiveWorkspace } = await import("../workspace/workspace.ts");
+      const activeWorkspace = await getActiveWorkspace(
+        opts as GlobalOptions
+      );
+      const currentBranch = getCurrentGitBranch();
+
+      if (activeWorkspace && currentBranch) {
+        // Determine binding behavior based on flags
+        const shouldBind = opts.bindProfile === true;
+        const shouldPrompt =
+          opts.bindProfile === undefined &&
+          Deno.stdin.isTerminal() &&
+          !opts.useDefault;
+        const shouldSkip =
+          opts.bindProfile === false ||
+          opts.useDefault ||
+          (!Deno.stdin.isTerminal() && opts.bindProfile === undefined);
+
+        if (shouldSkip) {
+          return;
+        }
+
+        // Show workspace info if we're binding or prompting
+        if (shouldBind || shouldPrompt) {
+          log.info(
+            colors.yellow(
+              `\nCurrent Git branch: ${colors.bold(currentBranch)}`
+            )
+          );
+          log.info(
+            colors.yellow(
+              `Active workspace profile: ${colors.bold(
+                activeWorkspace.name
+              )}`
+            )
+          );
+          log.info(
+            colors.yellow(
+              `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+            )
+          );
+        }
+
+        if (
+          shouldBind ||
+          (shouldPrompt &&
+            (await Confirm.prompt({
+              message: "Bind workspace profile to current Git branch?",
+              default: true,
+            })))
+        ) {
+          // Update the config with workspace binding
+          const currentConfig = await import("../../core/conf.ts").then((m) =>
+            m.readConfigFile()
+          );
+          if (!currentConfig.git_branches) {
+            currentConfig.git_branches = {};
+          }
+          if (!currentConfig.git_branches[currentBranch]) {
+            currentConfig.git_branches[currentBranch] = { overrides: {} };
+          }
+
+          currentConfig.git_branches[currentBranch].baseUrl =
+            activeWorkspace.remote;
+          currentConfig.git_branches[currentBranch].workspaceId =
+            activeWorkspace.workspaceId;
+
+          await Deno.writeTextFile(
+            "wmill.yaml",
+            yamlStringify(currentConfig)
+          );
+
+          log.info(
+            colors.green(
+              `✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`
+            )
+          );
+        }
+      }
+    }
 
     // Check for backend git-sync settings unless --use-default is specified
     if (!opts.useDefault) {
@@ -153,10 +240,8 @@ async function initAction(opts: InitOptions) {
         }
       } catch (error) {
         // If there's an error checking backend settings, just continue with defaults
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
         log.warn(
-          `Could not check backend for git-sync settings: ${errorMessage}`
+          `Could not check backend for git-sync settings: ${error.message}`
         );
         log.info("Continuing with default settings");
       }
@@ -223,6 +308,11 @@ const command = new Command()
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when using backend settings"
   )
+  .option(
+    "--bind-profile",
+    "Automatically bind active workspace profile to current Git branch"
+  )
+  .option("--no-bind-profile", "Skip workspace profile binding prompt")
   .action(initAction as any);
 
-export default command; 
+export default command;

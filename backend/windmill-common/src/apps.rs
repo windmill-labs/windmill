@@ -6,9 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+
+lazy_static::lazy_static! {
+    pub static ref APP_WORKSPACED_ROUTE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+}
 
 /// Id in the `app_script` table.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
