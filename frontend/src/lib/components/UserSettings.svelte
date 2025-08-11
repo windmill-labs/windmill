@@ -43,9 +43,9 @@
 		window.location.hash = ''
 	}
 
-	function handleTokenCreated(event: CustomEvent<string>) {
-		newToken = event.detail
-		dispatch('tokenCreated', newToken)
+	function handleTokenCreated(token: string) {
+		newToken = token
+		dispatch('tokenCreated', token)
 	}
 </script>
 
@@ -75,7 +75,7 @@
 				defaultNewTokenLabel={newTokenLabel}
 				defaultNewTokenWorkspace={newTokenWorkspace}
 				{scopes}
-				on:tokenCreated={handleTokenCreated}
+				onTokenCreated={handleTokenCreated}
 			/>
 		</div>
 	</DrawerContent>

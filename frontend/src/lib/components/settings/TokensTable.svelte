@@ -2,7 +2,6 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
 	import { UserService, type TruncatedToken } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
 
@@ -13,6 +12,7 @@
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
+		onTokenCreated: (token: string) => void
 	}
 
 	let {
@@ -20,7 +20,8 @@
 		openWithMcpMode = false,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
-		scopes
+		scopes,
+		onTokenCreated
 	}: Props = $props()
 
 	// --- Local State ---
@@ -28,14 +29,12 @@
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
 
-	const dispatch = createEventDispatcher()
-
 	$effect(() => {
 		listTokens()
 	})
 
 	function handleTokenCreated(token: string) {
-		dispatch('tokenCreated', token)
+		onTokenCreated(token)
 		listTokens()
 	}
 
