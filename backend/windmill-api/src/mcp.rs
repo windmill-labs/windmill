@@ -32,8 +32,10 @@ use rmcp::transport::streamable_http_server::{
 };
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
-use crate::mcp_tools::all_tools;
+use crate::mcp_tools::{all_tools, EndpointTool};
 use crate::mcp_utils::{endpoint_tools_to_mcp_tools, call_endpoint_tool};
+use windmill_common::error::JsonResult;
+use axum::{Json, routing::get};
 
 
 /// Transforms the path for workspace scripts/flows.
@@ -1191,4 +1193,16 @@ pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
             .collect::<Vec<_>>();
         futures::future::join_all(close_futures).await;
     }
+}
+
+/// HTTP handler to list MCP tools as JSON
+async fn list_mcp_tools_handler() -> JsonResult<Vec<EndpointTool>> {
+    let endpoint_tools = all_tools();
+    Ok(Json(endpoint_tools))
+}
+
+/// Creates a router service for listing MCP tools
+pub fn list_tools_service() -> Router {
+    Router::new()
+        .route("/", get(list_mcp_tools_handler))
 }

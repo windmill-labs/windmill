@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import type { DisplayMessage } from './shared'
+	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
@@ -8,6 +8,7 @@
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import type { ContextElement } from './context'
+	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -79,6 +80,8 @@
 		>
 			{#if message.role === 'assistant'}
 				<AssistantMessage {message} />
+			{:else if message.role === 'tool'}
+				<ToolExecutionDisplay message={message as ToolDisplayMessage} />
 			{:else}
 				{message.content}
 			{/if}

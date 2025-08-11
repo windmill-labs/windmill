@@ -4211,6 +4211,7 @@ paths:
     get:
       summary: list resource_types
       operationId: listResourceType
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -13381,6 +13382,24 @@ paths:
                       access_type:
                         $ref: "#/components/schemas/AssetUsageAccessType"
 
+  /mcp/w/{workspace}/list_tools:
+    get:
+      summary: list available MCP tools
+      operationId: listMcpTools
+      tags:
+        - mcp
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of MCP tools available for the workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EndpointTool"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -13841,6 +13860,38 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
     # -- INLINE END --
     # Do not change line above
+
+    EndpointTool:
+      type: object
+      required: [name, description, instructions, path, method]
+      properties:
+        name:
+          type: string
+          description: The tool name/operation ID
+        description:
+          type: string
+          description: Short description of the tool
+        instructions:
+          type: string
+          description: Detailed instructions for using the tool
+        path:
+          type: string
+          description: API endpoint path
+        method:
+          type: string
+          description: HTTP method (GET, POST, etc.)
+        path_params_schema:
+          type: object
+          description: JSON schema for path parameters
+          nullable: true
+        query_params_schema:
+          type: object
+          description: JSON schema for query parameters
+          nullable: true
+        body_schema:
+          type: object
+          description: JSON schema for request body
+          nullable: true
 
     AIProvider:
       type: string

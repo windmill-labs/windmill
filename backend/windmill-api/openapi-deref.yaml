@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.519.2
+  version: 1.520.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -309,12 +309,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_249
+              properties: &ref_251
                 email:
                   type: string
                 password:
                   type: string
-              required: &ref_250
+              required: &ref_252
                 - email
                 - password
       responses:
@@ -439,7 +439,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_251
+              properties: &ref_253
                 is_admin:
                   type: boolean
                 operator:
@@ -819,7 +819,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: &ref_374
+                items: &ref_376
                   type: object
                   properties:
                     workspace_id:
@@ -900,7 +900,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_323
+                properties: &ref_325
                   email:
                     type: string
                   workspaces:
@@ -966,7 +966,7 @@ paths:
                         - name
                         - username
                         - color
-                required: &ref_324
+                required: &ref_326
                   - email
                   - workspaces
   /workspaces/list_as_superadmin:
@@ -1008,7 +1008,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_325
+              properties: &ref_327
                 id:
                   type: string
                 name:
@@ -1017,7 +1017,7 @@ paths:
                   type: string
                 color:
                   type: string
-              required: &ref_326
+              required: &ref_328
                 - id
                 - name
       responses:
@@ -1521,12 +1521,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_361
+                  properties: &ref_363
                     name:
                       type: string
                     value:
                       type: object
-                  required: &ref_362
+                  required: &ref_364
                     - name
                     - value
   /users/email:
@@ -2414,14 +2414,14 @@ paths:
                         type: object
                         additionalProperties:
                           type: object
-                          properties: &ref_236
+                          properties: &ref_238
                             resource_path:
                               type: string
                             models:
                               type: array
                               items:
                                 type: string
-                          required: &ref_237
+                          required: &ref_239
                             - resource_path
                             - models
                       default_model:
@@ -2431,7 +2431,7 @@ paths:
                             type: string
                           provider:
                             type: string
-                            enum: &ref_235
+                            enum: &ref_237
                               - openai
                               - azure_openai
                               - anthropic
@@ -2453,6 +2453,7 @@ paths:
                     type: string
                   error_handler_extra_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: &ref_22 {}
                   error_handler_muted_on_cancel:
                     type: boolean
@@ -3115,6 +3116,7 @@ paths:
                   type: string
                 error_handler_extra_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 error_handler_muted_on_cancel:
                   type: boolean
@@ -3626,7 +3628,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_248
+                  properties: &ref_250
                     email:
                       type: string
                     executions:
@@ -3689,7 +3691,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_337
+                  properties: &ref_339
                     name:
                       type: string
                     description:
@@ -3699,7 +3701,7 @@ paths:
                       type: array
                       items:
                         type: object
-                        properties: &ref_335
+                        properties: &ref_337
                           value:
                             type: string
                           label:
@@ -3709,11 +3711,11 @@ paths:
                             nullable: true
                           requires_resource_path:
                             type: boolean
-                        required: &ref_336
+                        required: &ref_338
                           - value
                           - label
                           - requires_resource_path
-                  required: &ref_338
+                  required: &ref_340
                     - name
                     - scopes
   /users/tokens/create:
@@ -3729,7 +3731,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_252
+              properties: &ref_254
                 label:
                   type: string
                 expiration:
@@ -3761,7 +3763,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_253
+              properties: &ref_255
                 label:
                   type: string
                 expiration:
@@ -3771,7 +3773,7 @@ paths:
                   type: string
                 workspace_id:
                   type: string
-              required: &ref_254
+              required: &ref_256
                 - impersonate_email
       responses:
         '201':
@@ -3878,6 +3880,7 @@ paths:
     post:
       summary: create variable
       operationId: createVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3886,6 +3889,7 @@ paths:
           required: true
           schema: *ref_0
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3896,23 +3900,30 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_257
+              properties: &ref_259
                 path:
                   type: string
+                  description: The path to the variable
                 value:
                   type: string
+                  description: The value of the variable
                 is_secret:
                   type: boolean
+                  description: Whether the variable is a secret
                 description:
                   type: string
+                  description: The description of the variable
                 account:
                   type: integer
+                  description: The account identifier
                 is_oauth:
                   type: boolean
+                  description: Whether the variable is an OAuth variable
                 expires_at:
                   type: string
+                  description: The expiration date of the variable
                   format: date-time
-              required: &ref_258
+              required: &ref_260
                 - path
                 - value
                 - is_secret
@@ -3953,6 +3964,7 @@ paths:
     delete:
       summary: delete variable
       operationId: deleteVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3975,6 +3987,7 @@ paths:
     post:
       summary: update variable
       operationId: updateVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3987,6 +4000,7 @@ paths:
           required: true
           schema: *ref_31
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3997,15 +4011,19 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_259
+              properties: &ref_261
                 path:
                   type: string
+                  description: The path to the variable
                 value:
                   type: string
+                  description: The new value of the variable
                 is_secret:
                   type: boolean
+                  description: Whether the variable is a secret
                 description:
                   type: string
+                  description: The new description of the variable
       responses:
         '200':
           description: variable updated
@@ -4017,6 +4035,7 @@ paths:
     get:
       summary: get variable
       operationId: getVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -4132,6 +4151,7 @@ paths:
     get:
       summary: list variables
       operationId: listVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -4140,6 +4160,7 @@ paths:
           required: true
           schema: *ref_0
         - name: path_start
+          description: filter variables by path prefix
           in: query
           schema:
             type: string
@@ -4182,7 +4203,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_255
+                  properties: &ref_257
                     name:
                       type: string
                     value:
@@ -4191,7 +4212,7 @@ paths:
                       type: string
                     is_custom:
                       type: boolean
-                  required: &ref_256
+                  required: &ref_258
                     - name
                     - value
                     - description
@@ -4778,11 +4799,11 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: &ref_370
+                  required: &ref_372
                     - team_id
                     - team_name
                     - channels
-                  properties: &ref_371
+                  properties: &ref_373
                     team_id:
                       type: string
                       description: The unique identifier of the Microsoft Teams team
@@ -4796,12 +4817,12 @@ paths:
                       description: List of channels within the team
                       items:
                         type: object
-                        required: &ref_372
+                        required: &ref_374
                           - channel_id
                           - channel_name
                           - tenant_id
                           - service_url
-                        properties: &ref_373
+                        properties: &ref_375
                           channel_id:
                             type: string
                             description: The unique identifier of the channel
@@ -4856,6 +4877,7 @@ paths:
     post:
       summary: create resource
       operationId: createResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4864,6 +4886,7 @@ paths:
           required: true
           schema: *ref_0
         - name: update_if_exists
+          description: update the resource if it already exists (default false)
           in: query
           schema:
             type: boolean
@@ -4874,15 +4897,18 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_264
+              properties: &ref_266
                 path:
                   type: string
+                  description: The path to the resource
                 value: {}
                 description:
                   type: string
+                  description: The description of the resource
                 resource_type:
                   type: string
-              required: &ref_265
+                  description: The resource_type associated with the resource
+              required: &ref_267
                 - path
                 - value
                 - resource_type
@@ -4897,6 +4923,7 @@ paths:
     delete:
       summary: delete resource
       operationId: deleteResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4919,6 +4946,7 @@ paths:
     post:
       summary: update resource
       operationId: updateResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4937,12 +4965,17 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_266
+              properties: &ref_268
                 path:
                   type: string
+                  description: The path to the resource
                 description:
                   type: string
+                  description: The new description of the resource
                 value: {}
+                resource_type:
+                  type: string
+                  description: The new resource_type to be associated with the resource
       responses:
         '200':
           description: resource updated
@@ -4985,6 +5018,7 @@ paths:
     get:
       summary: get resource
       operationId: getResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -5003,7 +5037,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_267
+                properties: &ref_269
                   workspace_id:
                     type: string
                   path:
@@ -5024,7 +5058,7 @@ paths:
                   edited_at:
                     type: string
                     format: date-time
-                required: &ref_268
+                required: &ref_270
                   - path
                   - resource_type
                   - is_oauth
@@ -5102,6 +5136,7 @@ paths:
     get:
       summary: list resources
       operationId: listResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -5128,6 +5163,7 @@ paths:
           schema:
             type: string
         - name: path_start
+          description: filter resources by path prefix
           in: query
           schema:
             type: string
@@ -5140,7 +5176,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_269
+                  properties: &ref_271
                     workspace_id:
                       type: string
                     path:
@@ -5171,7 +5207,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_270
+                  required: &ref_272
                     - path
                     - resource_type
                     - is_oauth
@@ -5340,7 +5376,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_271
+              properties: &ref_273
                 schema: {}
                 description:
                   type: string
@@ -5401,6 +5437,7 @@ paths:
     get:
       summary: list resource_types
       operationId: listResourceType
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -5575,7 +5612,7 @@ paths:
                         type: string
                       value:
                         type: object
-                        properties: &ref_375
+                        properties: &ref_377
                           modules:
                             type: array
                             items:
@@ -5980,7 +6017,7 @@ paths:
                             type: number
                           early_return:
                             type: string
-                        required: &ref_376
+                        required: &ref_378
                           - modules
                       schema:
                         type: object
@@ -6373,6 +6410,7 @@ paths:
     get:
       summary: list all scripts
       operationId: listScripts
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -7056,6 +7094,7 @@ paths:
     get:
       summary: get script by path
       operationId: getScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -7177,7 +7216,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: &ref_241
+                allOf: &ref_243
                   - type: object
                     properties: *ref_56
                     required: *ref_57
@@ -7595,6 +7634,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '201':
@@ -7657,6 +7697,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '200':
@@ -7725,6 +7766,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '200':
@@ -7845,6 +7887,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '200':
@@ -7897,6 +7940,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '200':
@@ -7982,6 +8026,7 @@ paths:
     get:
       summary: list all flows
       operationId: listFlows
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -8063,7 +8108,7 @@ paths:
                           properties: *ref_68
                           required: *ref_69
                         - type: object
-                          properties: &ref_328
+                          properties: &ref_330
                             workspace_id:
                               type: string
                             path:
@@ -8077,7 +8122,7 @@ paths:
                               type: boolean
                             extra_perms:
                               type: object
-                              additionalProperties: &ref_327
+                              additionalProperties: &ref_329
                                 type: boolean
                             starred:
                               type: boolean
@@ -8097,7 +8142,7 @@ paths:
                               type: boolean
                             on_behalf_of_email:
                               type: string
-                          required: &ref_329
+                          required: &ref_331
                             - path
                             - edited_by
                             - edited_at
@@ -8274,6 +8319,7 @@ paths:
     get:
       summary: get flow by path
       operationId: getFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -8652,7 +8698,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_339
+                  properties: &ref_341
                     workspace_id:
                       type: string
                     path:
@@ -8670,7 +8716,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_340
+                  required: &ref_342
                     - workspace_id
                     - path
                     - summary
@@ -8820,7 +8866,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_333
+                  properties: &ref_335
                     id:
                       type: integer
                     workspace_id:
@@ -8848,7 +8894,7 @@ paths:
                         - anonymous
                     raw_app:
                       type: boolean
-                  required: &ref_334
+                  required: &ref_336
                     - id
                     - workspace_id
                     - path
@@ -9049,7 +9095,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: &ref_341
+                allOf: &ref_343
                   - type: object
                     properties: *ref_76
                     required: *ref_77
@@ -9774,6 +9820,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '201':
@@ -9934,6 +9981,7 @@ paths:
           application/json:
             schema:
               type: object
+              description: The arguments to pass to the script or flow
               additionalProperties: *ref_22
       responses:
         '201':
@@ -10067,7 +10115,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_260
+              properties: &ref_262
                 content:
                   type: string
                 path:
@@ -10076,6 +10124,7 @@ paths:
                   type: string
                 args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 language:
                   type: string
@@ -10092,7 +10141,7 @@ paths:
                   type: boolean
                 lock:
                   type: string
-              required: &ref_261
+              required: &ref_263
                 - args
       responses:
         '201':
@@ -10130,11 +10179,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_262
+              properties: &ref_264
                 args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
-              required: &ref_263
+              required: &ref_265
                 - args
       responses:
         '201':
@@ -10167,7 +10217,7 @@ paths:
                   type: array
                   items:
                     type: object
-                    properties: &ref_355
+                    properties: &ref_357
                       raw_code:
                         type: string
                       path:
@@ -10175,7 +10225,7 @@ paths:
                       language:
                         type: string
                         enum: *ref_50
-                    required: &ref_356
+                    required: &ref_358
                       - raw_code
                       - path
                       - language
@@ -10236,7 +10286,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_330
+              properties: &ref_332
                 value:
                   type: object
                   properties: &ref_92
@@ -10276,12 +10326,13 @@ paths:
                   type: string
                 args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 tag:
                   type: string
                 restarted_from:
                   type: object
-                  properties: &ref_332
+                  properties: &ref_334
                     flow_job_id:
                       type: string
                       format: uuid
@@ -10289,7 +10340,7 @@ paths:
                       type: string
                     branch_or_iteration_n:
                       type: integer
-              required: &ref_331
+              required: &ref_333
                 - value
                 - content
                 - args
@@ -10305,6 +10356,7 @@ paths:
     get:
       summary: list all queued jobs
       operationId: listQueue
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -10471,6 +10523,7 @@ paths:
                       type: string
                     args:
                       type: object
+                      description: The arguments to pass to the script or flow
                       additionalProperties: *ref_22
                     logs:
                       type: string
@@ -11255,6 +11308,7 @@ paths:
                       type: string
                     args:
                       type: object
+                      description: The arguments to pass to the script or flow
                       additionalProperties: *ref_22
                     result: {}
                     logs:
@@ -11354,6 +11408,7 @@ paths:
     get:
       summary: list all jobs
       operationId: listJobs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -12578,6 +12633,14 @@ paths:
     post:
       summary: create schedule
       operationId: createSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: >
+        Creates a new schedule.
+
+        The schedule should include seconds.
+
+        You should get the schema of the script or flow before creating the
+        schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -12592,46 +12655,66 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_273
+              properties: &ref_275
                 path:
                   type: string
+                  description: The path where the schedule will be created
                 schedule:
                   type: string
+                  description: >-
+                    The cron schedule to trigger the script or flow. Should
+                    include seconds.
                 timezone:
                   type: string
+                  description: The timezone to use for the cron schedule
                 script_path:
                   type: string
+                  description: The path to the script or flow to trigger
                 is_flow:
                   type: boolean
+                  description: Whether the schedule is for a flow
                 args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 enabled:
                   type: boolean
+                  description: Whether the schedule is enabled
                 on_failure:
                   type: string
+                  description: The path to the script or flow to trigger on failure
                 on_failure_times:
                   type: number
+                  description: The number of times to retry on failure
                 on_failure_exact:
                   type: boolean
+                  description: Whether the schedule should only run on the exact time
                 on_failure_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 on_recovery:
                   type: string
+                  description: The path to the script or flow to trigger on recovery
                 on_recovery_times:
                   type: number
+                  description: The number of times to retry on recovery
                 on_recovery_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 on_success:
                   type: string
+                  description: The path to the script or flow to trigger on success
                 on_success_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 ws_error_handler_muted:
                   type: boolean
+                  description: Whether the WebSocket error handler is muted
                 retry:
+                  description: The retry configuration for the schedule
                   type: object
                   properties: &ref_127
                     constant:
@@ -12656,18 +12739,26 @@ paths:
                           maximum: 100
                 no_flow_overlap:
                   type: boolean
+                  description: >-
+                    Whether the schedule should not run if a flow is already
+                    running
                 summary:
                   type: string
+                  description: The summary of the schedule
                 description:
                   type: string
+                  description: The description of the schedule
                 tag:
                   type: string
+                  description: The tag of the schedule
                 paused_until:
                   type: string
+                  description: The date and time the schedule will be paused until
                   format: date-time
                 cron_version:
                   type: string
-              required: &ref_274
+                  description: The version of the cron schedule to use (last is v2)
+              required: &ref_276
                 - path
                 - schedule
                 - timezone
@@ -12685,6 +12776,14 @@ paths:
     post:
       summary: update schedule
       operationId: updateSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: >
+        Updates a schedule.
+
+        The schedule should include seconds.
+
+        You should get the schema of the script or flow before updating the
+        schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -12703,58 +12802,80 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_275
+              properties: &ref_277
                 schedule:
                   type: string
+                  description: >-
+                    The cron schedule to trigger the script or flow. Should
+                    include seconds.
                 timezone:
                   type: string
+                  description: The timezone to use for the cron schedule
                 args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 on_failure:
                   type: string
+                  description: The path to the script or flow to trigger on failure
                 on_failure_times:
                   type: number
+                  description: The number of times to retry on failure
                 on_failure_exact:
                   type: boolean
+                  description: Whether the schedule should only run on the exact time
                 on_failure_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 on_recovery:
                   type: string
+                  description: The path to the script or flow to trigger on recovery
                 on_recovery_times:
                   type: number
+                  description: The number of times to retry on recovery
                 on_recovery_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 on_success:
                   type: string
+                  description: The path to the script or flow to trigger on success
                 on_success_extra_args:
+                  description: The arguments to pass to the script or flow
                   type: object
                   additionalProperties: *ref_22
                 ws_error_handler_muted:
                   type: boolean
+                  description: Whether the WebSocket error handler is muted
                 retry:
+                  description: The retry configuration for the schedule
                   type: object
                   properties: *ref_127
                 no_flow_overlap:
                   type: boolean
+                  description: >-
+                    Whether the schedule should not run if a flow is already
+                    running
                 summary:
                   type: string
+                  description: The summary of the schedule
                 description:
                   type: string
+                  description: The description of the schedule
                 tag:
                   type: string
+                  description: The tag of the schedule
                 paused_until:
                   type: string
+                  description: The date and time the schedule will be paused until
                   format: date-time
                 cron_version:
                   type: string
-              required: &ref_276
+                  description: The version of the cron schedule to use (last is v2)
+              required: &ref_278
                 - schedule
                 - timezone
-                - script_path
-                - is_flow
                 - args
       responses:
         '200':
@@ -12801,6 +12922,7 @@ paths:
     delete:
       summary: delete schedule
       operationId: deleteSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -12823,6 +12945,7 @@ paths:
     get:
       summary: get schedule
       operationId: getSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -12861,6 +12984,7 @@ paths:
                     type: boolean
                   args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   extra_perms:
                     type: object
@@ -12878,6 +13002,7 @@ paths:
                     type: boolean
                   on_failure_extra_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   on_recovery:
                     type: string
@@ -12885,11 +13010,13 @@ paths:
                     type: number
                   on_recovery_extra_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   on_success:
                     type: string
                   on_success_extra_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   ws_error_handler_muted:
                     type: boolean
@@ -12946,6 +13073,7 @@ paths:
     get:
       summary: list schedules
       operationId: listSchedules
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -12973,10 +13101,12 @@ paths:
           schema:
             type: string
         - name: is_flow
+          description: filter schedules by whether they target a flow
           in: query
           schema:
             type: boolean
         - name: path_start
+          description: filter schedules by path prefix
           in: query
           schema:
             type: string
@@ -13018,7 +13148,7 @@ paths:
               schema:
                 type: array
                 items:
-                  allOf: &ref_272
+                  allOf: &ref_274
                     - type: object
                       properties: *ref_128
                       required: *ref_129
@@ -13102,7 +13232,7 @@ paths:
               properties: &ref_130
                 info:
                   type: object
-                  properties: &ref_283
+                  properties: &ref_285
                     title:
                       type: string
                     version:
@@ -13131,28 +13261,28 @@ paths:
                           type: string
                       required:
                         - name
-                  required: &ref_284
+                  required: &ref_286
                     - title
                     - version
                 url:
                   type: string
                 openapi_spec_format:
                   type: string
-                  enum: &ref_278
+                  enum: &ref_280
                     - yaml
                     - json
                 http_route_filters:
                   type: array
                   items:
                     type: object
-                    properties: &ref_279
+                    properties: &ref_281
                       folder_regex:
                         type: string
                       path_regex:
                         type: string
                       route_path_regex:
                         type: string
-                    required: &ref_280
+                    required: &ref_282
                       - folder_regex
                       - path_regex
                       - route_path_regex
@@ -13160,7 +13290,7 @@ paths:
                   type: array
                   items:
                     type: object
-                    properties: &ref_281
+                    properties: &ref_283
                       user_or_folder_regex:
                         type: string
                         enum:
@@ -13173,10 +13303,10 @@ paths:
                         type: string
                       runnable_kind:
                         type: string
-                        enum: &ref_277
+                        enum: &ref_279
                           - script
                           - flow
-                    required: &ref_282
+                    required: &ref_284
                       - user_or_folder_regex
                       - user_or_folder_regex_value
                       - path
@@ -13291,6 +13421,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -13360,7 +13491,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_285
+              properties: &ref_287
                 path:
                   type: string
                 script_path:
@@ -13406,11 +13537,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_286
+              required: &ref_288
                 - path
                 - script_path
                 - is_flow
@@ -13541,6 +13673,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -13676,7 +13809,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_287
+              properties: &ref_289
                 path:
                   type: string
                 script_path:
@@ -13717,6 +13850,7 @@ paths:
                                 type: string
                               args:
                                 type: object
+                                description: The arguments to pass to the script or flow
                                 additionalProperties: *ref_22
                               is_flow:
                                 type: boolean
@@ -13728,6 +13862,7 @@ paths:
                           - runnable_result
                 url_runnable_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 can_return_message:
                   type: boolean
@@ -13735,11 +13870,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_288
+              required: &ref_290
                 - path
                 - script_path
                 - url
@@ -13775,7 +13911,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_289
+              properties: &ref_291
                 url:
                   type: string
                 path:
@@ -13801,6 +13937,7 @@ paths:
                     anyOf: *ref_138
                 url_runnable_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 can_return_message:
                   type: boolean
@@ -13808,11 +13945,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_290
+              required: &ref_292
                 - path
                 - script_path
                 - url
@@ -13903,6 +14041,7 @@ paths:
                       anyOf: *ref_138
                   url_runnable_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   can_return_message:
                     type: boolean
@@ -13910,6 +14049,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -14042,6 +14182,7 @@ paths:
                   type: string
                 url_runnable_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 can_return_message:
                   type: boolean
@@ -14073,7 +14214,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_313
+              properties: &ref_315
                 path:
                   type: string
                 script_path:
@@ -14094,11 +14235,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_314
+              required: &ref_316
                 - path
                 - script_path
                 - is_flow
@@ -14134,7 +14276,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_315
+              properties: &ref_317
                 kafka_resource_path:
                   type: string
                 group_id:
@@ -14153,11 +14295,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_316
+              required: &ref_318
                 - path
                 - script_path
                 - kafka_resource_path
@@ -14241,6 +14384,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -14398,7 +14542,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_317
+              properties: &ref_319
                 path:
                   type: string
                 script_path:
@@ -14423,11 +14567,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_318
+              required: &ref_320
                 - path
                 - script_path
                 - is_flow
@@ -14463,7 +14608,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_319
+              properties: &ref_321
                 nats_resource_path:
                   type: string
                 use_jetstream:
@@ -14486,11 +14631,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_320
+              required: &ref_322
                 - path
                 - script_path
                 - nats_resource_path
@@ -14578,6 +14724,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -14735,7 +14882,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_300
+              properties: &ref_302
                 queue_url:
                   type: string
                 aws_auth_resource_type:
@@ -14761,11 +14908,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_301
+              required: &ref_303
                 - queue_url
                 - aws_resource_path
                 - path
@@ -14801,7 +14949,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_302
+              properties: &ref_304
                 queue_url:
                   type: string
                 aws_auth_resource_type:
@@ -14825,11 +14973,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_303
+              required: &ref_305
                 - queue_url
                 - aws_resource_path
                 - path
@@ -14917,6 +15066,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -15074,7 +15224,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_292
+              properties: &ref_294
                 mqtt_resource_path:
                   type: string
                 subscribe_topics:
@@ -15084,7 +15234,7 @@ paths:
                     properties: &ref_154
                       qos:
                         type: string
-                        enum: &ref_291
+                        enum: &ref_293
                           - qos0
                           - qos1
                           - qos2
@@ -15126,11 +15276,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_293
+              required: &ref_295
                 - path
                 - script_path
                 - is_flow
@@ -15165,7 +15316,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_294
+              properties: &ref_296
                 mqtt_resource_path:
                   type: string
                 subscribe_topics:
@@ -15197,11 +15348,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_295
+              required: &ref_297
                 - path
                 - script_path
                 - is_flow
@@ -15296,6 +15448,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -15493,10 +15646,13 @@ paths:
                   type: boolean
                 enabled:
                   type: boolean
+                auto_acknowledge_msg:
+                  type: boolean
                 error_handler_path:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
@@ -15628,6 +15784,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -15791,10 +15948,10 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_298
+              properties: &ref_300
                 subscription_id:
                   type: string
-              required: &ref_299
+              required: &ref_301
                 - subscription_id
       responses:
         '200':
@@ -15849,10 +16006,10 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_296
+              properties: &ref_298
                 topic_id:
                   type: string
-              required: &ref_297
+              required: &ref_299
                 - topic_id
       responses:
         '200':
@@ -15925,7 +16082,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_307
+              properties: &ref_309
                 postgres_resource_path:
                   type: string
                 relations:
@@ -15937,7 +16094,7 @@ paths:
                         type: string
                       table_to_track:
                         type: array
-                        items: &ref_305
+                        items: &ref_307
                           type: object
                           properties:
                             table_name:
@@ -15955,9 +16112,9 @@ paths:
                       - table_to_track
                 language:
                   type: string
-                  enum: &ref_306
+                  enum: &ref_308
                     - Typescript
-              required: &ref_308
+              required: &ref_310
                 - postgres_resource_path
                 - relations
                 - language
@@ -16015,7 +16172,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_304
+                  properties: &ref_306
                     slot_name:
                       type: string
                     active:
@@ -16124,6 +16281,7 @@ paths:
         - name: publication
           in: path
           required: true
+          description: The name of the publication
           schema: &ref_174
             type: string
       responses:
@@ -16164,6 +16322,7 @@ paths:
         - name: publication
           in: path
           required: true
+          description: The name of the publication
           schema: *ref_174
       requestBody:
         description: new publication for postgres
@@ -16199,6 +16358,7 @@ paths:
         - name: publication
           in: path
           required: true
+          description: The name of the publication
           schema: *ref_174
       requestBody:
         description: update publication for postgres
@@ -16234,6 +16394,7 @@ paths:
         - name: publication
           in: path
           required: true
+          description: The name of the publication
           schema: *ref_174
       responses:
         '200':
@@ -16260,7 +16421,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_309
+              properties: &ref_311
                 replication_slot_name:
                   type: string
                 publication_name:
@@ -16283,11 +16444,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_310
+              required: &ref_312
                 - path
                 - script_path
                 - is_flow
@@ -16322,7 +16484,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_311
+              properties: &ref_313
                 replication_slot_name:
                   type: string
                 publication_name:
@@ -16345,11 +16507,12 @@ paths:
                   type: string
                 error_handler_args:
                   type: object
+                  description: The arguments to pass to the script or flow
                   additionalProperties: *ref_22
                 retry:
                   type: object
                   properties: *ref_127
-              required: &ref_312
+              required: &ref_314
                 - path
                 - script_path
                 - is_flow
@@ -16432,6 +16595,7 @@ paths:
                     type: string
                   error_handler_args:
                     type: object
+                    description: The arguments to pass to the script or flow
                     additionalProperties: *ref_22
                   retry:
                     type: object
@@ -17387,6 +17551,7 @@ paths:
     get:
       summary: list workers
       operationId: listWorkers
+      x-mcp-tool: true
       tags:
         - worker
       parameters:
@@ -17415,7 +17580,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_321
+                  properties: &ref_323
                     worker:
                       type: string
                     worker_instance:
@@ -17457,7 +17622,7 @@ paths:
                       type: number
                     wm_memory_usage:
                       type: number
-                  required: &ref_322
+                  required: &ref_324
                     - worker
                     - worker_instance
                     - ping_at
@@ -17574,12 +17739,12 @@ paths:
               schema:
                 type: object
                 nullable: true
-                properties: &ref_240
+                properties: &ref_242
                   alerts:
                     type: array
                     items:
                       type: object
-                      properties: &ref_238
+                      properties: &ref_240
                         name:
                           type: string
                         tags_to_monitor:
@@ -17592,7 +17757,7 @@ paths:
                           type: integer
                         alert_time_threshold_seconds:
                           type: integer
-                      required: &ref_239
+                      required: &ref_241
                         - name
                         - tags_to_monitor
                         - jobs_num_threshold
@@ -17654,12 +17819,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_363
+                  properties: &ref_365
                     name:
                       type: string
                     config:
                       type: object
-                  required: &ref_364
+                  required: &ref_366
                     - name
   /configs/list_autoscaling_events/{worker_group}:
     get:
@@ -17682,7 +17847,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_367
+                  properties: &ref_369
                     id:
                       type: integer
                       format: int64
@@ -18103,7 +18268,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_368
+                  properties: &ref_370
                     trigger_config: {}
                     trigger_kind:
                       type: string
@@ -18113,7 +18278,7 @@ paths:
                     last_server_ping:
                       type: string
                       format: date-time
-                  required: &ref_369
+                  required: &ref_371
                     - trigger_kind
   /w/{workspace}/capture/list/{runnable_kind}/{path}:
     get:
@@ -18329,7 +18494,7 @@ paths:
           in: query
           schema: &ref_193
             type: string
-            enum: &ref_246
+            enum: &ref_248
               - ScriptHash
               - ScriptPath
               - FlowPath
@@ -18471,12 +18636,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_242
+              properties: &ref_244
                 name:
                   type: string
                 args:
                   type: object
-              required: &ref_243
+              required: &ref_245
                 - name
                 - args
                 - created_by
@@ -18506,14 +18671,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_244
+              properties: &ref_246
                 id:
                   type: string
                 name:
                   type: string
                 is_public:
                   type: boolean
-              required: &ref_245
+              required: &ref_247
                 - id
                 - name
                 - is_public
@@ -18869,10 +19034,10 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_342
+                      properties: &ref_344
                         s3:
                           type: string
-                      required: &ref_343
+                      required: &ref_345
                         - s3
                   restricted_access:
                     type: boolean
@@ -18905,7 +19070,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_344
+                properties: &ref_346
                   mime_type:
                     type: string
                   size_in_bytes:
@@ -18969,7 +19134,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_345
+                properties: &ref_347
                   msg:
                     type: string
                   content:
@@ -18981,7 +19146,7 @@ paths:
                       - Csv
                       - Parquet
                       - Unknown
-                required: &ref_346
+                required: &ref_348
                   - content_type
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
@@ -19354,46 +19519,46 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_347
+                      properties: &ref_349
                         id:
                           type: string
                         name:
                           type: string
-                      required: &ref_348
-                        - id
-                  scalar_metrics:
-                    type: array
-                    items:
-                      type: object
-                      properties: &ref_349
-                        metric_id:
-                          type: string
-                        value:
-                          type: number
                       required: &ref_350
                         - id
-                        - value
-                  timeseries_metrics:
+                  scalar_metrics:
                     type: array
                     items:
                       type: object
                       properties: &ref_351
                         metric_id:
                           type: string
+                        value:
+                          type: number
+                      required: &ref_352
+                        - id
+                        - value
+                  timeseries_metrics:
+                    type: array
+                    items:
+                      type: object
+                      properties: &ref_353
+                        metric_id:
+                          type: string
                         values:
                           type: array
                           items:
                             type: object
-                            properties: &ref_353
+                            properties: &ref_355
                               timestamp:
                                 type: string
                                 format: date-time
                               value:
                                 type: number
-                            required: &ref_354
+                            required: &ref_356
                               - timestamp
                               - value
-                      required: &ref_352
+                      required: &ref_354
                         - id
                         - values
   /w/{workspace}/job_metrics/set_progress/{id}:
@@ -19538,12 +19703,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_357
+                  properties: &ref_359
                     concurrency_key:
                       type: string
                     total_running:
                       type: number
-                  required: &ref_358
+                  required: &ref_360
                     - concurrency_key
                     - total_running
   /concurrency_groups/prune/{concurrency_id}:
@@ -19747,7 +19912,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_359
+                properties: &ref_361
                   jobs:
                     type: array
                     items:
@@ -19757,7 +19922,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_247
+                      properties: &ref_249
                         typ:
                           type: string
                         started_at:
@@ -19770,7 +19935,7 @@ paths:
                       Obscured jobs omitted for security because of too specific
                       filtering
                     type: boolean
-                required: &ref_360
+                required: &ref_362
                   - jobs
                   - obscured_jobs
   /srch/w/{workspace}/index/search/job:
@@ -19814,7 +19979,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_365
+                      properties: &ref_367
                         dancer:
                           type: string
                   hit_count:
@@ -19890,7 +20055,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_366
+                      properties: &ref_368
                         dancer:
                           type: string
   /srch/index/search/count_service_logs:
@@ -20070,6 +20235,60 @@ paths:
                       access_type:
                         type: string
                         enum: *ref_204
+  /mcp/w/{workspace}/list_tools:
+    get:
+      summary: list available MCP tools
+      operationId: listMcpTools
+      tags:
+        - mcp
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      responses:
+        '200':
+          description: list of MCP tools available for the workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: &ref_235
+                    - name
+                    - description
+                    - instructions
+                    - path
+                    - method
+                  properties: &ref_236
+                    name:
+                      type: string
+                      description: The tool name/operation ID
+                    description:
+                      type: string
+                      description: Short description of the tool
+                    instructions:
+                      type: string
+                      description: Detailed instructions for using the tool
+                    path:
+                      type: string
+                      description: API endpoint path
+                    method:
+                      type: string
+                      description: HTTP method (GET, POST, etc.)
+                    path_params_schema:
+                      type: object
+                      description: JSON schema for path parameters
+                      nullable: true
+                    query_params_schema:
+                      type: object
+                      description: JSON schema for query parameters
+                      nullable: true
+                    body_schema:
+                      type: object
+                      description: JSON schema for request body
+                      nullable: true
 components:
   securitySchemes:
     bearerAuth:
@@ -20099,6 +20318,7 @@ components:
       name: publication
       in: path
       required: true
+      description: The name of the publication
       schema: *ref_174
     VersionId:
       name: version
@@ -20903,9 +21123,13 @@ components:
           type: boolean
       required:
         - type
+    EndpointTool:
+      type: object
+      required: *ref_235
+      properties: *ref_236
     AIProvider:
       type: string
-      enum: *ref_235
+      enum: *ref_237
     GitSyncObjectType:
       type: string
       enum: *ref_20
@@ -20915,19 +21139,19 @@ components:
       required: *ref_19
     AIProviderConfig:
       type: object
-      properties: *ref_236
-      required: *ref_237
+      properties: *ref_238
+      required: *ref_239
     AIConfig:
       type: object
       properties: *ref_21
     Alert:
       type: object
-      properties: *ref_238
-      required: *ref_239
+      properties: *ref_240
+      required: *ref_241
     Configs:
       type: object
       nullable: true
-      properties: *ref_240
+      properties: *ref_242
     Script:
       type: object
       properties: *ref_51
@@ -20937,13 +21161,14 @@ components:
       properties: *ref_56
       required: *ref_57
     NewScriptWithDraft:
-      allOf: *ref_241
+      allOf: *ref_243
     ScriptHistory:
       type: object
       properties: *ref_58
       required: *ref_59
     ScriptArgs:
       type: object
+      description: The arguments to pass to the script or flow
       additionalProperties: *ref_22
     Input:
       type: object
@@ -20951,15 +21176,15 @@ components:
       required: *ref_195
     CreateInput:
       type: object
-      properties: *ref_242
-      required: *ref_243
-    UpdateInput:
-      type: object
       properties: *ref_244
       required: *ref_245
+    UpdateInput:
+      type: object
+      properties: *ref_246
+      required: *ref_247
     RunnableType:
       type: string
-      enum: *ref_246
+      enum: *ref_248
     QueuedJob:
       type: object
       properties: *ref_121
@@ -20970,7 +21195,7 @@ components:
       required: *ref_120
     ObscuredJob:
       type: object
-      properties: *ref_247
+      properties: *ref_249
     Job:
       oneOf: *ref_124
       discriminator: *ref_125
@@ -20980,40 +21205,40 @@ components:
       required: *ref_11
     UserUsage:
       type: object
-      properties: *ref_248
+      properties: *ref_250
     Login:
       type: object
-      properties: *ref_249
-      required: *ref_250
+      properties: *ref_251
+      required: *ref_252
     EditWorkspaceUser:
       type: object
-      properties: *ref_251
+      properties: *ref_253
     TruncatedToken:
       type: object
       properties: *ref_54
       required: *ref_55
     NewToken:
       type: object
-      properties: *ref_252
+      properties: *ref_254
     NewTokenImpersonate:
       type: object
-      properties: *ref_253
-      required: *ref_254
+      properties: *ref_255
+      required: *ref_256
     ListableVariable:
       type: object
       properties: *ref_32
       required: *ref_33
     ContextualVariable:
       type: object
-      properties: *ref_255
-      required: *ref_256
-    CreateVariable:
-      type: object
       properties: *ref_257
       required: *ref_258
-    EditVariable:
+    CreateVariable:
       type: object
       properties: *ref_259
+      required: *ref_260
+    EditVariable:
+      type: object
+      properties: *ref_261
     AuditLog:
       type: object
       properties: *ref_1
@@ -21153,12 +21378,12 @@ components:
       enum: *ref_50
     Preview:
       type: object
-      properties: *ref_260
-      required: *ref_261
-    WorkflowTask:
-      type: object
       properties: *ref_262
       required: *ref_263
+    WorkflowTask:
+      type: object
+      properties: *ref_264
+      required: *ref_265
     WorkflowStatusRecord:
       type: object
       additionalProperties:
@@ -21169,40 +21394,47 @@ components:
       properties: *ref_113
     CreateResource:
       type: object
-      properties: *ref_264
-      required: *ref_265
+      properties: *ref_266
+      required: *ref_267
     EditResource:
       type: object
-      properties: *ref_266
+      properties: *ref_268
     Resource:
-      type: object
-      properties: *ref_267
-      required: *ref_268
-    ListableResource:
       type: object
       properties: *ref_269
       required: *ref_270
+    ListableResource:
+      type: object
+      properties: *ref_271
+      required: *ref_272
     ResourceType:
       type: object
       properties: *ref_39
       required: *ref_40
     EditResourceType:
       type: object
-      properties: *ref_271
+      properties: *ref_273
     Schedule:
       type: object
       properties: *ref_128
       required: *ref_129
     ScheduleWJobs:
-      allOf: *ref_272
+      allOf: *ref_274
+    ErrorHandler:
+      type: string
+      enum:
+        - custom
+        - slack
+        - teams
+        - email
     NewSchedule:
-      type: object
-      properties: *ref_273
-      required: *ref_274
-    EditSchedule:
       type: object
       properties: *ref_275
       required: *ref_276
+    EditSchedule:
+      type: object
+      properties: *ref_277
+      required: *ref_278
     TriggerExtraProperty:
       type: object
       properties: *ref_139
@@ -21212,22 +21444,22 @@ components:
       enum: *ref_134
     RunnableKind:
       type: string
-      enum: *ref_277
+      enum: *ref_279
     OpenapiSpecFormat:
       type: string
-      enum: *ref_278
+      enum: *ref_280
     OpenapiHttpRouteFilters:
-      type: object
-      properties: *ref_279
-      required: *ref_280
-    WebhookFilters:
       type: object
       properties: *ref_281
       required: *ref_282
-    OpenapiV3Info:
+    WebhookFilters:
       type: object
       properties: *ref_283
       required: *ref_284
+    OpenapiV3Info:
+      type: object
+      properties: *ref_285
+      required: *ref_286
     GenerateOpenapiSpec:
       type: object
       properties: *ref_130
@@ -21245,8 +21477,8 @@ components:
       required: *ref_132
     EditHttpTrigger:
       type: object
-      properties: *ref_285
-      required: *ref_286
+      properties: *ref_287
+      required: *ref_288
     TriggersCount:
       type: object
       properties: *ref_73
@@ -21257,17 +21489,17 @@ components:
       required: *ref_143
     NewWebsocketTrigger:
       type: object
-      properties: *ref_287
-      required: *ref_288
-    EditWebsocketTrigger:
-      type: object
       properties: *ref_289
       required: *ref_290
+    EditWebsocketTrigger:
+      type: object
+      properties: *ref_291
+      required: *ref_292
     WebsocketTriggerInitialMessage:
       anyOf: *ref_138
     MqttQoS:
       type: string
-      enum: *ref_291
+      enum: *ref_293
     MqttV3Config:
       type: object
       properties: *ref_156
@@ -21288,12 +21520,12 @@ components:
       required: *ref_161
     NewMqttTrigger:
       type: object
-      properties: *ref_292
-      required: *ref_293
-    EditMqttTrigger:
-      type: object
       properties: *ref_294
       required: *ref_295
+    EditMqttTrigger:
+      type: object
+      properties: *ref_296
+      required: *ref_297
     DeliveryType:
       type: string
       enum: *ref_164
@@ -21319,12 +21551,12 @@ components:
       required: *ref_163
     GetAllTopicSubscription:
       type: object
-      properties: *ref_296
-      required: *ref_297
-    DeleteGcpSubscription:
-      type: object
       properties: *ref_298
       required: *ref_299
+    DeleteGcpSubscription:
+      type: object
+      properties: *ref_300
+      required: *ref_301
     AwsAuthResourceType:
       type: string
       enum: *ref_150
@@ -21335,36 +21567,36 @@ components:
       required: *ref_153
     NewSqsTrigger:
       type: object
-      properties: *ref_300
-      required: *ref_301
-    EditSqsTrigger:
-      type: object
       properties: *ref_302
       required: *ref_303
+    EditSqsTrigger:
+      type: object
+      properties: *ref_304
+      required: *ref_305
     Slot:
       type: object
       properties: *ref_171
     SlotList:
       type: object
-      properties: *ref_304
+      properties: *ref_306
     PublicationData:
       type: object
       properties: *ref_175
       required: *ref_176
     TableToTrack:
       type: array
-      items: *ref_305
+      items: *ref_307
     Relations:
       type: object
       properties: *ref_172
       required: *ref_173
     Language:
       type: string
-      enum: *ref_306
+      enum: *ref_308
     TemplateScript:
       type: object
-      properties: *ref_307
-      required: *ref_308
+      properties: *ref_309
+      required: *ref_310
     PostgresTrigger:
       allOf: *ref_177
       type: object
@@ -21372,12 +21604,12 @@ components:
       required: *ref_179
     NewPostgresTrigger:
       type: object
-      properties: *ref_309
-      required: *ref_310
-    EditPostgresTrigger:
-      type: object
       properties: *ref_311
       required: *ref_312
+    EditPostgresTrigger:
+      type: object
+      properties: *ref_313
+      required: *ref_314
     KafkaTrigger:
       allOf: *ref_144
       type: object
@@ -21385,12 +21617,12 @@ components:
       required: *ref_146
     NewKafkaTrigger:
       type: object
-      properties: *ref_313
-      required: *ref_314
-    EditKafkaTrigger:
-      type: object
       properties: *ref_315
       required: *ref_316
+    EditKafkaTrigger:
+      type: object
+      properties: *ref_317
+      required: *ref_318
     NatsTrigger:
       allOf: *ref_147
       type: object
@@ -21398,12 +21630,12 @@ components:
       required: *ref_149
     NewNatsTrigger:
       type: object
-      properties: *ref_317
-      required: *ref_318
-    EditNatsTrigger:
-      type: object
       properties: *ref_319
       required: *ref_320
+    EditNatsTrigger:
+      type: object
+      properties: *ref_321
+      required: *ref_322
     Group:
       type: object
       properties: *ref_185
@@ -21418,16 +21650,16 @@ components:
       required: *ref_188
     WorkerPing:
       type: object
-      properties: *ref_321
-      required: *ref_322
-    UserWorkspaceList:
-      type: object
       properties: *ref_323
       required: *ref_324
-    CreateWorkspace:
+    UserWorkspaceList:
       type: object
       properties: *ref_325
       required: *ref_326
+    CreateWorkspace:
+      type: object
+      properties: *ref_327
+      required: *ref_328
     Workspace:
       type: object
       properties: *ref_7
@@ -21444,45 +21676,45 @@ components:
       allOf: *ref_72
     ExtraPerms:
       type: object
-      additionalProperties: *ref_327
+      additionalProperties: *ref_329
     FlowMetadata:
       type: object
-      properties: *ref_328
-      required: *ref_329
+      properties: *ref_330
+      required: *ref_331
     OpenFlowWPath:
       allOf: *ref_74
     FlowPreview:
       type: object
-      properties: *ref_330
-      required: *ref_331
+      properties: *ref_332
+      required: *ref_333
     RestartedFrom:
       type: object
-      properties: *ref_332
+      properties: *ref_334
     Policy:
       type: object
       properties: *ref_75
     ListableApp:
       type: object
-      properties: *ref_333
-      required: *ref_334
-    ScopeDefinition:
-      type: object
       properties: *ref_335
       required: *ref_336
-    ScopeDomain:
+    ScopeDefinition:
       type: object
       properties: *ref_337
       required: *ref_338
-    ListableRawApp:
+    ScopeDomain:
       type: object
       properties: *ref_339
       required: *ref_340
+    ListableRawApp:
+      type: object
+      properties: *ref_341
+      required: *ref_342
     AppWithLastVersion:
       type: object
       properties: *ref_76
       required: *ref_77
     AppWithLastVersionWDraft:
-      allOf: *ref_341
+      allOf: *ref_343
     AppHistory:
       type: object
       properties: *ref_78
@@ -21530,15 +21762,15 @@ components:
       properties: *ref_25
     WindmillLargeFile:
       type: object
-      properties: *ref_342
-      required: *ref_343
+      properties: *ref_344
+      required: *ref_345
     WindmillFileMetadata:
       type: object
-      properties: *ref_344
+      properties: *ref_346
     WindmillFilePreview:
       type: object
-      properties: *ref_345
-      required: *ref_346
+      properties: *ref_347
+      required: *ref_348
     S3Resource:
       type: object
       properties: *ref_196
@@ -21568,57 +21800,57 @@ components:
         - tag
     MetricMetadata:
       type: object
-      properties: *ref_347
-      required: *ref_348
-    ScalarMetric:
-      type: object
       properties: *ref_349
       required: *ref_350
-    TimeseriesMetric:
+    ScalarMetric:
       type: object
       properties: *ref_351
       required: *ref_352
-    MetricDataPoint:
+    TimeseriesMetric:
       type: object
       properties: *ref_353
       required: *ref_354
-    RawScriptForDependencies:
+    MetricDataPoint:
       type: object
       properties: *ref_355
       required: *ref_356
-    ConcurrencyGroup:
+    RawScriptForDependencies:
       type: object
       properties: *ref_357
       required: *ref_358
-    ExtendedJobs:
+    ConcurrencyGroup:
       type: object
       properties: *ref_359
       required: *ref_360
+    ExtendedJobs:
+      type: object
+      properties: *ref_361
+      required: *ref_362
     ExportedUser:
       type: object
       properties: *ref_3
       required: *ref_4
     GlobalSetting:
       type: object
-      properties: *ref_361
-      required: *ref_362
-    Config:
-      type: object
       properties: *ref_363
       required: *ref_364
+    Config:
+      type: object
+      properties: *ref_365
+      required: *ref_366
     ExportedInstanceGroup:
       type: object
       properties: *ref_183
       required: *ref_184
     JobSearchHit:
       type: object
-      properties: *ref_365
+      properties: *ref_367
     LogSearchHit:
       type: object
-      properties: *ref_366
+      properties: *ref_368
     AutoscalingEvent:
       type: object
-      properties: *ref_367
+      properties: *ref_369
     CriticalAlert:
       type: object
       properties: *ref_34
@@ -21631,8 +21863,8 @@ components:
       required: *ref_191
     CaptureConfig:
       type: object
-      properties: *ref_368
-      required: *ref_369
+      properties: *ref_370
+      required: *ref_371
     OperatorSettings:
       nullable: true
       type: object
@@ -21640,15 +21872,15 @@ components:
       properties: *ref_13
     TeamInfo:
       type: object
-      required: *ref_370
-      properties: *ref_371
-    ChannelInfo:
-      type: object
       required: *ref_372
       properties: *ref_373
+    ChannelInfo:
+      type: object
+      required: *ref_374
+      properties: *ref_375
     GithubInstallations:
       type: array
-      items: *ref_374
+      items: *ref_376
     WorkspaceGithubInstallation:
       type: object
       properties:
@@ -21766,8 +21998,8 @@ components:
       properties: *ref_218
     schemas-FlowValue:
       type: object
-      properties: *ref_375
-      required: *ref_376
+      properties: *ref_377
+      required: *ref_378
     schemas-FlowStatusModule:
       type: object
       properties: *ref_90
