@@ -170,7 +170,6 @@
 							color="red"
 							size="xs"
 							on:click={() => {
-								ToolExecutionDisplay] Cancel clicked for tool:', message.tool_call_id)
 								if (message.tool_call_id) {
 									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
 								}
