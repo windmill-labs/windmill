@@ -11,6 +11,7 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopeSelector from './ScopeSelector.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -40,7 +41,8 @@
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
 	let allApps = $state<string[]>([])
-	let includedScriptsAndFlows = $state<string[]>([])
+	let loadingRunnables = $state(false)
+	let includedRunnables = $state<string[]>([])
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
@@ -105,6 +107,8 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+	const warning = $derived(newMcpScope === 'favorites' ? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.` : 'Create your first scripts or flows to make them available via MCP.')
+	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
 
 	$effect(() => {
 		if (mcpCreationMode) {
@@ -151,19 +155,22 @@
 	}
 
 	async function getScriptsAndFlows(favoriteOnly: boolean = false) {
-		const [scripts, flows] = await Promise.all([getScripts(favoriteOnly), getFlows(favoriteOnly)])
-		includedScriptsAndFlows = [...scripts, ...flows]
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly), getFlows(favoriteOnly)])
+			includedRunnables = [...scripts, ...flows]
+		} finally {
+			loadingRunnables = false
+		}
 	}
 
 	$effect(() => {
 		if (mcpCreationMode) {
 			getScriptsAndFlows(newMcpScope === 'favorites')
 		} else {
-			includedScriptsAndFlows = []
+			includedRunnables = []
 		}
 	})
-
-	$inspect(includedScriptsAndFlows)
 </script>
 
 <div>
@@ -301,13 +308,37 @@
 						<option value={90 * 24 * 60 * 60}>90d</option>
 					</select>
 				</div>
+			{:else if loadingRunnables}
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					<span class="block text-xs text-tertiary">Loading scripts & flows...</span>
+				</div>
 			{:else}
-				<div class="flex flex-row gap-2">
-					{#each includedScriptsAndFlows.slice(0, 3) as scriptOrFlow}
-						<Badge rounded small color="dark-gray">{scriptOrFlow}</Badge>
-					{/each}
-					{#if includedScriptsAndFlows.length > 3}
-						<Badge rounded small color="dark-gray">+{includedScriptsAndFlows.length - 3}</Badge>
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					{#if noScriptsOrFlowsAvailableWarning}
+					<Alert type="info" title="No scripts or flows available" size="xs">
+						{noScriptsOrFlowsAvailableWarning}
+					</Alert>
+					{:else}
+						<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+						<div class="flex flex-wrap gap-1">
+
+						{#if includedRunnables.length <= 5}
+							{#each includedRunnables as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+						{:else}
+							{#each includedRunnables.slice(0, 3) as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+							<Badge 
+								rounded 
+								small 
+								color="dark-gray" 
+							>
+								+{includedRunnables.length - 3} more
+							</Badge>
+							{/if}
+						</div>
 					{/if}
 				</div>
 			{/if}
