@@ -144,8 +144,12 @@
 
 <InitializeComponent {id} />
 
+{#snippet nonRenderedPlaceholder()}
+	<ListWrapper disabled value={undefined} index={0}>
+		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+	</ListWrapper>
+{/snippet}
 <RunnableWrapper
-	hasChildrens
 	{render}
 	{outputs}
 	autoRefresh
@@ -154,6 +158,7 @@
 	bind:initializing
 	bind:result
 	bind:loading
+	{nonRenderedPlaceholder}
 >
 	{#if everRender}
 		<div
@@ -231,9 +236,7 @@
 						</div>
 					{/each}
 				{:else}
-					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-					</ListWrapper>
+					{@render nonRenderedPlaceholder?.()}
 					{#if !Array.isArray(result)}
 						<div class="text-center text-tertiary">Input data is not an array</div>
 					{/if}
@@ -289,8 +292,6 @@
 			{/if}
 		</div>
 	{:else if $app.subgrids}
-		<ListWrapper disabled value={undefined} index={0}>
-			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-		</ListWrapper>
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 </RunnableWrapper>

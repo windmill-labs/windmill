@@ -52,7 +52,7 @@
 		"prettier-plugin-svelte": "^3.3.3",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^13.0.0",
-		"svelte": "^5.0.0",
+		"svelte": "^5.38.0",
 		"svelte-awesome-color-picker": "^3.0.4",
 		"svelte-check": "^4.0.0",
 		"svelte-floating-ui": "^1.5.8",

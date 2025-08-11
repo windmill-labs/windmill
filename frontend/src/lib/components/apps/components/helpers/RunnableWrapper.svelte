@@ -87,10 +87,10 @@
 		extraKey?: string | undefined
 		refreshOnStart?: boolean
 		errorHandledByComponent?: boolean
-		hasChildrens?: boolean
 		allowConcurentRequests?: boolean
 		onSuccess?: (result: any) => void
 		children?: import('svelte').Snippet
+		nonRenderedPlaceholder?: import('svelte').Snippet
 	}
 
 	let {
@@ -118,10 +118,10 @@
 		extraKey = undefined,
 		refreshOnStart = false,
 		errorHandledByComponent = false,
-		hasChildrens = false,
 		allowConcurentRequests = false,
 		onSuccess = () => {},
-		children
+		children,
+		nonRenderedPlaceholder
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -301,19 +301,22 @@
 </script>
 
 {#if componentInput === undefined}
+	1
 	{#if !noInitialize}
 		<InitializeComponent {id} />
 	{/if}
 	{#if render}
 		{@render children?.()}
+	{:else}
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
+	2
 	<RunnableComponent
 		{noInitialize}
 		{allowConcurentRequests}
 		{refreshOnStart}
 		{extraKey}
-		{hasChildrens}
 		{replaceCallback}
 		bind:loading
 		bind:this={runnableComponent}
@@ -358,11 +361,19 @@
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
 		{errorHandledByComponent}
+		{nonRenderedPlaceholder}
 	>
 		{@render children?.()}
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {noInitialize} {hasChildrens} {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent
+		{nonRenderedPlaceholder}
+		{noInitialize}
+		{render}
+		bind:result
+		{id}
+		{componentInput}
+	>
 		{@render children?.()}
 	</NonRunnableComponent>
 {/if}

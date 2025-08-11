@@ -56,13 +56,13 @@
 		recomputableByRefreshButton: boolean
 		errorHandledByComponent?: boolean
 		hideRefreshButton?: boolean
-		hasChildrens: boolean
 		allowConcurentRequests?: boolean
 		noInitialize?: boolean
 		overrideCallback?: (() => CancelablePromise<void>) | undefined
 		overrideAutoRefresh?: boolean
 		replaceCallback?: boolean
 		children?: import('svelte').Snippet
+		nonRenderedPlaceholder?: import('svelte').Snippet
 	}
 
 	let {
@@ -87,13 +87,13 @@
 		recomputableByRefreshButton,
 		errorHandledByComponent = false,
 		hideRefreshButton = false,
-		hasChildrens,
 		allowConcurentRequests = false,
 		noInitialize = false,
 		overrideCallback = undefined,
 		overrideAutoRefresh = false,
 		replaceCallback = false,
-		children
+		children,
+		nonRenderedPlaceholder
 	}: Props = $props()
 
 	const {
@@ -897,13 +897,8 @@
 	bind:this={resultJobLoader}
 />
 
-{#if render || hasChildrens}
-	<div
-		class="h-full flex relative flex-row flex-wrap {wrapperClass} {render
-			? 'visible'
-			: 'invisible h-0 overflow-hidden'}"
-		style={wrapperStyle}
-	>
+{#if render}
+	<div class="h-full flex relative flex-row flex-wrap {wrapperClass} visible" style={wrapperStyle}>
 		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
@@ -974,5 +969,9 @@
 				<RefreshButton {loading} {id} />
 			</div>
 		{/if}
+	</div>
+{:else if nonRenderedPlaceholder}
+	<div class="invisible h-0 overflow-hidden">
+		{@render nonRenderedPlaceholder?.()}
 	</div>
 {/if}
