@@ -15,6 +15,7 @@
 		selected: number
 		selectedManually: boolean | undefined
 		onSelectedIteration: onSelectedIteration
+		showIcon?: boolean
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		selected,
 		selectedManually,
 		onSelectedIteration,
-		moduleId
+		moduleId,
+		showIcon = true
 	}: Props = $props()
 
 	let filter: number | undefined = $state(undefined)
@@ -127,7 +129,9 @@
 					meltElement={trigger}
 				>
 					#{selected == -1 ? '?' : selected + 1}
-					<ListFilter size={15} />
+					{#if showIcon}
+						<ListFilter size={15} />
+					{/if}
 				</MeltButton>
 			{/snippet}
 

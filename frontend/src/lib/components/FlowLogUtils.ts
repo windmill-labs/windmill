@@ -24,6 +24,9 @@ export interface StepData {
 	subflows?: FlowData[]
 	selectedIteration?: number
 	iterationTotal?: number
+	flowJobs?: string[]
+	flowJobsSuccess?: (boolean | undefined)[]
+	selectedManually?: boolean | undefined
 	emptySubflow?: boolean
 	type:
 		| 'script'

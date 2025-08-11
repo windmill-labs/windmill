@@ -9,6 +9,7 @@
 	import type { FlowData, StepData } from './FlowLogUtils'
 	import type { FlowStatusModule } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
+	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 
 	interface Props {
 		flowData: FlowData
@@ -46,15 +47,6 @@
 
 	function getJobLink(jobId: string): string {
 		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
-	}
-
-	async function handleIterationChange(stepId: string, newIteration: number, jobId: string) {
-		await onSelectedIteration({
-			id: jobId,
-			index: newIteration,
-			manuallySet: true,
-			moduleId: stepId
-		})
 	}
 
 	function getStatusDot(status: FlowStatusModule['type'] | undefined) {
@@ -346,28 +338,20 @@
 														</span>
 														{#if !hasEmptySubflow && entry.stepData.subflows && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
 															<span
-																class="text-xs font-mono font-medium inline-flex items-center gap-1 grow min-w-0"
+																class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
 															>
-																iteration
-																<select
-																	value={getSelectedIteration(entry.stepId)}
-																	onchange={(e) => {
-																		const target = e.target as HTMLSelectElement
-																		handleIterationChange(
-																			entry.stepId,
-																			Number(target.value),
-																			entry.stepData.subflows?.[Number(target.value)]?.jobId ?? ''
-																		)
-																	}}
-																	onclick={(e) => e.stopPropagation()}
-																	class="inline-block !-my-2 !w-12 !p-0.5 !text-xs bg-surface-secondary font-mono"
-																>
-																	{#each entry.stepData.subflows as _, index}
-																		<option value={index}>
-																			{index + 1}
-																		</option>
-																	{/each}
-																</select>
+																<span onclick={(e) => e.stopPropagation()}>
+																	<FlowJobsMenu
+																		moduleId={entry.stepId}
+																		id={entry.stepId}
+																		{onSelectedIteration}
+																		flowJobsSuccess={entry.stepData.flowJobsSuccess}
+																		flowJobs={entry.stepData.flowJobs}
+																		selected={entry.stepData.selectedIteration ?? 0}
+																		selectedManually={entry.stepData.selectedManually}
+																		showIcon={false}
+																	/>
+																</span>
 																{`/${entry.stepData.iterationTotal}`}
 															</span>
 														{/if}

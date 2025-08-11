@@ -103,7 +103,10 @@
 				status: state?.type,
 				type: rootJob.raw_flow?.modules?.[i]?.value?.type,
 				selectedIteration: state?.selectedForloopIndex ?? 0,
-				iterationTotal: state?.iteration_total ?? 0
+				iterationTotal: state?.iteration_total ?? 0,
+				flowJobs: state?.flow_jobs,
+				flowJobsSuccess: state?.flow_jobs_success,
+				selectedManually: state?.selectedForLoopSetManually
 			}
 
 			// Handle subflows (branchall, brancheone, forloopflow, whileloopflow)
