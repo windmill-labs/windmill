@@ -11,6 +11,7 @@ export interface FlowData {
 	label?: string
 	emptyFlow?: boolean
 	flow_status?: { step?: number }
+	hasErrors?: boolean
 }
 
 export interface StepData {
@@ -29,6 +30,7 @@ export interface StepData {
 	flowJobsSuccess?: (boolean | undefined)[]
 	selectedManually?: boolean | undefined
 	emptySubflow?: boolean
+	hasErrors?: boolean
 	type:
 		| 'script'
 		| 'flow'

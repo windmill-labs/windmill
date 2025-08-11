@@ -214,7 +214,7 @@
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
 						<!-- Flow icon -->
-						{@render flowIcon(getFlowStatus(flowData))}
+						{@render flowIcon(getFlowStatus(flowData), flowData.hasErrors || false)}
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
@@ -347,7 +347,11 @@
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
 													<!-- Step icon -->
-													{@render stepIcon(entry.stepType, entry.status)}
+													{@render stepIcon(
+														entry.stepType,
+														entry.status,
+														entry.stepData.hasErrors || false
+													)}
 
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
@@ -600,27 +604,41 @@
 	</ul>
 {/if}
 
-{#snippet flowIcon(status: FlowStatusModule['type'] | undefined)}
+{#snippet flowIcon(status: FlowStatusModule['type'] | undefined, hasErrors: boolean)}
 	{@const colorClass = getStatusColor(status)}
-	<BarsStaggered
-		size={10}
-		class={twMerge(colorClass, status === 'InProgress' ? 'animate-pulse' : '', 'flex-shrink-0')}
-	/>
+	<div class="relative flex items-center">
+		<BarsStaggered
+			size={10}
+			class={twMerge(colorClass, status === 'InProgress' ? 'animate-pulse' : '', 'flex-shrink-0')}
+		/>
+		{#if hasErrors}
+			<span class="text-red-500 -ml-0.5 -mr-1.5" title="A subflow or a step has failed">!</span>
+		{/if}
+	</div>
 {/snippet}
 
-{#snippet stepIcon(stepType: string | undefined, status: FlowStatusModule['type'] | undefined)}
+{#snippet stepIcon(
+	stepType: string | undefined,
+	status: FlowStatusModule['type'] | undefined,
+	hasErrors: boolean
+)}
 	{@const colorClass = getStatusColor(status)}
 	{@const animationClass = status === 'InProgress' ? 'animate-pulse' : ''}
 	{@const classes = `${colorClass} ${animationClass} flex-shrink-0`}
-	{#if stepType === 'flow'}
-		<BarsStaggered size={10} class={classes} />
-	{:else if stepType === 'forloopflow' || stepType === 'whileloopflow'}
-		<Repeat size={10} class={classes} />
-	{:else if stepType === 'branchall' || stepType === 'branchone'}
-		<GitBranch size={10} class={classes} />
-	{:else}
-		<Code strokeWidth={2.5} size={10} class={classes} />
-	{/if}
+	<div class="relative flex items-center">
+		{#if stepType === 'flow'}
+			<BarsStaggered size={10} class={classes} />
+		{:else if stepType === 'forloopflow' || stepType === 'whileloopflow'}
+			<Repeat size={10} class={classes} />
+		{:else if stepType === 'branchall' || stepType === 'branchone'}
+			<GitBranch size={10} class={classes} />
+		{:else}
+			<Code strokeWidth={2.5} size={10} class={classes} />
+		{/if}
+		{#if hasErrors}
+			<span class="text-red-500 -ml-0.5 -mr-1.5" title="A subflow or a step has failed">!</span>
+		{/if}
+	</div>
 {/snippet}
 
 <style>

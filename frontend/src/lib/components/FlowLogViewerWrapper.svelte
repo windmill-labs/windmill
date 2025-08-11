@@ -79,6 +79,55 @@
 		return undefined
 	}
 
+	// Check if a flow contains any errors and set hasErrors appropriately
+	// Returns true if any errors exist anywhere in the flow hierarchy
+	function checkAndMarkFlowErrors(flowData: FlowData): boolean {
+		let hasAnyErrors = false
+
+		// First, check if the flow itself failed
+		const flowFailed = flowData.status === 'CompletedJob' && flowData.success === false
+		if (flowFailed) {
+			hasAnyErrors = true
+		}
+
+		// Check each step and its subflows
+		for (const step of flowData.steps) {
+			let stepHasChildErrors = false
+
+			// Check if step itself failed
+			if (step.status === 'Failure') {
+				hasAnyErrors = true
+				// If step failed, parent flow should show error indicator
+				flowData.hasErrors = true
+			}
+
+			// Check subflows recursively
+			if (step.subflows && step.subflows.length > 0) {
+				for (const subflow of step.subflows) {
+					if (checkAndMarkFlowErrors(subflow)) {
+						hasAnyErrors = true
+						stepHasChildErrors = true
+					}
+				}
+			}
+
+			// Set step's hasErrors flag based on child errors only
+			step.hasErrors = stepHasChildErrors
+		}
+
+		// If flow itself failed, don't show error indicator (parent will show it)
+		// If flow didn't fail but has child errors, show error indicator
+		if (flowFailed) {
+			flowData.hasErrors = false
+		} else if (hasAnyErrors) {
+			flowData.hasErrors = true
+		} else {
+			flowData.hasErrors = false
+		}
+
+		return hasAnyErrors
+	}
+
 	// Build the flow data structure
 	async function buildFlowData(rootJob: Job, flowLabel?: string): Promise<FlowData> {
 		const steps: StepData[] = []
@@ -152,7 +201,7 @@
 			steps.push(stepData)
 		}
 
-		return {
+		const flowData: FlowData = {
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
@@ -163,6 +212,11 @@
 			label: flowLabel,
 			flow_status: 'flow_status' in rootJob ? rootJob.flow_status : undefined
 		}
+
+		// Check and mark all errors in one pass
+		checkAndMarkFlowErrors(flowData)
+
+		return flowData
 	}
 
 	// Build the flow data when dependencies change
