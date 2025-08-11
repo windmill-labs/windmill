@@ -60,8 +60,6 @@ pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<String> {
     let root_node = tree.root_node();
 
     root_node.clone().to_string();
-    // TODO: Parses requirements. For now disabled in favour of inline dependencies
-
     let mut cursor = root_node.walk();
     'top_level: for x in root_node.children(&mut cursor) {
         if x.kind() == "call" {
@@ -72,21 +70,6 @@ pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<String> {
                         .utf8_text(code.as_bytes())
                         .map(|ident| ident == "gemfile")
                         .unwrap_or_default()
-                // TODO: Infer inputs from imports automatically
-                // && !dbg!(n.utf8_text(code.as_bytes()))
-                //     .map(|ident| ident == "require")
-                //     .unwrap_or_default()
-                // {
-                //     continue 'top_level;
-                // } else if dbg!(n.kind()) == "argument_list" {
-                //     let req = n.utf8_text(code.as_bytes())?.to_owned();
-
-                //     if req.starts_with(['u', 'f']) {
-                //         reqs.push(req);
-                //     } else if let Some(root) = req.split('/').next() {
-                //         reqs.push(root.to_owned());
-                //     }
-                // }
                 {
                     continue 'top_level;
                 } else if n.kind() == "do_block" {
@@ -105,83 +88,17 @@ pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<String> {
                     }
 
                     return req
+                        // gemfile do_block comes with 'do' and 'end'
+                        // we want to omit these by taking slice
                         .get(2..(req.len() - 3))
                         .map(str::to_owned)
                         .ok_or(anyhow!("Invalid gemfile do block"));
-
-                    // TODO: Relative imports
-                    // if req.starts_with(['u', 'f']) {
-                    //     reqs.push(req);
-                    // } else if let Some(root) = req.split('/').next() {
-                    //     reqs.push(root.to_owned());
-                    // }
                 }
             }
         }
     }
     Ok(String::new())
 }
-// pub fn parse_ruby_requirements(code: &str) -> anyhow::Result<Vec<String>> {
-//     let mut reqs = vec![];
-//     let mut parser = tree_sitter::Parser::new();
-//     let language = tree_sitter_ruby::LANGUAGE;
-//     parser
-//         .set_language(&language.into())
-//         .map_err(|e| anyhow!("Error setting Ruby as language: {e}"))?;
-
-//     // Parse code
-//     let tree = parser
-//         .parse(code, None)
-//         .ok_or(anyhow!("Failed to parse code"))?;
-//     let root_node = tree.root_node();
-
-//     root_node.clone().to_string();
-//     // TODO: Parses requirements. For now disabled in favour of inline dependencies
-
-//     let mut cursor = root_node.walk();
-//     'top_level: for x in root_node.children(&mut cursor) {
-//         dbg!(&x);
-//         if x.kind() == "call" {
-//             for (i, n) in x.children(&mut x.walk()).enumerate() {
-//                 if i == 0
-//                     && n.kind() == "identifier"
-//                     && !dbg!(n.utf8_text(code.as_bytes()))
-//                         .map(|ident| ident == "gemfile")
-//                         .unwrap_or_default()
-//                 // TODO: Infer inputs from imports automatically
-//                 // && !dbg!(n.utf8_text(code.as_bytes()))
-//                 //     .map(|ident| ident == "require")
-//                 //     .unwrap_or_default()
-//                 // {
-//                 //     continue 'top_level;
-//                 // } else if dbg!(n.kind()) == "argument_list" {
-//                 //     let req = n.utf8_text(code.as_bytes())?.to_owned();
-
-//                 //     if req.starts_with(['u', 'f']) {
-//                 //         reqs.push(req);
-//                 //     } else if let Some(root) = req.split('/').next() {
-//                 //         reqs.push(root.to_owned());
-//                 //     }
-//                 // }
-//                 {
-//                     continue 'top_level;
-//                 } else if dbg!(n.kind()) == "do_block" {
-//                     let req = n.utf8_text(code.as_bytes())?.to_owned();
-
-//                     dbg!(req.get(1..(req.len() - 2)));
-
-//                     // TODO: Relative imports
-//                     // if req.starts_with(['u', 'f']) {
-//                     //     reqs.push(req);
-//                     // } else if let Some(root) = req.split('/').next() {
-//                     //     reqs.push(root.to_owned());
-//                     // }
-//                 }
-//             }
-//         }
-//     }
-//     Ok(reqs)
-// }
 
 // Function to find the Main method's signature
 fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -201,8 +118,9 @@ fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> anyhow::Result<Op
                 } else if m.kind() == "method_parameters" {
                     for a in m.children(&mut m.walk()) {
                         if a.kind() == "identifier" {
-                            let name = a.utf8_text(code.as_bytes()).unwrap();
-                            args.push(Arg { name: name.into(), ..Default::default() });
+                            a.utf8_text(code.as_bytes()).inspect(|name| {
+                                args.push(Arg { name: (*name).to_owned(), ..Default::default() })
+                            })?;
                         }
                         if a.kind() == "optional_parameter" {
                             let mut walk = a.walk();
