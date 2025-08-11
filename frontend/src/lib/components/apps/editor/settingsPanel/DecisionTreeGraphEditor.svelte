@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { Network, Plus, Trash } from 'lucide-svelte'
+	import { Network, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getContext, setContext } from 'svelte'
@@ -8,7 +8,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
-	import { addNewBranch, removeNode } from './decisionTree/utils'
+	import { removeNode } from './decisionTree/utils'
 	import Label from '$lib/components/Label.svelte'
 	import { debounce } from '$lib/utils'
 	import type { AppViewerContext } from '../../types'
@@ -38,17 +38,14 @@
 	let selectedNode = $derived(nodes?.find((node) => node.id == $selectedNodeId))
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
-
-	let sortedSelectedNextNodes = $derived(
-		[...(selectedNode?.next ?? [])].sort((n1, n2) => n1.id.localeCompare(n2.id))
-	)
 </script>
 
-<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
+<Drawer bind:this={drawer} size="1800px" on:close={() => {}} on:open={() => {}}>
 	<DrawerContent
 		title="Decision tree"
 		on:close={drawer.closeDrawer}
 		noPadding
+		forceOverflowVisible
 		tooltip="Decision tree graph editor"
 	>
 		<Splitpanes>
@@ -114,8 +111,8 @@
 								/>
 							</Label>
 
-							{#if selectedNode.next.length > 1 && sortedSelectedNextNodes}
-								{#each sortedSelectedNextNodes as subNode, index (subNode.id)}
+							{#if selectedNode.next.length > 1}
+								{#each selectedNode.next ?? [] as subNode, index (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">
@@ -129,16 +126,22 @@
 													userInputEnabled={false}
 													shouldCapitalize={true}
 													resourceOnly={false}
-													fieldType={subNode.condition?.['fieldType']}
-													subFieldType={subNode.condition?.['subFieldType']}
-													format={subNode.condition?.['format']}
-													selectOptions={subNode.condition?.['selectOptions']}
-													tooltip={subNode.condition?.['tooltip']}
-													fileUpload={subNode.condition?.['fileUpload']}
-													placeholder={subNode.condition?.['placeholder']}
+													fieldType={'boolean'}
+													subFieldType={undefined}
+													format={undefined}
+													selectOptions={undefined}
+													tooltip={undefined}
+													fileUpload={undefined}
+													placeholder={undefined}
 													displayType={false}
 													fixedOverflowWidgets={false}
 												/>
+												{#if index == selectedNode.next.length - 1}
+													<div class="text-xs text-secondary">
+														If no branch evaluates to true, clicking next will show an error toast.
+													</div>
+												{/if}
+
 												<div class="flex flex-row gap-1 mt-2">
 													<Badge>
 														{`Next node id: ${subNode.id}`}
@@ -151,7 +154,6 @@
 										</div>
 									{/if}
 								{/each}
-
 								<Alert type="info" class="mt-4" title="Multiple branches" size="xs">
 									The conditions above are evaluated in order. The first condition that is met will
 									be the branch that is taken.
@@ -160,44 +162,25 @@
 							{#key selectedNode.id}
 								{#if selectedNode.allowed}
 									<InputsSpecEditor
-										key={`Can proceed to next step if:`}
+										customTitle={`Can proceed to next step if:`}
+										key={`allowed-${selectedNode.id}`}
 										bind:componentInput={selectedNode.allowed}
-										id={'allowed'}
+										id={component.id}
 										userInputEnabled={false}
 										shouldCapitalize={true}
+										fieldType={'boolean'}
+										subFieldType={undefined}
+										format={undefined}
+										selectOptions={undefined}
+										tooltip={undefined}
+										fileUpload={undefined}
+										placeholder={undefined}
 										resourceOnly={false}
-										fieldType={selectedNode.allowed?.['fieldType']}
-										subFieldType={selectedNode.allowed?.['subFieldType']}
-										format={selectedNode.allowed?.['format']}
-										selectOptions={selectedNode.allowed?.['selectOptions']}
-										tooltip={selectedNode.allowed?.['tooltip']}
-										fileUpload={selectedNode.allowed?.['fileUpload']}
-										placeholder={selectedNode.allowed?.['placeholder']}
-										customTitle={selectedNode.allowed?.['customTitle']}
 										displayType={false}
 										fixedOverflowWidgets={false}
 									/>
 								{/if}
 							{/key}
-
-							{#if selectedNode?.next.length > 0}
-								<div>
-									<Button
-										startIcon={{ icon: Plus }}
-										color="light"
-										variant="border"
-										size="xs"
-										on:click={() => {
-											if (!selectedNode) return
-
-											nodes = addNewBranch(nodes, selectedNode)
-											renderCount++
-										}}
-									>
-										Add branch
-									</Button>
-								</div>
-							{/if}
 						</Section>
 					{/if}
 				</div>
