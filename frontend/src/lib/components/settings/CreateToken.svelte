@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { IntegrationService, UserService, type NewToken } from '$lib/gen'
+	import { FlowService, IntegrationService, ScriptService, UserService, type NewToken } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -40,6 +40,7 @@
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
 	let allApps = $state<string[]>([])
+	let includedScriptsAndFlows = $state<string[]>([])
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
@@ -132,6 +133,37 @@
 			loadingApps = false
 		}
 	}
+
+	async function getScripts(favoriteOnly: boolean = false) {
+		const scripts = await ScriptService.listScripts({
+			starredOnly: favoriteOnly,
+			workspace: $workspaceStore!
+		})
+		return scripts.map((x) => x.path)
+	}
+
+	async function getFlows(favoriteOnly: boolean = false) {
+		const flows = await FlowService.listFlows({
+			starredOnly: favoriteOnly,
+			workspace: $workspaceStore!
+		})
+		return flows.map((x) => x.path)
+	}
+
+	async function getScriptsAndFlows(favoriteOnly: boolean = false) {
+		const [scripts, flows] = await Promise.all([getScripts(favoriteOnly), getFlows(favoriteOnly)])
+		includedScriptsAndFlows = [...scripts, ...flows]
+	}
+
+	$effect(() => {
+		if (mcpCreationMode) {
+			getScriptsAndFlows(newMcpScope === 'favorites')
+		} else {
+			includedScriptsAndFlows = []
+		}
+	})
+
+	$inspect(includedScriptsAndFlows)
 </script>
 
 <div>
@@ -269,7 +301,17 @@
 						<option value={90 * 24 * 60 * 60}>90d</option>
 					</select>
 				</div>
+			{:else}
+				<div class="flex flex-row gap-2">
+					{#each includedScriptsAndFlows.slice(0, 3) as scriptOrFlow}
+						<Badge rounded small color="dark-gray">{scriptOrFlow}</Badge>
+					{/each}
+					{#if includedScriptsAndFlows.length > 3}
+						<Badge rounded small color="dark-gray">+{includedScriptsAndFlows.length - 3}</Badge>
+					{/if}
+				</div>
 			{/if}
+
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -290,10 +332,10 @@
 	</div>
 
 	{#if newToken}
-		<TokenDisplay token={newToken} type="token" />
+		<TokenDisplay token={newToken} />
 	{/if}
 
 	{#if newMcpToken}
-		<TokenDisplay token={newMcpToken} type="mcp" mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
 	{/if}
 </div>
