@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, ChevronDown, ChevronRight, Copy, Check, CheckCircle, XCircle } from 'lucide-svelte'
+	import { Loader2, ChevronDown, ChevronRight, Copy, Check, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import type { ToolDisplayMessage } from './shared'
@@ -186,7 +186,7 @@
 									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
 								}
 							}}
-							startIcon={{ icon: CheckCircle }}
+							startIcon={{ icon: Play }}
 						>
 							Run
 						</Button>

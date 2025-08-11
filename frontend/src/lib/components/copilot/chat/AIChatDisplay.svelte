@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import { type Snippet } from 'svelte'
-	import { CheckIcon, HistoryIcon, Loader2, Plus, StopCircleIcon, X, XIcon } from 'lucide-svelte'
+	import { CheckIcon, HistoryIcon, Loader2, Plus, X, XIcon } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { type DisplayMessage } from './shared'
@@ -201,7 +201,7 @@
 		{#if aiChatManager.loading}
 			<div class="absolute -top-10 w-full flex flex-row justify-center">
 				<Button
-					startIcon={{ icon: StopCircleIcon }}
+					startIcon={{ icon: Loader2, classes: 'animate-spin' }}
 					size="xs"
 					variant="border"
 					color="light"
