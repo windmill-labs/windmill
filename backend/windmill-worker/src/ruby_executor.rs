@@ -365,13 +365,13 @@ Your Gemfile syntax will continue to work as-is."
                         "BUNDLE_{}",
                         url
                             // Align with bundlers' format. Example:
-                            // BUNDLE_GEM1__SKYVO__ID
+                            // BUNDLE_GEM1__EXAMPLE__COM
                             .replace(".", "__")
                             .to_uppercase()
                             // Remove trailing slashes
                             .replace("/", "")
                     ),
-                    // BUNDLE_GEM1__SKYVO__ID=admin:123
+                    // BUNDLE_GEM1__EXAMPLE__COM=admin:123
                     format!("{usr}:{passwd}"),
                 );
             }

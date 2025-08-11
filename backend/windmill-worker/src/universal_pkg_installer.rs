@@ -169,9 +169,7 @@ pub async fn par_install_language_dependencies_all_at_once<
         {
             postinstall_cb(for_all_at_once_copy.clone()).await?;
         }
-        for RequiredDependency { path, _s3_handle, .. } in
-            for_all_at_once_copy.into_iter()
-        {
+        for RequiredDependency { path, _s3_handle, .. } in for_all_at_once_copy.into_iter() {
             mark_sucess(path.clone(), job_id, w_id).await;
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
@@ -243,6 +241,21 @@ pub async fn par_install_language_dependencies_seq<
     jailed: bool,
     conn: &'a Connection,
 ) -> anyhow::Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let is_not_pro = !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Pro
+    );
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if is_not_pro {
+        windmill_queue::append_logs(
+            job_id,
+            w_id,
+            format!("\nLooking for packages on S3:\n"),
+            conn,
+        )
+        .await;
+    }
     let total_time = std::time::Instant::now();
     let (missing, name_max_length) = filter_to_missing(deps, job_id, w_id, jailed, conn).await?;
     if missing.is_empty() {

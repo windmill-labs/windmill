@@ -82,7 +82,6 @@ async function initWasmJava() {
 	await initJavaParser(wasmUrlJava)
 }
 async function initWasmRuby() {
-	// console.log(wasmUrlRuby);
 	await initRubyParser(wasmUrlRuby)
 }
 
@@ -249,10 +248,7 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_java(code))
 		} else if (language == 'ruby') {
 			await initWasmRuby()
-			// console.log("AFTER INIT");
-			// console.log(parse_ruby("def main end"))
 			inferedSchema = JSON.parse(parse_ruby(code))
-			console.log(inferedSchema);
 			// for related places search: ADD_NEW_LANG 
 		} else {
 			return null
