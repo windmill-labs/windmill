@@ -135,15 +135,7 @@
 
 <InitializeComponent {id} />
 
-<RunnableWrapper
-	render={true}
-	{outputs}
-	autoRefresh
-	{componentInput}
-	{id}
-	bind:initializing
-	bind:result
->
+<RunnableWrapper {render} {outputs} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	{#if everRender}
 		<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
 			{#if $app.subgrids?.[`${id}-0`]}

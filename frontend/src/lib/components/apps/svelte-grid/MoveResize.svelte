@@ -77,7 +77,7 @@
 
 	const scale = ctx ? ctx.scale : writable(100)
 
-	const divId = `component-${id}`
+	const divId = `wm-component-${id}`
 	let shadowElement: HTMLElement | undefined = $state()
 
 	let active = $state(false)
