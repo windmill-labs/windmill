@@ -387,9 +387,16 @@ export function formatResult(job: CompletedJob): string {
 		resultSummary += '\n'
 	}
 	
-	resultSummary += success ? 'RESULT:\n' : 'ERROR:\n'
-	resultSummary += typeof job.result === 'string' ? job.result : JSON.stringify(job.result, null, 2)
-	
+	// Add final result
+	const result = job.result
+	if (success) {
+		resultSummary += 'RESULT:\n'
+		resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+	} else {
+		resultSummary += 'ERROR:\n'
+		resultSummary += getErrorMessage(result)
+	}
+
 	// Add logs with length limiting
 	if (logs && logs.trim()) {
 		if (logs.length <= MAX_LOG_LENGTH) {
