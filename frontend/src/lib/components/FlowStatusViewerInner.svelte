@@ -973,6 +973,10 @@
 		flowJobIds?.moduleId && untrack(() => onModuleIdChange())
 	})
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
+
+	let flowGraph: FlowGraphV2 | undefined = $state(undefined)
+
+	const nodes = $derived.by(() => (flowGraph ? flowGraph.getGraph?.().nodes : undefined))
 </script>
 
 <JobLoader workspaceOverride={workspaceId} noCode noLogs bind:this={jobLoader} />
@@ -1293,6 +1297,7 @@
 				{workspaceId}
 				{render}
 				{onSelectedIteration}
+				{nodes}
 			/>
 		</div>
 	</div>
@@ -1356,6 +1361,7 @@
 							preprocessorModule={job.raw_flow?.preprocessor_module}
 							allowSimplifiedPoll={false}
 							{workspace}
+							bind:this={flowGraph}
 						/>
 					</div>
 					<div

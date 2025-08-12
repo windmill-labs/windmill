@@ -1,44 +1,11 @@
-import type { FlowStatusModule, Job } from '$lib/gen'
+import type { FlowModuleValue } from '$lib/gen'
 
-export interface FlowData {
-	jobId: string
-	inputs: any
-	result: any
-	logs?: string
-	steps: StepData[]
-	status: Job['type']
-	success?: boolean
-	label?: string
-	emptyFlow?: boolean
-	flow_status?: { step?: number }
-	hasErrors?: boolean
-}
-
-export interface StepData {
+export interface FlowLogEntry {
+	id: string
 	stepId: string
-	stepNumber: number
+	stepNumber?: number
 	summary?: string
-	inputs: any
-	result?: any
-	jobId?: string
-	logs?: string
-	status: FlowStatusModule['type']
-	subflows?: FlowData[]
-	selectedIteration?: number
-	iterationTotal?: number
-	flowJobs?: string[]
-	flowJobsSuccess?: (boolean | undefined)[]
-	selectedManually?: boolean | undefined
-	emptySubflow?: boolean
-	hasErrors?: boolean
-	type:
-		| 'script'
-		| 'flow'
-		| 'identity'
-		| 'branchall'
-		| 'rawscript'
-		| 'forloopflow'
-		| 'whileloopflow'
-		| 'branchone'
-		| undefined
+	stepType?: FlowModuleValue['type']
+	subflows?: FlowLogEntry[][]
+	subflowsSummary?: string[]
 }
