@@ -242,7 +242,7 @@ impl Runner {
             || scopes
                 .unwrap()
                 .iter()
-                .all(|scope| scope != "mcp:all" && scope != "mcp:favorites" && !scope.starts_with("mcp:hub:"))
+                .all(|scope| !scope.starts_with("mcp:all") && !scope.starts_with("mcp:favorites") && !scope.starts_with("mcp:hub:"))
         {
             tracing::error!("Unauthorized: missing mcp scope");
             return Err(Error::internal_error("Unauthorized: missing mcp scope".to_string(), None));
@@ -405,6 +405,7 @@ impl Runner {
         workspace_id: &str,
         scope_type: &str,
         item_type: &str,
+        scope_path: Option<&str>,
     ) -> Result<Vec<T>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
         let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -420,6 +421,17 @@ impl Runner {
 
         if item_type == "script" {
             sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+        }
+
+        // scope path is always a folder path, format is f/my_folder/*
+        if let Some(scope_path) = scope_path {
+            if scope_path.split("/").count() != 3 || !scope_path.starts_with("f/") || !scope_path.ends_with("/*") {
+                return Err(Error::internal_error(
+                    format!("Invalid folder format: {}, expected format is f/my_folder/*", scope_path),
+                    None,
+                ));
+            }
+            sqlb.and_where_like_left("o.path", &scope_path[..scope_path.len() - 2]);
         }
 
         sqlb.order_by(
@@ -1011,9 +1023,9 @@ impl ServerHandler for Runner {
                 .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
         });
         let hub_scope = scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
-        let scope_type = owned_scope.map_or("all", |scope| {
+        let (scope_type, scope_path) = owned_scope.map_or(("all", None), |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
-            parts[1]
+            (parts[1], if parts.len() == 3 { Some(parts[2]) } else { None })
         });
         let scope_integrations = hub_scope.and_then(|scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
@@ -1030,9 +1042,10 @@ impl ServerHandler for Runner {
             &workspace_id,
             scope_type,
             "script",
+            scope_path.as_deref(),
         );
         let flows_fn =
-            Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
+            Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow", scope_path.as_deref());
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
         let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integrations.as_deref());
         let (scripts, flows, resources_types, hub_scripts) = if scope_integrations.is_some() {
