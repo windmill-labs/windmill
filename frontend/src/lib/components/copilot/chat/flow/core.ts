@@ -337,6 +337,16 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+const testRunFlowSchema = z.object({
+	args: z.record(z.any()).optional().describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+})
+
+const testRunFlowToolDef = createToolDef(
+	testRunFlowSchema,
+	'test_run_flow',
+	'Execute a test run of the current flow'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
@@ -524,6 +534,149 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + parsedArgs.query + '"' })
 			return formattedResourceTypes
 		}
+	},
+	{
+		def: testRunFlowToolDef,
+		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+			// Import required services
+			const { JobService } = await import('$lib/gen')
+			
+			// Get current flow context
+			const { flow } = helpers.getFlowAndSelectedId()
+			
+			if (!flow || !flow.value) {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: 'No flow available to test',
+					error: 'No flow found in current context'
+				})
+				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
+			}
+
+			// Parse arguments or use empty object as default
+			const parsedArgs = testRunFlowSchema.parse(args)
+			const flowArgs = parsedArgs.args || {}
+			
+			try {
+				toolCallbacks.setToolStatus(toolId, { content: 'Starting flow test run...' })
+				
+				// Execute flow preview using the same API as the flow editor
+				const jobId = await JobService.runFlowPreview({
+					workspace: workspace,
+					requestBody: {
+						args: flowArgs,
+						value: flow.value,
+						tag: flow.tag
+					}
+				})
+				
+				toolCallbacks.setToolStatus(toolId, { content: 'Flow test started, waiting for completion...' })
+				
+				// Wait for flow completion and get result
+				let attempts = 0
+				const maxAttempts = 120 // Wait up to 2 minutes for flows (they can take longer than scripts)
+				let job: any = null
+				
+				while (attempts < maxAttempts) {
+					await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds between checks
+					attempts++
+					
+					try {
+						job = await JobService.getJob({
+							workspace: workspace,
+							id: jobId,
+							noLogs: false,
+							noCode: true
+						})
+						
+						if (job.type === 'CompletedJob') {
+							break
+						}
+					} catch (error) {
+						if (attempts >= maxAttempts) {
+							throw error
+						}
+					}
+				}
+				
+				if (!job || job.type !== 'CompletedJob') {
+					toolCallbacks.setToolStatus(toolId, { 
+						content: 'Flow test timed out',
+						error: 'Flow execution timed out or failed to complete'
+					})
+					throw new Error('Flow test execution timed out after 4 minutes')
+				}
+				
+				// Format comprehensive flow results
+				const success = job.success
+				const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
+				const logs = job.logs || 'No logs available'
+				const result = job.result
+				const flowStatus = job.flow_status
+				
+				let resultSummary = `Flow test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
+				
+				// Add step-by-step breakdown if available
+				if (flowStatus && flowStatus.modules) {
+					resultSummary += 'STEP RESULTS:\n'
+					for (const [stepId, stepInfo] of Object.entries(flowStatus.modules)) {
+						const stepStatus = (stepInfo as any)
+						if (stepStatus) {
+							const stepSuccess = stepStatus.type === 'Success'
+							const stepDuration = stepStatus.duration_ms ? `${stepStatus.duration_ms}ms` : 'unknown'
+							resultSummary += `- ${stepId}: ${stepSuccess ? 'SUCCESS' : 'FAILED'} (${stepDuration})\n`
+							
+							if (!stepSuccess && stepStatus.result) {
+								const errorMsg = typeof stepStatus.result === 'object' && stepStatus.result?.error
+									? stepStatus.result.error.message || stepStatus.result.error
+									: stepStatus.result || 'Unknown error'
+								resultSummary += `  Error: ${errorMsg}\n`
+							}
+						}
+					}
+					resultSummary += '\n'
+				}
+				
+				// Add final result
+				if (success) {
+					resultSummary += 'FINAL RESULT:\n'
+					resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+				} else {
+					resultSummary += 'FLOW ERROR:\n'
+					const errorMsg = typeof result === 'object' && result?.error 
+						? result.error.message || result.error 
+						: result || 'Unknown error'
+					resultSummary += errorMsg
+				}
+				
+				// Add logs if available and not too long
+				if (logs && logs.trim() && logs.length < 5000) {
+					resultSummary += '\n\nLOGS:\n' + logs
+				} else if (logs && logs.trim()) {
+					resultSummary += '\n\nLOGS (truncated):\n' + logs.slice(0, 5000) + '...'
+				}
+
+				// Limit the total result to avoid bloating context window
+				resultSummary = resultSummary.slice(0, 15000)
+				
+				toolCallbacks.setToolStatus(toolId, { 
+					content: `Flow test ${success ? 'completed successfully' : 'failed'}`,
+					result: resultSummary,
+					...(success ? {} : { error: 'Flow test execution failed' })
+				})
+				
+				return resultSummary
+				
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+				toolCallbacks.setToolStatus(toolId, { 
+					content: 'Flow test execution failed',
+					error: errorMessage
+				})
+				throw new Error(`Failed to execute flow test run: ${errorMessage}`)
+			}
+		},
+		requiresConfirmation: true,
+		showDetails: true
 	}
 ]
 
@@ -532,6 +685,7 @@ export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
+ALWAYS use the \`test_run_flow\` tool to test the flow, and iterate on the flow until it works as expected.
 
 ## Understanding User Requests
 
