@@ -63,8 +63,6 @@
 			}
 
 			if (
-				currentNode.type === 'input2' ||
-				currentNode.type === 'forLoopStart' ||
 				currentNode.type === 'whileLoopStart' ||
 				currentNode.type === 'branchOneStart' ||
 				currentNode.type === 'branchAllStart'
@@ -75,6 +73,7 @@
 
 			let nextParentId = currentNode.parentIds?.[0]
 			if (!nextParentId) {
+				// Reached the root of the flow
 				return entries
 			}
 
