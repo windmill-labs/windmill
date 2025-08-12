@@ -318,7 +318,13 @@ function ZipFSElement(
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
-            const flow: OpenFlow = JSON.parse(await f.async("text"));
+            let flow: OpenFlow;
+            try {
+              flow = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse flow.yaml at path: ${p}`);
+              throw error;
+            }
             const inlineScripts = extractInlineScriptsForFlows(
               flow.value.modules,
               {},
@@ -347,7 +353,13 @@ function ZipFSElement(
               },
             };
           } else if (kind == "app") {
-            const app = JSON.parse(await f.async("text"));
+            let app;
+            try {
+              app = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse app.yaml at path: ${p}`);
+              throw error;
+            }
             const inlineScripts = extractInlineScriptsForApps(app?.["value"], newPathAssigner(defaultTs));
             for (const s of inlineScripts) {
               yield {
@@ -377,7 +389,13 @@ function ZipFSElement(
           const content = await f.async("text");
 
           if (kind == "script") {
-            const parsed = JSON.parse(content);
+            let parsed;
+            try {
+              parsed = JSON.parse(content);
+            } catch (error) {
+              log.error(`Failed to parse script.yaml at path: ${p}`);
+              throw error;
+            }
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
@@ -402,7 +420,13 @@ function ZipFSElement(
 
           if (kind == "resource") {
             const content = await f.async("text");
-            const parsed = JSON.parse(content);
+            let parsed;
+            try {
+              parsed = JSON.parse(content);
+            } catch (error) {
+              log.error(`Failed to parse resource.yaml at path: ${p}`);
+              throw error;
+            }
             const formatExtension =
               resourceTypeToFormatExtension[parsed["resource_type"]];
 
@@ -419,14 +443,27 @@ function ZipFSElement(
           }
 
           return useYaml && isJson
-            ? yamlStringify(JSON.parse(content), yamlOptions)
+            ? (() => {
+                try {
+                  return yamlStringify(JSON.parse(content), yamlOptions);
+                } catch (error) {
+                  log.error(`Failed to parse JSON content at path: ${p}`);
+                  throw error;
+                }
+              })()
             : content;
         },
       },
     ];
     if (kind == "script") {
       const content = await f.async("text");
-      const parsed = JSON.parse(content);
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        log.error(`Failed to parse script lock content at path: ${p}`);
+        throw error;
+      }
       const lock = parsed["lock"];
       if (lock && lock != "") {
         r.push({
@@ -442,7 +479,13 @@ function ZipFSElement(
     }
     if (kind == "resource") {
       const content = await f.async("text");
-      const parsed = JSON.parse(content);
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        log.error(`Failed to parse resource file content at path: ${p}`);
+        throw error;
+      }
       const formatExtension =
         resourceTypeToFormatExtension[parsed["resource_type"]];
 
