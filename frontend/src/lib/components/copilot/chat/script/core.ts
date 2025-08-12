@@ -498,6 +498,8 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
+	// Add test run tool for all supported script languages
+	tools.push(testRunScriptTool)
 	return tools
 }
 
@@ -830,4 +832,148 @@ export async function fetchNpmPackageTypes(
 			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
 		}
 	}
+}
+
+const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'test_run_script',
+		description: 'Execute a test run of the current script in the editor',
+		parameters: {
+			type: 'object',
+			properties: {
+				args: {
+					type: 'object',
+					description: 'Arguments to pass to the script (optional, uses current editor args if not provided)'
+				}
+			},
+			required: []
+		}
+	},
+}
+
+export const testRunScriptTool: Tool<ScriptChatHelpers> = {
+	def: TEST_RUN_SCRIPT_TOOL,
+	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+		// Import required services
+		const { JobService } = await import('$lib/gen')
+		const { aiChatManager } = await import('../AIChatManager.svelte')
+		
+		// Get current script context from AI chat manager
+		const scriptOptions = aiChatManager.scriptEditorOptions
+		
+		if (!scriptOptions || !scriptOptions.code || !scriptOptions.lang) {
+			toolCallbacks.setToolStatus(toolId, { 
+				content: 'No script available to test',
+				error: 'No script code or language found in editor'
+			})
+			throw new Error('No script code available to test. Please ensure you have a script open in the editor.')
+		}
+
+		const code = scriptOptions.code
+		const lang = scriptOptions.lang
+		const scriptArgs = args.args || scriptOptions.args || {}
+		
+		try {
+			toolCallbacks.setToolStatus(toolId, { content: `Running test for ${lang} script...` })
+			
+			// Execute test run using the same API as the script editor
+			const jobId = await JobService.runScriptPreview({
+				workspace: workspace,
+				requestBody: {
+					path: scriptOptions.path,
+					content: code,
+					args: scriptArgs,
+					language: lang as any,
+					tag: undefined,
+					lock: undefined,
+					script_hash: undefined
+				}
+			})
+			
+			toolCallbacks.setToolStatus(toolId, { content: `Test started (Job ID: ${jobId}), waiting for completion...` })
+			
+			// Wait for job completion and get result
+			let attempts = 0
+			const maxAttempts = 60 // Wait up to 60 seconds
+			let job: any = null
+			
+			while (attempts < maxAttempts) {
+				await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+				attempts++
+				
+				try {
+					job = await JobService.getJob({
+						workspace: workspace,
+						id: jobId,
+						noLogs: false,
+						noCode: true
+					})
+
+					console.log('job', job)
+					
+					if (job.type === 'CompletedJob') {
+						break
+					}
+				} catch (error) {
+					// Job might not be available yet, continue waiting
+					if (attempts >= maxAttempts) {
+						throw error
+					}
+				}
+			}
+			
+			if (!job || job.type !== 'CompletedJob') {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: 'Test timed out',
+					error: 'Script execution timed out or failed to complete'
+				})
+				throw new Error('Test execution timed out after 60 seconds')
+			}
+			
+			// Format results
+			const success = job.success
+			const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
+			const logs = job.logs || 'No logs available'
+			const result = job.result
+			
+			let resultSummary = `Test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
+			
+			if (success) {
+				resultSummary += 'RESULT:\n'
+				resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+			} else {
+				resultSummary += 'ERROR:\n'
+				const errorMsg = typeof result === 'object' && result?.error 
+					? result.error.message || result.error 
+					: result || 'Unknown error'
+				resultSummary += errorMsg
+			}
+			
+			if (logs && logs.trim()) {
+				resultSummary += '\n\nLOGS:\n' + logs
+			}
+
+			// Limit the result to 10000 characters to avoid bloating the context window
+			resultSummary = resultSummary.slice(0, 10000)
+			
+			toolCallbacks.setToolStatus(toolId, { 
+				content: `Test ${success ? 'completed successfully' : 'failed'}`,
+				result: resultSummary,
+				...(success ? {} : { error: 'Test execution failed' })
+			})
+			
+			return resultSummary
+			
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+			toolCallbacks.setToolStatus(toolId, { 
+				content: 'Test execution failed',
+				error: errorMessage
+			})
+			throw new Error(`Failed to execute test run: ${errorMessage}`)
+		}
+	},
+	requiresConfirmation: true,
+	showDetails: true,
 }
