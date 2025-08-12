@@ -365,7 +365,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	}
 }
 
-// Specialized result formatter for script tests
+// Helper function to format the result of a test run
 export function formatResult(job: CompletedJob): string {
 	const success = job.success
 	const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
