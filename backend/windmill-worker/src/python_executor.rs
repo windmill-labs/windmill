@@ -636,7 +636,7 @@ pub async fn handle_python_job(
             if v == '<function call>':
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
-        kwrags_json = res_to_json(kwargs)
+        kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w') as f:
             f.write(kwrags_json)"#
         )
