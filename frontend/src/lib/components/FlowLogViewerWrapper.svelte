@@ -8,6 +8,7 @@
 	import FlowLogsLoader from './FlowLogsLoader.svelte'
 	import type { FlowData, StepData } from './FlowLogUtils'
 	import { untrack } from 'svelte'
+	import FlowStepsLogsLoader from './FlowStepsLogsLoader.svelte'
 
 	interface Props {
 		job: Job
@@ -30,6 +31,9 @@
 	let expandedRows: Record<string, boolean> = $state({})
 	let allExpanded = $state(false)
 	let showResultsInputs = $state(true)
+
+	// Root flow logs
+	let rootFlowLogs: string | undefined = $state(undefined)
 
 	// Fetch subflow job data
 	async function fetchSubflowJob(jobId: string): Promise<Job | null> {
@@ -198,7 +202,7 @@
 			inputs: rootJob.args || {},
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
 			success: rootJob.type === 'CompletedJob' ? rootJob.success : undefined,
-			logs: rootJob.logs || '',
+			logs: rootFlowLogs || rootJob.logs || '',
 			steps,
 			status: rootJob.type,
 			label: flowLabel,
@@ -215,6 +219,7 @@
 	let flowData: FlowData | null = $state(null)
 
 	$effect(() => {
+		rootFlowLogs
 		if (render && job && $localModuleStates) {
 			untrack(() => buildFlowData(job)).then((data) => {
 				flowData = data
@@ -241,8 +246,17 @@
 
 <div class="w-full rounded-md overflow-hidden border">
 	{#if flowData}
-		<!-- Log polling component -->
-		<FlowLogsLoader {expandedRows} {allExpanded} {workspaceId} {localModuleStates} />
+		<!-- Log polling component for the expanded rows -->
+		<FlowStepsLogsLoader {expandedRows} {allExpanded} {workspaceId} {localModuleStates} />
+
+		<!-- Log polling component for the root job -->
+		<FlowLogsLoader
+			loading={job['running'] == true}
+			jobId={job.id}
+			{workspaceId}
+			refreshLog={job.type === 'QueuedJob'}
+			bind:logs={rootFlowLogs}
+		/>
 
 		<FlowLogViewer
 			{flowData}
