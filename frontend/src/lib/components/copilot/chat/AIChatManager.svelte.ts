@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
+import { extractCodeFromMarkdown, getLatestAssistantMessage, processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -84,7 +84,6 @@ class AIChatManager {
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
-	lastSuggestedCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
 
@@ -214,7 +213,14 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
-				getLastSuggestedCode: () => this.lastSuggestedCode,
+				getLastSuggestedCode: () => {
+					const latestMessage = getLatestAssistantMessage(this.displayMessages)
+					if (latestMessage) {
+						const codeBlocks = extractCodeFromMarkdown(latestMessage)
+						return codeBlocks[codeBlocks.length - 1]
+					}
+					return undefined
+				},
 				applyCode: (code: string, applyAll?: boolean) => {
 					this.scriptEditorApplyCode?.(code, applyAll)
 				}

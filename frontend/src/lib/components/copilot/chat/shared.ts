@@ -308,6 +308,36 @@ export async function pollJobCompletion(
 	return job
 }
 
+// Helper function to extract code blocks from markdown text
+export function extractCodeFromMarkdown(markdown: string): string[] {
+	const codeBlocks: string[] = []
+	
+	// Matches: ```[language]\n[code]\n```
+	const codeBlockRegex = /```(?:[a-z]+)?\n([\s\S]*?)```/g
+	
+	let match: RegExpExecArray | null = null
+	while ((match = codeBlockRegex.exec(markdown)) !== null) {
+		const code = match[1].trim()
+		if (code) {
+			codeBlocks.push(code)
+		}
+	}
+	
+	return codeBlocks
+}
+
+// Helper function to get the latest assistant message from display messages
+export function getLatestAssistantMessage(displayMessages: DisplayMessage[]): string | undefined {
+	// Iterate from the end to find the most recent assistant message
+	for (let i = displayMessages.length - 1; i >= 0; i--) {
+		const message = displayMessages[i]
+		if (message.role === 'assistant' && message.content) {
+			return message.content
+		}
+	}
+	return undefined
+}
+
 // Helper function to extract error messages from job results
 function getErrorMessage(result: unknown): string {
 	if (typeof result === 'object' && result !== null && 'error' in result) {
