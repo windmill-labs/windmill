@@ -140,7 +140,7 @@ export async function processToolCall<T>({
 			})
 			const errorMessage = typeof err === 'string' ? err : 'An error occurred while calling the tool'
 			result =
-				`Error while calling tool: ${errorMessage}, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request`
+				`Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
 			role: 'tool' as const,
@@ -154,7 +154,7 @@ export async function processToolCall<T>({
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
 			content:
-				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+				'Error while calling tool'
 		}
 	}
 }

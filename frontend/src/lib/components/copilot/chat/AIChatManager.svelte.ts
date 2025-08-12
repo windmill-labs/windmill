@@ -87,7 +87,7 @@ class AIChatManager {
 	lastSuggestedCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
-	
+
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
