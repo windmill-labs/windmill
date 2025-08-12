@@ -3,8 +3,6 @@
 	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-	import FlowLogsLoader from './FlowLogsLoader.svelte'
-	import FlowStepsLogsLoader from './FlowStepsLogsLoader.svelte'
 	import type { NodeLayout } from './graph/graphBuilder.svelte'
 	import type { FlowLogEntry } from './FlowLogUtils'
 
@@ -27,9 +25,6 @@
 	let expandedRows: Record<string, boolean> = $state({})
 	let allExpanded = $state(false)
 	let showResultsInputs = $state(true)
-
-	// Root flow logs
-	let rootFlowLogs: string | undefined = $state(undefined)
 
 	function toggleExpanded(id: string) {
 		// If not in record, use opposite of allExpanded as new state
@@ -138,23 +133,10 @@
 </script>
 
 <div class="w-full rounded-md overflow-hidden border">
-	<!-- Log polling component for the expanded rows -->
-	<FlowStepsLogsLoader {expandedRows} {allExpanded} {workspaceId} {localModuleStates} />
-
-	<!-- Log polling component for the root job -->
-	<FlowLogsLoader
-		loading={job['running'] == true}
-		jobId={job.id}
-		{workspaceId}
-		refreshLog={job.type === 'QueuedJob'}
-		bind:logs={rootFlowLogs}
-	/>
-
 	<FlowLogViewer
 		{logEntries}
 		{localModuleStates}
 		rootJob={job}
-		rootLogs={rootFlowLogs}
 		{expandedRows}
 		{allExpanded}
 		{showResultsInputs}

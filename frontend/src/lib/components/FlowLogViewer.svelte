@@ -28,7 +28,6 @@
 		logEntries: FlowLogEntry[]
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		rootJob: Job
-		rootLogs?: string
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
 		showResultsInputs?: boolean
@@ -50,7 +49,6 @@
 		logEntries,
 		localModuleStates,
 		rootJob,
-		rootLogs,
 		expandedRows,
 		allExpanded,
 		showResultsInputs,
@@ -133,7 +131,7 @@
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
-			logs: rootLogs || rootJob.logs || '',
+			logs: rootJob.logs || '',
 			status: rootJob.type,
 			label: level > 0 ? flowId : undefined,
 			hasErrors: logEntries.some((entry) => $localModuleStates[entry.stepId]?.type === 'Failure')
@@ -433,7 +431,6 @@
 																	logEntries={subflow}
 																	{localModuleStates}
 																	{rootJob}
-																	{rootLogs}
 																	{expandedRows}
 																	{allExpanded}
 																	{showResultsInputs}
