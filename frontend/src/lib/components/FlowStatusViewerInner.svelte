@@ -975,8 +975,21 @@
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
 
 	let flowGraph: FlowGraphV2 | undefined = $state(undefined)
+	let animateLogsTab = $state(false)
 
 	const nodes = $derived.by(() => (flowGraph ? flowGraph.getGraph?.().nodes : undefined))
+
+	function onExploreAllLogs() {
+		if (selected == 'logs') {
+			// Trigger animation when already on logs tab
+			animateLogsTab = true
+			setTimeout(() => {
+				animateLogsTab = false
+			}, 600) // Animation duration
+		} else {
+			selected = 'logs'
+		}
+	}
 </script>
 
 <JobLoader workspaceOverride={workspaceId} noCode bind:this={jobLoader} />
@@ -1036,7 +1049,7 @@
 					{isOwner}
 					{hideFlowResult}
 					{hideDownloadLogs}
-					{localDurationStatuses}
+					{onExploreAllLogs}
 					{innerModules}
 					{suspendStatus}
 					{hideJobId}
@@ -1048,7 +1061,12 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
-					<Tab value="logs"><span class="font-semibold">Logs</span></Tab>
+					<Tab
+						value="logs"
+						class={animateLogsTab
+							? 'animate-pulse animate-duration-1000 bg-surface-inverse text-primary-inverse'
+							: ''}><span class="font-semibold">Logs</span></Tab
+					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
@@ -1409,8 +1427,8 @@
 											col
 											result={job['result']}
 											logs={job.logs ?? ''}
-											durationStates={localDurationStatuses}
 											downloadLogs={!hideDownloadLogs}
+											{onExploreAllLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1487,7 +1505,7 @@
 											result={node.result}
 											tag={node.tag}
 											logs={node.logs}
-											durationStates={localDurationStatuses}
+											{onExploreAllLogs}
 											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}

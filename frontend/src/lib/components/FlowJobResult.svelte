@@ -4,11 +4,6 @@
 	import LogViewer from './LogViewer.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Drawer } from './common'
-	import AllFlowLogs from './AllFlowLogs.svelte'
-	import type { DurationStatus } from './graph'
-	import type { Writable } from 'svelte/store'
 	import { untrack } from 'svelte'
 
 	interface Props {
@@ -24,9 +19,10 @@
 		tag?: string | undefined
 		workspaceId?: string | undefined
 		refreshLog?: boolean
-		durationStates: Writable<Record<string, DurationStatus>> | undefined
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
+		onExploreAllLogs?: () => void
+		noLogsExplorer?: boolean
 	}
 
 	let {
@@ -42,13 +38,13 @@
 		tag = undefined,
 		workspaceId = undefined,
 		refreshLog = false,
-		durationStates,
 		downloadLogs = true,
-		tagLabel = undefined
+		tagLabel = undefined,
+		onExploreAllLogs = () => {},
+		noLogsExplorer = false
 	}: Props = $props()
 
 	let lastJobId: string | undefined = $state(undefined)
-	let drawer: Drawer | undefined = $state(undefined)
 
 	let iteration = 0
 	let logOffset = 0
@@ -94,11 +90,6 @@
 	})
 </script>
 
-<Drawer bind:this={drawer}>
-	<DrawerContent title="Explore all steps' logs" on:close={drawer.closeDrawer}
-		><AllFlowLogs states={durationStates} /></DrawerContent
-	>
-</Drawer>
 <div
 	class:border={!noBorder}
 	class="grid {!col
@@ -116,9 +107,11 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
-		<div class="absolute z-40 text-xs top-0 left-1"
-			><button class="" onclick={drawer.openDrawer}>explore all steps' logs</button></div
-		>
+		{#if !noLogsExplorer}
+			<div class="absolute z-40 text-xs top-0 left-1"
+				><button class="" onclick={onExploreAllLogs}>explore all steps' logs</button></div
+			>
+		{/if}
 		<LogViewer
 			{tagLabel}
 			download={downloadLogs}

@@ -50,7 +50,7 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
-	import type { DurationStatus, GraphModuleState } from './graph'
+	import type { GraphModuleState } from './graph'
 	import { updateDerivedModuleStatesFromTestJobs } from './flows/utils'
 
 	let flowCopilotContext: FlowCopilotContext = {
@@ -589,9 +589,7 @@
 	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
 		flowPreviewContent?.getLocalModuleStates() ?? writable({})
 	)
-	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
-		flowPreviewContent?.getLocalDurationStatuses() ?? writable({})
-	)
+
 	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
 		flowPreviewContent?.getSuspendStatus() ?? writable({})
 	)
@@ -839,7 +837,6 @@
 								onTestFlow={flowPreviewButtons?.runPreview}
 								{job}
 								isOwner={flowPreviewContent?.getIsOwner()}
-								{localDurationStatuses}
 								{suspendStatus}
 								onOpenDetails={flowPreviewButtons?.openPreview}
 							/>
