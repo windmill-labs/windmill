@@ -13,7 +13,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun, formatScriptResult } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 
@@ -882,106 +882,26 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
 		}
 
-		const code = codeToTest
-		const lang = scriptOptions.lang
-		const scriptArgs = args.args || scriptOptions.args || {}
-		
-		try {
-			toolCallbacks.setToolStatus(toolId, { content: `Running test...` })
-			
-			// Execute test run using the same API as the script editor
-			const jobId = await JobService.runScriptPreview({
+		return executeTestRun({
+			jobStarter: () => JobService.runScriptPreview({
 				workspace: workspace,
 				requestBody: {
 					path: scriptOptions.path,
-					content: code,
-					args: scriptArgs,
-					language: lang as ScriptLang,
+					content: codeToTest,
+					args: args.args || scriptOptions.args || {},
+					language: scriptOptions.lang as ScriptLang,
 					tag: undefined,
 					lock: undefined,
 					script_hash: undefined
 				}
-			})
-			
-			toolCallbacks.setToolStatus(toolId, { content: `Test started, waiting for completion...` })
-			
-			// Wait for job completion and get result
-			let attempts = 0
-			const maxAttempts = 60 // Wait up to 60 seconds
-			let job: any = null
-			
-			while (attempts < maxAttempts) {
-				await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
-				attempts++
-				
-				try {
-					job = await JobService.getJob({
-						workspace: workspace,
-						id: jobId,
-						noLogs: false,
-						noCode: true
-					})
-
-					if (job.type === 'CompletedJob') {
-						break
-					}
-				} catch (error) {
-					if (attempts >= maxAttempts) {
-						throw error
-					}
-				}
-			}
-			
-			if (!job || job.type !== 'CompletedJob') {
-				toolCallbacks.setToolStatus(toolId, { 
-					content: 'Test timed out',
-					error: 'Script execution timed out or failed to complete'
-				})
-				throw new Error('Test execution timed out after 60 seconds')
-			}
-			
-			// Format results
-			const success = job.success
-			const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
-			const logs = job.logs || 'No logs available'
-			const result = job.result
-			
-			let resultSummary = `Test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-			
-			if (success) {
-				resultSummary += 'RESULT:\n'
-				resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-			} else {
-				resultSummary += 'ERROR:\n'
-				const errorMsg = typeof result === 'object' && result?.error 
-					? result.error.message || result.error 
-					: result || 'Unknown error'
-				resultSummary += errorMsg
-			}
-			
-			if (logs && logs.trim()) {
-				resultSummary += '\n\nLOGS:\n' + logs
-			}
-
-			// Limit the result to 10000 characters to avoid bloating the context window
-			resultSummary = resultSummary.slice(0, 10000)
-			
-			toolCallbacks.setToolStatus(toolId, { 
-				content: `Test ${success ? 'completed successfully' : 'failed'}`,
-				result: resultSummary,
-				...(success ? {} : { error: 'Test execution failed' })
-			})
-			
-			return resultSummary
-			
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-			toolCallbacks.setToolStatus(toolId, { 
-				content: 'Test execution failed',
-				error: errorMessage
-			})
-			throw new Error(`Failed to execute test run: ${errorMessage}`)
-		}
+			}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			resultFormatter: formatScriptResult,
+			startMessage: 'Running test...',
+			contextName: 'script'
+		})
 	},
 	requiresConfirmation: true,
 	showDetails: true,

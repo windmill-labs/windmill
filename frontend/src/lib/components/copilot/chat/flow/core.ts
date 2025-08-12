@@ -12,7 +12,7 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, formatFlowResult } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -538,7 +538,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: testRunFlowToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-			
 			const { flow } = helpers.getFlowAndSelectedId()
 			
 			if (!flow || !flow.value) {
@@ -551,123 +550,23 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			const parsedArgs = testRunFlowSchema.parse(args)
 			const flowArgs = parsedArgs.args || {}
-			
-			try {
-				toolCallbacks.setToolStatus(toolId, { content: 'Starting flow test run...' })
-				
-				const jobId = await JobService.runFlowPreview({
+
+			return executeTestRun({
+				jobStarter: () => JobService.runFlowPreview({
 					workspace: workspace,
 					requestBody: {
 						args: flowArgs,
 						value: flow.value,
 						tag: flow.tag
 					}
-				})
-				
-				toolCallbacks.setToolStatus(toolId, { content: 'Flow test started, waiting for completion...' })
-				
-				let attempts = 0
-				const maxAttempts = 60
-				let job: any = null
-				
-				while (attempts < maxAttempts) {
-					await new Promise(resolve => setTimeout(resolve, 1000))
-					attempts++
-					
-					try {
-						job = await JobService.getJob({
-							workspace: workspace,
-							id: jobId,
-							noLogs: false,
-							noCode: true
-						})
-						
-						if (job.type === 'CompletedJob') {
-							break
-						}
-					} catch (error) {
-						if (attempts >= maxAttempts) {
-							throw error
-						}
-					}
-				}
-				
-				if (!job || job.type !== 'CompletedJob') {
-					toolCallbacks.setToolStatus(toolId, { 
-						content: 'Flow test timed out',
-						error: 'Flow execution timed out or failed to complete'
-					})
-					throw new Error('Flow test execution timed out after 4 minutes')
-				}
-				
-				// Format comprehensive flow results
-				const success = job.success
-				const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
-				const logs = job.logs || 'No logs available'
-				const result = job.result
-				const flowStatus = job.flow_status
-				
-				let resultSummary = `Flow test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-				
-				// Add step-by-step breakdown if available
-				if (flowStatus && flowStatus.modules) {
-					resultSummary += 'STEP RESULTS:\n'
-					for (const [stepId, stepInfo] of Object.entries(flowStatus.modules)) {
-						const stepStatus = (stepInfo as any)
-						if (stepStatus) {
-							const stepSuccess = stepStatus.type === 'Success'
-							const stepDuration = stepStatus.duration_ms ? `${stepStatus.duration_ms}ms` : 'unknown'
-							resultSummary += `- ${stepId}: ${stepSuccess ? 'SUCCESS' : 'FAILED'} (${stepDuration})\n`
-							
-							if (!stepSuccess && stepStatus.result) {
-								const errorMsg = typeof stepStatus.result === 'object' && stepStatus.result?.error
-									? stepStatus.result.error.message || stepStatus.result.error
-									: stepStatus.result || 'Unknown error'
-								resultSummary += `  Error: ${errorMsg}\n`
-							}
-						}
-					}
-					resultSummary += '\n'
-				}
-				
-				// Add final result
-				if (success) {
-					resultSummary += 'FINAL RESULT:\n'
-					resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-				} else {
-					resultSummary += 'FLOW ERROR:\n'
-					const errorMsg = typeof result === 'object' && result?.error 
-						? result.error.message || result.error 
-						: result || 'Unknown error'
-					resultSummary += errorMsg
-				}
-				
-				// Add logs if available and not too long
-				if (logs && logs.trim() && logs.length < 5000) {
-					resultSummary += '\n\nLOGS:\n' + logs
-				} else if (logs && logs.trim()) {
-					resultSummary += '\n\nLOGS (truncated):\n' + logs.slice(0, 5000) + '...'
-				}
-
-				// Limit the total result to avoid bloating context window
-				resultSummary = resultSummary.slice(0, 15000)
-				
-				toolCallbacks.setToolStatus(toolId, { 
-					content: `Flow test ${success ? 'completed successfully' : 'failed'}`,
-					result: resultSummary,
-					...(success ? {} : { error: 'Flow test execution failed' })
-				})
-				
-				return resultSummary
-				
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-				toolCallbacks.setToolStatus(toolId, { 
-					content: 'Flow test execution failed',
-					error: errorMessage
-				})
-				throw new Error(`Failed to execute flow test run: ${errorMessage}`)
-			}
+				}),
+				workspace,
+				toolCallbacks,
+				toolId,
+				resultFormatter: formatFlowResult,
+				startMessage: 'Starting flow test run...',
+				contextName: 'flow'
+			})
 		},
 		requiresConfirmation: true,
 		showDetails: true
