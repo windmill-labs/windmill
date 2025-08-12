@@ -217,13 +217,33 @@
 
 	// Build the flow data when dependencies change
 	let flowData: FlowData | null = $state(null)
+	let debounceTimeout: ReturnType<typeof setTimeout> | null = $state(null)
+
+	// Debounced function to build flow data
+	function debouncedBuildFlowData() {
+		if (debounceTimeout) {
+			clearTimeout(debounceTimeout)
+		}
+
+		debounceTimeout = setTimeout(() => {
+			buildFlowData(job).then((data) => {
+				flowData = data
+			})
+		}, 300) // 300ms debounce delay
+	}
 
 	$effect(() => {
 		rootFlowLogs
 		if (render && job && $localModuleStates) {
-			untrack(() => buildFlowData(job)).then((data) => {
-				flowData = data
-			})
+			untrack(() => debouncedBuildFlowData())
+		}
+
+		// Cleanup timeout on effect cleanup
+		return () => {
+			if (debounceTimeout) {
+				clearTimeout(debounceTimeout)
+				debounceTimeout = null
+			}
 		}
 	})
 
