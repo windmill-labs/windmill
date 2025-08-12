@@ -375,10 +375,11 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			? config.resultFormatter(job)
 			: formatBasicResult(job, config.contextName)
 		
+		const jobErrorMessage = job.success ? undefined : getErrorMessage(job.result)
 		config.toolCallbacks.setToolStatus(config.toolId, { 
 			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: resultSummary,
-			...(job.success ? {} : { error: `${config.contextName} test execution failed` })
+			...(job.success ? {} : { error: jobErrorMessage })
 		})
 		
 		return resultSummary
