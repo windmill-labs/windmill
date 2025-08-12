@@ -80,10 +80,11 @@ class AIChatManager {
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
+	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
+	lastSuggestedCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
 	
@@ -205,7 +206,17 @@ class AIChatManager {
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
 			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
 			this.helpers = {
-				getLang: () => lang
+				getLang: () => lang,
+				getScriptOptions: () => this.scriptEditorOptions ? {
+					code: this.scriptEditorOptions.code,
+					lang: this.scriptEditorOptions.lang,
+					path: this.scriptEditorOptions.path,
+					args: this.scriptEditorOptions.args
+				} : undefined,
+				getLastSuggestedCode: () => this.lastSuggestedCode,
+				applyCode: (code: string, applyAll?: boolean) => {
+					this.scriptEditorApplyCode?.(code, applyAll)
+				}
 			}
 			if (options?.closeScriptSettings) {
 				const closeComponent = triggerablesByAi['close-script-builder-settings']

@@ -16,7 +16,6 @@ import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$l
 import { createSearchHubScriptsTool, type Tool } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
-import { aiChatManager } from '../AIChatManager.svelte'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -631,6 +630,9 @@ async function formatDBSchema(dbSchema: DBSchema) {
 
 export interface ScriptChatHelpers {
 	getLang: () => ScriptLang | 'bunnative'
+	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> } | undefined
+	getLastSuggestedCode: () => string | undefined
+	applyCode: (code: string, applyAll?: boolean) => void
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -855,19 +857,32 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 
 export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	def: TEST_RUN_SCRIPT_TOOL,
-	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
-		// Get current script context from AI chat manager
-		const scriptOptions = aiChatManager.scriptEditorOptions
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		const scriptOptions = helpers.getScriptOptions()
 		
-		if (!scriptOptions || !scriptOptions.code || !scriptOptions.lang) {
+		if (!scriptOptions) {
 			toolCallbacks.setToolStatus(toolId, { 
 				content: 'No script available to test',
-				error: 'No script code or language found in editor'
+				error: 'No script found in current context'
 			})
 			throw new Error('No script code available to test. Please ensure you have a script open in the editor.')
 		}
 
-		const code = scriptOptions.code
+		let codeToTest = scriptOptions.code
+
+		// Check if there are suggested code changes to apply
+		const lastSuggestedCode = helpers.getLastSuggestedCode()
+		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
+			codeToTest = lastSuggestedCode
+			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+			
+			// Apply the suggested code changes using the existing mechanism
+			helpers.applyCode(lastSuggestedCode, true)
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
+		}
+
+		const code = codeToTest
 		const lang = scriptOptions.lang
 		const scriptArgs = args.args || scriptOptions.args || {}
 		

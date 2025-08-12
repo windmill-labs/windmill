@@ -98,6 +98,13 @@
 		(astNode.current.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
 	)
 
+	// Update lastSuggestedCode when code is extracted and displayed
+	$effect(() => {
+		if (code && code.trim()) {
+			aiChatManager.lastSuggestedCode = code
+		}
+	})
+
 	let loading = $state(true)
 	$effect(() => {
 		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
