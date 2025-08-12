@@ -24,10 +24,12 @@
 	import type { Writable } from 'svelte/store'
 	import type { FlowLogEntry } from './FlowLogUtils'
 
+	type RootJobData = Partial<Job>
+
 	interface Props {
 		logEntries: FlowLogEntry[]
 		localModuleStates: Writable<Record<string, GraphModuleState>>
-		rootJob: Job
+		rootJob: RootJobData
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
 		showResultsInputs?: boolean
@@ -43,6 +45,7 @@
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
 		getSelectedIteration: (stepId: string) => number
+		flowSummary?: string
 	}
 
 	let {
@@ -59,10 +62,12 @@
 		level = 0,
 		flowId = 'root',
 		onSelectedIteration,
-		getSelectedIteration
+		getSelectedIteration,
+		flowSummary
 	}: Props = $props()
 
-	function getJobLink(jobId: string): string {
+	function getJobLink(jobId: string | undefined): string {
+		if (!jobId) return ''
 		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
 	}
 
@@ -78,7 +83,7 @@
 		return status ? statusColors[status] : 'text-gray-400'
 	}
 
-	function getFlowStatus(job: Job): FlowStatusModule['type'] | undefined {
+	function getFlowStatus(job: RootJobData): FlowStatusModule['type'] | undefined {
 		if (job.type === 'CompletedJob') {
 			return job.success ? 'Success' : 'Failure'
 		} else if (job.type === 'QueuedJob') {
@@ -88,7 +93,7 @@
 		}
 	}
 
-	function getStepProgress(job: Job, totalSteps: number): string {
+	function getStepProgress(job: RootJobData, totalSteps: number): string {
 		if (totalSteps === 0) return ''
 
 		// If flow is completed, show total steps
@@ -133,7 +138,7 @@
 			result: rootJob.type === 'CompletedJob' ? rootJob.result : undefined,
 			logs: rootJob.logs || '',
 			status: rootJob.type,
-			label: level > 0 ? flowId : undefined,
+			label: flowSummary,
 			hasErrors: logEntries.some((entry) => $localModuleStates[entry.stepId]?.type === 'Failure')
 		}
 	})
@@ -217,15 +222,17 @@
 						</div>
 					</div>
 
-					<a
-						href={getJobLink(flowInfo.jobId)}
-						class="text-xs text-primary hover:underline font-mono"
-						target="_blank"
-						rel="noopener noreferrer"
-						onclick={(e) => e.stopPropagation()}
-					>
-						{truncateRev(flowInfo.jobId, 6)}
-					</a>
+					{#if flowInfo.jobId}
+						<a
+							href={getJobLink(flowInfo.jobId)}
+							class="text-xs text-primary hover:underline font-mono"
+							target="_blank"
+							rel="noopener noreferrer"
+							onclick={(e) => e.stopPropagation()}
+						>
+							{truncateRev(flowInfo.jobId, 6)}
+						</a>
+					{/if}
 				</div>
 
 				{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
@@ -423,14 +430,25 @@
 													<!-- Show child steps if they exist -->
 													{#if entry.subflows && entry.subflows.length > 0}
 														{#each entry.subflows as subflow, index}
-															{@const subflowLabel =
-																entry.subflowsSummary?.[index] ?? `${entry.stepId}-${index}`}
+															{@const subflowLabel = entry.subflowsSummary?.[index]}
+															{@const subflowJob = {
+																id: jobId,
+																type:
+																	$localModuleStates[entry.stepId]?.type === 'Failure' ||
+																	$localModuleStates[entry.stepId]?.type === 'Success'
+																		? 'CompletedJob'
+																		: ('QueuedJob' as Job['type']),
+																logs,
+																result,
+																args,
+																success: $localModuleStates[entry.stepId]?.type === 'Success'
+															}}
 															<div class="border-l mb-2">
 																<!-- Recursively render child steps using FlowLogViewer -->
 																<FlowLogViewer
 																	logEntries={subflow}
 																	{localModuleStates}
-																	{rootJob}
+																	rootJob={subflowJob}
 																	{expandedRows}
 																	{allExpanded}
 																	{showResultsInputs}
@@ -439,7 +457,8 @@
 																	{workspaceId}
 																	{render}
 																	level={level + 1}
-																	flowId={subflowLabel}
+																	flowId={`${entry.stepId}-subflow-${index}`}
+																	flowSummary={subflowLabel}
 																	{onSelectedIteration}
 																	{getSelectedIteration}
 																/>
