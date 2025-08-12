@@ -42,7 +42,7 @@
 
 	// Add new instance group form state
 	let selectedNewInstanceGroup: string | undefined = $state(undefined)
-	let selectedNewRole: string | undefined = $state(undefined)
+	let selectedNewRole: string | undefined = $state('developer')
 
 	// Available groups for dropdowns - filter out already configured groups
 	let availableGroupItems = $derived(
@@ -54,23 +54,19 @@
 			}))
 	)
 
-	// Check if any users are synced from instance groups to show/hide the column
-	let hasInstanceGroupUsers = $state(false)
-
 	// Sort users so manual users come first, then instance group users
 	let sortedUsers = $derived(() => {
-		const userList = filteredUsers || users || []
-		return userList.sort((a, b) => {
+		const userList = (filteredUsers || users || []).slice()
+		return userList.sort((a: User, b: User) => {
 			const aIsInstanceGroup = a.added_via?.source === 'instance_group' ? 1 : 0
 			const bIsInstanceGroup = b.added_via?.source === 'instance_group' ? 1 : 0
-			return aIsInstanceGroup - bIsInstanceGroup // Manual users first
+			return aIsInstanceGroup - bIsInstanceGroup
 		})
 	})
 
-	$effect(() => {
-		const userList = filteredUsers || users || []
-		hasInstanceGroupUsers = userList.some(user => user.added_via?.source === 'instance_group')
-	})
+	let hasInstanceGroupUsers = $derived(
+		(filteredUsers || users || []).some((user: User) => user.added_via?.source === 'instance_group')
+	)
 
 
 	async function loadSettings(): Promise<void> {
@@ -153,26 +149,54 @@
 	async function addInstanceGroup(): Promise<void> {
 		if (!selectedNewInstanceGroup || !selectedNewRole) return
 
-		// Add the new group
-		autoAddInstanceGroups = [...autoAddInstanceGroups, selectedNewInstanceGroup]
-		autoAddInstanceGroupsRoles[selectedNewInstanceGroup] = selectedNewRole
+		try {
+			autoAddInstanceGroups = [...autoAddInstanceGroups, selectedNewInstanceGroup]
+			autoAddInstanceGroupsRoles[selectedNewInstanceGroup] = selectedNewRole
 
-		// Reset form
-		selectedNewInstanceGroup = undefined
-		selectedNewRole = undefined
+			// Reset form
+			selectedNewInstanceGroup = undefined
+			selectedNewRole = 'developer'
 
-		await saveInstanceGroupSettings()
+			await saveInstanceGroupSettings()
+		} catch (e) {
+			// Rollback on error
+			if (selectedNewInstanceGroup) {
+				autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== selectedNewInstanceGroup)
+				delete autoAddInstanceGroupsRoles[selectedNewInstanceGroup]
+			}
+			sendUserToast('Failed to add instance group', true)
+		}
 	}
 
 	async function removeInstanceGroup(groupName: string): Promise<void> {
-		autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== groupName)
-		delete autoAddInstanceGroupsRoles[groupName]
-		await saveInstanceGroupSettings()
+		const previousGroups = [...autoAddInstanceGroups]
+		const previousRole = autoAddInstanceGroupsRoles[groupName]
+
+		try {
+			autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== groupName)
+			delete autoAddInstanceGroupsRoles[groupName]
+			await saveInstanceGroupSettings()
+		} catch (e) {
+			// Rollback on error
+			autoAddInstanceGroups = previousGroups
+			if (previousRole) {
+				autoAddInstanceGroupsRoles[groupName] = previousRole
+			}
+			sendUserToast('Failed to remove instance group', true)
+		}
 	}
 
 	async function updateGroupRole(groupName: string, role: string): Promise<void> {
-		autoAddInstanceGroupsRoles[groupName] = role
-		await saveInstanceGroupSettings()
+		const previousRole = autoAddInstanceGroupsRoles[groupName]
+
+		try {
+			autoAddInstanceGroupsRoles[groupName] = role
+			await saveInstanceGroupSettings()
+		} catch (e) {
+			// Rollback on error
+			autoAddInstanceGroupsRoles[groupName] = previousRole
+			sendUserToast('Failed to update role', true)
+		}
 	}
 
 	let domain = $derived($userStore?.email.split('@')[1])
@@ -406,7 +430,7 @@
 			<Popover
 				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 				usePointerDownOutside
-				floatingClass="!z-30"
+				floatingClass="!z-20"
 			>
 				{#snippet trigger()}
 					<Button
@@ -443,7 +467,7 @@
 										<div class="flex flex-col gap-1">
 											<span class="text-xs text-tertiary">Role</span>
 											<ToggleButtonGroup
-												selected={selectedNewRole || 'developer'}
+												selected={selectedNewRole}
 												on:selected={(e) => {
 													selectedNewRole = e.detail
 												}}
@@ -924,21 +948,23 @@
 	</div>
 </ConfirmationModal>
 
-<ConfirmationModal
-	open={Boolean(removeInstanceGroupConfirmedCallback)}
-	title="Remove instance group"
-	confirmationText="Remove"
-	on:canceled={() => {
-		removeInstanceGroupConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (removeInstanceGroupConfirmedCallback) {
-			removeInstanceGroupConfirmedCallback()
-		}
-		removeInstanceGroupConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this instance group from auto-add? This will not remove users already added from this group.</span>
-	</div>
-</ConfirmationModal>
+<div class="[&>div]:!z-[5002]">
+	<ConfirmationModal
+		open={Boolean(removeInstanceGroupConfirmedCallback)}
+		title="Remove instance group"
+		confirmationText="Remove"
+		on:canceled={() => {
+			removeInstanceGroupConfirmedCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (removeInstanceGroupConfirmedCallback) {
+				removeInstanceGroupConfirmedCallback()
+			}
+			removeInstanceGroupConfirmedCallback = undefined
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to remove this instance group from auto-add? This will not remove users already added from this group.</span>
+		</div>
+	</ConfirmationModal>
+</div>
