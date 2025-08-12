@@ -266,7 +266,6 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           # RUST_LOG = "debug";
-          SQLX_OFFLINE = "true";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
