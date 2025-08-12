@@ -1,4 +1,4 @@
-import { ResourceService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -16,6 +16,7 @@ import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$l
 import { createSearchHubScriptsTool, type Tool } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
+import { aiChatManager } from '../AIChatManager.svelte'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -499,7 +500,6 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
-	// Add test run tool for all supported script languages
 	tools.push(testRunScriptTool)
 	return tools
 }
@@ -856,10 +856,6 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	def: TEST_RUN_SCRIPT_TOOL,
 	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
-		// Import required services
-		const { JobService } = await import('$lib/gen')
-		const { aiChatManager } = await import('../AIChatManager.svelte')
-		
 		// Get current script context from AI chat manager
 		const scriptOptions = aiChatManager.scriptEditorOptions
 		
@@ -876,7 +872,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		const scriptArgs = args.args || scriptOptions.args || {}
 		
 		try {
-			toolCallbacks.setToolStatus(toolId, { content: `Running test for ${lang} script...` })
+			toolCallbacks.setToolStatus(toolId, { content: `Running test...` })
 			
 			// Execute test run using the same API as the script editor
 			const jobId = await JobService.runScriptPreview({
@@ -885,14 +881,14 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 					path: scriptOptions.path,
 					content: code,
 					args: scriptArgs,
-					language: lang as any,
+					language: lang as ScriptLang,
 					tag: undefined,
 					lock: undefined,
 					script_hash: undefined
 				}
 			})
 			
-			toolCallbacks.setToolStatus(toolId, { content: `Test started (Job ID: ${jobId}), waiting for completion...` })
+			toolCallbacks.setToolStatus(toolId, { content: `Test started, waiting for completion...` })
 			
 			// Wait for job completion and get result
 			let attempts = 0
@@ -911,13 +907,10 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 						noCode: true
 					})
 
-					console.log('job', job)
-					
 					if (job.type === 'CompletedJob') {
 						break
 					}
 				} catch (error) {
-					// Job might not be available yet, continue waiting
 					if (attempts >= maxAttempts) {
 						throw error
 					}
