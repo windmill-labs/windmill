@@ -11,6 +11,7 @@
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopeSelector from './ScopeSelector.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import FolderPicker from '../FolderPicker.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -42,6 +43,7 @@
 	let allApps = $state<string[]>([])
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
+	let selectedFolder = $state<string>('')
 	
 	let runnablesCache = new Map<string, string[]>()
 
@@ -71,7 +73,12 @@
 
 			let tokenScopes = scopes
 			if (mcpMode) {
-				tokenScopes = [`mcp:${newMcpScope}`]
+				if (newMcpScope === 'folder') {
+					const folderPath = `f/${selectedFolder}/*`
+					tokenScopes = [`mcp:all:${folderPath}`]
+				} else {
+					tokenScopes = [`mcp:${newMcpScope}`]
+				}
 				if (newMcpApps.length > 0) {
 					tokenScopes.push(`mcp:hub:${newMcpApps.join(',')}`)
 				}
@@ -134,30 +141,34 @@
 		}
 	}
 
-	async function getScripts(favoriteOnly: boolean = false, workspace: string) {
+	async function getScripts(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
 		if (!workspace) {
 			return []
 		}
+		const pathStart = folder ? `f/${folder}` : undefined
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
-			workspace
+			workspace,
+			pathStart
 		})
 		return scripts.map((x) => x.path)
 	}
 
-	async function getFlows(favoriteOnly: boolean = false, workspace: string) {
+	async function getFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
 		if (!workspace) {
 			return []
 		}
+		const pathStart = folder ? `f/${folder}` : undefined
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
-			workspace
+			workspace,
+			pathStart
 		})
 		return flows.map((x) => x.path)
 	}
 
-	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string) {
-		const cacheKey = `${workspace}-${favoriteOnly}`
+	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+		const cacheKey = `${workspace}-${favoriteOnly}${folder ? `-${folder}` : ''}`
 		if (runnablesCache.has(cacheKey)) {
 			includedRunnables = runnablesCache.get(cacheKey) || []
 			return
@@ -165,7 +176,7 @@
 
 		try {
 			loadingRunnables = true
-			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace), getFlows(favoriteOnly, workspace)])
+			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace, folder), getFlows(favoriteOnly, workspace, folder)])
 			const combined = [...scripts, ...flows]
 			runnablesCache.set(cacheKey, combined)
 			includedRunnables = combined
@@ -178,10 +189,17 @@
 		if (mcpCreationMode) {
 			const workspace = newTokenWorkspace || $workspaceStore
 			if (workspace) {
-				getScriptsAndFlows(newMcpScope === 'favorites', workspace)
+				const folderParam = selectedFolder.length > 0 ? selectedFolder : undefined
+				getScriptsAndFlows(newMcpScope === 'favorites', workspace, folderParam)
 			}
 		} else {
 			includedRunnables = []
+		}
+	})
+
+	$effect(() => {
+		if (mcpCreationMode && newMcpScope !== 'folder') {
+			selectedFolder = ''
 		}
 	})
 </script>
@@ -270,9 +288,22 @@
 								label="All scripts/flows"
 								tooltip="Make all your scripts and flows available as tools"
 							/>
+							<ToggleButton
+								{item}
+								value="folder"
+								label="Folder"
+								tooltip="Make all scripts and flows in the selected folder available as tools"
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
+
+				{#if newMcpScope === 'folder'}
+					<div>
+						<span class="block mb-1">Select Folder</span>
+						<FolderPicker bind:folderName={selectedFolder} />
+					</div>
+				{/if}
 
 				<div>
 					<span class="block mb-1">Hub scripts (optional)</span>
@@ -371,7 +402,7 @@
 			</Button>
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
-				disabled={mcpCreationMode && newTokenWorkspace == undefined}
+				disabled={mcpCreationMode && (newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
 			>
 				New token
 			</Button>
