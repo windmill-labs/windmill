@@ -156,12 +156,7 @@ async function addCodebaseDigestIfRelevant(
           parsed["codebase"] = await c.getDigest();
         }
         parsed["lock"] = "";
-        try {
-          return yamlStringify(parsed, yamlOptions);
-        } catch (error) {
-          log.error(`Failed to stringify YAML content for codebase digest at path: ${path}`);
-          throw error;
-        }
+        return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
           `Expected local yaml ${path} to be an object, found: ${content} instead`
@@ -366,12 +361,7 @@ function ZipFSElement(
               async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
-                try {
-                  return yamlStringify(flow, yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to stringify flow YAML at path: ${p}`);
-                  throw error;
-                }
+                return yamlStringify(flow, yamlOptions);
               },
             };
           } else if (kind == "app") {
@@ -407,12 +397,7 @@ function ZipFSElement(
               async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
-                try {
-                  return yamlStringify(app, yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to stringify app YAML at path: ${p}`);
-                  throw error;
-                }
+                return yamlStringify(app, yamlOptions);
               },
             };
           }
@@ -447,14 +432,7 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             return useYaml
-              ? (() => {
-                  try {
-                    return yamlStringify(parsed, yamlOptions);
-                  } catch (error) {
-                    log.error(`Failed to stringify script YAML at path: ${p}`);
-                    throw error;
-                  }
-                })()
+              ? yamlStringify(parsed, yamlOptions)
               : JSON.stringify(parsed, null, 2);
           }
 
@@ -478,14 +456,7 @@ function ZipFSElement(
                 formatExtension;
             }
             return useYaml
-              ? (() => {
-                  try {
-                    return yamlStringify(parsed, yamlOptions);
-                  } catch (error) {
-                    log.error(`Failed to stringify resource YAML at path: ${p}`);
-                    throw error;
-                  }
-                })()
+              ? yamlStringify(parsed, yamlOptions)
               : JSON.stringify(parsed, null, 2);
           }
 
@@ -885,24 +856,14 @@ async function compareDynFSElement(
         if (!ignoreCodebaseChanges) {
           if (before.codebase != undefined) {
             delete before.codebase;
-            try {
-              m2[k] = yamlStringify(before, yamlOptions);
-            } catch (error) {
-              log.error(`Failed to stringify before YAML content for codebase change at path: ${k}`);
-              throw error;
-            }
+            m2[k] = yamlStringify(before, yamlOptions);
           }
           if (after.codebase != undefined) {
             if (before.codebase != after.codebase) {
               codebaseChanges[k] = after.codebase;
             }
             delete after.codebase;
-            try {
-              v = yamlStringify(after, yamlOptions);
-            } catch (error) {
-              log.error(`Failed to stringify after YAML content for codebase change at path: ${k}`);
-              throw error;
-            }
+            v = yamlStringify(after, yamlOptions);
           }
         }
         if (skipMetadata) {
