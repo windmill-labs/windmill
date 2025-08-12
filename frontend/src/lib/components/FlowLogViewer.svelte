@@ -130,8 +130,51 @@
 		)
 	}
 
+	// Find all parents of error steps
+	function findParentsOfErrors(entries: FlowLogEntry[]): Set<string> {
+		const parentsWithErrors = new Set<string>()
+
+		function traverseEntries(entryList: FlowLogEntry[], parentId?: string) {
+			let hasChildError = false
+
+			for (const entry of entryList) {
+				let currentEntryHasError = false
+
+				// Check if this entry has subflows with errors
+				if (entry.subflows && entry.subflows.length > 0) {
+					for (const subflow of entry.subflows) {
+						const subflowHasError = traverseEntries(subflow, entry.stepId)
+						if (subflowHasError) {
+							currentEntryHasError = true
+							parentsWithErrors.add(entry.stepId)
+						}
+					}
+				}
+
+				// Check if this entry itself has an error (but don't flag it - only its parents)
+				const stepStatus = $localModuleStates[entry.stepId]?.type
+				if (stepStatus === 'Failure') {
+					currentEntryHasError = true
+					// Don't add the entry itself to parentsWithErrors
+				}
+
+				// If this entry has an error, mark its parent
+				if (currentEntryHasError && parentId) {
+					parentsWithErrors.add(parentId)
+					hasChildError = true
+				}
+			}
+
+			return hasChildError
+		}
+
+		traverseEntries(entries, flowId)
+		return parentsWithErrors
+	}
+
 	// Get flow info for display
 	const flowInfo = $derived.by(() => {
+		const parentsWithErrors = findParentsOfErrors(logEntries)
 		return {
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
@@ -139,7 +182,8 @@
 			logs: rootJob.logs || '',
 			status: rootJob.type,
 			label: flowSummary,
-			hasErrors: logEntries.some((entry) => $localModuleStates[entry.stepId]?.type === 'Failure')
+			hasErrors: parentsWithErrors.has(flowId),
+			parentsWithErrors
 		}
 	})
 </script>
@@ -347,7 +391,7 @@
 													{@render stepIcon(
 														entry.stepType,
 														status as FlowStatusModule['type'],
-														$localModuleStates[entry.stepId]?.type === 'Failure'
+														flowInfo.parentsWithErrors.has(entry.stepId)
 													)}
 
 													<div class="flex items-center gap-2">
