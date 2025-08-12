@@ -352,7 +352,9 @@
 						<option value={90 * 24 * 60 * 60}>90d</option>
 					</select>
 				</div>
-			{:else if loadingRunnables}
+			{/if}
+			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
+			{#if loadingRunnables}
 				<div class="flex flex-col gap-2 col-span-2 pr-4">
 					<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
 					<div class="flex flex-wrap gap-1">
@@ -388,6 +390,7 @@
 						</div>
 					{/if}
 				</div>
+			{/if}
 			{/if}
 
 		</div>
