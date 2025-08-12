@@ -206,13 +206,14 @@ class AIChatManager {
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
 			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
 			this.helpers = {
-				getLang: () => lang,
-				getScriptOptions: () => this.scriptEditorOptions ? {
-					code: this.scriptEditorOptions.code,
-					lang: this.scriptEditorOptions.lang,
-					path: this.scriptEditorOptions.path,
-					args: this.scriptEditorOptions.args
-				} : undefined,
+				getScriptOptions: () => {
+					return {
+						code: this.scriptEditorOptions?.code ?? '',
+						lang: lang,
+						path: this.scriptEditorOptions?.path ?? '',
+						args: this.scriptEditorOptions?.args ?? {}
+					}
+				},
 				getLastSuggestedCode: () => this.lastSuggestedCode,
 				applyCode: (code: string, applyAll?: boolean) => {
 					this.scriptEditorApplyCode?.(code, applyAll)

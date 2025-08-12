@@ -629,8 +629,7 @@ async function formatDBSchema(dbSchema: DBSchema) {
 }
 
 export interface ScriptChatHelpers {
-	getLang: () => ScriptLang | 'bunnative'
-	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> } | undefined
+	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> }
 	getLastSuggestedCode: () => string | undefined
 	applyCode: (code: string, applyAll?: boolean) => void
 }
@@ -639,8 +638,9 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
+		const lang = helpers.getScriptOptions().lang
 		const formattedResourceTypes = await getFormattedResourceTypes(
-			helpers.getLang(),
+			lang,
 			args.query,
 			workspace
 		)
