@@ -425,6 +425,12 @@ impl Runner {
 
         // scope path is always a folder path, format is f/my_folder/*
         if let Some(scope_path) = scope_path {
+            if scope_path.split("/").count() != 3 || !scope_path.starts_with("f/") || !scope_path.ends_with("/*") {
+                return Err(Error::internal_error(
+                    format!("Invalid folder format: {}, expected format is f/my_folder/*", scope_path),
+                    None,
+                ));
+            }
             sqlb.and_where_like_left("o.path", &scope_path[..scope_path.len() - 2]);
         }
 
