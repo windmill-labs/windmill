@@ -64,9 +64,8 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
-	let connectsManual:
-		| [string, { img?: string; instructions: string[]; key?: string }][]
-		| undefined = $state(undefined)
+	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
+		$state(undefined)
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -209,16 +208,16 @@
 			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
 			.map(
 				(x) =>
-					[
-						x,
-						apiTokenApps[x] ?? {
+					({
+						key: x,
+						...(apiTokenApps[x] ?? {
 							instructions: '',
 							img: undefined,
 							linkedSecret: undefined
-						}
-					] as [string, { img?: string; instructions: string[]; key?: string }]
+						})
+					}) as { key: string; img?: string; instructions: string[] }
 			)
-			.sort((a, b) => a[0].localeCompare(b[0]))
+			.sort((a, b) => a.key.localeCompare(b.key))
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -227,7 +226,7 @@
 			filteredConnectsManual = [
 				...(filteredNativeLanguages ?? []),
 				...(filteredConnectsManual ?? []).filter(
-					([key, _]) => !nativeLanguagesCategory.includes(key)
+					({ key }) => !nativeLanguagesCategory.includes(key)
 				)
 			]
 		} catch (e) {}
@@ -509,8 +508,7 @@
 	const dispatch = createEventDispatcher<{ error: string; refresh: string; close: void }>()
 
 	let filteredConnects: { key: string }[] = $state([])
-	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
-		$state([])
+	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let editScopes = $state(false)
 </script>
@@ -530,7 +528,7 @@
 		{filter}
 		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
-		f={(x) => x[0]}
+		f={(x) => x.key}
 	/>
 	{#if step == 1}
 		<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
@@ -594,7 +592,7 @@
 
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as [key, _]}
+				{#each filteredConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
 						<Button
 							size="sm"
@@ -617,7 +615,7 @@
 		<div class="mt-8 mb-4"></div>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as [key, _]}
+				{#each filteredConnectsManual as { key }}
 					{#if !nativeLanguagesCategory.includes(key)}
 						<!-- Exclude specific items -->
 						<Button

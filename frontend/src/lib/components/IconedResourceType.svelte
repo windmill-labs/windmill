@@ -26,9 +26,11 @@
 	} = $props()
 
 	let iconComponent = $derived(
-		name === 'teams'
-			? APP_TO_ICON_COMPONENT.ms_teams_webhook
-			: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+		name
+			? name === 'teams'
+				? APP_TO_ICON_COMPONENT.ms_teams_webhook
+				: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+			: undefined
 	)
 </script>
 
