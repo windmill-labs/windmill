@@ -13,7 +13,7 @@ export async function saveKafkaTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry
+				retry: cfg.retry,
 			}
 		: {}
 	const requestBody: EditKafkaTrigger = {

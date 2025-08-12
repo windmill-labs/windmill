@@ -43,6 +43,7 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -114,6 +115,8 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route("/edit_ducklake_config", post(edit_ducklake_config))
+        .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -234,6 +237,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
@@ -301,9 +306,19 @@ struct LargeFileStorageWithSecondary {
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDucklakeConfig {
+    settings: DucklakeSettings,
 }
 
 #[derive(Deserialize)]
@@ -386,6 +401,10 @@ pub struct EditErrorHandler {
     pub error_handler_muted_on_cancel: Option<bool>,
 }
 
+lazy_static::lazy_static! {
+    pub static ref EMAIL_REGEXP: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -462,15 +481,51 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        r#"
+        SELECT 
+            workspace_id,
+            slack_team_id,
+            teams_team_id,
+            teams_team_name,
+            slack_name,
+            slack_command_script,
+            teams_command_script,
+            slack_email,
+            auto_invite_domain,
+            auto_invite_operator,
+            auto_add,
+            customer_id,
+            plan,
+            webhook,
+            deploy_to,
+            ai_config,
+            error_handler,
+            error_handler_extra_args,
+            error_handler_muted_on_cancel,
+            large_file_storage,
+            ducklake,
+            git_sync,
+            deploy_ui,
+            default_app,
+            default_scripts,
+            mute_critical_alerts,
+            color,
+            operator_settings,
+            git_app_installations
+        FROM 
+            workspace_settings
+        WHERE 
+            workspace_id = $1
+        "#,
         &w_id
     )
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-    tx.commit().await?;
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
 
+    tx.commit().await?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     Ok(Json(settings))
 }
 
@@ -888,6 +943,90 @@ async fn edit_large_file_storage_config(
         "Edit large file storage config for workspace {}",
         &w_id
     ))
+}
+
+async fn list_ducklakes(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(ducklakes))
+}
+
+async fn edit_ducklake_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDucklakeConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_ducklake_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("ducklake", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that all ducklake catalog resources exist to prevent
+    // exploiting the shared property to see any resource
+    for dl in new_config.settings.ducklakes.values() {
+        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+            continue;
+        }
+        let catalog_res = sqlx::query_scalar!(
+            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &dl.catalog.resource_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if catalog_res.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Ducklake catalog resource {} not found in workspace {}",
+                dl.catalog.resource_path, &w_id
+            )));
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET ducklake = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit ducklake config for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]
@@ -1566,8 +1705,46 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
+        match ee.error_handler_extra_args.as_ref() {
+            Some(extra_args) if extra_args.is_object() => {
+                let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
+                    extra_args["email_recipients"].to_owned(),
+                ) else {
+                    return Err(Error::BadRequest(
+                        "Field `email_recipients` expected to be JSON array".to_string(),
+                    ));
+                };
+
+                if let Some(email_recipients) = email_recipients {
+                    for email in email_recipients {
+                        if !EMAIL_REGEXP.is_match(&email) {
+                            return Err(Error::BadRequest(format!(
+                                "Invalid email format: {}",
+                                email
+                            )));
+                        }
+                    }
+                }
+            }
+            None => {}
+            _ => {
+                return Err(Error::BadRequest(
+                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                ))
+            }
+        }
+
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
+            r#"
+            UPDATE 
+                workspace_settings
+            SET
+                error_handler = $1,
+                error_handler_extra_args = $2,
+                error_handler_muted_on_cancel = $3
+            WHERE 
+                workspace_id = $4
+            "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
@@ -1577,12 +1754,22 @@ async fn edit_error_handler(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
-            &w_id,
+            r#"
+            UPDATE 
+                workspace_settings
+            SET
+                error_handler = NULL,
+                error_handler_extra_args = NULL,
+                error_handler_muted_on_cancel = NULL
+            WHERE 
+                workspace_id = $1
+        "#,
+            &w_id
         )
         .execute(&mut *tx)
         .await?;
     }
+
     audit_log(
         &mut *tx,
         &authed,

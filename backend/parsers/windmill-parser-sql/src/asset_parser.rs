@@ -7,6 +7,8 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_while},
     character::complete::{char, multispace0},
+    combinator::opt,
+    sequence::preceded,
     IResult, Parser,
 };
 
@@ -50,6 +52,11 @@ fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
         parse_resource_lit.map(|path| ParseAssetsResult {
             path,
             kind: AssetKind::Resource,
+            access_type: None,
+        }),
+        parse_ducklake_lit.map(|path| ParseAssetsResult {
+            path,
+            kind: AssetKind::Ducklake,
             access_type: None,
         }),
     ))
@@ -114,6 +121,14 @@ fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
     Ok((input, path))
 }
 
+fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
+    let (input, _) = quote(input)?;
+    let (input, _) = tag("ducklake").parse(input)?;
+    let (input, path) =
+        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
+    let (input, _) = quote(input)?;
+    Ok((input, path.unwrap_or("main")))
+}
 fn parse_comment(input: &str) -> IResult<&str, &str> {
     let (input, _) = tag("--").parse(input)?;
     let (input, comment) = take_while(|c| c != '\n')(input)?;

@@ -38,3 +38,8 @@ pub fn parse_snowflake(typ: &str) -> String {
 pub fn parse_mssql(typ: &str) -> String {
     to_str(windmill_parser_sql::parse_mssql_typ(typ))
 }
+
+#[wasm_bindgen]
+pub fn parse_duckdb(typ: &str) -> String {
+    to_str(windmill_parser_sql::parse_duckdb_typ(typ))
+}

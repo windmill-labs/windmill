@@ -3,7 +3,7 @@
 	import { inferAssets } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { pruneNullishArrayWithSet, uniqueBy } from '$lib/utils'
+	import { pruneNullishArray, uniqueBy } from '$lib/utils'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -26,7 +26,7 @@
 				// TODO : Transitive assets
 			}
 			return uniqueBy(
-				pruneNullishArrayWithSet([
+				pruneNullishArray([
 					...(job.raw_flow?.modules.flatMap((m) => getFlowModuleAssets(m, additionalAssetsMap)) ??
 						[]),
 					...parseInputArgsAssets(job.args ?? {})

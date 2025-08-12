@@ -20,7 +20,11 @@
 		<div
 			class={twMerge(
 				'rounded-full w-2 h-2',
-				'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+				'success' in job && job.success
+					? 'bg-green-400'
+					: job.type === 'CompletedJob'
+						? 'bg-red-400'
+						: 'bg-yellow-400'
 			)}
 			title={'success' in job && job.success ? 'Success' : 'Failed'}
 		></div>

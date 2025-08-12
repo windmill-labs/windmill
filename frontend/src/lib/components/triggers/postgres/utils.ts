@@ -114,7 +114,7 @@ export async function savePostgresTriggerFromCfg(
 			? {
 					error_handler_path: config.error_handler_path,
 					error_handler_args: config.error_handler_path ? config.error_handler_args : undefined,
-					retry: config.retry
+					retry: config.retry,
 				}
 			: {}
 		const requestBody: EditPostgresTrigger = {

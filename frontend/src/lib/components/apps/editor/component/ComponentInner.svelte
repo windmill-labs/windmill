@@ -92,712 +92,864 @@
 		inlineEditorOpened = $bindable(),
 		initializing = $bindable(undefined)
 	}: Props = $props()
+
+	// Define the component groups for efficient range checking
+	const chunk1Components = new Set([
+		'accordionlistcomponent',
+		'agchartscomponent',
+		'agchartscomponentee',
+		'aggridcomponent',
+		'aggridcomponentee',
+		'aggridinfinitecomponent',
+		'aggridinfinitecomponentee',
+		'alertcomponent',
+		'barchartcomponent',
+		'buttoncomponent'
+	])
+	const chunk2Components = new Set([
+		'carousellistcomponent',
+		'chartjscomponent',
+		'chartjscomponentv2',
+		'checkboxcomponent',
+		'codeinputcomponent',
+		'conditionalwrapper',
+		'containercomponent',
+		'currencycomponent',
+		'customcomponent',
+		'dateinputcomponent'
+	])
+	const chunk3Components = new Set([
+		'dateselectcomponent',
+		'dateslidercomponent',
+		'datetimeinputcomponent',
+		'dbexplorercomponent',
+		'decisiontreecomponent',
+		'displaycomponent',
+		'downloadcomponent',
+		'drawercomponent',
+		'emailinputcomponent',
+		'fileinputcomponent'
+	])
+	const chunk4Components = new Set([
+		'flowstatuscomponent',
+		'formbuttoncomponent',
+		'formcomponent',
+		'horizontaldividercomponent',
+		'horizontalsplitpanescomponent',
+		'htmlcomponent',
+		'iconcomponent',
+		'imagecomponent',
+		'jobiddisplaycomponent',
+		'jobidflowstatuscomponent'
+	])
+	const chunk5Components = new Set([
+		'jobidlogcomponent',
+		'listcomponent',
+		'logcomponent',
+		'mapcomponent',
+		'mardowncomponent',
+		'menucomponent',
+		'modalcomponent',
+		'multiselectcomponent',
+		'multiselectcomponentv2',
+		'navbarcomponent'
+	])
+	const chunk6Components = new Set([
+		'numberinputcomponent',
+		'passwordinputcomponent',
+		'pdfcomponent',
+		'piechartcomponent',
+		'plotlycomponent',
+		'plotlycomponentv2',
+		'quillcomponent',
+		'rangecomponent',
+		'recomputeallcomponent',
+		'resourceselectcomponent'
+	])
+	const chunk7Components = new Set([
+		's3fileinputcomponent',
+		'scatterchartcomponent',
+		'schemaformcomponent',
+		'selectcomponent',
+		'selectstepcomponent',
+		'selecttabcomponent',
+		'slidercomponent',
+		'statcomponent',
+		'steppercomponent'
+	])
+	const chunk8Components = new Set([
+		'tablecomponent',
+		'tabscomponent',
+		'textareainputcomponent',
+		'textcomponent',
+		'textinputcomponent',
+		'timeinputcomponent',
+		'timeseriescomponent',
+		'userresourcecomponent',
+		'vegalitecomponent',
+		'verticaldividercomponent'
+	])
+	const chunk9Components = new Set(['verticalsplitpanescomponent'])
 </script>
 
 <svelte:boundary
 	onerror={(e) => {
-		console.error(e)
+		console.error('Error displaying component ' + component.id, component, e)
 	}}
 >
-	{#if component.type === 'displaycomponent'}
-		<AppDisplayComponent
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			configuration={component.configuration}
-			{render}
-		/>
-	{:else if component.type === 'logcomponent'}
-		<AppLogsComponent />
-	{:else if component.type === 'jobidlogcomponent'}
-		<AppJobIdLogComponent
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			configuration={component.configuration}
-			{render}
-		/>
-	{:else if component.type === 'flowstatuscomponent'}
-		<AppFlowStatusComponent />
-	{:else if component.type === 'jobidflowstatuscomponent'}
-		<AppJobIdFlowStatus
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			configuration={component.configuration}
-			{render}
-		/>
-	{:else if component.type === 'barchartcomponent'}
-		<AppBarChart
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'timeseriescomponent'}
-		<AppTimeseries
-			id={component.id}
-			customCss={component.customCss}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'htmlcomponent'}
-		<AppHtml
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'customcomponent'}
-		<AppCustomComponent
-			customComponent={component.customComponent}
-			id={component.id}
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'mardowncomponent'}
-		<AppMarkdown
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			configuration={component.configuration}
-			{render}
-		/>
-	{:else if component.type === 'vegalitecomponent'}
-		<VegaLiteHtml
-			configuration={component.configuration}
-			id={component.id}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'plotlycomponent'}
-		<PlotlyHtml
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'plotlycomponentv2'}
-		<PlotlyHtmlV2
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			datasets={component.datasets}
-			xData={component.xData}
-			{render}
-		/>
-	{:else if component.type === 'scatterchartcomponent'}
-		<AppScatterChart
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'piechartcomponent'}
-		<AppPieChart
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'agchartscomponent'}
-		<AppAgCharts
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'agchartscomponentee'}
-		<AppAgCharts
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			license={component.license}
-			ee={true}
-			{render}
-		/>
-	{:else if component.type === 'tablecomponent'}
-		{#await import('$lib/components/apps/components/display/table/AppTable.svelte')}
-			<Loader2 />
-		{:then Module}
-			<Module.default
+	<!-- Chunk 1: accordionlistcomponent - buttoncomponent -->
+	{#if chunk1Components.has(component.type)}
+		{#if component.type === 'accordionlistcomponent'}
+			<AppAccordionList
+				id={component.id}
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
+			/>
+		{:else if component.type === 'agchartscomponent'}
+			<AppAgCharts
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
-				actionButtons={component.actionButtons}
 				{render}
 			/>
-		{/await}
-	{:else if component.type === 'dbexplorercomponent'}
-		<AppDbExplorer
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			actions={component.actions ?? []}
-			bind:initializing
-			{render}
-		/>
-	{:else if component.type === 'aggridcomponent'}
-		<AppAggridTable
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			actions={component.actions ?? []}
-			actionsOrder={component.actionsOrder ?? undefined}
-			{render}
-		/>
-	{:else if component.type === 'aggridcomponentee'}
-		<AppAggridTableEe
-			license={component.license}
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			actions={component.actions ?? []}
-			actionsOrder={component.actionsOrder ?? undefined}
-			{render}
-		/>
-	{:else if component.type === 'aggridinfinitecomponent'}
-		<AppAggridInfiniteTable
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			actions={component.actions ?? []}
-			{render}
-		/>
-	{:else if component.type === 'aggridinfinitecomponentee'}
-		<AppAggridInfiniteTableEe
-			license={component.license}
-			id={component.id}
-			configuration={component.configuration}
-			bind:initializing
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			actions={component.actions ?? []}
-			{render}
-		/>
-	{:else if component.type === 'textcomponent'}
-		<AppText
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			bind:initializing
-			bind:editorMode={inlineEditorOpened}
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'codeinputcomponent'}
-		<AppCodeInputComponent id={component.id} configuration={component.configuration} {render} />
-	{:else if component.type === 'buttoncomponent'}
-		<AppButton
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			componentInput={component.componentInput}
-			recomputeIds={component.recomputeIds}
-			bind:errorHandledByComponent
-			{render}
-		/>
-	{:else if component.type === 'downloadcomponent'}
-		<AppDownload
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
-		<AppSelect
-			recomputeIds={component.recomputeIds}
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			onSelect={component.onSelect}
-			{render}
-		/>
-	{:else if component.type === 'userresourcecomponent'}
-		<AppUserResource
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'multiselectcomponent'}
-		<AppMultiSelect id={component.id} verticalAlignment={component.verticalAlignment} {render} />
-	{:else if component.type === 'multiselectcomponentv2'}
-		<AppMultiSelectV2
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			verticalAlignment={component.verticalAlignment}
-			{render}
-		/>
-	{:else if component.type === 'formcomponent'}
-		<AppForm
-			id={component.id}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			componentInput={component.componentInput}
-			recomputeIds={component.recomputeIds}
-			bind:errorHandledByComponent
-			{render}
-		/>
-	{:else if component.type === 'formbuttoncomponent'}
-		<AppFormButton
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			componentInput={component.componentInput}
-			recomputeIds={component.recomputeIds}
-			bind:errorHandledByComponent
-			{render}
-		/>
-	{:else if component.type === 'checkboxcomponent'}
-		<AppCheckbox
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			recomputeIds={component.recomputeIds}
-			onToggle={component.onToggle}
-			{render}
-		/>
-	{:else if component.type === 'textinputcomponent'}
-		<AppTextInput
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'quillcomponent'}
-		<AppQuillEditor id={component.id} configuration={component.configuration} {render} />
-	{:else if component.type === 'textareainputcomponent'}
-		<AppTextInput
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			inputType="textarea"
-			appCssKey="textareainputcomponent"
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'emailinputcomponent'}
-		<AppTextInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			inputType="email"
-			appCssKey="emailinputcomponent"
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'passwordinputcomponent'}
-		<AppTextInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			inputType="password"
-			appCssKey="passwordinputcomponent"
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'dateinputcomponent'}
-		<AppDateInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			inputType="date"
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'timeinputcomponent'}
-		<AppTimeInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'datetimeinputcomponent'}
-		<AppDateTimeInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			inputType="date"
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'numberinputcomponent'}
-		<AppNumberInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onChange={component.onChange}
-			{render}
-		/>
-	{:else if component.type === 'currencycomponent'}
-		<AppCurrencyInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'slidercomponent'}
-		<AppSliderInputs
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'dateslidercomponent'}
-		<AppDateSliderInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'horizontaldividercomponent'}
-		<AppDivider
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			position="horizontal"
-			{render}
-		/>
-	{:else if component.type === 'verticaldividercomponent'}
-		<AppDivider
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			position="vertical"
-			{render}
-		/>
-	{:else if component.type === 'rangecomponent'}
-		<AppRangeInput
-			verticalAlignment={component.verticalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'tabscomponent' && component.tabs}
-		<AppTabs
-			configuration={component.configuration}
-			id={component.id}
-			tabs={component.tabs}
-			disabledTabs={component.disabledTabs}
-			onTabChange={component.onTabChange}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			{render}
-		/>
-	{:else if component.type === 'steppercomponent' && component.tabs}
-		<AppStepper
-			id={component.id}
-			tabs={component.tabs}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			componentInput={component.componentInput}
-			onNext={component.onNext}
-			onPrevious={component.onPrevious}
-			{render}
-		/>
-	{:else if component.type === 'conditionalwrapper' && component.conditions}
-		<AppConditionalWrapper
-			id={component.id}
-			conditions={component.conditions}
-			customCss={component.customCss}
-			onTabChange={component.onTabChange}
-			{componentContainerHeight}
-			{render}
-		/>
-	{:else if component.type === 'containercomponent'}
-		<AppContainer
-			groupFields={component.groupFields}
-			id={component.id}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			{render}
-		/>
-	{:else if component.type === 'listcomponent'}
-		<AppList
-			id={component.id}
-			customCss={component.customCss}
-			configuration={component.configuration}
-			componentInput={component.componentInput}
-			{render}
-			bind:initializing
-		/>
-	{:else if component.type === 'verticalsplitpanescomponent'}
-		<AppSplitpanes
-			id={component.id}
-			customCss={component.customCss}
-			panes={component.panes}
-			{componentContainerHeight}
-			{render}
-		/>
-	{:else if component.type === 'horizontalsplitpanescomponent'}
-		<AppSplitpanes
-			id={component.id}
-			customCss={component.customCss}
-			panes={component.panes}
-			{componentContainerHeight}
-			horizontal={true}
-			{render}
-		/>
-	{:else if component.type === 'iconcomponent'}
-		<AppIcon
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'fileinputcomponent'}
-		<AppFileInput
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onFileChange={component.onFileChange}
-			{render}
-		/>
-	{:else if component.type === 's3fileinputcomponent'}
-		<AppS3FileInput
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onFileChange={component.onFileChange}
-			{render}
-		/>
-	{:else if component.type === 'imagecomponent'}
-		<AppImage
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'drawercomponent'}
-		<AppDrawer
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onOpenRecomputeIds={component.onOpenRecomputeIds}
-			onCloseRecomputeIds={component.onCloseRecomputeIds}
-			{render}
-		/>
-	{:else if component.type === 'mapcomponent'}
-		<AppMap
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'pdfcomponent'}
-		<AppPdf
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'modalcomponent'}
-		<AppModal
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			onOpenRecomputeIds={component.onOpenRecomputeIds}
-			onCloseRecomputeIds={component.onCloseRecomputeIds}
-			{render}
-		/>
-	{:else if component.type === 'schemaformcomponent'}
-		<AppSchemaForm
-			id={component.id}
-			componentInput={component.componentInput}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{initializing}
-			{render}
-		/>
-	{:else if component.type === 'selecttabcomponent'}
-		<AppSelectTab
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'selectstepcomponent'}
-		<AppSelectStep
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'chartjscomponent'}
-		<AppChartJs
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			{render}
-		/>
-	{:else if component.type === 'chartjscomponentv2'}
-		<AppChartJsV2
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			datasets={component.datasets}
-			xData={component.xData}
-			{render}
-		/>
-	{:else if component.type === 'carousellistcomponent'}
-		<AppCarouselList
-			id={component.id}
-			configuration={component.configuration}
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			{render}
-			bind:initializing
-		/>
-	{:else if component.type === 'accordionlistcomponent'}
-		<AppAccordionList
-			id={component.id}
-			componentInput={component.componentInput}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			{render}
-			bind:initializing
-		/>
-	{:else if component.type === 'statcomponent'}
-		<AppStatCard
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			{render}
-		/>
-	{:else if component.type === 'menucomponent'}
-		<AppMenu
-			id={component.id}
-			verticalAlignment={component.verticalAlignment}
-			horizontalAlignment={component.horizontalAlignment}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			menuItems={component.menuItems}
-			{render}
-		/>
-	{:else if component.type === 'decisiontreecomponent' && component.nodes}
-		<AppDecisionTree
-			id={component.id}
-			nodes={component.nodes}
-			customCss={component.customCss}
-			{componentContainerHeight}
-			{render}
-		/>
-	{:else if component.type === 'alertcomponent'}
-		<AppAlert
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			verticalAlignment={component.verticalAlignment}
-			{render}
-		/>
-	{:else if component.type === 'navbarcomponent'}
-		<AppNavbar
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			navbarItems={component.navbarItems}
-			{render}
-		/>
-	{:else if component.type === 'dateselectcomponent'}
-		<AppDateSelect
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			verticalAlignment={component.verticalAlignment}
-			{render}
-		/>
-	{:else if component.type === 'jobiddisplaycomponent'}
-		<AppDisplayComponentByJobId
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			configuration={component.configuration}
-			{render}
-		/>
-	{:else if component.type === 'recomputeallcomponent'}
-		<AppRecomputeAll
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			configuration={component.configuration}
-			horizontalAlignment={component.horizontalAlignment}
-			{render}
-		/>
+		{:else if component.type === 'agchartscomponentee'}
+			<AppAgCharts
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				license={component.license}
+				ee={true}
+				{render}
+			/>
+		{:else if component.type === 'aggridcomponent'}
+			<AppAggridTable
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				actionsOrder={component.actionsOrder ?? undefined}
+				{render}
+			/>
+		{:else if component.type === 'aggridcomponentee'}
+			<AppAggridTableEe
+				license={component.license}
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				actionsOrder={component.actionsOrder ?? undefined}
+				{render}
+			/>
+		{:else if component.type === 'aggridinfinitecomponent'}
+			<AppAggridInfiniteTable
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				{render}
+			/>
+		{:else if component.type === 'aggridinfinitecomponentee'}
+			<AppAggridInfiniteTableEe
+				license={component.license}
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				{render}
+			/>
+		{:else if component.type === 'alertcomponent'}
+			<AppAlert
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'barchartcomponent'}
+			<AppBarChart
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'buttoncomponent'}
+			<AppButton
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
+				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
+				{render}
+			/>
+		{/if}
 	{/if}
+
+	<!-- Chunk 2: carousellistcomponent - dateinputcomponent -->
+	{#if chunk2Components.has(component.type)}
+		{#if component.type === 'carousellistcomponent'}
+			<AppCarouselList
+				id={component.id}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
+			/>
+		{:else if component.type === 'chartjscomponent'}
+			<AppChartJs
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'chartjscomponentv2'}
+			<AppChartJsV2
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
+		{:else if component.type === 'checkboxcomponent'}
+			<AppCheckbox
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				recomputeIds={component.recomputeIds}
+				onToggle={component.onToggle}
+				{render}
+			/>
+		{:else if component.type === 'codeinputcomponent'}
+			<AppCodeInputComponent id={component.id} configuration={component.configuration} {render} />
+		{:else if component.type === 'conditionalwrapper' && component.conditions}
+			<AppConditionalWrapper
+				id={component.id}
+				conditions={component.conditions}
+				customCss={component.customCss}
+				onTabChange={component.onTabChange}
+				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'containercomponent'}
+			<AppContainer
+				groupFields={component.groupFields}
+				id={component.id}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'currencycomponent'}
+			<AppCurrencyInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'customcomponent'}
+			<AppCustomComponent
+				customComponent={component.customComponent}
+				id={component.id}
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'dateinputcomponent'}
+			<AppDateInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="date"
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 3: dateselectcomponent - fileinputcomponent -->
+	{#if chunk3Components.has(component.type)}
+		{#if component.type === 'dateselectcomponent'}
+			<AppDateSelect
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'dateslidercomponent'}
+			<AppDateSliderInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'datetimeinputcomponent'}
+			<AppDateTimeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="date"
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'dbexplorercomponent'}
+			<AppDbExplorer
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				bind:initializing
+				{render}
+			/>
+		{:else if component.type === 'decisiontreecomponent' && component.nodes}
+			<AppDecisionTree
+				id={component.id}
+				nodes={component.nodes}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'displaycomponent'}
+			<AppDisplayComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'downloadcomponent'}
+			<AppDownload
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'drawercomponent'}
+			<AppDrawer
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
+				{render}
+			/>
+		{:else if component.type === 'emailinputcomponent'}
+			<AppTextInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="email"
+				appCssKey="emailinputcomponent"
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'fileinputcomponent'}
+			<AppFileInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onFileChange={component.onFileChange}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 4: flowstatuscomponent - jobidflowstatuscomponent -->
+	{#if chunk4Components.has(component.type)}
+		{#if component.type === 'flowstatuscomponent'}
+			<AppFlowStatusComponent />
+		{:else if component.type === 'formbuttoncomponent'}
+			<AppFormButton
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
+				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
+				{render}
+			/>
+		{:else if component.type === 'formcomponent'}
+			<AppForm
+				id={component.id}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
+				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
+				{render}
+			/>
+		{:else if component.type === 'horizontaldividercomponent'}
+			<AppDivider
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				position="horizontal"
+				{render}
+			/>
+		{:else if component.type === 'horizontalsplitpanescomponent'}
+			<AppSplitpanes
+				id={component.id}
+				customCss={component.customCss}
+				panes={component.panes}
+				{componentContainerHeight}
+				horizontal={true}
+				{render}
+			/>
+		{:else if component.type === 'htmlcomponent'}
+			<AppHtml
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'iconcomponent'}
+			<AppIcon
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'imagecomponent'}
+			<AppImage
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'jobiddisplaycomponent'}
+			<AppDisplayComponentByJobId
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'jobidflowstatuscomponent'}
+			<AppJobIdFlowStatus
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 5: jobidlogcomponent - navbarcomponent -->
+	{#if chunk5Components.has(component.type)}
+		{#if component.type === 'jobidlogcomponent'}
+			<AppJobIdLogComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'listcomponent'}
+			<AppList
+				id={component.id}
+				customCss={component.customCss}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				{render}
+				bind:initializing
+			/>
+		{:else if component.type === 'logcomponent'}
+			<AppLogsComponent />
+		{:else if component.type === 'mapcomponent'}
+			<AppMap
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'mardowncomponent'}
+			<AppMarkdown
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'menucomponent'}
+			<AppMenu
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				menuItems={component.menuItems}
+				{render}
+			/>
+		{:else if component.type === 'modalcomponent'}
+			<AppModal
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
+				{render}
+			/>
+		{:else if component.type === 'multiselectcomponent'}
+			<AppMultiSelect id={component.id} verticalAlignment={component.verticalAlignment} {render} />
+		{:else if component.type === 'multiselectcomponentv2'}
+			<AppMultiSelectV2
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'navbarcomponent'}
+			<AppNavbar
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				navbarItems={component.navbarItems}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 6: numberinputcomponent - resourceselectcomponent -->
+	{#if chunk6Components.has(component.type)}
+		{#if component.type === 'numberinputcomponent'}
+			<AppNumberInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'passwordinputcomponent'}
+			<AppTextInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="password"
+				appCssKey="passwordinputcomponent"
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'pdfcomponent'}
+			<AppPdf
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'piechartcomponent'}
+			<AppPieChart
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'plotlycomponent'}
+			<PlotlyHtml
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'plotlycomponentv2'}
+			<PlotlyHtmlV2
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
+		{:else if component.type === 'quillcomponent'}
+			<AppQuillEditor id={component.id} configuration={component.configuration} {render} />
+		{:else if component.type === 'rangecomponent'}
+			<AppRangeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'recomputeallcomponent'}
+			<AppRecomputeAll
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				horizontalAlignment={component.horizontalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'resourceselectcomponent'}
+			<AppSelect
+				recomputeIds={component.recomputeIds}
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				onSelect={component.onSelect}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 7: s3fileinputcomponent - steppercomponent -->
+	{#if chunk7Components.has(component.type)}
+		{#if component.type === 's3fileinputcomponent'}
+			<AppS3FileInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onFileChange={component.onFileChange}
+				{render}
+			/>
+		{:else if component.type === 'scatterchartcomponent'}
+			<AppScatterChart
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'schemaformcomponent'}
+			<AppSchemaForm
+				id={component.id}
+				componentInput={component.componentInput}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{initializing}
+				{render}
+			/>
+		{:else if component.type === 'selectcomponent'}
+			<AppSelect
+				recomputeIds={component.recomputeIds}
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				onSelect={component.onSelect}
+				{render}
+			/>
+		{:else if component.type === 'selectstepcomponent'}
+			<AppSelectStep
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'selecttabcomponent'}
+			<AppSelectTab
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'slidercomponent'}
+			<AppSliderInputs
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'statcomponent'}
+			<AppStatCard
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'steppercomponent' && component.tabs}
+			<AppStepper
+				id={component.id}
+				tabs={component.tabs}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				componentInput={component.componentInput}
+				onNext={component.onNext}
+				onPrevious={component.onPrevious}
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 8: tablecomponent - verticaldividercomponent -->
+	{#if chunk8Components.has(component.type)}
+		{#if component.type === 'tablecomponent'}
+			{#await import('$lib/components/apps/components/display/table/AppTable.svelte')}
+				<Loader2 />
+			{:then Module}
+				<Module.default
+					configuration={component.configuration}
+					id={component.id}
+					customCss={component.customCss}
+					bind:initializing
+					componentInput={component.componentInput}
+					actionButtons={component.actionButtons}
+					{render}
+				/>
+			{/await}
+		{:else if component.type === 'tabscomponent' && component.tabs}
+			<AppTabs
+				configuration={component.configuration}
+				id={component.id}
+				tabs={component.tabs}
+				disabledTabs={component.disabledTabs}
+				onTabChange={component.onTabChange}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'textareainputcomponent'}
+			<AppTextInput
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				inputType="textarea"
+				appCssKey="textareainputcomponent"
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'textcomponent'}
+			<AppText
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				bind:initializing
+				bind:editorMode={inlineEditorOpened}
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'textinputcomponent'}
+			<AppTextInput
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'timeinputcomponent'}
+			<AppTimeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				onChange={component.onChange}
+				{render}
+			/>
+		{:else if component.type === 'timeseriescomponent'}
+			<AppTimeseries
+				id={component.id}
+				customCss={component.customCss}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'userresourcecomponent'}
+			<AppUserResource
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'vegalitecomponent'}
+			<VegaLiteHtml
+				configuration={component.configuration}
+				id={component.id}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'verticaldividercomponent'}
+			<AppDivider
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				position="vertical"
+				{render}
+			/>
+		{/if}
+	{/if}
+
+	<!-- Chunk 9: verticalsplitpanescomponent -->
+	{#if chunk9Components.has(component.type)}
+		{#if component.type === 'verticalsplitpanescomponent'}
+			<AppSplitpanes
+				id={component.id}
+				customCss={component.customCss}
+				panes={component.panes}
+				{componentContainerHeight}
+				{render}
+			/>
+		{/if}
+	{/if}
+
 	{#snippet failed(error, reset)}
 		<div class="flex flex-col items-center justify-center bg-red-100 p-10 h-full w-full">
 			<h3 class="text-red-500 text-2xl font-bold">Rendering of component failed</h3>

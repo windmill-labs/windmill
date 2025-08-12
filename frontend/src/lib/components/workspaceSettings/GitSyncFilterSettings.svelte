@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
+	import { Filter, Terminal, ChevronDown, ChevronUp, Edit3 } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FilterList from './FilterList.svelte'
 	import { Tabs, Tab } from '$lib/components/common'
@@ -34,7 +34,8 @@
 		extraIncludes = $bindable([] as string[]),
 		isInitialSetup = false,
 		requiresMigration = false,
-		actions = undefined
+		actions = undefined,
+		useIndividualBranch = false
 	} = $props()
 
 	// Component state
@@ -403,6 +404,7 @@
 					>
 						<Terminal size={16} />
 						<span>Update settings with CLI</span>
+						<Edit3 size={14} class="text-tertiary" />
 						{#if showCliInstructions}
 							<ChevronUp size={16} />
 						{:else}
@@ -414,7 +416,7 @@
 						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
 							<div class="text-xs text-tertiary mb-2">
 								These filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
-								To modify them, edit the file in your repository, commit the changes, and sync using these commands:
+								To modify them, edit the file in your repository, commit the changes, and sync using the commands below. Learn more about <a href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml" target="_blank" rel="noopener noreferrer">the wmill.yaml format</a>
 							</div>
 							<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
 # Make sure your repo is up to date
@@ -423,13 +425,24 @@ git pull
 # Edit wmill.yaml file
 vim wmill.yaml
 
-# Push changes to workspace
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}
-
 # Commit changes
 git add wmill.yaml
 git commit
-git push</pre>
+git push
+
+# Push changes to workspace or click the pull settings button above{#if useIndividualBranch}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre>
+							{#if useIndividualBranch}
+								<div class="text-xs text-tertiary mt-3">
+									<div class="font-medium mb-1">Promotion Mode Configuration:</div>
+									<div>You can add promotion-specific overrides in your <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file:</div>
+									<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto">git_branches:
+  main:
+    promotionOverrides:
+      # Add your promotion-specific settings here</pre>
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</div>

@@ -307,17 +307,33 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $friends_csv (s3object)
--- $name (text) = Ben
+const DUCKDB_INIT_CODE = `-- $name (text) = Ben
+-- $age (text) = 20
+-- -- $friends_csv (s3object)
 
-ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
-CREATE TABLE IF NOT EXISTS db.public.friends (name text);
+-- Click the +Database button to connect to a database
+-- https://www.windmill.dev/docs/getting_started/scripts_quickstart/sql#duckdb-1
+--
+-- ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+-- SELECT * FROM db.public.friends;
 
-INSERT INTO db.public.friends
-  SELECT name FROM read_csv($friends_csv);
+-- Click the +Ducklake button to use a ducklake
+-- https://www.windmill.dev/docs/core_concepts/ducklake
+--
+-- ATTACH 'ducklake' AS dl;
+-- USE dl;
+-- SELECT * FROM customers;
 
-SELECT 'Hello ' || $name || ', you have ' || 
-  (SELECT COUNT(*) FROM read_csv($friends_csv)) || ' new friends !';
+CREATE TABLE friends (
+  name text,
+  age int
+);
+
+INSERT INTO friends VALUES ($name, $age);
+-- INSERT INTO friends
+--   SELECT name, age FROM read_csv($friends_csv);
+
+SELECT * FROM friends;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -752,6 +768,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       delivery_type: "push" | "pull";
       headers?: Record<string, string>;
       publish_time?: string;
+      ack_id?: string;
     }
     | {
       kind: "postgres";
@@ -918,6 +935,7 @@ class GcpEvent(TypedDict):
     delivery_type: Literal["push", "pull"]
     headers: Optional[dict[str, str]]
     publish_time: Optional[str]
+    ack_id: Optional[str]
 
 
 class PostgresEvent(TypedDict):

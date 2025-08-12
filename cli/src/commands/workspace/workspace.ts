@@ -298,42 +298,6 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
     }
   }
 
-  // Check 2: Same (remote, workspaceId) tuple already exists under different name
-  const tupleConflict = existingWorkspaces.find(w =>
-    w.remote === workspace.remote &&
-    w.workspaceId === workspace.workspaceId &&
-    w.name !== workspace.name
-  );
-
-  if (tupleConflict) {
-    log.info(colors.red.bold(`❌ Workspace ${workspace.workspaceId} on ${workspace.remote} already exists!`));
-    log.info(`   Existing name: "${tupleConflict.name}"`);
-    log.info(`   New name:      "${workspace.name}"`);
-    log.info(colors.yellow(`\nNote: Backend constraint prevents duplicate (remote, workspaceId) combinations.`));
-
-    if (!isInteractive) {
-      // In non-interactive mode (tests, scripts), auto-overwrite with force flag
-      if (opts.force) {
-        log.info(colors.yellow(`Force flag enabled, overwriting existing workspace "${tupleConflict.name}".`));
-      } else {
-        throw new Error(`Backend constraint violation: (${workspace.remote}, ${workspace.workspaceId}) already exists as "${tupleConflict.name}". Use --force to overwrite.`);
-      }
-    } else {
-      const overwrite = await Confirm.prompt({
-        message: `Do you want to overwrite the existing workspace "${tupleConflict.name}"?`,
-        default: false,
-      });
-
-      if (!overwrite) {
-        log.info(colors.yellow("Operation cancelled."));
-        return;
-      }
-    }
-
-    // Remove the conflicting workspace
-    await removeWorkspace(tupleConflict.name, true, opts);
-  }
-
   // Remove existing workspace with same name (if updating)
   await removeWorkspace(workspace.name, true, opts);
 
@@ -395,7 +359,74 @@ async function whoami(_opts: GlobalOptions) {
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }
 
+async function bind(
+  opts: GlobalOptions & { branch?: string },
+  bindWorkspace?: boolean
+) {
+  const { isGitRepository, getCurrentGitBranch } = await import("../../utils/git.ts");
+
+  if (!isGitRepository()) {
+    log.error(colors.red("Not in a Git repository"));
+    return;
+  }
+
+  const branch = opts.branch || getCurrentGitBranch();
+  if (!branch) {
+    log.error(colors.red("Could not determine current Git branch"));
+    return;
+  }
+
+  const { readConfigFile } = await import("../../core/conf.ts");
+  const config = await readConfigFile();
+
+  const activeWorkspace = await getActiveWorkspace(opts);
+  if (!activeWorkspace && bindWorkspace) {
+    log.error(colors.red("No active workspace. Use 'wmill workspace add' or 'wmill workspace switch' first"));
+    return;
+  }
+
+  // For unbind, check if branch exists
+  if (!bindWorkspace && (!config.git_branches || !config.git_branches[branch])) {
+    log.error(colors.red(`Branch '${branch}' not found in wmill.yaml git_branches`));
+    return;
+  }
+
+  // Update the branch configuration with workspace binding
+  if (!config.git_branches) {
+    config.git_branches = {};
+  }
+  if (!config.git_branches[branch]) {
+    config.git_branches[branch] = { overrides: {} };
+  }
+
+  if (bindWorkspace && activeWorkspace) {
+    config.git_branches[branch].baseUrl = activeWorkspace.remote;
+    config.git_branches[branch].workspaceId = activeWorkspace.workspaceId;
+
+    log.info(colors.green(
+      `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
+      `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+    ));
+  } else {
+    // Unbind
+    delete config.git_branches[branch].baseUrl;
+    delete config.git_branches[branch].workspaceId;
+
+    log.info(colors.green(`✓ Removed workspace binding from branch '${branch}'`));
+  }
+
+  // Write back the updated config
+  const { yamlStringify } = await import("../../../deps.ts");
+  try {
+    await Deno.writeTextFile("wmill.yaml", yamlStringify(config));
+  } catch (error) {
+    log.error(colors.red(`Failed to save configuration: ${error.message}`));
+    return;
+  }
+}
+
 const command = new Command()
+  .alias("profile")
   .description("workspace related commands")
   .action(list as any)
   .command("switch")
@@ -425,6 +456,14 @@ const command = new Command()
   .action(remove as any)
   .command("whoami")
   .description("Show the currently active user")
-  .action(whoami as any);
+  .action(whoami as any)
+  .command("bind")
+  .description("Bind the current Git branch to the active workspace")
+  .option("--branch <branch:string>", "Specify branch (defaults to current)")
+  .action((opts) => bind(opts as any, true))
+  .command("unbind")
+  .description("Remove workspace binding from the current Git branch")
+  .option("--branch <branch:string>", "Specify branch (defaults to current)")
+  .action((opts) => bind(opts as any, false));
 
 export default command;
