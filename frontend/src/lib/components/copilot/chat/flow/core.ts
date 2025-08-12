@@ -1,4 +1,4 @@
-import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
+import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -538,10 +538,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: testRunFlowToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-			// Import required services
-			const { JobService } = await import('$lib/gen')
 			
-			// Get current flow context
 			const { flow } = helpers.getFlowAndSelectedId()
 			
 			if (!flow || !flow.value) {
@@ -552,14 +549,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
 			}
 
-			// Parse arguments or use empty object as default
 			const parsedArgs = testRunFlowSchema.parse(args)
 			const flowArgs = parsedArgs.args || {}
 			
 			try {
 				toolCallbacks.setToolStatus(toolId, { content: 'Starting flow test run...' })
 				
-				// Execute flow preview using the same API as the flow editor
 				const jobId = await JobService.runFlowPreview({
 					workspace: workspace,
 					requestBody: {
@@ -571,13 +566,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				
 				toolCallbacks.setToolStatus(toolId, { content: 'Flow test started, waiting for completion...' })
 				
-				// Wait for flow completion and get result
 				let attempts = 0
-				const maxAttempts = 120 // Wait up to 2 minutes for flows (they can take longer than scripts)
+				const maxAttempts = 60
 				let job: any = null
 				
 				while (attempts < maxAttempts) {
-					await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds between checks
+					await new Promise(resolve => setTimeout(resolve, 1000))
 					attempts++
 					
 					try {
