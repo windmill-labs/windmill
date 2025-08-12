@@ -5,6 +5,8 @@ use windmill_common::error::JsonResult;
 
 use crate::db::DB;
 
+pub mod routes;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TriggerPrimarySchedule {
     schedule: String,

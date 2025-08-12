@@ -4,7 +4,7 @@ use sqlx::{FromRow, PgExecutor};
 use crate::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{base::TriggerErrorHandling, query::StandardTriggerQuery},
+    triggers::{query::StandardTriggerQuery, CreateTrigger, EditTrigger},
 };
 
 #[async_trait::async_trait]
@@ -17,13 +17,16 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + Sync
         + Unpin;
 
-    type NewTrigger: DeserializeOwned + Send + Sync;
-
-    type EditTrigger: DeserializeOwned + Send + Sync;
+    type TriggerConfig: DeserializeOwned + Serialize + Send + Sync + Clone;
+    type EditTriggerConfig: DeserializeOwned + Serialize + Send + Sync + Clone;
+    type NewTriggerConfig: DeserializeOwned + Serialize + Send + Sync + Clone;
+    type TestConnectionConfig: DeserializeOwned + Serialize + Send + Sync;
 
     const TABLE_NAME: &'static str;
 
     const TRIGGER_TYPE: &'static str;
+
+    const SCOPE_NAME: &'static str = Self::TRIGGER_TYPE;
 
     const TRIGGER_KIND: JobTriggerKind;
 
@@ -31,15 +34,13 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     const SUPPORTS_SERVER_STATE: bool = true;
 
-    fn extract_error_handling(&self, trigger: &Self::Trigger) -> Result<TriggerErrorHandling> {
-        Ok(TriggerErrorHandling::default())
-    }
+    const SUPPORTS_TEST_CONNECTION: bool = false;
 
-    async fn validate_new(
-        &self,
-        _workspace_id: &str,
-        _new_trigger: &Self::NewTrigger,
-    ) -> Result<()> {
+    const ROUTE_PREFIX: &'static str;
+
+    const DEPLOYMENT_NAME: &'static str;
+
+    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
         Ok(())
     }
 
@@ -47,7 +48,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         &self,
         _workspace_id: &str,
         _path: &str,
-        _edit: &Self::EditTrigger,
+        _edit: &Self::EditTriggerConfig,
     ) -> Result<()> {
         Ok(())
     }
@@ -56,25 +57,28 @@ pub trait TriggerCrud: Send + Sync + 'static {
         vec![]
     }
 
-    async fn test_connection(
+    /*async fn test_connection(
         &self,
+        _db: &DB,
+        _authed: &ApiAuthed,
+        _user_db: &UserDB,
         _workspace_id: &str,
-        _config: serde_json::Value,
+        _config: &Self::TestConnectionConfig,
     ) -> Result<serde_json::Value> {
         Err(
             anyhow::anyhow!("Test connection not supported for this trigger type".to_string(),)
                 .into(),
         )
-    }
+    }*/
 
     fn get_scope(&self, operation: &str, path: &str) -> String {
         format!("triggers.{}.{}:{}", operation, Self::TRIGGER_TYPE, path)
     }
 
-    async fn insert_trigger<'e, E: PgExecutor<'e>>(
+    async fn create_trigger<'e, E: PgExecutor<'e>>(
         &self,
         executor: E,
-        trigger: &Self::Trigger,
+        trigger: &CreateTrigger<Self::NewTriggerConfig>,
     ) -> Result<()>;
 
     async fn update_trigger<'e, E: PgExecutor<'e>>(
@@ -82,8 +86,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
         executor: E,
         workspace_id: &str,
         path: &str,
-        trigger: &Self::Trigger,
+        trigger: &EditTrigger<Self::EditTriggerConfig>,
     ) -> Result<()>;
+
+    fn additional_routes(&self) -> axum::Router {
+        axum::Router::new()
+    }
 
     async fn get_trigger_by_path<'e, E: PgExecutor<'e>>(
         &self,
@@ -123,7 +131,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .ok_or_else(|| Error::NotFound(format!("Trigger not found at path: {}", path)))
     }
 
-    fn validate_trigger(trigger: &Self::Trigger) -> Result<()> {
+    fn validate_trigger(_trigger: &Self::Trigger) -> Result<()> {
         Ok(())
     }
 
