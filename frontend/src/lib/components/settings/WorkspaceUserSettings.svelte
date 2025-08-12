@@ -16,7 +16,7 @@
 	import { UserService, WorkspaceService, GroupService, type WorkspaceInvite } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus, X } from 'lucide-svelte'
+	import { Loader2, Mails, Search, Plus } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -72,12 +72,6 @@
 		hasInstanceGroupUsers = userList.some(user => user.added_via?.source === 'instance_group')
 	})
 
-	// Role options for dropdown
-	const roleItems = [
-		{ value: 'developer', label: 'Developer' },
-		{ value: 'operator', label: 'Operator' },
-		{ value: 'admin', label: 'Admin' }
-	]
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
