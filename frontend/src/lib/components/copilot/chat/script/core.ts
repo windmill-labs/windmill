@@ -13,7 +13,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool, executeTestRun, formatScriptResult } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 
@@ -898,7 +898,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			workspace,
 			toolCallbacks,
 			toolId,
-			resultFormatter: formatScriptResult,
 			startMessage: 'Running test...',
 			contextName: 'script'
 		})

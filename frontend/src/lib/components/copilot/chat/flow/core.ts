@@ -12,7 +12,7 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, formatFlowResult } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -563,7 +563,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				workspace,
 				toolCallbacks,
 				toolId,
-				resultFormatter: formatFlowResult,
 				startMessage: 'Starting flow test run...',
 				contextName: 'flow'
 			})

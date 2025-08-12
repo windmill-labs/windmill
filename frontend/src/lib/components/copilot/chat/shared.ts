@@ -10,7 +10,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
-import { ScriptService, JobService } from '$lib/gen'
+import { ScriptService, JobService, type CompletedJob } from '$lib/gen'
 
 type BaseDisplayMessage = {
 	content: string
@@ -250,22 +250,15 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
-// Common types and interfaces for test run functionality
-export interface JobResult {
-	success: boolean
-	duration_ms?: number
-	logs?: string
-	result?: unknown
-	flow_status?: Record<string, unknown>
-	type: string
-}
+// Constants for result formatting
+const MAX_RESULT_LENGTH = 12000
+const MAX_LOG_LENGTH = 4000
 
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
 	workspace: string
 	toolCallbacks: ToolCallbacks
 	toolId: string
-	resultFormatter?: (job: JobResult) => string
 	startMessage?: string
 	contextName: 'script' | 'flow'
 }
@@ -276,10 +269,10 @@ export async function pollJobCompletion(
 	workspace: string, 
 	toolId: string, 
 	toolCallbacks: ToolCallbacks
-): Promise<JobResult> {
+): Promise<CompletedJob> {
 	let attempts = 0
 	const maxAttempts = 60
-	let job: JobResult | null = null
+	let job: CompletedJob | null = null
 	
 	while (attempts < maxAttempts) {
 		await new Promise(resolve => setTimeout(resolve, 1000))
@@ -294,7 +287,7 @@ export async function pollJobCompletion(
 			})
 			
 			if (fetchedJob.type === 'CompletedJob') {
-				job = fetchedJob as JobResult
+				job = fetchedJob
 				break
 			}
 		} catch (error) {
@@ -320,7 +313,11 @@ function getErrorMessage(result: unknown): string {
 	if (typeof result === 'object' && result !== null && 'error' in result) {
 		const error = (result as Record<string, unknown>).error
 		if (typeof error === 'object' && error !== null && 'message' in error) {
-			return (error as Record<string, unknown>).message as string
+			const message = (error as Record<string, unknown>).message as string
+			if ('stack' in error) {
+				return message + '\n' + (error as Record<string, unknown>).stack as string
+			}
+			return message
 		}
 		if (typeof error === 'string') {
 			return error
@@ -330,30 +327,6 @@ function getErrorMessage(result: unknown): string {
 		return result
 	}
 	return 'Unknown error'
-}
-
-// Basic result formatter for simple cases
-function formatBasicResult(job: JobResult, contextName: string): string {
-	const success = job.success
-	const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
-	const logs = job.logs || 'No logs available'
-	
-	let resultSummary = `${contextName} test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-	
-	if (success) {
-		resultSummary += 'RESULT:\n'
-		resultSummary += typeof job.result === 'string' ? job.result : JSON.stringify(job.result, null, 2)
-	} else {
-		resultSummary += 'ERROR:\n'
-		const errorMsg = getErrorMessage(job.result)
-		resultSummary += errorMsg
-	}
-	
-	if (logs && logs.trim()) {
-		resultSummary += '\n\nLOGS:\n' + logs
-	}
-	
-	return resultSummary.slice(0, 10000)
 }
 
 // Main execution function for test runs
@@ -371,15 +344,13 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		
 		const job = await pollJobCompletion(jobId, config.workspace, config.toolId, config.toolCallbacks)
 		
-		const resultSummary = config.resultFormatter 
-			? config.resultFormatter(job)
-			: formatBasicResult(job, config.contextName)
+		let resultSummary = formatResult(job)
+		resultSummary = resultSummary.slice(0, MAX_RESULT_LENGTH)
 		
-		const jobErrorMessage = job.success ? undefined : getErrorMessage(job.result)
 		config.toolCallbacks.setToolStatus(config.toolId, { 
 			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: resultSummary,
-			...(job.success ? {} : { error: jobErrorMessage })
+			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 		
 		return resultSummary
@@ -395,76 +366,38 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 }
 
 // Specialized result formatter for script tests
-export function formatScriptResult(job: JobResult): string {
+export function formatResult(job: CompletedJob): string {
 	const success = job.success
 	const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
 	const logs = job.logs || 'No logs available'
 	
 	let resultSummary = `Test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-	
-	if (success) {
-		resultSummary += 'RESULT:\n'
-		resultSummary += typeof job.result === 'string' ? job.result : JSON.stringify(job.result, null, 2)
-	} else {
-		resultSummary += 'ERROR:\n'
-		const errorMsg = getErrorMessage(job.result)
-		resultSummary += errorMsg
-	}
-	
-	if (logs && logs.trim()) {
-		resultSummary += '\n\nLOGS:\n' + logs
-	}
 
-	// Limit the result to 10000 characters to avoid bloating the context window
-	return resultSummary.slice(0, 10000)
-}
-
-// Specialized result formatter for flow tests
-export function formatFlowResult(job: JobResult): string {
-	const success = job.success
-	const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
-	const logs = job.logs || 'No logs available'
-	const result = job.result
-	const flowStatus = job.flow_status
-	
-	let resultSummary = `Flow test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-	
 	// Add step-by-step breakdown if available
+	const flowStatus = job.flow_status
 	if (flowStatus && flowStatus.modules) {
 		resultSummary += 'STEP RESULTS:\n'
 		for (const [stepId, stepInfo] of Object.entries(flowStatus.modules)) {
 			const stepStatus = stepInfo as Record<string, unknown>
 			if (stepStatus) {
 				const stepSuccess = stepStatus.type === 'Success'
-				const stepDuration = stepStatus.duration_ms ? `${stepStatus.duration_ms}ms` : 'unknown'
-				resultSummary += `- ${stepId}: ${stepSuccess ? 'SUCCESS' : 'FAILED'} (${stepDuration})\n`
-				
-				if (!stepSuccess && stepStatus.result) {
-					const errorMsg = getErrorMessage(stepStatus.result)
-					resultSummary += `  Error: ${errorMsg}\n`
-				}
+				resultSummary += `- ${stepId}: ${stepSuccess ? 'SUCCESS' : 'FAILED'}\n`
 			}
 		}
 		resultSummary += '\n'
 	}
 	
-	// Add final result
-	if (success) {
-		resultSummary += 'FINAL RESULT:\n'
-		resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-	} else {
-		resultSummary += 'FLOW ERROR:\n'
-		const errorMsg = getErrorMessage(result)
-		resultSummary += errorMsg
-	}
+	resultSummary += success ? 'RESULT:\n' : 'ERROR:\n'
+	resultSummary += typeof job.result === 'string' ? job.result : JSON.stringify(job.result, null, 2)
 	
-	// Add logs if available and not too long
-	if (logs && logs.trim() && logs.length < 5000) {
-		resultSummary += '\n\nLOGS:\n' + logs
-	} else if (logs && logs.trim()) {
-		resultSummary += '\n\nLOGS (truncated):\n' + logs.slice(0, 5000) + '...'
+	// Add logs with length limiting
+	if (logs && logs.trim()) {
+		if (logs.length <= MAX_LOG_LENGTH) {
+			resultSummary += '\n\nLOGS:\n' + logs
+		} else {
+			resultSummary += '\n\nLOGS (truncated):\n' + logs.slice(0, MAX_LOG_LENGTH) + '...'
+		}
 	}
 
-	// Limit the total result to avoid bloating context window
-	return resultSummary.slice(0, 15000)
+	return resultSummary
 }
