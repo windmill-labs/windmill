@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.524.0](https://github.com/windmill-labs/windmill/compare/v1.523.0...v1.524.0) (2025-08-12)
+
+
+### Features
+
+* **mcp:** allow filtering by folder ([#6366](https://github.com/windmill-labs/windmill/issues/6366)) ([8ec4d61](https://github.com/windmill-labs/windmill/commit/8ec4d615d251a0a2ed26f3b1907d6f813d91f43c))
+
+
+### Bug Fixes
+
+* **app:** improve copy paste of tables with sub-components ([0dc8425](https://github.com/windmill-labs/windmill/commit/0dc84254fc152df82ffbd137f80ed01225c00043))
+* fix preprocessor usage in python ([85a9c91](https://github.com/windmill-labs/windmill/commit/85a9c91895d0460e5e7d2d9ff0e53d05e2354386))
+* fix v1.523.0 rust sdk build ([#6363](https://github.com/windmill-labs/windmill/issues/6363)) ([0893ce1](https://github.com/windmill-labs/windmill/commit/0893ce103ffcfbcb037c9e2ab851e480b61b3735))
+
 ## [1.523.0](https://github.com/windmill-labs/windmill/compare/v1.522.1...v1.523.0) (2025-08-11)
 
 
