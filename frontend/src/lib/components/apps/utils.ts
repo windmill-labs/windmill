@@ -37,6 +37,33 @@ export function migrateApp(app: App) {
 	})
 }
 
+export function processSubcomponents(data: AppComponent, fn: (data: AppComponent) => void) {
+	if (data.type == 'tablecomponent' && Array.isArray(data.actionButtons)) {
+		for (let c of data.actionButtons) {
+			fn(c)
+		}
+	}
+
+	if (
+		(data.type == 'aggridcomponent' ||
+			data.type == 'aggridcomponentee' ||
+			data.type == 'dbexplorercomponent' ||
+			data.type == 'aggridinfinitecomponent' ||
+			data.type == 'aggridinfinitecomponentee') &&
+		Array.isArray(data.actions)
+	) {
+		for (let c of data.actions ?? []) {
+			fn(c)
+		}
+	}
+
+	if (data.type === 'menucomponent' && Array.isArray(data.menuItems)) {
+		for (let c of data.menuItems) {
+			fn(c)
+		}
+	}
+}
+
 export function allItems(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined

@@ -19,7 +19,7 @@ import {
 	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
-import { allItems } from '../utils'
+import { allItems, processSubcomponents } from '../utils'
 import type { Output, World } from '../rx'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
@@ -630,45 +630,11 @@ export function copyComponent(
 	const newItem = insertNewGridItem(
 		app,
 		(id) => {
-			if (item.data.type === 'tablecomponent') {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						item.data.actionButtons.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (
-				item.data.type === 'aggridcomponent' ||
-				item.data.type === 'aggridcomponentee' ||
-				item.data.type === 'dbexplorercomponent' ||
-				item.data.type === 'aggridinfinitecomponent' ||
-				item.data.type === 'aggridinfinitecomponentee'
-			) {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						(item.data.actions ?? []).map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (item.data.type === 'menucomponent') {
-				return {
-					...item.data,
-					id,
-					menuItems:
-						item.data.menuItems.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else {
-				return { ...item.data, id }
-			}
+			let newComponent = { ...item.data, id }
+			processSubcomponents(newComponent, (c) => {
+				c.id = c.id.replace(item.id + '_', id + '_')
+			})
+			return newComponent
 		},
 		parentGrid,
 		Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
@@ -695,23 +661,9 @@ export function getAllSubgridsAndComponentIds(
 ): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
-	if (component.type === 'tablecomponent') {
-		components.push(...component.actionButtons?.map((x) => x.id))
-	}
-
-	if (
-		component.type === 'aggridcomponent' ||
-		component.type === 'aggridcomponentee' ||
-		component.type === 'dbexplorercomponent' ||
-		component.type === 'aggridinfinitecomponent' ||
-		component.type === 'aggridinfinitecomponentee'
-	) {
-		components.push(...(component.actions?.map((x) => x.id) ?? []))
-	}
-
-	if (component.type === 'menucomponent') {
-		components.push(...component.menuItems?.map((x) => x.id))
-	}
+	processSubcomponents(component, (c) => {
+		components.push(c.id)
+	})
 
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
@@ -734,21 +686,11 @@ export function getAllGridItems(app: App): GridItem[] {
 	return app.grid
 		.concat(Object.values(app.subgrids ?? {}).flat())
 		.map((x) => {
-			if (x?.data?.type === 'tablecomponent') {
-				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (
-				(x?.data?.type === 'aggridcomponent' ||
-					x?.data?.type === 'aggridcomponentee' ||
-					x?.data?.type === 'dbexplorercomponent' ||
-					x?.data?.type === 'aggridinfinitecomponent' ||
-					x?.data?.type === 'aggridinfinitecomponentee') &&
-				Array.isArray(x?.data?.actions)
-			) {
-				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'menucomponent') {
-				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
-			}
-			return [x]
+			let r: GridItem[] = []
+			processSubcomponents(x.data, (c) => {
+				r.push({ data: c, id: c.id })
+			})
+			return [x, ...r]
 		})
 		.flat()
 }

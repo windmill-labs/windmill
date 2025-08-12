@@ -12,6 +12,7 @@ import { sendUserToast } from '$lib/toast'
 import { gridColumns } from '../../gridUtils'
 import { copyToClipboard } from '$lib/utils'
 import { get } from 'svelte/store'
+import { processSubcomponents } from '../../utils'
 
 // const { app, selectedComponent, focusedGrid, componentControl } =
 // 	getContext<AppViewerContext>('AppViewerContext')
@@ -334,7 +335,13 @@ export async function handlePaste(
 			const gridItem = tempGridItem
 			insertNewGridItem(
 				app,
-				(id) => ({ ...gridItem.data, id }),
+				(id) => {
+					let newComponent = { ...gridItem.data, id }
+					processSubcomponents(newComponent, (c) => {
+						c.id = c.id.replace(tempGridItem.id + '_', id + '_')
+					})
+					return newComponent
+				},
 				focusedGrid,
 				Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 				tempGridItem.id
