@@ -81,7 +81,7 @@
 		"@codingame/monaco-vscode-configuration-service-override": "~19.1.4",
 		"@codingame/monaco-vscode-editor-api": "~19.1.4",
 		"@codingame/monaco-vscode-standalone-css-language-features": "~19.1.4",
-		"@codingame/monaco-vscode-standalone-html-language-features": "^19.1.4",
+		"@codingame/monaco-vscode-standalone-html-language-features": "~19.1.4",
 		"@codingame/monaco-vscode-standalone-json-language-features": "~19.1.4",
 		"@codingame/monaco-vscode-standalone-languages": "~19.1.4",
 		"@codingame/monaco-vscode-standalone-typescript-language-features": "~19.1.4",
