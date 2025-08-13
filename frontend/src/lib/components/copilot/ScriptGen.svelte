@@ -28,7 +28,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
-	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
 	interface Props {
 		// props
@@ -289,12 +288,6 @@
 		;(dbSchema as any).publicOnly = detail === 'true'
 	}
 
-	const aiChatScriptModeClasses = $derived(
-		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
-			? 'dark:bg-violet-900 bg-violet-100'
-			: ''
-	)
-
 	onDestroy(() => {
 		abortController?.abort()
 	})
@@ -372,7 +365,7 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
 					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
@@ -387,8 +380,7 @@
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400',
-						aiChatScriptModeClasses
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
