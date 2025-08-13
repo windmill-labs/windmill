@@ -30,6 +30,7 @@ export type ToolDisplayMessage = {
 	content: string
 	parameters?: any
 	result?: any
+	logs?: string
 	isLoading?: boolean
 	error?: string
 	needsConfirmation?: boolean
@@ -374,16 +375,14 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		
 		const job = await pollJobCompletion(jobId, config.workspace, config.toolId, config.toolCallbacks)
 		
-		let resultSummary = formatResult(job)
-		resultSummary = resultSummary.slice(0, MAX_RESULT_LENGTH)
-		
 		config.toolCallbacks.setToolStatus(config.toolId, { 
 			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
-			result: resultSummary,
+			result: formatResult(job.result),
+			logs: formatLogs(job.logs),
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 		
-		return resultSummary
+		return formatResultSummary(job.result, job.logs, job.success)
 		
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -395,46 +394,29 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	}
 }
 
-// Helper function to format the result of a test run
-export function formatResult(job: CompletedJob): string {
-	const success = job.success
-	const duration = job.duration_ms ? `${job.duration_ms}ms` : 'unknown'
-	const logs = job.logs || 'No logs available'
-	
-	let resultSummary = `Test ${success ? 'PASSED' : 'FAILED'} (Duration: ${duration})\n\n`
-
-	// Add step-by-step breakdown if available
-	const flowStatus = job.flow_status
-	if (flowStatus && flowStatus.modules) {
-		resultSummary += 'STEP RESULTS:\n'
-		for (const [stepId, stepInfo] of Object.entries(flowStatus.modules)) {
-			const stepStatus = stepInfo as Record<string, unknown>
-			if (stepStatus) {
-				const stepSuccess = stepStatus.type === 'Success'
-				resultSummary += `- ${stepId}: ${stepSuccess ? 'SUCCESS' : 'FAILED'}\n`
-			}
-		}
-		resultSummary += '\n'
-	}
-	
-	// Add final result
-	const result = job.result
-	if (success) {
-		resultSummary += 'RESULT:\n'
-		resultSummary += typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-	} else {
-		resultSummary += 'ERROR:\n'
-		resultSummary += getErrorMessage(result)
-	}
-
-	// Add logs with length limiting
+function formatLogs(logs: string | undefined): undefined | string {
 	if (logs && logs.trim()) {
 		if (logs.length <= MAX_LOG_LENGTH) {
-			resultSummary += '\n\nLOGS:\n' + logs
+			return logs
 		} else {
-			resultSummary += '\n\nLOGS (truncated):\n' + logs.slice(0, MAX_LOG_LENGTH) + '...'
+			return logs.slice(-MAX_LOG_LENGTH)
 		}
 	}
+	return undefined
+}
 
+function formatResult(result: unknown): string {
+	if (typeof result === 'string') {
+		return result
+	}
+	return JSON.stringify(result, null, 2)
+}
+
+function formatResultSummary(result: unknown, logs: string | undefined, success: boolean): string {
+	let resultSummary = ''
+	resultSummary += `Result (${success ? 'SUCCESS' : 'FAILED'})\n\n`
+	resultSummary += formatResult(result).slice(0, MAX_RESULT_LENGTH)
+	resultSummary += '\n\nLogs:\n\n'
+	resultSummary += formatLogs(logs) ?? 'No logs available'
 	return resultSummary
 }
