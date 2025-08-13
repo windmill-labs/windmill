@@ -640,8 +640,11 @@
 			size={10}
 			class={twMerge(colorClass, status === 'InProgress' ? 'animate-pulse' : '', 'flex-shrink-0')}
 		/>
-		{#if hasErrors}
-			<span class="text-red-500 -ml-0.5 -mr-1.5" title="A subflow or a step has failed">!</span>
+		{#if hasErrors && status !== 'Failure'}
+			<span
+				class="text-red-500 -ml-0.5 -mr-1.5"
+				title="A subflow or a step has failed but failure was skipped">!</span
+			>
 		{/if}
 	</div>
 {/snippet}
@@ -664,7 +667,7 @@
 		{:else}
 			<Code strokeWidth={2.5} size={10} class={classes} />
 		{/if}
-		{#if hasErrors}
+		{#if hasErrors && status !== 'Failure'}
 			<span class="text-red-500 -ml-0.5 -mr-1.5" title="A subflow or a step has failed">!</span>
 		{/if}
 	</div>
