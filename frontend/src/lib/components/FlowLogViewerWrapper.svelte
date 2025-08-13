@@ -5,6 +5,7 @@
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import { graphBuilder, type NodeLayout } from './graph/graphBuilder.svelte'
 	import type { FlowLogEntry } from './FlowLogUtils'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		job: Job
@@ -46,10 +47,11 @@
 		hideJobStatus: () => {}
 	}
 
+	let modules = $derived(job.raw_flow?.modules ?? [])
+
 	let nodes: NodeLayout[] | undefined = $derived.by(() => {
-		console.log('dbg building graph')
 		const graph = graphBuilder(
-			job.raw_flow?.modules ?? [],
+			untrack(() => modules),
 			{
 				disableAi: false,
 				insertable: false,
@@ -57,19 +59,19 @@
 				selectedId: undefined,
 				path: undefined,
 				newFlow: false,
-				cache: job.raw_flow?.cache_ttl !== undefined,
-				earlyStop: job.raw_flow?.skip_expr !== undefined,
+				cache: false,
+				earlyStop: false,
 				editMode: false,
 				isOwner: false,
-				isRunning: job.type === 'QueuedJob',
+				isRunning: false,
 				individualStepTests: false,
-				flowJob: job,
+				flowJob: undefined,
 				showJobStatus: false,
 				suspendStatus: writable({}),
 				flowHasChanged: false
 			},
-			job.raw_flow?.failure_module,
-			job.raw_flow?.preprocessor_module,
+			untrack(() => job.raw_flow?.failure_module),
+			untrack(() => job.raw_flow?.preprocessor_module),
 			emptyEventHandler, // eventHandler - empty for logs view
 			undefined,
 			false, // useDataflow
