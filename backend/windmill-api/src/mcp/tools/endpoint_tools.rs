@@ -48,20 +48,37 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
 
     let description = format!("{}. {}", tool.description, tool.instructions);
     
+    // Create annotations based on HTTP method and endpoint characteristics
+    let annotations = create_endpoint_annotations(tool);
+
     Tool {
         name: tool.name.clone(),
         description: Some(description.into()),
         input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
-        annotations: Some(rmcp::model::ToolAnnotations {
-            title: Some(format!("{} {}", 
-                tool.method, 
-                tool.path
-            )),
-            read_only_hint: None,
-            destructive_hint: None,
-            idempotent_hint: None,
-            open_world_hint: None,
-        }),
+        annotations: Some(annotations),
+    }
+}
+
+/// Create appropriate annotations for endpoint tools based on HTTP method
+fn create_endpoint_annotations(tool: &EndpointTool) -> rmcp::model::ToolAnnotations {
+    let method = tool.method.as_ref();
+    
+    // Determine characteristics based on HTTP method
+    let (read_only, destructive, idempotent, open_world) = match method {
+        "GET" => (true, false, true, true),      // Read-only, safe, idempotent
+        "POST" => (false, true, false, true),    // Can modify, potentially destructive, not idempotent
+        "PUT" => (false, false, true, true),     // Can modify, typically idempotent updates
+        "DELETE" => (false, true, true, true),   // Destructive but idempotent
+        "PATCH" => (false, false, false, true), // Partial updates, not guaranteed idempotent
+        _ => (false, true, false, true),         // Default: assume can modify and be destructive
+    };
+
+    rmcp::model::ToolAnnotations {
+        title: Some(format!("{} {}", method, tool.path)),
+        read_only_hint: Some(read_only),
+        destructive_hint: Some(destructive),
+        idempotent_hint: Some(idempotent),
+        open_world_hint: Some(open_world),
     }
 }
 

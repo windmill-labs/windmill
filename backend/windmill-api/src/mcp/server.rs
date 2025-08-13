@@ -115,11 +115,18 @@ impl Runner {
                 serde_json::Map::new()
             }
         };
+
         Ok(Tool {
             name: Cow::Owned(path),
             description: Some(Cow::Owned(description)),
             input_schema: Arc::new(input_schema_map),
-            annotations: None,
+            annotations: Some(ToolAnnotations {
+                title: Some(item.get_summary().to_string()),
+                read_only_hint: Some(false), // Can modify environment
+                destructive_hint: Some(true), // Can potentially be destructive
+                idempotent_hint: Some(false), // Are not guaranteed to be idempotent
+                open_world_hint: Some(true), // Can interact with external services
+            }),
         })
     }
 }
