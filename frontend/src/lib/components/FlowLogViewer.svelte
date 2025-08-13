@@ -222,7 +222,7 @@
 	{/if}
 	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
 		<!-- Flow entry -->
-		<li class="border-b border-gray-200 dark:border-gray-700 flex">
+		<li class="border-b flex flex-row">
 			<div class="py-2 leading-tight align-top">
 				{#if level > 0}
 					<button
@@ -240,7 +240,7 @@
 					<div class="w-4"></div>
 				{/if}
 			</div>
-			<div class="w-full leading-tight">
+			<div class="grow min-w-0 leading-tigh">
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
@@ -280,30 +280,27 @@
 				</div>
 
 				{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
-					<div class="mb-2 transition-all duration-200 ease-in-out">
+					<div class="mb-2 transition-all duration-200 ease-in-out w-full">
 						<!-- Flow logs -->
 						{#if flowInfo.logs}
-							<div class="mb-2 pr-2">
-								<LogViewer
-									content={flowInfo.logs}
-									jobId={flowInfo.jobId}
-									isLoading={false}
-									small={true}
-									download={false}
-									noAutoScroll={true}
-									tag={undefined}
-									noPadding
-								/>
-							</div>
+							<LogViewer
+								content={flowInfo.logs}
+								jobId={flowInfo.jobId}
+								isLoading={false}
+								small={true}
+								download={false}
+								noAutoScroll={true}
+								tag={undefined}
+								noPadding
+								wrapperClass="w-full mb-2 pr-2"
+							/>
 						{/if}
 
 						<!-- Flow steps - nested as children -->
-						<ul
-							class="w-full font-mono text-xs bg-surface-secondary list-none border-l border-gray-200 dark:border-gray-700"
-						>
+						<ul class="w-full font-mono text-xs bg-surface-secondary list-none border-l">
 							<!-- Flow inputs as first row entry -->
 							{#if showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0}
-								<li class="border-b border-gray-200 dark:border-gray-700 flex">
+								<li class="border-b flex flex-row w-full">
 									<div class="py-2 leading-tight align-top">
 										<button
 											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
@@ -317,7 +314,7 @@
 										</button>
 									</div>
 
-									<div class="w-full leading-tight">
+									<div class="grow min-w-0 leading-tight">
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<div
@@ -352,7 +349,7 @@
 									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 									{@const hasEmptySubflowValue = hasEmptySubflow(entry.stepId, entry.stepType)}
 									{@const isCollapsible = !hasEmptySubflowValue}
-									<li class="border-b border-gray-200 dark:border-gray-700 flex">
+									<li class="border border-b flex flex-row border-orange-500 w-full">
 										<div class="py-2 leading-tight align-top">
 											{#if isCollapsible}
 												<button
@@ -370,7 +367,7 @@
 												<div class="w-4"></div>
 											{/if}
 										</div>
-										<div class="w-full leading-tight">
+										<div class="w-full leading-tight grow min-w-0">
 											<!-- svelte-ignore a11y_click_events_have_key_events -->
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<div
@@ -535,18 +532,17 @@
 
 														<!-- Show logs if they exist -->
 														{#if logs}
-															<div class="mb-2 pr-2">
-																<LogViewer
-																	content={logs}
-																	jobId={jobId ?? ''}
-																	isLoading={false}
-																	small={true}
-																	download={false}
-																	noAutoScroll={true}
-																	tag={undefined}
-																	noPadding
-																/>
-															</div>
+															<LogViewer
+																content={logs}
+																jobId={jobId ?? ''}
+																isLoading={false}
+																small={true}
+																download={false}
+																noAutoScroll={true}
+																tag={undefined}
+																noPadding
+																wrapperClass="w-full mb-2 pr-2"
+															/>
 														{:else if jobId && !entry.subflows?.[0]?.length}
 															<div class="mb-2">
 																<div class="text-xs text-tertiary font-mono">
