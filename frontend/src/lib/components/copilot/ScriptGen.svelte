@@ -39,7 +39,6 @@
 		inlineScript?: boolean
 		args: Record<string, any>
 		transformer?: boolean
-		openAiChat?: boolean
 	}
 
 	let {
@@ -49,8 +48,7 @@
 		diffEditor,
 		inlineScript = false,
 		args,
-		transformer = false,
-		openAiChat = false
+		transformer = false
 	}: Props = $props()
 
 	run(() => {
@@ -113,15 +111,9 @@
 			mode = 'edit'
 		}
 
-		if (openAiChat) {
-			// Open the AI chat in script mode
-			aiChatManager.openChat()
-			aiChatManager.changeMode(AIMode.SCRIPT)
-		} else {
-			setTimeout(() => {
-				autoResize()
-			}, 0)
-		}
+		setTimeout(() => {
+			autoResize()
+		}, 0)
 	}
 
 	async function onGenerate(closePopup: () => void) {
@@ -381,7 +373,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
-					propagateEvent={!genLoading && !openAiChat}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
@@ -402,7 +394,7 @@
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading && !openAiChat}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
