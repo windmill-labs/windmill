@@ -653,7 +653,7 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
-    if !*DISABLE_PROCESS_GROUP || executable.starts_with("dotnet ") {
+    if !*DISABLE_PROCESS_GROUP && !executable.starts_with("dotnet ") {
         #[cfg(unix)]
         {
             use process_wrap::tokio::ProcessGroup;
