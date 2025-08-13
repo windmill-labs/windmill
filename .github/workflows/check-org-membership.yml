@@ -47,8 +47,8 @@ jobs:
           fi
 
           # 2. Disallow other bots
-          if [[ "${COMMENTER}" =~ \[bot\] ]]; then
-            echo "is_member=false" >> "$GITHUB_OUTPUT"
+          if [[ "${COMMENTER}" =~ \[bot\]$ ]]; then
+            echo "is_member=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
