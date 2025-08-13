@@ -149,10 +149,11 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
-	import { editorPositionMap } from '$lib/utils'
+	import { editorPositionMap, readFieldsRecursively } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
+	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -543,10 +544,20 @@
 
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
+		console.log('updating schema', lang, args, newSchemaRes)
+
 		if (typeof newSchemaRes === 'string') {
 			dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+			if (lang === 'graphql' && dbSchema === undefined) {
+				getDbSchemas(lang, newSchemaRes, $workspaceStore, $dbSchemas, (e) => {
+					console.error('error getting graphql db schema', e)
+				})
+				dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+			}
+			console.log('dbSchema', newSchemaRes, $dbSchemas, dbSchema)
 		} else {
 			dbSchema = undefined
+			console.log('dbSchema2', dbSchema)
 		}
 	}
 
@@ -562,8 +573,10 @@
 		if (!schemaLang || !schema) {
 			return
 		}
+		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
 			graphqlService ||= initializeMode()
+			console.log('setting schema config', schema)
 			graphqlService?.setSchemaConfig([
 				{
 					uri: 'my-schema.graphql',
@@ -1588,9 +1601,12 @@
 			: sqlTypeCompletor?.dispose()
 	})
 	$effect(() => {
-		lang && args && $dbSchemas && untrack(() => updateSchema())
+		console.log('updating schema', lang, $dbSchemas)
+		readFieldsRecursively(args)
+		lang && $dbSchemas && untrack(() => updateSchema())
 	})
 	$effect(() => {
+		console.log('updating db schema completions', dbSchema, lang)
 		initialized &&
 			dbSchema &&
 			['sql', 'graphql'].includes(lang) &&

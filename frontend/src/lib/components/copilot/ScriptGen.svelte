@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
@@ -20,7 +18,7 @@
 	import { writable } from 'svelte/store'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
-	import { sleep } from '$lib/utils'
+	import { readFieldsRecursively, sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
 	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
@@ -53,7 +51,7 @@
 		openAiChat = false
 	}: Props = $props()
 
-	run(() => {
+	$effect.pre(() => {
 		if (lang == 'bunnative') {
 			lang = 'bun'
 		}
@@ -72,7 +70,7 @@
 
 	let button: HTMLButtonElement | undefined = $state()
 
-	run(() => {
+	$effect.pre(() => {
 		trimmedDesc = funcDesc.trim()
 	})
 	async function callCopilot() {
@@ -185,7 +183,7 @@
 		diffEditor?.hide()
 	}
 
-	run(() => {
+	$effect(() => {
 		input && setTimeout(() => input?.focus(), 100)
 	})
 
@@ -193,11 +191,11 @@
 		$generatedCode = ''
 	}
 
-	run(() => {
+	$effect(() => {
 		lang && clear()
 	})
 
-	run(() => {
+	$effect(() => {
 		!$generatedCode && hideDiff()
 	})
 
@@ -215,7 +213,12 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
+	$effect(() => {
+		readFieldsRecursively(args)
 		updateSchema(lang, args, $dbSchemas)
 	})
 
@@ -267,11 +270,11 @@
 		const storageKey = getPromptStorageKey()
 		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
-	run(() => {
+	$effect(() => {
 		lang && getPromptHistory()
 	})
 
-	run(() => {
+	$effect(() => {
 		$generatedCode && updateScroll()
 	})
 
