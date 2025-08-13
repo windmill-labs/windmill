@@ -353,7 +353,10 @@ const testRunFlowToolDef = createToolDef(
 
 const testRunStepSchema = z.object({
 	stepId: z.string().describe('The id of the step to test'),
-	args: z.record(z.any()).optional().describe('Arguments to pass to the step (optional, uses default step inputs if not provided)')
+	args: z
+		.record(z.any())
+		.optional()
+		.describe('Arguments to pass to the step (optional, uses default step inputs if not provided)')
 })
 
 const testRunStepToolDef = createToolDef(
@@ -375,7 +378,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
 			toolCallbacks.setToolStatus(toolId, {
-				content: 'Found ' +
+				content:
+					'Found ' +
 					scriptResults.length +
 					' scripts in the workspace related to "' +
 					args.query +
@@ -389,19 +393,20 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = addStepSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
-				content: parsedArgs.location.type === 'after'
-					? `Adding a step after step '${parsedArgs.location.afterId}'`
-					: parsedArgs.location.type === 'start'
-						? 'Adding a step at the start'
-						: parsedArgs.location.type === 'start_inside_forloop'
-							? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
-							: parsedArgs.location.type === 'start_inside_branch'
-								? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
-								: parsedArgs.location.type === 'preprocessor'
-									? 'Adding a preprocessor step'
-									: parsedArgs.location.type === 'failure'
-										? 'Adding a failure step'
-										: 'Adding a step'
+				content:
+					parsedArgs.location.type === 'after'
+						? `Adding a step after step '${parsedArgs.location.afterId}'`
+						: parsedArgs.location.type === 'start'
+							? 'Adding a step at the start'
+							: parsedArgs.location.type === 'start_inside_forloop'
+								? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
+								: parsedArgs.location.type === 'start_inside_branch'
+									? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
+									: parsedArgs.location.type === 'preprocessor'
+										? 'Adding a preprocessor step'
+										: parsedArgs.location.type === 'failure'
+											? 'Adding a failure step'
+											: 'Adding a step'
 			})
 			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
 			helpers.selectStep(id)
@@ -480,7 +485,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: setCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Setting code for step '${parsedArgs.id}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Setting code for step '${parsedArgs.id}'...`
+			})
 			await helpers.setCode(parsedArgs.id, parsedArgs.code)
 			helpers.selectStep(parsedArgs.id)
 			toolCallbacks.setToolStatus(toolId, { content: `Set code for step '${parsedArgs.id}'` })
@@ -530,7 +537,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
 			await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Set forloop '${parsedArgs.id}' iterator expression` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Set forloop '${parsedArgs.id}' iterator expression`
+			})
 			return `Forloop '${parsedArgs.id}' iterator expression set`
 		}
 	},
@@ -546,7 +555,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				parsedArgs.query,
 				workspace
 			)
-			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + parsedArgs.query + '"' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved resource types for "' + parsedArgs.query + '"'
+			})
 			return formattedResourceTypes
 		}
 	},
@@ -556,11 +567,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
-				toolCallbacks.setToolStatus(toolId, { 
+				toolCallbacks.setToolStatus(toolId, {
 					content: 'No flow available to test',
 					error: 'No flow found in current context'
 				})
-				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
+				throw new Error(
+					'No flow available to test. Please ensure you have a flow open in the editor.'
+				)
 			}
 
 			return executeTestRun({
@@ -607,13 +620,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: testRunStepToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
-			
+
 			if (!flow || !flow.value) {
-				toolCallbacks.setToolStatus(toolId, { 
+				toolCallbacks.setToolStatus(toolId, {
 					content: 'No flow available to test step from',
 					error: 'No flow found in current context'
 				})
-				throw new Error('No flow available to test step from. Please ensure you have a flow open in the editor.')
+				throw new Error(
+					'No flow available to test step from. Please ensure you have a flow open in the editor.'
+				)
 			}
 
 			const parsedArgs = testRunStepSchema.parse(args)
@@ -622,55 +637,37 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Find the step in the flow
 			const modules = helpers.getModules()
-			let targetModule: FlowModule | undefined = undefined
-			
-			// Check main modules
-			targetModule = modules.find(m => m.id === stepId)
-			
-			// Check preprocessor module
-			if (!targetModule && flow.value.preprocessor_module?.id === stepId) {
-				targetModule = flow.value.preprocessor_module
-			}
-			
-			// Check failure module  
-			if (!targetModule && flow.value.failure_module?.id === stepId) {
-				targetModule = flow.value.failure_module
-			}
+			let targetModule: FlowModule | undefined = modules.find((m) => m.id === stepId)
 
 			if (!targetModule) {
-				toolCallbacks.setToolStatus(toolId, { 
+				toolCallbacks.setToolStatus(toolId, {
 					content: `Step '${stepId}' not found in flow`,
 					error: `Step with id '${stepId}' does not exist in the current flow`
 				})
-				throw new Error(`Step with id '${stepId}' not found in flow. Available steps: ${modules.map(m => m.id).join(', ')}`)
+				throw new Error(
+					`Step with id '${stepId}' not found in flow. Available steps: ${modules.map((m) => m.id).join(', ')}`
+				)
 			}
 
 			const module = targetModule
 			const moduleValue = module.value
 
-			// Get step inputs if no args provided
-			let finalArgs = stepArgs
-			if (Object.keys(stepArgs).length === 0) {
-				try {
-					finalArgs = await helpers.getStepInputs(stepId)
-				} catch (error) {
-					console.warn('Could not get step inputs, using empty args:', error)
-					finalArgs = {}
-				}
-			}
-
 			if (moduleValue.type === 'rawscript') {
 				// Test raw script step
 				return executeTestRun({
-					jobStarter: () => JobService.runScriptPreview({
-						workspace: workspace,
-						requestBody: {
-							content: moduleValue.content ?? '',
-							language: moduleValue.language,
-							args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...finalArgs } : finalArgs,
-							tag: flow.tag || moduleValue.tag
-						}
-					}),
+					jobStarter: () =>
+						JobService.runScriptPreview({
+							workspace: workspace,
+							requestBody: {
+								content: moduleValue.content ?? '',
+								language: moduleValue.language,
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs,
+								tag: flow.tag || moduleValue.tag
+							}
+						}),
 					workspace,
 					toolCallbacks,
 					toolId,
@@ -681,22 +678,32 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				// Test script step - need to get the script content
 				let script
 				if (moduleValue.hash) {
-					script = await ScriptService.getScriptByHash({ workspace: workspace, hash: moduleValue.hash })
-				} else {
-					script = await ScriptService.getScriptByPath({ workspace: workspace, path: moduleValue.path })
-				}
-				
-				return executeTestRun({
-					jobStarter: () => JobService.runScriptPreview({
+					script = await ScriptService.getScriptByHash({
 						workspace: workspace,
-						requestBody: {
-							content: script.content,
-							language: script.language,
-							args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...finalArgs } : finalArgs,
-							tag: flow.tag || (moduleValue.tag_override ? moduleValue.tag_override : script.tag),
-							lock: script.lock
-						}
-					}),
+						hash: moduleValue.hash
+					})
+				} else {
+					script = await ScriptService.getScriptByPath({
+						workspace: workspace,
+						path: moduleValue.path
+					})
+				}
+
+				return executeTestRun({
+					jobStarter: () =>
+						JobService.runScriptPreview({
+							workspace: workspace,
+							requestBody: {
+								content: script.content,
+								language: script.language,
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs,
+								tag: flow.tag || (moduleValue.tag_override ? moduleValue.tag_override : script.tag),
+								lock: script.lock
+							}
+						}),
 					workspace,
 					toolCallbacks,
 					toolId,
@@ -706,11 +713,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			} else if (moduleValue.type === 'flow') {
 				// Test flow step
 				return executeTestRun({
-					jobStarter: () => JobService.runFlowByPath({
-						workspace: workspace,
-						path: moduleValue.path,
-						requestBody: finalArgs
-					}),
+					jobStarter: () =>
+						JobService.runFlowByPath({
+							workspace: workspace,
+							path: moduleValue.path,
+							requestBody: stepArgs
+						}),
 					workspace,
 					toolCallbacks,
 					toolId,
@@ -718,11 +726,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					contextName: 'flow'
 				})
 			} else {
-				toolCallbacks.setToolStatus(toolId, { 
+				toolCallbacks.setToolStatus(toolId, {
 					content: `Step type '${moduleValue.type}' not supported for testing`,
 					error: `Cannot test step of type '${moduleValue.type}'`
 				})
-				throw new Error(`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`)
+				throw new Error(
+					`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`
+				)
 			}
 		},
 		requiresConfirmation: true,
