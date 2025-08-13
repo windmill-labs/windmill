@@ -24,6 +24,7 @@
 		started?: ({ id }: { id: string }) => void
 		running?: ({ id }: { id: string }) => void
 		resultStreamUpdate?: ({ id, result_stream }: { id: string; result_stream?: string }) => void
+		loadExtraLogs?: ({ id, logs }: { id: string; logs: string }) => void
 	}
 
 	interface Props {
@@ -84,6 +85,7 @@
 	let currentId: string | undefined = $state(undefined)
 	let noPingTimeout: NodeJS.Timeout | undefined = undefined
 	let lastNoLogs = $state(noLogs)
+	let lastCompletedJobId = $state<string | undefined>(undefined)
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -100,6 +102,21 @@
 			lastNoLogs = noLogs
 			if (!noLogs) {
 				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
+				const lastJobId = lastCompletedJobId
+				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
+					JobService.getJobLogs({
+						workspace: $workspaceStore!,
+						id: lastJobId,
+						removeAnsiWarnings: true
+					}).then((res) => {
+						if (res && job) {
+							job.logs = res
+						}
+						if (res && lastCallbacks?.loadExtraLogs) {
+							lastCallbacks.loadExtraLogs({ id: lastJobId, logs: res })
+						}
+					})
+				}
 			}
 		}
 	})
@@ -117,6 +134,7 @@
 	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
+			lastCompletedJobId = undefined
 			clearCurrentJob()
 			lastCallbacks = callbacks
 			noPingTimeout = undefined
@@ -262,7 +280,6 @@
 		const id = currentId
 		if (id) {
 			lastCallbacks?.cancel?.({ id })
-			lastCallbacks = undefined
 			clearCurrentId()
 			// Clean up SSE connection
 			currentEventSource?.close()
@@ -283,7 +300,6 @@
 		if (currentId && !allowConcurentRequests) {
 			job = undefined
 			lastCallbacks?.cancel?.({ id: currentId })
-			lastCallbacks = undefined
 			await cancelJob()
 		}
 	}
@@ -309,7 +325,7 @@
 		// Clean up any existing SSE connection
 		currentEventSource?.close()
 		currentEventSource = undefined
-
+		lastCallbacks = callbacks
 		// Try SSE first, fall back to polling if needed
 		if (supportsSSE()) {
 			await loadTestJobWithSSE(testId, 0, callbacks)
@@ -508,6 +524,7 @@
 			callbacks?.change?.(job)
 
 			clearCurrentId()
+			lastCompletedJobId = id
 		}
 	}
 

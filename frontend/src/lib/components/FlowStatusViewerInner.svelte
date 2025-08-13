@@ -100,6 +100,7 @@
 		}
 		graphTabOpen: boolean
 		isNodeSelected: boolean
+		loadExtraLogs?: (logs: string) => void
 	}
 
 	let {
@@ -132,7 +133,8 @@
 		customUi,
 		onResultStreamUpdate = undefined,
 		graphTabOpen,
-		isNodeSelected
+		isNodeSelected,
+		loadExtraLogs = undefined
 	}: Props = $props()
 
 	let resultStreams: Record<string, string | undefined> = $state({})
@@ -547,6 +549,14 @@
 						},
 						resultStreamUpdate({ id, result_stream }: { id: string; result_stream?: string }) {
 							onResultStreamUpdate?.({ jobId: id, result_stream })
+						},
+						loadExtraLogs({ id, logs }: { id: string; logs: string }) {
+							if (id == jobId && job) {
+								job.logs = logs
+							}
+							if (loadExtraLogs) {
+								loadExtraLogs(logs)
+							}
 						}
 					})
 				}
@@ -1300,6 +1310,11 @@
 										on:jobsLoaded={(e) => {
 											let { job, force } = e.detail
 											onJobsLoaded(mod, job, force)
+										}}
+										loadExtraLogs={(logs) => {
+											setModuleState(mod.id ?? '', {
+												logs
+											})
 										}}
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}

@@ -7777,6 +7777,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: remove_ansi_warnings
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details

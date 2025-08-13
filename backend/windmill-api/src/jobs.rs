@@ -1361,11 +1361,16 @@ async fn get_logs_from_disk(
     return None;
 }
 
+struct QueryJobLogs {
+    remove_ansi_warnings: bool,
+}
+
 async fn get_job_logs(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(query_job_logs): Query<QueryJobLogs>,
 ) -> error::Result<Response> {
     // let audit_author: AuditAuthor = match opt_authed {
     //     Some(authed) => (&authed).into(),
@@ -1419,10 +1424,14 @@ async fn get_job_logs(
         {
             return r.map(content_plain);
         }
-        let logs = format!(
-            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+        let logs = if query_job_logs.remove_ansi_warnings {
             logs
-        );
+        } else {
+            format!(
+                "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+                logs
+            )
+        };
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
