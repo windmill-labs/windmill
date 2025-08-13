@@ -78,7 +78,7 @@ async fn clone_repo(
     clone_cmd.arg(&repo.url);
     clone_cmd.arg(&target_path);
 
-    let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
+    let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -112,7 +112,7 @@ async fn clone_repo(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
         handle_child(
             job_id,
             conn,
@@ -217,7 +217,7 @@ async fn clone_repo_without_history(
         init_cmd.args(["--initial-branch", branch]);
     }
 
-    let init_cmd_child = start_child_process(init_cmd, GIT_PATH.as_str()).await?;
+    let init_cmd_child = start_child_process(init_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -249,7 +249,7 @@ async fn clone_repo_without_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str()).await?;
+    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -281,7 +281,7 @@ async fn clone_repo_without_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let fetch_cmd_child = start_child_process(fetch_cmd, GIT_PATH.as_str()).await?;
+    let fetch_cmd_child = start_child_process(fetch_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -313,7 +313,7 @@ async fn clone_repo_without_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+    let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -447,7 +447,7 @@ pub async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_roles_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    let child = start_child_process(galaxy_roles_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -484,7 +484,7 @@ pub async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -1096,7 +1096,7 @@ fi
             )
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut ansible_cmd = Command::new(ANSIBLE_PLAYBOOK_PATH.as_str());
         ansible_cmd
@@ -1115,7 +1115,7 @@ fi
         #[cfg(windows)]
         ansible_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
 
-        start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str()).await?
+        start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str(), false).await?
     };
 
     handle_child(

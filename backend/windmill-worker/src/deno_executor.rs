@@ -144,7 +144,7 @@ pub async fn generate_deno_lock(
         .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child_process = start_child_process(child_cmd, DENO_PATH.as_str()).await?;
+    let mut child_process = start_child_process(child_cmd, DENO_PATH.as_str(), false).await?;
 
     if let Some(db) = db {
         handle_child(
@@ -414,7 +414,7 @@ try {{
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(deno_cmd, DENO_PATH.as_str()).await?
+        start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
     };
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();

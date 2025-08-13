@@ -198,7 +198,7 @@ exit $exit_status
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
@@ -214,7 +214,7 @@ exit $exit_status
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bash_cmd, BIN_BASH.as_str()).await?
+        start_child_process(bash_cmd, BIN_BASH.as_str(), false).await?
     };
     handle_child(
         &job.id,
@@ -630,7 +630,7 @@ pub async fn handle_powershell_job(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let child = start_child_process(cmd, POWERSHELL_PATH.as_str()).await?;
+        let child = start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?;
 
         handle_child(
             &job.id,
@@ -779,7 +779,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut cmd;
         let mut cmd_args;
@@ -852,7 +852,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(cmd, POWERSHELL_PATH.as_str()).await?
+        start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?
     };
 
     handle_child(

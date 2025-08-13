@@ -649,11 +649,12 @@ lazy_static! {
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
+    disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
-    if !*DISABLE_PROCESS_GROUP && !executable.starts_with("dotnet ") {
+    if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
             use process_wrap::tokio::ProcessGroup;
@@ -1343,7 +1344,7 @@ pub async fn par_install_language_dependencies<'a>(
                     short_name: short_name.clone(),
                 })?;
                 tracing::debug!("{:?}", &cmd);
-                Some(start_child_process(cmd, &installer_executable_name).await?)
+                Some(start_child_process(cmd, &installer_executable_name, false).await?)
             } else {
                 None
             }
@@ -1540,7 +1541,7 @@ pub async fn par_install_language_dependencies<'a>(
             .await;
             let cmd = callback(not_pulled_copy.clone())?;
             tracing::debug!("{:?}", &cmd);
-            let child = start_child_process(cmd, &installer_executable_name).await?;
+            let child = start_child_process(cmd, &installer_executable_name, false).await?;
             let mut buf = "".to_owned();
             let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
             if let Err(e) = crate::handle_child::handle_child(
