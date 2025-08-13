@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -83,6 +82,7 @@
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import { page } from '$app/state'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -516,9 +516,9 @@
 	let loading = $derived(!script)
 	$effect(() => {
 		if ($workspaceStore) {
-			if (previousHash != $page.params.hash) {
-				previousHash = $page.params.hash
-				untrack(() => loadScript($page.params.hash))
+			if (previousHash != page.params.hash) {
+				previousHash = page.params.hash
+				untrack(() => loadScript(page.params.hash ?? ''))
 			}
 		}
 	})
@@ -529,7 +529,7 @@
 	bind:this={moveDrawer}
 	on:update={async (e) => {
 		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
-		loadScript($page.params.hash)
+		loadScript(page.params.hash ?? '')
 	}}
 />
 

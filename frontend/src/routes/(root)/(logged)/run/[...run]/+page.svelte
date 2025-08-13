@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -96,7 +95,7 @@
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
-
+	import { page } from '$app/state'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -183,7 +182,7 @@
 	}
 
 	async function getJob() {
-		await jobLoader?.watchJob($page.params.run, {
+		await jobLoader?.watchJob(page.params.run ?? '', {
 			change(job: Job & { result_stream?: string }) {
 				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
 					viewTab = 'result'
@@ -378,10 +377,10 @@
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
 	$effect(() => {
-		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
+		$workspaceStore && page.params.run && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
-		$workspaceStore && $page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
+		$workspaceStore && page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
 	})
 	$effect(() => {
 		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
@@ -445,7 +444,7 @@
 {#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
+			<h1 class="text-red-400 mt-6">Job {page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
@@ -453,7 +452,7 @@
 						<Button
 							variant="border"
 							on:click={() => {
-								goto(`/run/${$page.params.run}?workspace=${workspace.id}`)
+								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
 							}}
 						>
 							See in {workspace.name}

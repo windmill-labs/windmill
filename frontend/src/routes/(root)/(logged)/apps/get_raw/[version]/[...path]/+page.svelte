@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { Skeleton } from '$lib/components/common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount } from 'svelte'
-
+	import { page } from '$app/state'
 	let loaded = false
 
 	onMount(async () => {
@@ -19,7 +18,7 @@
 		/* @vite-ignore */
 		await import(
 			/* webpackIgnore: true */
-			`/api/w/${$workspaceStore}/raw_apps/get_data/${$page.params.version}/${$page.params.path}`
+			`/api/w/${$workspaceStore}/raw_apps/get_data/${page.params.version}/${page.params.path}`
 		)
 		try {
 			globalThis.render()

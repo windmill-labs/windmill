@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -11,11 +10,12 @@
 	import { logoutWithRedirect } from '$lib/logout'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { parseQueryParams } from '$lib/utils'
+	import { page } from '$app/state'
 
-	let error = $page.url.searchParams.get('error')
-	let clientName = $page.params.client_name
-	let code = $page.url.searchParams.get('code') ?? undefined
-	let state = $page.url.searchParams.get('state') ?? undefined
+	let error = page.url.searchParams.get('error')
+	let clientName = page.params.client_name ?? ''
+	let code = page.url.searchParams.get('code') ?? undefined
+	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
 		const rd = localStorage.getItem('rd')

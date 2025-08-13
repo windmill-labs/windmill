@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import {
 		FlowService,
 		JobService,
@@ -63,6 +62,7 @@
 	import FlowAssetsHandler, {
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
+	import { page } from '$app/state'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -385,7 +385,7 @@
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
-	let path = $derived($page.params.path)
+	let path = $derived(page.params.path ?? '')
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
@@ -395,7 +395,7 @@
 		}
 	})
 	$effect(() => {
-		if ($workspaceStore && $userStore && $page.params.path) {
+		if ($workspaceStore && $userStore && page.params.path) {
 			if (previousPath !== path) {
 				previousPath = path
 				untrack(() => {

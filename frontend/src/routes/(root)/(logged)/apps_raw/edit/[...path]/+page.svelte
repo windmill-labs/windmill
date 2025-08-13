@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
@@ -10,6 +9,7 @@
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { page } from '$app/state'
 
 	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
@@ -33,15 +33,15 @@
 		  }
 		| undefined = undefined
 	let redraw = 0
-	let path = $page.params.path
+	let path = page.params.path ?? ''
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
@@ -54,7 +54,7 @@
 		newPath = app.path
 	}
 
-	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${$page.params.path}`)
+	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${page.params.path}`)
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
@@ -215,7 +215,7 @@
 				initRunnables={runnables}
 				{summary}
 				{newPath}
-				path={$page.params.path}
+				path={page.params.path ?? ''}
 				{policy}
 				bind:savedApp
 				{diffDrawer}

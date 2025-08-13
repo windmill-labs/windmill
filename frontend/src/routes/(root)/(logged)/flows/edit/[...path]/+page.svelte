@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
-	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
@@ -23,10 +22,11 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
+	import { page } from '$app/state'
 
 	let version: undefined | number = $state(undefined)
-	let nodraft = $page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
+	let nodraft = page.url.searchParams.get('nodraft')
+	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 	let initialArgs = $state({})
 	if ($initialArgsStore) {
@@ -42,9 +42,9 @@
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
@@ -85,7 +85,7 @@
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
-		if (stateLoadedFromUrl != undefined && statePath == $page.params.path) {
+		if (stateLoadedFromUrl != undefined && statePath == page.params.path) {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
 			version = (
@@ -155,13 +155,13 @@
 			version = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
-					path: $page.params.path
+					path: page.params.path ?? ''
 				})
 			).id
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
-				path: $page.params.path
+				path: page.params.path ?? ''
 			})
 			savedFlow = {
 				...structuredClone($state.snapshot(flowWithDraft)),
@@ -223,7 +223,7 @@
 
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
-		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
+		selectedId = stateLoadedFromUrl?.selectedId ?? page.url.searchParams.get('selected')
 		flowBuilder?.loadFlowState()
 	}
 
@@ -270,7 +270,7 @@
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
-		<h1 class="text-2xl font-bold">Flow not found at path {$page.params.path}</h1>
+		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
 		<p class="text-gray-500">The flow you are looking for does not exist.</p>
 	</div>
 {:else}
@@ -289,7 +289,7 @@
 		}}
 		{flowStore}
 		{flowStateStore}
-		initialPath={$page.params.path}
+		initialPath={page.params.path ?? ''}
 		newFlow={false}
 		{selectedId}
 		{initialArgs}
