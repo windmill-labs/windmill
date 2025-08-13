@@ -43,6 +43,30 @@
 		onKeyDown = undefined
 	}: Props = $props()
 
+	// Generate mode-specific placeholder
+	const modePlaceholder = $derived.by(() => {
+		if (placeholder !== 'Ask anything') {
+			// If a custom placeholder is provided, use it
+			return placeholder
+		}
+		
+		// Generate placeholder based on current AI mode
+		switch (aiChatManager.mode) {
+			case 'script':
+				return 'Modify this script, fix errors, or generate new code...'
+			case 'flow':
+				return 'Edit this flow, add steps, or modify workflow logic...'
+			case 'navigator':
+				return 'Help me navigate Windmill or find features...'
+			case 'API':
+				return 'Make API calls to fetch data or manage resources...'
+			case 'ask':
+				return 'Ask questions about Windmill features and documentation...'
+			default:
+				return 'Ask anything'
+		}
+	})
+
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(initialInstructions)
@@ -146,7 +170,7 @@
 			{availableContext}
 			{selectedContext}
 			{isFirstMessage}
-			{placeholder}
+			placeholder={modePlaceholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
 				if (disabled) {
@@ -173,7 +197,7 @@
 					}
 				}}
 				rows={3}
-				{placeholder}
+				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
 			></textarea>
