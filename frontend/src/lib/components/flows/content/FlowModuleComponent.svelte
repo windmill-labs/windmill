@@ -100,6 +100,7 @@
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
+	let showHistoryDrawer = $state(false)
 
 	let editor: Editor | undefined = $state()
 	let diffEditor: DiffEditor | undefined = $state()
@@ -413,6 +414,7 @@
 							on:hideDiffMode={hideDiffMode}
 							{lastDeployedCode}
 							{diffMode}
+							bind:showHistoryDrawer
 							openAiChat
 						/>
 					</div>
@@ -479,6 +481,11 @@
 											fixedOverflowWidgets
 											defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 											class="h-full"
+											showButtons={diffMode}
+											on:hideDiffMode={hideDiffMode}
+											on:seeHistory={() => {
+												showHistoryDrawer = true
+											}}
 										/>
 									{/key}
 								{/if}
