@@ -85,6 +85,7 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
