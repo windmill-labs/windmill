@@ -98,7 +98,7 @@
 		if (noLogs != lastNoLogs) {
 			lastNoLogs = noLogs
 			if (!noLogs) {
-				currentEventSource?.onerror?.(new Event('SSE srestart'))
+				currentEventSource?.onerror?.(new Event('SSE restart after no logs change'))
 			}
 		}
 	})
