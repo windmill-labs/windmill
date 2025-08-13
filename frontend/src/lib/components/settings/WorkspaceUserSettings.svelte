@@ -144,9 +144,12 @@
 	async function addInstanceGroup(): Promise<void> {
 		if (!selectedNewInstanceGroup || !selectedNewRole) return
 
+		const groupToAdd = selectedNewInstanceGroup
+		const roleToAdd = selectedNewRole
+
 		try {
-			autoAddInstanceGroups = [...autoAddInstanceGroups, selectedNewInstanceGroup]
-			autoAddInstanceGroupsRoles[selectedNewInstanceGroup] = selectedNewRole
+			autoAddInstanceGroups = [...autoAddInstanceGroups, groupToAdd]
+			autoAddInstanceGroupsRoles[groupToAdd] = roleToAdd
 
 			// Reset form
 			selectedNewInstanceGroup = undefined
@@ -155,10 +158,8 @@
 			await saveInstanceGroupSettings()
 		} catch (e) {
 			// Rollback on error
-			if (selectedNewInstanceGroup) {
-				autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== selectedNewInstanceGroup)
-				delete autoAddInstanceGroupsRoles[selectedNewInstanceGroup]
-			}
+			autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== groupToAdd)
+			delete autoAddInstanceGroupsRoles[groupToAdd]
 			sendUserToast('Failed to add instance group', true)
 		}
 	}
