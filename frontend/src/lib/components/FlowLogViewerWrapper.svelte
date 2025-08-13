@@ -6,6 +6,8 @@
 	import { graphBuilder, type NodeLayout } from './graph/graphBuilder.svelte'
 	import type { FlowLogEntry } from './FlowLogUtils'
 	import { untrack } from 'svelte'
+	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import { readFieldsRecursively } from '$lib/utils'
 
 	interface Props {
 		job: Job
@@ -48,8 +50,14 @@
 	}
 
 	let modules = $derived(job.raw_flow?.modules ?? [])
+	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
+	$effect(() => {
+		readFieldsRecursively(modules)
+		untrack(() => moduleTracker.track($state.snapshot(modules)))
+	})
 
 	let nodes: NodeLayout[] | undefined = $derived.by(() => {
+		moduleTracker.counter
 		const graph = graphBuilder(
 			untrack(() => modules),
 			{
