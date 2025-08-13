@@ -269,7 +269,7 @@ def main():
     script_dir = Path(__file__).parent
     backend_dir = script_dir.parent
     openapi_file = backend_dir / "windmill-api" / "openapi.yaml"
-    output_file = backend_dir / "windmill-api" / "src" / "mcp_tools.rs"
+    output_file = backend_dir / "windmill-api" / "src" / "mcp" / "tools" / "auto_generated_endpoints.rs"
     
     if not openapi_file.exists():
         print(f"OpenAPI file not found: {openapi_file}", file=sys.stderr)

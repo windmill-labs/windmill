@@ -1,15 +1,30 @@
+//! Endpoint tools for MCP server
+//!
+//! Contains the auto-generated endpoint tools and utilities for converting
+//! them to MCP tools and handling HTTP calls to Windmill API endpoints.
+
 use rmcp::{model::Tool, Error};
 use std::sync::Arc;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::Authed;
 use windmill_common::BASE_URL;
 use crate::db::ApiAuthed;
-use crate::mcp_tools::EndpointTool;
 
+// Import the auto-generated tools
+use super::auto_generated_endpoints;
+pub use auto_generated_endpoints::{EndpointTool, all_tools};
+
+/// Get all available endpoint tools
+pub fn all_endpoint_tools() -> Vec<EndpointTool> {
+    all_tools()
+}
+
+/// Convert endpoint tools to MCP tools
 pub fn endpoint_tools_to_mcp_tools(endpoint_tools: Vec<EndpointTool>) -> Vec<Tool> {
     endpoint_tools.into_iter().map(|tool| endpoint_tool_to_mcp_tool(&tool)).collect()
 }
 
+/// Convert a single endpoint tool to MCP tool
 pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     let mut combined_properties = serde_json::Map::new();
     let mut combined_required = Vec::new();
@@ -50,6 +65,7 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     }
 }
 
+/// Merge schema into combined properties and required fields
 fn merge_schema_into(
     combined_properties: &mut serde_json::Map<String, serde_json::Value>,
     combined_required: &mut Vec<String>,
@@ -68,6 +84,7 @@ fn merge_schema_into(
     }
 }
 
+/// Call an endpoint tool by making HTTP request to Windmill API
 pub async fn call_endpoint_tool(
     tool: &EndpointTool,
     args: serde_json::Value,
@@ -105,6 +122,7 @@ pub async fn call_endpoint_tool(
     }
 }
 
+/// Substitute path parameters in the URL template
 fn substitute_path_params(
     path: &str,
     workspace_id: &str,
@@ -138,6 +156,7 @@ fn substitute_path_params(
     Ok(path_template)
 }
 
+/// Build query string from arguments
 fn build_query_string(
     args_map: &serde_json::Map<String, serde_json::Value>,
     query_schema: &Option<serde_json::Value>,
@@ -168,6 +187,7 @@ fn build_query_string(
     }
 }
 
+/// Build request body from arguments
 fn build_request_body(
     method: &str,
     args_map: &serde_json::Map<String, serde_json::Value>,
@@ -195,6 +215,7 @@ fn build_request_body(
     }
 }
 
+/// Create HTTP request with authentication
 async fn create_http_request(
     method: &str,
     url: &str,
