@@ -73,7 +73,7 @@
 			{#await import('../../SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}
-				<div class="h-full w-full border overflow-hidden" bind:clientHeight={editorHeight}>
+				<div class="h-full w-full overflow-hidden" bind:clientHeight={editorHeight}>
 					<Module.default
 						bind:this={editor}
 						autoHeight
