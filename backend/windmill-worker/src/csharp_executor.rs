@@ -331,6 +331,7 @@ async fn build_cs_proj(
         .env("HOME", HOME_ENV.as_str())
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec![
             "publish",
