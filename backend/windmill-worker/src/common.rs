@@ -642,22 +642,30 @@ impl OccupancyMetrics {
     }
 }
 
+lazy_static! {
+    static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
-    #[cfg(unix)]
-    {
-        use process_wrap::tokio::ProcessGroup;
 
-        cmd.wrap(ProcessGroup::leader());
+    if !*DISABLE_PROCESS_GROUP && !executable.starts_with("dotnet ") {
+        #[cfg(unix)]
+        {
+            use process_wrap::tokio::ProcessGroup;
+
+            cmd.wrap(ProcessGroup::leader());
+        }
+        #[cfg(windows)]
+        {
+            cmd.wrap(JobObject);
+        }
     }
-    #[cfg(windows)]
-    {
-        cmd.wrap(JobObject);
-    }
+
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable));

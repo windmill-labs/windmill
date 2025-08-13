@@ -85,6 +85,7 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -331,6 +332,7 @@ async fn build_cs_proj(
         .env("HOME", HOME_ENV.as_str())
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec![
             "publish",
