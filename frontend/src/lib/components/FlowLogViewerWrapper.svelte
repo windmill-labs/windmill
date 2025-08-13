@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import type { Writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-	import type { NodeLayout } from './graph/graphBuilder.svelte'
+	import { graphBuilder, type NodeLayout } from './graph/graphBuilder.svelte'
 	import type { FlowLogEntry } from './FlowLogUtils'
 
 	interface Props {
@@ -16,15 +16,71 @@
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
-		nodes: NodeLayout[] | undefined
 	}
 
-	let { job, localModuleStates, workspaceId, render, onSelectedIteration, nodes }: Props = $props()
+	let { job, localModuleStates, workspaceId, render, onSelectedIteration }: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
 	let expandedRows: Record<string, boolean> = $state({})
 	let allExpanded = $state(false)
 	let showResultsInputs = $state(true)
+
+	let emptyEventHandler = {
+		deleteBranch: () => {},
+		insert: () => {},
+		select: () => {},
+		changeId: () => {},
+		delete: () => {},
+		newBranch: () => {},
+		move: () => {},
+		selectedIteration: () => {},
+		simplifyFlow: () => {},
+		expandSubflow: () => {},
+		minimizeSubflow: () => {},
+		updateMock: () => {},
+		testUpTo: () => {},
+		editInput: () => {},
+		testFlow: () => {},
+		cancelTestFlow: () => {},
+		openPreview: () => {},
+		hideJobStatus: () => {}
+	}
+
+	let nodes: NodeLayout[] | undefined = $derived.by(() => {
+		console.log('dbg building graph')
+		const graph = graphBuilder(
+			job.raw_flow?.modules ?? [],
+			{
+				disableAi: false,
+				insertable: false,
+				flowModuleStates: undefined,
+				selectedId: undefined,
+				path: undefined,
+				newFlow: false,
+				cache: job.raw_flow?.cache_ttl !== undefined,
+				earlyStop: job.raw_flow?.skip_expr !== undefined,
+				editMode: false,
+				isOwner: false,
+				isRunning: job.type === 'QueuedJob',
+				individualStepTests: false,
+				flowJob: job,
+				showJobStatus: false,
+				suspendStatus: writable({}),
+				flowHasChanged: false
+			},
+			job.raw_flow?.failure_module,
+			job.raw_flow?.preprocessor_module,
+			emptyEventHandler, // eventHandler - empty for logs view
+			undefined,
+			false, // useDataflow
+			undefined, // selectedId
+			undefined, // moving
+			undefined, // simplifiableFlow
+			undefined, // triggerNode path
+			{} // expandedSubflows
+		)
+		return graph.error ? undefined : graph.nodes
+	})
 
 	function toggleExpanded(id: string) {
 		// If not in record, use opposite of allExpanded as new state

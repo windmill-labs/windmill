@@ -501,10 +501,6 @@
 	export function isNodeVisible(nodeId: string): boolean {
 		return viewportResizer?.isNodeVisible(nodeId) ?? false
 	}
-
-	export function getGraph() {
-		return graph
-	}
 </script>
 
 {#if insertable}

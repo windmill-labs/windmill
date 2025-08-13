@@ -974,10 +974,7 @@
 	})
 	let selected = $derived(isListJob ? 'sequence' : 'graph')
 
-	let flowGraph: FlowGraphV2 | undefined = $state(undefined)
 	let animateLogsTab = $state(false)
-
-	const nodes = $derived.by(() => (flowGraph ? flowGraph.getGraph?.().nodes : undefined))
 
 	function onExploreAllLogs() {
 		if (selected == 'logs') {
@@ -1315,7 +1312,6 @@
 				{workspaceId}
 				{render}
 				{onSelectedIteration}
-				{nodes}
 			/>
 		</div>
 	</div>
@@ -1379,7 +1375,6 @@
 							preprocessorModule={job.raw_flow?.preprocessor_module}
 							allowSimplifiedPoll={false}
 							{workspace}
-							bind:this={flowGraph}
 						/>
 					</div>
 					<div
