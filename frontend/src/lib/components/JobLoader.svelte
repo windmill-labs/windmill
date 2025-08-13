@@ -94,11 +94,12 @@
 		})
 	})
 
+	const restartType = 'SSE restart after no logs change'
 	$effect(() => {
 		if (noLogs != lastNoLogs) {
 			lastNoLogs = noLogs
 			if (!noLogs) {
-				currentEventSource?.onerror?.(new Event('SSE restart after no logs change'))
+				currentEventSource?.onerror?.(new Event(restartType))
 			}
 		}
 	})
@@ -683,9 +684,13 @@
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
 						currentEventSource = undefined
+						let delay = 1000
+						if (error.type == restartType) {
+							delay = 0
+						}
 						if (attempt < 3) {
 							console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
-							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), 1000)
+							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), delay)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id, callbacks), 1000)
