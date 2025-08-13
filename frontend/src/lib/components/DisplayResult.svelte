@@ -40,6 +40,7 @@
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -95,6 +96,7 @@
 		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		growVertical?: boolean
 	}
 
 	let {
@@ -118,7 +120,8 @@
 		fixTableSizingToParent = false,
 		copilot_fix,
 		children,
-		loading = false
+		loading = false,
+		growVertical = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -540,11 +543,11 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow flex flex-col h-full {['plain', 'markdown'].includes(
-			resultKind ?? ''
-		)
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow flex flex-col',
+			['plain', 'markdown'].includes(resultKind ?? '') ? 'min-h-0' : 'min-h-[160px]',
+			growVertical ? '' : 'h-full'
+		)}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
