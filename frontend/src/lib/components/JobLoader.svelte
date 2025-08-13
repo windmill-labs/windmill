@@ -83,6 +83,7 @@
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
 	let noPingTimeout: NodeJS.Timeout | undefined = undefined
+	let lastNoLogs = $state(noLogs)
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -91,6 +92,15 @@
 				isLoading = newIsLoading
 			}
 		})
+	})
+
+	$effect(() => {
+		if (noLogs != lastNoLogs) {
+			lastNoLogs = noLogs
+			if (!noLogs) {
+				currentEventSource?.onerror?.(new Event('SSE srestart'))
+			}
+		}
 	})
 
 	function clearCurrentId() {

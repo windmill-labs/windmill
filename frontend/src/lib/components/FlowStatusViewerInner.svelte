@@ -98,6 +98,8 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		graphTabOpen: boolean
+		isNodeSelected: boolean
 	}
 
 	let {
@@ -128,7 +130,9 @@
 		localModuleStates = writable({}),
 		localDurationStatuses = writable({}),
 		customUi,
-		onResultStreamUpdate = undefined
+		onResultStreamUpdate = undefined,
+		graphTabOpen,
+		isNodeSelected
 	}: Props = $props()
 
 	let resultStreams: Record<string, string | undefined> = $state({})
@@ -972,7 +976,7 @@
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onModuleIdChange())
 	})
-	let selected = $derived(isListJob ? 'sequence' : 'graph')
+	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
 
 	let animateLogsTab = $state(false)
 
@@ -987,9 +991,11 @@
 			selected = 'logs'
 		}
 	}
+
+	let noLogs = $derived(graphTabOpen && !isNodeSelected)
 </script>
 
-<JobLoader workspaceOverride={workspaceId} noCode bind:this={jobLoader} />
+<JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you
@@ -1149,6 +1155,8 @@
 										innerJobLoaded(job, j, false, force)
 									}}
 									{onResultStreamUpdate}
+									graphTabOpen={selected == 'graph' && graphTabOpen}
+									isNodeSelected={forloop_selected == loopJobId}
 								/>
 							</div>
 						{/if}
@@ -1225,6 +1233,8 @@
 											{workspaceId}
 											jobId={failedRetry}
 											{onResultStreamUpdate}
+											graphTabOpen={selected == 'graph' && graphTabOpen}
+											isNodeSelected={retry_selected == failedRetry}
 										/>
 									</div>
 								{/each}
@@ -1258,6 +1268,8 @@
 											onJobsLoaded(mod, job, force)
 										}}
 										{onResultStreamUpdate}
+										graphTabOpen={selected == 'graph' && graphTabOpen}
+										isNodeSelected={false}
 									/>
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">no subflow (empty loop?)</div>
@@ -1290,6 +1302,8 @@
 											onJobsLoaded(mod, job, force)
 										}}
 										{onResultStreamUpdate}
+										graphTabOpen={selected == 'graph' && graphTabOpen}
+										isNodeSelected={$localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 									/>
 								{/if}
 							{:else}
