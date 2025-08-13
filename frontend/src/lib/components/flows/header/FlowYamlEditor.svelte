@@ -58,6 +58,8 @@
 			sendUserToast('Error parsing yaml: ' + e), true
 		}
 	}
+
+	let editorHeight = $state(0)
 </script>
 
 <Drawer on:open={reload} bind:this={drawer} size="800px">
@@ -71,7 +73,15 @@
 			{#await import('../../SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}
-				<Module.default bind:this={editor} autoHeight bind:code lang="yaml" />
+				<div class="h-full w-full overflow-hidden" bind:clientHeight={editorHeight}>
+					<Module.default
+						bind:this={editor}
+						autoHeight
+						minHeight={editorHeight}
+						bind:code
+						lang="yaml"
+					/>
+				</div>
 			{/await}
 		{/if}
 	</DrawerContent>

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
 
@@ -40,9 +39,9 @@
 
 <main class="h-screen w-full" bind:clientWidth>
 	{#if clientWidth >= 768}
-		<div class="h-full w-full">
+		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
-			<SplitPanesWrapper>
+			<div class="grow min-h-0 w-full">
 				<Splitpanes>
 					<Pane size={65} minSize={50}>
 						{@render form?.()}
@@ -64,41 +63,43 @@
 						</DetailPageDetailPanel>
 					</Pane>
 				</Splitpanes>
-			</SplitPanesWrapper>
+			</div>
 		</div>
 	{:else}
-		<div class="h-full w-full">
+		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
-			<Tabs bind:selected={mobileTab}>
-				<Tab value="form">Run form</Tab>
-				<Tab value="saved_inputs">Inputs</Tab>
-				{#if !isOperator}
-					<Tab value="triggers">Triggers</Tab>
-				{/if}
-				{#if flow_json}
-					<Tab value="raw">Export</Tab>
-				{:else}
-					<Tab value="script">Script</Tab>
-				{/if}
+			<div class="grow min-h-0 w-full flex flex-col">
+				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
+					<Tab value="form">Run form</Tab>
+					<Tab value="saved_inputs">Inputs</Tab>
+					{#if !isOperator}
+						<Tab value="triggers">Triggers</Tab>
+					{/if}
+					{#if flow_json}
+						<Tab value="raw">Export</Tab>
+					{:else}
+						<Tab value="script">Script</Tab>
+					{/if}
 
-				{#snippet content()}
-					<div class="h-full">
-						<TabContent value="form" class="flex flex-col flex-1 h-full">
-							{@render form?.()}
-						</TabContent>
+					{#snippet content()}
+						<div class="grow min-h-0">
+							<TabContent value="form" class="flex flex-col flex-1 h-full">
+								{@render form?.()}
+							</TabContent>
 
-						<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
-							{@render save_inputs?.()}
-						</TabContent>
-						<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
-							{@render triggers?.()}
-						</TabContent>
-						<TabContent value="script" class="flex flex-col flex-1 h-full">
-							{@render script?.()}
-						</TabContent>
-					</div>
-				{/snippet}
-			</Tabs>
+							<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
+								{@render save_inputs?.()}
+							</TabContent>
+							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
+								{@render triggers?.()}
+							</TabContent>
+							<TabContent value="script" class="flex flex-col flex-1 h-full">
+								{@render script?.()}
+							</TabContent>
+						</div>
+					{/snippet}
+				</Tabs>
+			</div>
 		</div>
 	{/if}
 </main>
