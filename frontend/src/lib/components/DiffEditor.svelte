@@ -21,6 +21,7 @@
 	export let defaultModified: string | undefined = undefined
 	export let readOnly = false
 	export let showButtons = false
+	export let showHistoryButton: boolean = true
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
@@ -133,9 +134,11 @@
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
 		>
-			<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
-				>See changes history</Button
-			>
+			{#if showHistoryButton}
+				<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
+					>See changes history</Button
+				>
+			{/if}
 			<Button on:click={() => dispatch('hideDiffMode')} variant="contained" size="sm" color="red"
 				>Quit diff mode</Button
 			>
