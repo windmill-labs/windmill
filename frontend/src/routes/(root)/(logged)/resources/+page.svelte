@@ -480,9 +480,11 @@
 					formatExtension={resourceTypeViewerObj.formatExtension}
 				/></h1
 			>
-			<div class="py-2 box prose mb-8 text-secondary">
-				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
-			</div>
+			{#if resourceTypeViewerObj.description}
+				<div class="py-2 box prose mb-8 text-secondary">
+					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
+				</div>
+			{/if}
 			{#if resourceTypeViewerObj.formatExtension}
 				<Alert
 					type="info"
