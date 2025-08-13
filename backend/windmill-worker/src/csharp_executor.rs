@@ -113,7 +113,8 @@ pub async fn generate_nuget_lockfile(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
         conn,
@@ -370,7 +371,7 @@ async fn build_cs_proj(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
+    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
         conn,
@@ -575,7 +576,7 @@ pub async fn handle_csharp_job(
         #[cfg(windows)]
         nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]
         let compiled_executable_name = "./Main".to_string();
@@ -624,7 +625,7 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        start_child_process(run_csharp, &compiled_executable_name).await?
+        start_child_process(run_csharp, &compiled_executable_name, true).await?
     };
 
     handle_child(
