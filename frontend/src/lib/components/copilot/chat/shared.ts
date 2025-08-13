@@ -62,7 +62,9 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
-		throw new Error(`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`)
+		throw new Error(
+			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
+		)
 	}
 	return tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
 }
@@ -81,10 +83,10 @@ export async function processToolCall<T>({
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
 		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-		
+
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
-		
+
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(needsConfirmation ? { content: 'Waiting for confirmation...' } : {}),
@@ -93,11 +95,11 @@ export async function processToolCall<T>({
 			needsConfirmation: needsConfirmation,
 			showDetails: tool?.showDetails
 		})
-		
+
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
 			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
-			
+
 			if (!confirmed) {
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
@@ -111,14 +113,14 @@ export async function processToolCall<T>({
 					content: 'Tool execution was cancelled by user'
 				}
 			}
-			
+
 			// Update status to executing after confirmation
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: true,
 				needsConfirmation: false
 			})
 		}
-		
+
 		let result = ''
 		try {
 			result = await callTool({
@@ -131,7 +133,7 @@ export async function processToolCall<T>({
 				toolId: toolCall.id
 			})
 			toolCallbacks.setToolStatus(toolCall.id, {
-				isLoading: false,
+				isLoading: false
 			})
 		} catch (err) {
 			console.error(err)
@@ -139,9 +141,9 @@ export async function processToolCall<T>({
 				isLoading: false,
 				error: 'An error occurred while calling the tool'
 			})
-			const errorMessage = typeof err === 'string' ? err : 'An error occurred while calling the tool'
-			result =
-				`Error while calling tool: ${errorMessage}`
+			const errorMessage =
+				typeof err === 'string' ? err : 'An error occurred while calling the tool'
+			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
 			role: 'tool' as const,
@@ -154,8 +156,7 @@ export async function processToolCall<T>({
 		return {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content:
-				'Error while calling tool'
+			content: 'Error while calling tool'
 		}
 	}
 }
@@ -266,19 +267,19 @@ export interface TestRunConfig {
 
 // Common job polling function
 export async function pollJobCompletion(
-	jobId: string, 
-	workspace: string, 
-	toolId: string, 
+	jobId: string,
+	workspace: string,
+	toolId: string,
 	toolCallbacks: ToolCallbacks
 ): Promise<CompletedJob> {
 	let attempts = 0
 	const maxAttempts = 60
 	let job: CompletedJob | null = null
-	
+
 	while (attempts < maxAttempts) {
-		await new Promise(resolve => setTimeout(resolve, 1000))
+		await new Promise((resolve) => setTimeout(resolve, 1000))
 		attempts++
-		
+
 		try {
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
@@ -286,7 +287,7 @@ export async function pollJobCompletion(
 				noLogs: false,
 				noCode: true
 			})
-			
+
 			if (fetchedJob.type === 'CompletedJob') {
 				job = fetchedJob
 				break
@@ -297,25 +298,25 @@ export async function pollJobCompletion(
 			}
 		}
 	}
-	
+
 	if (!job) {
-		toolCallbacks.setToolStatus(toolId, { 
+		toolCallbacks.setToolStatus(toolId, {
 			content: 'Test timed out',
 			error: 'Execution timed out or failed to complete'
 		})
 		throw new Error('Test execution timed out after 60 seconds')
 	}
-	
+
 	return job
 }
 
 // Helper function to extract code blocks from markdown text
 export function extractCodeFromMarkdown(markdown: string): string[] {
 	const codeBlocks: string[] = []
-	
+
 	// Matches: ```[language]\n[code]\n```
 	const codeBlockRegex = /```(?:[a-z]+)?\n([\s\S]*?)```/g
-	
+
 	let match: RegExpExecArray | null = null
 	while ((match = codeBlockRegex.exec(markdown)) !== null) {
 		const code = match[1].trim()
@@ -323,7 +324,7 @@ export function extractCodeFromMarkdown(markdown: string): string[] {
 			codeBlocks.push(code)
 		}
 	}
-	
+
 	return codeBlocks
 }
 
@@ -346,7 +347,7 @@ function getErrorMessage(result: unknown): string {
 		if (typeof error === 'object' && error !== null && 'message' in error) {
 			const message = (error as Record<string, unknown>).message as string
 			if ('stack' in error) {
-				return message + '\n' + (error as Record<string, unknown>).stack as string
+				return (message + '\n' + (error as Record<string, unknown>).stack) as string
 			}
 			return message
 		}
@@ -363,30 +364,34 @@ function getErrorMessage(result: unknown): string {
 // Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	try {
-		config.toolCallbacks.setToolStatus(config.toolId, { 
-			content: config.startMessage || `Starting ${config.contextName} test...` 
+		config.toolCallbacks.setToolStatus(config.toolId, {
+			content: config.startMessage || `Starting ${config.contextName} test...`
 		})
-		
+
 		const jobId = await config.jobStarter()
-		
-		config.toolCallbacks.setToolStatus(config.toolId, { 
-			content: `${config.contextName} test started, waiting for completion...` 
+
+		config.toolCallbacks.setToolStatus(config.toolId, {
+			content: `${config.contextName} test started, waiting for completion...`
 		})
-		
-		const job = await pollJobCompletion(jobId, config.workspace, config.toolId, config.toolCallbacks)
-		
-		config.toolCallbacks.setToolStatus(config.toolId, { 
+
+		const job = await pollJobCompletion(
+			jobId,
+			config.workspace,
+			config.toolId,
+			config.toolCallbacks
+		)
+
+		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
-		
+
 		return formatResultSummary(job.result, job.logs, job.success)
-		
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-		config.toolCallbacks.setToolStatus(config.toolId, { 
+		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${config.contextName} test execution failed`,
 			error: errorMessage
 		})

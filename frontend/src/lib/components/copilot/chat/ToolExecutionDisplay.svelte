@@ -9,22 +9,23 @@
 	interface Props {
 		message: ToolDisplayMessage
 	}
-	
-	let { 
-		message,
-	}: Props = $props()
-	
+
+	let { message }: Props = $props()
+
 	let isExpanded = $state(message.showDetails || (message.isLoading && message.needsConfirmation))
 
-	const hasParameters = $derived(message.parameters !== undefined && Object.keys(message.parameters).length > 0)
+	const hasParameters = $derived(
+		message.parameters !== undefined && Object.keys(message.parameters).length > 0
+	)
 </script>
 
-
-<div class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs">
+<div
+	class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs"
+>
 	<!-- Collapsible Header -->
-	<button 
+	<button
 		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
-		onclick={() => isExpanded = !isExpanded}
+		onclick={() => (isExpanded = !isExpanded)}
 		disabled={!message.showDetails}
 	>
 		<div class="flex items-center gap-2 flex-1">
@@ -35,7 +36,7 @@
 					<ChevronRight class="w-3 h-3 text-secondary" />
 				{/if}
 			{/if}
-			
+
 			{#if message.isLoading}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 			{:else if message.error}
@@ -45,61 +46,69 @@
 			{:else}
 				<span class="text-tertiary">○</span>
 			{/if}
-			
+
 			<span class="text-primary font-medium text-2xs">
 				{message.content}
 			</span>
 		</div>
 	</button>
-	
+
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
-				<!-- Parameters Section -->
-				<ToolContentDisplay title="Parameters" content={message.parameters} />
-				
+			<!-- Parameters Section -->
+			<ToolContentDisplay title="Parameters" content={message.parameters} />
+
+			<!-- Confirmation Footer -->
+			{#if message.needsConfirmation}
+				<div
+					class={twMerge(
+						'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
+						hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : ''
+					)}
+				>
+					<Button
+						variant="border"
+						color="red"
+						size="xs"
+						on:click={() => {
+							if (message.tool_call_id) {
+								aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+							}
+						}}
+						startIcon={{ icon: XCircle }}
+					></Button>
+					<Button
+						variant="border"
+						color="blue"
+						size="xs"
+						on:click={() => {
+							if (message.tool_call_id) {
+								aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+							}
+						}}
+						startIcon={{ icon: Play }}
+					>
+						Run
+					</Button>
+				</div>
+
 				<!-- Result Section -->
-				{#if !message.needsConfirmation}
-					<ToolContentDisplay title="Logs" content={message.logs} loading={message.isLoading} showWhileLoading={false} />
+			{:else}
+				<ToolContentDisplay
+					title="Logs"
+					content={message.logs}
+					loading={message.isLoading}
+					showWhileLoading={false}
+				/>
 
-					<ToolContentDisplay 
-						title="Result" 
-						content={message.result} 
-						error={message.error}
-						loading={message.isLoading}
-					/>
-				{/if}
-
-				<!-- Confirmation Footer -->
-				{#if message.needsConfirmation}
-					<div class={twMerge("mt-3 pt-3 flex flex-row items-center justify-end gap-2", hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : '')}>
-						<Button
-							variant="border"
-							color="red"
-							size="xs"
-							on:click={() => {
-								if (message.tool_call_id) {
-									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
-								}
-							}}
-							startIcon={{ icon: XCircle }}
-						>
-						</Button>
-						<Button
-							variant="border"
-							color="blue"
-							size="xs"
-							on:click={() => {
-								if (message.tool_call_id) {
-									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
-								}
-							}}
-							startIcon={{ icon: Play }}
-						>
-							Run
-						</Button>
-					</div>
-				{/if}
+				<ToolContentDisplay
+					title="Result"
+					content={message.result}
+					error={message.error}
+					loading={message.isLoading}
+				/>
+			{/if}
 		</div>
 	{/if}
 </div>

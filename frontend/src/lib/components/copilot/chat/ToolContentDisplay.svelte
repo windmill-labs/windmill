@@ -36,7 +36,7 @@
 		try {
 			await navigator.clipboard.writeText(formatJson(content))
 			copied = true
-			setTimeout(() => copied = false, 1500)
+			setTimeout(() => (copied = false), 1500)
 		} catch (err) {
 			console.error('Failed to copy:', err)
 		}
@@ -50,7 +50,7 @@
 				{title}:
 			</span>
 			{#if showCopy && hasContent}
-				<button 
+				<button
 					class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
 					onclick={copyToClipboard}
 					title="Copy {title.toLowerCase()}"
@@ -63,22 +63,30 @@
 				</button>
 			{/if}
 		</div>
-		
+
 		{#if loading}
-			<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary">
+			<div
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary"
+			>
 				<Loader2 class="w-3 h-3 animate-spin" />
 				<span class="text-2xs">Executing...</span>
 			</div>
 		{:else if error}
-			<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+			<div
+				class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto"
+			>
 				<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
 			</div>
 		{:else if hasContent}
-			<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto">
+			<div
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto"
+			>
 				<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(content)}</pre>
 			</div>
 		{:else}
-			<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+			<div
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center"
+			>
 				<span class="text-2xs text-tertiary">No {title.toLowerCase()} yet</span>
 			</div>
 		{/if}
