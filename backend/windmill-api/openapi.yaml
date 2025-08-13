@@ -2350,11 +2350,36 @@ paths:
                   type: boolean
                 auto_add:
                   type: boolean
-                auto_add_instance_groups:
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_instance_groups:
+    post:
+      summary: edit instance groups
+      operationId: editInstanceGroups
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Instance Groups Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groups:
                   type: array
                   items:
                     type: string
-                auto_add_instance_groups_roles:
+                roles:
                   type: object
                   additionalProperties:
                     type: string

@@ -125,16 +125,11 @@
 
 	async function saveInstanceGroupSettings(): Promise<void> {
 		try {
-			await WorkspaceService.editAutoInvite({
+			await WorkspaceService.editInstanceGroups({
 				workspace: $workspaceStore ?? '',
 				requestBody: {
-					// Don't send operator/auto_add/invite_all when only updating instance groups
-					// This prevents the backend from updating auto_invite_domain
-					operator: undefined,
-					invite_all: undefined,
-					auto_add: undefined,
-					auto_add_instance_groups: autoAddInstanceGroups,
-					auto_add_instance_groups_roles: autoAddInstanceGroupsRoles
+					groups: autoAddInstanceGroups,
+					roles: autoAddInstanceGroupsRoles
 				}
 			})
 			sendUserToast('Instance group settings saved')
@@ -357,9 +352,7 @@
 									requestBody: {
 										operator: e.detail === 'operator',
 										invite_all: !isCloudHosted(),
-										auto_add: showInvites ? (autoAdd ?? false) : true,
-										auto_add_instance_groups: autoAddInstanceGroups,
-										auto_add_instance_groups_roles: autoAddInstanceGroupsRoles
+										auto_add: showInvites ? (autoAdd ?? false) : true
 									}
 								})
 								operatorOnly = e.detail === 'operator'
@@ -398,15 +391,11 @@
 										? {
 												operator: operatorOnly ?? false,
 												invite_all: !isCloudHosted(),
-												auto_add: showInvites ? (autoAdd ?? false) : true,
-												auto_add_instance_groups: autoAddInstanceGroups,
-												auto_add_instance_groups_roles: autoAddInstanceGroupsRoles
+												auto_add: showInvites ? (autoAdd ?? false) : true
 											}
 										: {
-												operator: false,
-												auto_add: false,
-												auto_add_instance_groups: autoAddInstanceGroups,
-												auto_add_instance_groups_roles: autoAddInstanceGroupsRoles
+												operator: undefined,
+												auto_add: undefined
 											}
 								})
 								loadSettings()
