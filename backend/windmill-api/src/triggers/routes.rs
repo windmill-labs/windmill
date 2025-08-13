@@ -9,14 +9,15 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult, Result},
-    triggers::{query::StandardTriggerQuery, CreateTrigger, EditTrigger, TriggerCrud},
     utils::StripPath,
     worker::CLOUD_HOSTED,
+    DB,
 };
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::{
-    db::{ApiAuthed, DB},
+    db::ApiAuthed,
+    triggers::{CreateTrigger, EditTrigger, StandardTriggerQuery, TriggerCrud},
     utils::check_scopes,
 };
 
@@ -73,7 +74,9 @@ async fn create_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    handler.create_trigger(&mut *tx, &new_trigger).await?;
+    handler
+        .create_trigger(&mut *tx, &authed, &workspace_id, &new_trigger)
+        .await?;
 
     audit_log(
         &mut *tx,
@@ -161,7 +164,7 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     handler
-        .update_trigger(&mut *tx, &workspace_id, path, &edit_trigger)
+        .update_trigger(&mut *tx, &authed, &workspace_id, path, &edit_trigger)
         .await?;
 
     audit_log(
@@ -246,6 +249,11 @@ async fn exists_trigger<T: TriggerCrud>(
     Ok(Json(exists))
 }
 
+#[derive(serde::Deserialize)]
+struct SetEnabledPayload {
+    enabled: bool,
+}
+
 async fn set_enabled_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -284,15 +292,23 @@ async fn set_enabled_trigger<T: TriggerCrud>(
 async fn test_connection<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(config): Json<serde_json::Value>,
-) -> JsonResult<serde_json::Value> {
-    todo!()
-}
+    Json(config): Json<T::TestConnectionConfig>,
+) -> Result<()> {
+    let connect_f = async move {
+        handler
+            .test_connection(&db, &authed, &user_db, &workspace_id, &config)
+            .await
+    };
 
-#[derive(serde::Deserialize)]
-struct SetEnabledPayload {
-    enabled: bool,
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!("Timeout connecting to service after 30 seconds"))
+        })??;
+    Ok(())
 }
 
 #[macro_export]

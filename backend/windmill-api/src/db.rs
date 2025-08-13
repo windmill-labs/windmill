@@ -17,13 +17,12 @@ use sqlx::{
 
 use tokio::task::JoinHandle;
 use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
+pub use windmill_common::db::DB;
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
 };
 use windmill_common::{utils::generate_lock_id, worker::MIN_VERSION_IS_AT_LEAST_1_461};
-
-pub type DB = Pool<Postgres>;
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
     // language=SQL

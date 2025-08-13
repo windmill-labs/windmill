@@ -1,39 +1,8 @@
-pub mod base;
-pub mod query;
-pub mod traits;
-
-pub use base::*;
-pub use query::*;
-pub use traits::*;
-
+use lazy_static::lazy_static;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use strum::EnumIter;
-
-#[derive(Eq, PartialEq, Hash)]
-pub enum HubOrWorkspaceId {
-    Hub,
-    WorkspaceId(String),
-}
-
-type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub struct RunnableFormat {
-    pub version: RunnableFormatVersion,
-    pub has_preprocessor: bool,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub enum RunnableFormatVersion {
-    V1,
-    V2,
-}
-
-lazy_static::lazy_static! {
-    pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> = Cache::new(1000);
-}
+use strum_macros::EnumIter;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, EnumIter)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
@@ -84,4 +53,29 @@ impl fmt::Display for TriggerKind {
         };
         write!(f, "{}", s)
     }
+}
+
+#[derive(Eq, PartialEq, Hash)]
+pub enum HubOrWorkspaceId {
+    Hub,
+    WorkspaceId(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub struct RunnableFormat {
+    pub version: RunnableFormatVersion,
+    pub has_preprocessor: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub enum RunnableFormatVersion {
+    V1,
+    V2,
+}
+
+pub type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
+
+lazy_static! {
+    pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> =
+        Cache::new(1000);
 }

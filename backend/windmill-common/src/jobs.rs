@@ -5,7 +5,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::{types::Json, Postgres};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.d
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,
+    db::DB,
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -428,8 +429,6 @@ pub struct RawCode {
 }
 
 type Tag = String;
-
-pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug)]
 pub struct OnBehalfOf {

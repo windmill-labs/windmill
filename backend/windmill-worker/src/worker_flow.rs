@@ -48,7 +48,7 @@ use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
-    ScriptHashInfo,
+    ScriptHashInfo, DB,
 };
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -65,8 +65,6 @@ use windmill_queue::{
     handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
     MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
-
-type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
