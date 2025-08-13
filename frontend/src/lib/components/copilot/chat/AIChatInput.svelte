@@ -5,7 +5,7 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
 
@@ -52,15 +52,15 @@
 		
 		// Generate placeholder based on current AI mode
 		switch (aiChatManager.mode) {
-			case 'script':
+			case AIMode.SCRIPT:
 				return 'Modify this script, fix errors, or generate new code...'
-			case 'flow':
+			case AIMode.FLOW:
 				return 'Edit this flow, add steps, or modify workflow logic...'
-			case 'navigator':
+			case AIMode.NAVIGATOR:
 				return 'Help me navigate Windmill or find features...'
-			case 'API':
+			case AIMode.API:
 				return 'Make API calls to fetch data or manage resources...'
-			case 'ask':
+			case AIMode.ASK:
 				return 'Ask questions about Windmill features and documentation...'
 			default:
 				return 'Ask anything'
@@ -72,7 +72,7 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		if (aiChatManager.mode === 'script') {
+		if (aiChatManager.mode === AIMode.SCRIPT) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -130,7 +130,7 @@
 </script>
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === 'script'}
+	{#if aiChatManager.mode === AIMode.SCRIPT}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
