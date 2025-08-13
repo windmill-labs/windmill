@@ -349,7 +349,7 @@
 									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 									{@const hasEmptySubflowValue = hasEmptySubflow(entry.stepId, entry.stepType)}
 									{@const isCollapsible = !hasEmptySubflowValue}
-									<li class="border border-b flex flex-row border-orange-500 w-full">
+									<li class="border-b flex flex-row">
 										<div class="py-2 leading-tight align-top">
 											{#if isCollapsible}
 												<button
@@ -585,7 +585,7 @@
 
 							<!-- Flow result as last row entry -->
 							{#if showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob'}
-								<li class="border-b border-gray-200 dark:border-gray-700 flex">
+								<li class="border-b flex">
 									<div class="py-2 leading-tight align-top">
 										<button
 											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
