@@ -28,7 +28,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
-	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
 	interface Props {
 		// props
@@ -39,7 +38,6 @@
 		inlineScript?: boolean
 		args: Record<string, any>
 		transformer?: boolean
-		openAiChat?: boolean
 	}
 
 	let {
@@ -49,8 +47,7 @@
 		diffEditor,
 		inlineScript = false,
 		args,
-		transformer = false,
-		openAiChat = false
+		transformer = false
 	}: Props = $props()
 
 	run(() => {
@@ -113,15 +110,9 @@
 			mode = 'edit'
 		}
 
-		if (openAiChat) {
-			// Open the AI chat in script mode
-			aiChatManager.openChat()
-			aiChatManager.changeMode(AIMode.SCRIPT)
-		} else {
-			setTimeout(() => {
-				autoResize()
-			}, 0)
-		}
+		setTimeout(() => {
+			autoResize()
+		}, 0)
 	}
 
 	async function onGenerate(closePopup: () => void) {
@@ -297,12 +288,6 @@
 		;(dbSchema as any).publicOnly = detail === 'true'
 	}
 
-	const aiChatScriptModeClasses = $derived(
-		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
-			? 'dark:bg-violet-900 bg-violet-100'
-			: ''
-	)
-
 	onDestroy(() => {
 		abortController?.abort()
 	})
@@ -380,8 +365,8 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
-					propagateEvent={!genLoading && !openAiChat}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
@@ -395,14 +380,13 @@
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400',
-						aiChatScriptModeClasses
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading && !openAiChat}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
