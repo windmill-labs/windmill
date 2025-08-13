@@ -351,6 +351,17 @@ const testRunFlowToolDef = createToolDef(
 	'Execute a test run of the current flow'
 )
 
+const testRunStepSchema = z.object({
+	stepId: z.string().describe('The id of the step to test'),
+	args: z.record(z.any()).optional().describe('Arguments to pass to the step (optional, uses default step inputs if not provided)')
+})
+
+const testRunStepToolDef = createToolDef(
+	testRunStepSchema,
+	'test_run_step',
+	'Execute a test run of a specific step in the flow'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
@@ -591,6 +602,131 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		},
 		requiresConfirmation: true,
 		showDetails: true
+	},
+	{
+		def: testRunStepToolDef,
+		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+			const { flow } = helpers.getFlowAndSelectedId()
+			
+			if (!flow || !flow.value) {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: 'No flow available to test step from',
+					error: 'No flow found in current context'
+				})
+				throw new Error('No flow available to test step from. Please ensure you have a flow open in the editor.')
+			}
+
+			const parsedArgs = testRunStepSchema.parse(args)
+			const stepId = parsedArgs.stepId
+			const stepArgs = parsedArgs.args || {}
+
+			// Find the step in the flow
+			const modules = helpers.getModules()
+			let targetModule: FlowModule | undefined = undefined
+			
+			// Check main modules
+			targetModule = modules.find(m => m.id === stepId)
+			
+			// Check preprocessor module
+			if (!targetModule && flow.value.preprocessor_module?.id === stepId) {
+				targetModule = flow.value.preprocessor_module
+			}
+			
+			// Check failure module  
+			if (!targetModule && flow.value.failure_module?.id === stepId) {
+				targetModule = flow.value.failure_module
+			}
+
+			if (!targetModule) {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: `Step '${stepId}' not found in flow`,
+					error: `Step with id '${stepId}' does not exist in the current flow`
+				})
+				throw new Error(`Step with id '${stepId}' not found in flow. Available steps: ${modules.map(m => m.id).join(', ')}`)
+			}
+
+			const module = targetModule
+			const moduleValue = module.value
+
+			// Get step inputs if no args provided
+			let finalArgs = stepArgs
+			if (Object.keys(stepArgs).length === 0) {
+				try {
+					finalArgs = await helpers.getStepInputs(stepId)
+				} catch (error) {
+					console.warn('Could not get step inputs, using empty args:', error)
+					finalArgs = {}
+				}
+			}
+
+			if (moduleValue.type === 'rawscript') {
+				// Test raw script step
+				return executeTestRun({
+					jobStarter: () => JobService.runScriptPreview({
+						workspace: workspace,
+						requestBody: {
+							content: moduleValue.content ?? '',
+							language: moduleValue.language,
+							args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...finalArgs } : finalArgs,
+							tag: flow.tag || moduleValue.tag
+						}
+					}),
+					workspace,
+					toolCallbacks,
+					toolId,
+					startMessage: `Starting test run of step '${stepId}'...`,
+					contextName: 'script'
+				})
+			} else if (moduleValue.type === 'script') {
+				// Test script step - need to get the script content
+				let script
+				if (moduleValue.hash) {
+					script = await ScriptService.getScriptByHash({ workspace: workspace, hash: moduleValue.hash })
+				} else {
+					script = await ScriptService.getScriptByPath({ workspace: workspace, path: moduleValue.path })
+				}
+				
+				return executeTestRun({
+					jobStarter: () => JobService.runScriptPreview({
+						workspace: workspace,
+						requestBody: {
+							content: script.content,
+							language: script.language,
+							args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...finalArgs } : finalArgs,
+							tag: flow.tag || (moduleValue.tag_override ? moduleValue.tag_override : script.tag),
+							lock: script.lock
+						}
+					}),
+					workspace,
+					toolCallbacks,
+					toolId,
+					startMessage: `Starting test run of script step '${stepId}'...`,
+					contextName: 'script'
+				})
+			} else if (moduleValue.type === 'flow') {
+				// Test flow step
+				return executeTestRun({
+					jobStarter: () => JobService.runFlowByPath({
+						workspace: workspace,
+						path: moduleValue.path,
+						requestBody: finalArgs
+					}),
+					workspace,
+					toolCallbacks,
+					toolId,
+					startMessage: `Starting test run of flow step '${stepId}'...`,
+					contextName: 'flow'
+				})
+			} else {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: `Step type '${moduleValue.type}' not supported for testing`,
+					error: `Cannot test step of type '${moduleValue.type}'`
+				})
+				throw new Error(`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`)
+			}
+		},
+		requiresConfirmation: true,
+		showDetails: true
 	}
 ]
 
@@ -600,6 +736,7 @@ Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
 ALWAYS use the \`test_run_flow\` tool to test the flow, and iterate on the flow until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
+Use the \`test_run_step\` tool to test individual steps of the flow when debugging or validating specific step functionality.
 
 ## Understanding User Requests
 
