@@ -10733,6 +10733,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/InstanceGroup"
+  /groups/list_with_workspaces:
+    get:
+      summary: list instance groups with workspace information
+      operationId: listInstanceGroupsWithWorkspaces
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list with workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/get/{name}:
     get:
@@ -16860,6 +16875,32 @@ components:
           type: array
           items:
             type: string
+
+    InstanceGroupWithWorkspaces:
+      type: object
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceInfo"
+
+    WorkspaceInfo:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        workspace_name:
+          type: string
+        role:
+          type: string
       required:
         - name
 

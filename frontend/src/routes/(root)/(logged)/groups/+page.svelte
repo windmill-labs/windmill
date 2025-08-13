@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Group } from '$lib/gen'
-	import type { InstanceGroup } from '$lib/gen'
+	import type { InstanceGroupWithWorkspaces } from '$lib/gen'
 	import { GroupService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -25,7 +25,7 @@
 
 	let newGroupName: string = $state('')
 	let groups: GroupW[] | undefined = $state(undefined)
-	let instanceGroups: InstanceGroup[] | undefined = $state(undefined)
+	let instanceGroups: InstanceGroupWithWorkspaces[] | undefined = $state(undefined)
 	let groupDrawer: Drawer | undefined = $state()
 
 	async function loadGroups(): Promise<void> {
@@ -36,7 +36,7 @@
 
 	async function loadInstanceGroups(): Promise<void> {
 		try {
-			instanceGroups = await GroupService.listInstanceGroups()
+			instanceGroups = await GroupService.listInstanceGroupsWithWorkspaces()
 		} catch (e) {
 			instanceGroups = undefined
 		}
@@ -211,22 +211,37 @@
 					<tr slot="header-row">
 						<th>Name</th>
 						<th>Members</th>
+						<th>Workspaces</th>
 					</tr>
 					{#snippet body()}
 						<tbody>
-							{#each instanceGroups ?? [] as { name, emails }}
+							{#each instanceGroups ?? [] as { name, emails, workspaces }}
 								<tr>
 									<td>
 										<a
 											href="#{name}"
 											onclick={() => {
-												editGroupName = name
-												groupDrawer?.openDrawer()
+												if (name) {
+													editGroupName = name
+													groupDrawer?.openDrawer()
+												}
 											}}
 											>{name}
 										</a>
 									</td>
 									<td>{emails?.length ?? 0} members</td>
+									<td>
+										{#if workspaces && workspaces.length > 0}
+											{#each workspaces as workspace, index}
+												{#if index > 0}, {/if}<a
+													href="/workspace_settings?tab=users&workspace={workspace.workspace_id}"
+													class="text-blue-500 hover:underline"
+												>{workspace.workspace_id}</a> ({workspace.role})
+											{/each}
+										{:else}
+											<span class="text-tertiary text-sm">No workspaces</span>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
