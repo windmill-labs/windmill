@@ -31,7 +31,7 @@
 		selectedContext = $bindable([]),
 		disabled = false,
 		isFirstMessage = false,
-		placeholder = 'Ask anything',
+		placeholder,
 		initialInstructions = '',
 		editingMessageIndex = null,
 		onEditEnd = () => {},
@@ -45,7 +45,7 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
-		if (placeholder !== 'Ask anything') {
+		if (placeholder) {
 			// If a custom placeholder is provided, use it
 			return placeholder
 		}
