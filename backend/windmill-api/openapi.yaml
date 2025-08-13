@@ -16866,6 +16866,8 @@ components:
 
     InstanceGroup:
       type: object
+      required:
+        - name
       properties:
         name:
           type: string
@@ -16878,6 +16880,8 @@ components:
 
     InstanceGroupWithWorkspaces:
       type: object
+      required:
+        - name
       properties:
         name:
           type: string

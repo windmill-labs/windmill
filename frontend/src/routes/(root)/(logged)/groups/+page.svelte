@@ -233,7 +233,7 @@
 									<td>
 										{#if workspaces && workspaces.length > 0}
 											{#each workspaces as workspace, index}
-												{#if index > 0}, {/if}<a
+												{#if index > 0}${", "}{/if}<a
 													href="/workspace_settings?tab=users&workspace={workspace.workspace_id}"
 													class="text-blue-500 hover:underline"
 												>{workspace.workspace_id}</a> ({workspace.role})

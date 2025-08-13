@@ -648,7 +648,7 @@ struct IGroupWithWorkspaces {
     workspaces: Vec<WorkspaceInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct WorkspaceInfo {
     workspace_id: String,
     workspace_name: String,
@@ -671,53 +671,60 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 async fn list_igroups_with_workspaces(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroupWithWorkspaces>> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    // Get all instance groups with their emails
+    // Get all instance groups with their emails first
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, summary"
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    // For each group, get the workspaces where it's configured for auto-add
+    // Get all workspace mappings for instance groups in a single query
+    let workspace_mappings = sqlx::query!(
+        r#"
+        SELECT
+            ig.name as group_name,
+            ws.workspace_id,
+            w.name as workspace_name,
+            ws.auto_add_instance_groups_roles->ig.name as role
+        FROM instance_group ig
+        INNER JOIN workspace_settings ws ON ws.auto_add_instance_groups IS NOT NULL
+            AND ig.name = ANY(ws.auto_add_instance_groups)
+        INNER JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false
+        ORDER BY ig.name, ws.workspace_id
+        "#
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Create a map of group_name -> Vec<WorkspaceInfo>
+    let mut workspaces_by_group: std::collections::HashMap<String, Vec<WorkspaceInfo>> = std::collections::HashMap::new();
+    for mapping in workspace_mappings {
+        let role = mapping.role
+            .and_then(|r| r.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "developer".to_string());
+
+        let workspace_info = WorkspaceInfo {
+            workspace_id: mapping.workspace_id.clone(),
+            workspace_name: mapping.workspace_name,
+            role,
+        };
+
+        workspaces_by_group
+            .entry(mapping.group_name)
+            .or_insert_with(Vec::new)
+            .push(workspace_info);
+    }
+
     let mut result = Vec::new();
     for group in groups {
-        let workspaces = sqlx::query!(
-            r#"
-            SELECT
-                ws.workspace_id,
-                w.name as workspace_name,
-                ws.auto_add_instance_groups_roles->$1 as role
-            FROM workspace_settings ws
-            INNER JOIN workspace w ON w.id = ws.workspace_id
-            WHERE ws.auto_add_instance_groups IS NOT NULL
-            AND $1 = ANY(ws.auto_add_instance_groups)
-            AND w.deleted = false
-            "#,
-            &group.name
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-
-        let workspace_infos: Vec<WorkspaceInfo> = workspaces
-            .into_iter()
-            .map(|w| {
-                let role = w.role
-                    .and_then(|r| r.as_str().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "developer".to_string());
-                WorkspaceInfo {
-                    workspace_id: w.workspace_id.clone(),
-                    workspace_name: w.workspace_name,
-                    role,
-                }
-            })
-            .collect();
+        let workspaces = workspaces_by_group.get(&group.name).cloned().unwrap_or_default();
 
         result.push(IGroupWithWorkspaces {
             name: group.name,
             summary: group.summary,
             emails: group.emails,
-            workspaces: workspace_infos,
+            workspaces,
         });
     }
 
