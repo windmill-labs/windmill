@@ -186,6 +186,7 @@
 	function onSchemaChange() {
 		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
+			console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
 			editSchema = true
 		}
 		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
@@ -704,7 +705,8 @@
 																										property_1: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_1']
 																								},
 																								{
 																									title: 'Option 2',
@@ -717,7 +719,8 @@
 																										property_2: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_2']
 																								}
 																							]
 																						}
