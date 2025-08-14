@@ -16,10 +16,10 @@ import { stringifySchema } from './copilot/lib'
 
 export type DbInput =
 	| {
-			type: 'database'
-			resourceType: DbType
-			resourcePath: string
-	  }
+		type: 'database'
+		resourceType: DbType
+		resourcePath: string
+	}
 	| { type: 'ducklake'; ducklake: string }
 
 export type IDbTableOps = {
