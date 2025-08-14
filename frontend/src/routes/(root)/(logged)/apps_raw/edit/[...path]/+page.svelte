@@ -219,7 +219,6 @@
 				{policy}
 				bind:savedApp
 				{diffDrawer}
-				version={lastVersion}
 				newApp={false}
 			/>
 		</div>
