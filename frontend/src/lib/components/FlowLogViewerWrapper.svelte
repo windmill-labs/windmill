@@ -131,7 +131,8 @@
 			if (
 				currentNode.type === 'whileLoopStart' ||
 				currentNode.type === 'branchOneStart' ||
-				currentNode.type === 'branchAllStart'
+				currentNode.type === 'branchAllStart' ||
+				currentNode.type === 'forLoopStart'
 			) {
 				// Reaching the end of a subflow
 				return entries
@@ -143,42 +144,37 @@
 				return entries
 			}
 
-			if (
-				currentNode.type === 'forLoopEnd' ||
-				currentNode.type === 'whileLoopEnd' ||
-				currentNode.type === 'branchOneEnd'
-			) {
+			if (currentNode.type === 'forLoopEnd' || currentNode.type === 'whileLoopEnd') {
 				const subflow = traverseFromId(nextParentId)
 				const subflowId = currentNode.id.slice(0, -4) // Remove '-end' suffix
 				const subflowNode = nodeById[subflowId]
-				const subflowSummary = currentNode.type === 'branchOneEnd' ? 'branch' : 'iteration'
+				const subflowSummary = 'iteration'
 				if (subflowNode.type === 'module') {
 					entries.push({
 						id: subflowId,
 						stepId: subflowId,
 						subflows: [subflow],
-						stepType:
-							currentNode.type === 'forLoopEnd'
-								? 'forloopflow'
-								: currentNode.type === 'whileLoopEnd'
-									? 'whileloopflow'
-									: 'branchone',
+						stepType: subflowNode.data.module.value.type,
 						summary: subflowNode.data.module.summary ?? '',
 						subflowsSummary: [subflowSummary]
 					})
 					nextParentId = subflowNode.parentIds?.[0] ?? ''
 				}
-			} else if (currentNode.type === 'branchAllEnd') {
+			} else if (currentNode.type === 'branchAllEnd' || currentNode.type === 'branchOneEnd') {
 				const subflowId = currentNode.id.slice(0, -4) // Remove '-end' suffix
 				const subflowNode = nodeById[subflowId]
-				if (subflowNode.type === 'module' && subflowNode.data.module.value.type === 'branchall') {
+				if (
+					subflowNode.type === 'module' &&
+					(subflowNode.data.module.value.type === 'branchall' ||
+						subflowNode.data.module.value.type === 'branchone')
+				) {
 					const subflows = currentNode.parentIds?.map((id) => traverseFromId(id)) ?? []
 					const subflowsSummary = subflowNode.data.module.value.branches.map((b) => b.summary ?? '')
 					entries.push({
 						id: subflowId,
 						stepId: subflowId,
 						subflows: subflows,
-						stepType: 'branchall',
+						stepType: subflowNode.data.module.value.type,
 						subflowsSummary
 					})
 					nextParentId = subflowNode.parentIds?.[0] ?? '' // a module can only have one parent
