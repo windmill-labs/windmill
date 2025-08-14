@@ -215,6 +215,38 @@
 			module.value.type === 'branchone'
 		)
 	}
+
+	function getSubflows(module: FlowModule) {
+		const subflows: Array<{ modules: FlowModule[]; label: string; flowId: string }> = []
+
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			subflows.push({
+				modules: module.value.modules,
+				label: module.summary || '',
+				flowId: `${module.id}-subflow`
+			})
+		} else if (module.value.type === 'branchall' || module.value.type === 'branchone') {
+			// Add all branches
+			for (let i = 0; i < module.value.branches.length; i++) {
+				const branch = module.value.branches[i]
+				subflows.push({
+					modules: branch.modules,
+					label: branch.summary || `branch ${i + 1}`,
+					flowId: `${module.id}-subflow-${i}`
+				})
+			}
+			// Add default branch for branchone
+			if (module.value.type === 'branchone') {
+				subflows.push({
+					modules: module.value.default,
+					label: 'default',
+					flowId: `${module.id}-subflow-default`
+				})
+			}
+		}
+
+		return subflows
+	}
 </script>
 
 {#if render}
@@ -494,8 +526,7 @@
 												{@const jobId = $localModuleStates[module.id]?.job_id}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show child steps if they exist -->
-													{#if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
-														{@const subflowLabel = module.summary}
+													{#each getSubflows(module) as subflow}
 														{@const subflowJob = {
 															id: jobId,
 															type:
@@ -511,7 +542,7 @@
 														<div class="border-l mb-2">
 															<!-- Recursively render child steps using FlowLogViewer -->
 															<FlowLogViewer
-																modules={module.value.modules}
+																modules={subflow.modules}
 																{localModuleStates}
 																rootJob={subflowJob}
 																flowStatus={$localModuleStates[module.id]?.type}
@@ -523,87 +554,15 @@
 																{workspaceId}
 																{render}
 																level={level + 1}
-																flowId={`${module.id}-subflow`}
-																flowSummary={subflowLabel}
+																flowId={subflow.flowId}
+																flowSummary={subflow.label}
 																{onSelectedIteration}
 																{getSelectedIteration}
 															/>
 														</div>
-													{:else if module.value.type === 'branchall' || module.value.type === 'branchone'}
-														{#each module.value.branches as branch}
-															{@const subflowLabel = branch.summary}
-															{@const subflowJob = {
-																id: jobId,
-																type:
-																	$localModuleStates[module.id]?.type === 'Failure' ||
-																	$localModuleStates[module.id]?.type === 'Success'
-																		? 'CompletedJob'
-																		: ('QueuedJob' as Job['type']),
-																logs,
-																result,
-																args,
-																success: $localModuleStates[module.id]?.type === 'Success'
-															}}
-															<div class="border-l mb-2">
-																<!-- Recursively render child steps using FlowLogViewer -->
-																<FlowLogViewer
-																	modules={branch.modules}
-																	{localModuleStates}
-																	rootJob={subflowJob}
-																	flowStatus={$localModuleStates[module.id]?.type}
-																	{expandedRows}
-																	{allExpanded}
-																	{showResultsInputs}
-																	{toggleExpanded}
-																	toggleExpandAll={undefined}
-																	{workspaceId}
-																	{render}
-																	level={level + 1}
-																	flowId={`${module.id}-subflow`}
-																	flowSummary={subflowLabel}
-																	{onSelectedIteration}
-																	{getSelectedIteration}
-																/>
-															</div>
-														{/each}
-														{#if module.value.type === 'branchone'}
-															{@const subflowLabel = 'default'}
-															{@const subflowJob = {
-																id: jobId,
-																type:
-																	$localModuleStates[module.id]?.type === 'Failure' ||
-																	$localModuleStates[module.id]?.type === 'Success'
-																		? 'CompletedJob'
-																		: ('QueuedJob' as Job['type']),
-																logs,
-																result,
-																args,
-																success: $localModuleStates[module.id]?.type === 'Success'
-															}}
-															<div class="border-l mb-2">
-																<!-- Recursively render child steps using FlowLogViewer -->
-																<FlowLogViewer
-																	modules={module.value.default}
-																	{localModuleStates}
-																	rootJob={subflowJob}
-																	flowStatus={$localModuleStates[module.id]?.type}
-																	{expandedRows}
-																	{allExpanded}
-																	{showResultsInputs}
-																	{toggleExpanded}
-																	toggleExpandAll={undefined}
-																	{workspaceId}
-																	{render}
-																	level={level + 1}
-																	flowId={`${module.id}-subflow`}
-																	flowSummary={subflowLabel}
-																	{onSelectedIteration}
-																	{getSelectedIteration}
-																/>
-															</div>
-														{/if}
-														<!-- Show input arguments -->
-													{:else}
+													{/each}
+													<!-- Show input arguments -->
+													{#if getSubflows(module).length === 0}
 														{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
 															<div class="mb-2">
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
