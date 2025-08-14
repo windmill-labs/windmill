@@ -101,6 +101,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
+        .route("/edit_instance_groups", post(edit_instance_groups))
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route(
             "/get_secondary_storage_names",
@@ -252,6 +253,10 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -462,7 +467,7 @@ async fn get_settings(
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         r#"
-        SELECT 
+        SELECT
             workspace_id,
             slack_team_id,
             teams_team_id,
@@ -491,10 +496,12 @@ async fn get_settings(
             mute_critical_alerts,
             color,
             operator_settings,
-            git_app_installations
-        FROM 
+            git_app_installations,
+            auto_add_instance_groups,
+            auto_add_instance_groups_roles
+        FROM
             workspace_settings
-        WHERE 
+        WHERE
             workspace_id = $1
         "#,
         &w_id
@@ -724,6 +731,28 @@ async fn edit_auto_invite(
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
     crate::workspaces_oss::edit_auto_invite(authed, db, w_id, ea).await
+}
+
+#[cfg(feature = "private")]
+async fn edit_instance_groups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(config): Json<crate::workspaces_ee::EditInstanceGroups>,
+) -> Result<String> {
+    crate::workspaces_ee::edit_instance_groups(authed, db, w_id, config).await
+}
+
+#[cfg(not(feature = "private"))]
+async fn edit_instance_groups(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_config): Json<serde_json::Value>,
+) -> Result<String> {
+    Err(Error::BadRequest(
+        "Instance groups are only available on Windmill Enterprise Edition".to_string(),
+    ))
 }
 
 async fn edit_webhook(
@@ -1716,13 +1745,13 @@ async fn edit_error_handler(
 
         sqlx::query!(
             r#"
-            UPDATE 
+            UPDATE
                 workspace_settings
             SET
                 error_handler = $1,
                 error_handler_extra_args = $2,
                 error_handler_muted_on_cancel = $3
-            WHERE 
+            WHERE
                 workspace_id = $4
             "#,
             error_handler,
@@ -1735,13 +1764,13 @@ async fn edit_error_handler(
     } else {
         sqlx::query!(
             r#"
-            UPDATE 
+            UPDATE
                 workspace_settings
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
                 error_handler_muted_on_cancel = NULL
-            WHERE 
+            WHERE
                 workspace_id = $1
         "#,
             &w_id

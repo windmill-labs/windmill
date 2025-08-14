@@ -45,11 +45,16 @@
       },
       {
         "ordinal": 8,
+        "name": "added_via",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
         "name": "super_admin",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "name",
         "type_info": "Varchar"
       }
@@ -68,6 +73,7 @@
       false,
       false,
       false,
+      true,
       true,
       false,
       true
