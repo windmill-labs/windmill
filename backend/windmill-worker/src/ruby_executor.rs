@@ -47,6 +47,7 @@ lazy_static::lazy_static! {
 const NSJAIL_CONFIG_RUN_RUBY_CONTENT: &str = include_str!("../nsjail/run.ruby.config.proto");
 const NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT: &str =
     include_str!("../nsjail/download.ruby.config.proto");
+const NSJAIL_CONFIG_LOCK_RUBY_CONTENT: &str = include_str!("../nsjail/lock.ruby.config.proto");
 
 #[cfg(debug_assertions)]
 const DEV_CONF_NSJAIL: &'static str = r#"
@@ -340,11 +341,24 @@ Your Gemfile syntax will continue to work as-is."
         )
         .await;
 
-        let mut cmd = Command::new(if cfg!(windows) {
-            "bundle.bat"
+        let mut cmd = if !cfg!(windows) && !*DISABLE_NSJAIL {
+            let nsjail_proto = format!("{}.lock.config.proto", Uuid::new_v4());
+            let _ = write_file(
+                &job_dir,
+                &nsjail_proto,
+                &NSJAIL_CONFIG_LOCK_RUBY_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                    .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
+            )?;
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.args(vec!["--config", &nsjail_proto, "--", BUNDLE_PATH.as_str()]);
+            cmd
+        } else if cfg!(windows) {
+            Command::new("bundle.bat")
         } else {
-            BUNDLE_PATH.as_str()
-        });
+            Command::new(BUNDLE_PATH.as_str())
+        };
 
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
