@@ -533,7 +533,7 @@ class AIChatManager {
 		let reply = ''
 
 		try {
-			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
 				isPreprocessor: false
 			})
 			const messages = [userMessage]
