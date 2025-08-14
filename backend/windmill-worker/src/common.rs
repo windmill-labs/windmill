@@ -1070,6 +1070,7 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
+#[derive(Clone)]
 pub struct S3ModeWorkerData {
     pub client: AuthedClient,
     pub object_key: String,
