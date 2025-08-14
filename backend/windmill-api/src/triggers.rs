@@ -212,7 +212,7 @@ pub async fn list_tokens_internal(
         WHERE workspace_id = $1
           AND (
                scopes @> ARRAY['jobs:run:flows:' || $2]::text[]
-               OR scopes @> ARRAY['run:flows/' || $2]::text[]
+               OR scopes @> ARRAY['run:flow/' || $2]::text[]
               )
         "#,
             w_id,
@@ -235,7 +235,7 @@ pub async fn list_tokens_internal(
         WHERE workspace_id = $1
           AND (
                scopes @> ARRAY['jobs:run:scripts:' || $2]::text[]
-               OR scopes @> ARRAY['run:scripts/' || $2]::text[]
+               OR scopes @> ARRAY['run:script/' || $2]::text[]
               )
         "#,
             w_id,
