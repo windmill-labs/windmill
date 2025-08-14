@@ -98,7 +98,7 @@ pub async fn handle_dedicated_process(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(cmd, command_path).await?
+        start_child_process(cmd, command_path, false).await?
     };
 
     let stdout = child

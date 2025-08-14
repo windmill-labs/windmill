@@ -1,4 +1,4 @@
-import { ResourceService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -13,7 +13,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 
@@ -351,6 +351,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- After modifying the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -498,17 +499,18 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
+	tools.push(testRunScriptTool)
 	return tools
 }
 
-export async function prepareScriptUserMessage(
+export function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[],
 	options: {
 		isPreprocessor?: boolean
 	} = {}
-): Promise<ChatCompletionUserMessageParam> {
+): ChatCompletionUserMessageParam {
 	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
 	let dbContext = 'DATABASES:\n'
@@ -627,19 +629,22 @@ async function formatDBSchema(dbSchema: DBSchema) {
 }
 
 export interface ScriptChatHelpers {
-	getLang: () => ScriptLang | 'bunnative'
+	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> }
+	getLastSuggestedCode: () => string | undefined
+	applyCode: (code: string, applyAll?: boolean) => void
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.setToolStatus(toolId, 'Searching resource types for "' + args.query + '"...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
+		const lang = helpers.getScriptOptions().lang
 		const formattedResourceTypes = await getFormattedResourceTypes(
-			helpers.getLang(),
+			lang,
 			args.query,
 			workspace
 		)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + args.query + '"')
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + args.query + '"' })
 		return formattedResourceTypes
 	}
 }
@@ -650,7 +655,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		if (!args.resourcePath) {
 			throw new Error('Database path not provided')
 		}
-		toolCallbacks.setToolStatus(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
 		const resource = await ResourceService.getResource({
 			workspace: workspace,
 			path: args.resourcePath
@@ -672,7 +677,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Database not found')
 		}
 		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
 		return stringSchema
 	}
 }
@@ -768,9 +773,9 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionTool = {
 export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, 'Searching for relevant packages...')
+		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const result = await searchExternalIntegrationResources(args)
-		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
+		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return result
 	}
 }
@@ -830,4 +835,73 @@ export async function fetchNpmPackageTypes(
 			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
 		}
 	}
+}
+
+const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'test_run_script',
+		description: 'Execute a test run of the current script in the editor',
+		parameters: {
+			type: 'object',
+			properties: {
+				args: {
+					type: 'object',
+					description: 'Arguments to pass to the script (optional, uses current editor args if not provided)'
+				}
+			},
+			required: []
+		}
+	},
+}
+
+export const testRunScriptTool: Tool<ScriptChatHelpers> = {
+	def: TEST_RUN_SCRIPT_TOOL,
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		const scriptOptions = helpers.getScriptOptions()
+		
+		if (!scriptOptions) {
+			toolCallbacks.setToolStatus(toolId, { 
+				content: 'No script available to test',
+				error: 'No script found in current context'
+			})
+			throw new Error('No script code available to test. Please ensure you have a script open in the editor.')
+		}
+
+		let codeToTest = scriptOptions.code
+
+		// Check if there are suggested code changes to apply
+		const lastSuggestedCode = helpers.getLastSuggestedCode()
+		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
+			codeToTest = lastSuggestedCode
+			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+			
+			// Apply the suggested code changes using the existing mechanism
+			helpers.applyCode(lastSuggestedCode, true)
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
+		}
+
+		return executeTestRun({
+			jobStarter: () => JobService.runScriptPreview({
+				workspace: workspace,
+				requestBody: {
+					path: scriptOptions.path,
+					content: codeToTest,
+					args: args.args || scriptOptions.args || {},
+					language: scriptOptions.lang as ScriptLang,
+					tag: undefined,
+					lock: undefined,
+					script_hash: undefined
+				}
+			}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: 'Running test...',
+			contextName: 'script'
+		})
+	},
+	requiresConfirmation: true,
+	showDetails: true,
 }

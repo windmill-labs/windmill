@@ -1,15 +1,30 @@
+//! Endpoint tools for MCP server
+//!
+//! Contains the auto-generated endpoint tools and utilities for converting
+//! them to MCP tools and handling HTTP calls to Windmill API endpoints.
+
 use rmcp::{model::Tool, Error};
 use std::sync::Arc;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::Authed;
 use windmill_common::BASE_URL;
 use crate::db::ApiAuthed;
-use crate::mcp_tools::EndpointTool;
 
+// Import the auto-generated tools
+use super::auto_generated_endpoints;
+pub use auto_generated_endpoints::{EndpointTool, all_tools};
+
+/// Get all available endpoint tools
+pub fn all_endpoint_tools() -> Vec<EndpointTool> {
+    all_tools()
+}
+
+/// Convert endpoint tools to MCP tools
 pub fn endpoint_tools_to_mcp_tools(endpoint_tools: Vec<EndpointTool>) -> Vec<Tool> {
     endpoint_tools.into_iter().map(|tool| endpoint_tool_to_mcp_tool(&tool)).collect()
 }
 
+/// Convert a single endpoint tool to MCP tool
 pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     let mut combined_properties = serde_json::Map::new();
     let mut combined_required = Vec::new();
@@ -33,30 +48,41 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
 
     let description = format!("{}. {}", tool.description, tool.instructions);
     
+    // Create annotations based on HTTP method and endpoint characteristics
+    let annotations = create_endpoint_annotations(tool);
+
     Tool {
         name: tool.name.clone(),
         description: Some(description.into()),
         input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
-        annotations: Some(rmcp::model::ToolAnnotations {
-            title: Some(format!("{} {}", 
-                match tool.method {
-                    http::Method::GET => "GET",
-                    http::Method::POST => "POST", 
-                    http::Method::PUT => "PUT",
-                    http::Method::DELETE => "DELETE",
-                    http::Method::PATCH => "PATCH",
-                    _ => "UNKNOWN"
-                }, 
-                tool.path
-            )),
-            read_only_hint: None,
-            destructive_hint: None,
-            idempotent_hint: None,
-            open_world_hint: None,
-        }),
+        annotations: Some(annotations),
     }
 }
 
+/// Create appropriate annotations for endpoint tools based on HTTP method
+fn create_endpoint_annotations(tool: &EndpointTool) -> rmcp::model::ToolAnnotations {
+    let method = tool.method.as_ref();
+    
+    // Determine characteristics based on HTTP method
+    let (read_only, destructive, idempotent, open_world) = match method {
+        "GET" => (true, false, true, true),      // Read-only, safe, idempotent
+        "POST" => (false, true, false, true),    // Can modify, potentially destructive, not idempotent
+        "PUT" => (false, false, true, true),     // Can modify, typically idempotent updates
+        "DELETE" => (false, true, true, true),   // Destructive but idempotent
+        "PATCH" => (false, false, false, true), // Partial updates, not guaranteed idempotent
+        _ => (false, true, false, true),         // Default: assume can modify and be destructive
+    };
+
+    rmcp::model::ToolAnnotations {
+        title: Some(format!("{} {}", method, tool.path)),
+        read_only_hint: Some(read_only),
+        destructive_hint: Some(destructive),
+        idempotent_hint: Some(idempotent),
+        open_world_hint: Some(open_world),
+    }
+}
+
+/// Merge schema into combined properties and required fields
 fn merge_schema_into(
     combined_properties: &mut serde_json::Map<String, serde_json::Value>,
     combined_required: &mut Vec<String>,
@@ -75,6 +101,7 @@ fn merge_schema_into(
     }
 }
 
+/// Call an endpoint tool by making HTTP request to Windmill API
 pub async fn call_endpoint_tool(
     tool: &EndpointTool,
     args: serde_json::Value,
@@ -112,6 +139,7 @@ pub async fn call_endpoint_tool(
     }
 }
 
+/// Substitute path parameters in the URL template
 fn substitute_path_params(
     path: &str,
     workspace_id: &str,
@@ -145,6 +173,7 @@ fn substitute_path_params(
     Ok(path_template)
 }
 
+/// Build query string from arguments
 fn build_query_string(
     args_map: &serde_json::Map<String, serde_json::Value>,
     query_schema: &Option<serde_json::Value>,
@@ -175,12 +204,13 @@ fn build_query_string(
     }
 }
 
+/// Build request body from arguments
 fn build_request_body(
-    method: &http::Method,
+    method: &str,
     args_map: &serde_json::Map<String, serde_json::Value>,
     body_schema: &Option<serde_json::Value>,
 ) -> Option<serde_json::Value> {
-    if method == &http::Method::GET {
+    if method == "GET" {
         return None;
     }
     
@@ -202,8 +232,9 @@ fn build_request_body(
     }
 }
 
+/// Create HTTP request with authentication
 async fn create_http_request(
-    method: &http::Method,
+    method: &str,
     url: &str,
     workspace_id: &str,
     api_authed: &ApiAuthed,
@@ -211,11 +242,11 @@ async fn create_http_request(
 ) -> Result<reqwest::Response, Error> {
     let client = &crate::HTTP_CLIENT;
     let mut request_builder = match method {
-        &http::Method::GET => client.get(url),
-        &http::Method::POST => client.post(url),
-        &http::Method::PUT => client.put(url),
-        &http::Method::DELETE => client.delete(url),
-        &http::Method::PATCH => client.patch(url),
+        "GET" => client.get(url),
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "DELETE" => client.delete(url),
+        "PATCH" => client.patch(url),
         _ => return Err(Error::invalid_params(
             format!("Unsupported HTTP method: {}", method),
             None

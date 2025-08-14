@@ -21,6 +21,7 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import Button from './common/button/Button.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -223,10 +224,14 @@
 		<h4 class="mt-4 inline-flex items-center gap-4"
 			>Resource description <Required required={false} />
 			{#if can_write}
-				<div class="flex gap-1 items-center">
-					<Toggle size="xs" bind:checked={editDescription} />
-					<Pen size={14} />
-				</div>
+				<Button
+					size="xs2"
+					variant="contained"
+					color="light"
+					btnClasses={editDescription ? 'bg-surface-hover' : ''}
+					startIcon={{ icon: Pen }}
+					on:click={() => (editDescription = !editDescription)}
+				/>
 			{/if}</h4
 		>
 		{#if can_write && editDescription}
