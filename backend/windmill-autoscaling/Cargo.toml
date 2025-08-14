@@ -22,3 +22,6 @@ tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 anyhow.workspace = true
+kube.workspace = true
+k8s-openapi.workspace = true
+tokio.workspace = true

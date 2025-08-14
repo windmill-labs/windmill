@@ -10,21 +10,54 @@ use serde_json::json;
 use tracing::{info, warn};
 use windmill_common::DB;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct KubernetesConfig {
-    pub worker_group: String,
-    pub namespace: Option<String>,
-    // pub service_account: Option<String>,
-    pub kubeconfig_path: Option<String>,
+    pub worker_group: ValueOrAuto<String>,
+    pub namespace: ValueOrAuto<String>,
+    pub kubeconfig: ValueOrPath<Kubeconfig>,
+    pub service_account_token: ValueOrPathOrAuto<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Kubeconfig {
+    pub api_server: ValueOrAuto<String>,
+    pub ca_cert: ValueOrPathOrAuto<String>,
+}
+
+trait Val: Clone + Serialize + for<'a> Deserialize<'a> {}
+impl Val for String {}
+impl<V: Val> Val for ValueOrAuto<V> {}
+impl<V: Val> Val for ValueOrPath<V> {}
+impl<V: Val> Val for ValueOrPathOrAuto<V> {}
+impl Val for Kubeconfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ValueOrPathOrAuto<V: Val> {
+    Value(V),
+    Path(String),
+    Auto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ValueOrAuto<V: Val> {
+    Value(V),
+    Auto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ValueOrPath<V: Val> {
+    Value(V),
+    Path(String),
 }
 
 impl Default for KubernetesConfig {
     fn default() -> Self {
-        Self {
-            worker_group: "default".to_string(),
-            namespace: Some("windmill".to_string()),
-            kubeconfig_path: None,
-        }
+        // Self {
+        //     worker_group: "default".to_string(),
+        //     namespace: Some("windmill".to_string()),
+        //     kubeconfig_path: None,
+        // }
+        todo!()
     }
 }
 
