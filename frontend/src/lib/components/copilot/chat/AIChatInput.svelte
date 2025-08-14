@@ -5,7 +5,7 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
 
@@ -31,7 +31,7 @@
 		selectedContext = $bindable([]),
 		disabled = false,
 		isFirstMessage = false,
-		placeholder = 'Ask anything',
+		placeholder,
 		initialInstructions = '',
 		editingMessageIndex = null,
 		onEditEnd = () => {},
@@ -43,12 +43,36 @@
 		onKeyDown = undefined
 	}: Props = $props()
 
+	// Generate mode-specific placeholder
+	const modePlaceholder = $derived.by(() => {
+		if (placeholder) {
+			// If a custom placeholder is provided, use it
+			return placeholder
+		}
+		
+		// Generate placeholder based on current AI mode
+		switch (aiChatManager.mode) {
+			case AIMode.SCRIPT:
+				return 'Modify this script, fix errors, or generate new code...'
+			case AIMode.FLOW:
+				return 'Edit this flow, add steps, or modify workflow logic...'
+			case AIMode.NAVIGATOR:
+				return 'Help me navigate Windmill or find features...'
+			case AIMode.API:
+				return 'Make API calls to fetch data or manage resources...'
+			case AIMode.ASK:
+				return 'Ask questions about Windmill features and documentation...'
+			default:
+				return 'Ask anything'
+		}
+	})
+
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		if (aiChatManager.mode === 'script') {
+		if (aiChatManager.mode === AIMode.SCRIPT) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -106,7 +130,7 @@
 </script>
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === 'script'}
+	{#if aiChatManager.mode === AIMode.SCRIPT}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
@@ -146,7 +170,7 @@
 			{availableContext}
 			{selectedContext}
 			{isFirstMessage}
-			{placeholder}
+			placeholder={modePlaceholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
 				if (disabled) {
@@ -173,7 +197,7 @@
 					}
 				}}
 				rows={3}
-				{placeholder}
+				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
 			></textarea>
