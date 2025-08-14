@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            auto_invite_domain,\n            auto_invite_operator,\n            auto_add,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            error_handler,\n            error_handler_extra_args,\n            error_handler_muted_on_cancel,\n            large_file_storage,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations\n        FROM \n            workspace_settings\n        WHERE \n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            auto_invite_domain,\n            auto_invite_operator,\n            auto_add,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            error_handler,\n            error_handler_extra_args,\n            error_handler_muted_on_cancel,\n            large_file_storage,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_add_instance_groups,\n            auto_add_instance_groups_roles\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -147,6 +147,16 @@
         "ordinal": 28,
         "name": "git_app_installations",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 29,
+        "name": "auto_add_instance_groups",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 30,
+        "name": "auto_add_instance_groups_roles",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -183,8 +193,10 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "8960b73f0d3cbfa0729d24ecbe3f635592feee6a5724fdff662c6ac1f3c6ddc8"
+  "hash": "ac1fd12e9ec92022be38aee0e91e9002e0e810d0e76dce5ced1000a7cb514adb"
 }

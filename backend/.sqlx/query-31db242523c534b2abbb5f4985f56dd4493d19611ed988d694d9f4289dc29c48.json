@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET auto_add_instance_groups = NULL, auto_add_instance_groups_roles = NULL WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31db242523c534b2abbb5f4985f56dd4493d19611ed988d694d9f4289dc29c48"
+}

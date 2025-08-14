@@ -44,6 +44,7 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_igroups))
+        .route("/list_with_workspaces", get(list_igroups_with_workspaces))
         .route("/get/:name", get(get_igroup))
         .route("/create", post(create_igroup))
         .route("/update/:name", post(update_igroup))
@@ -187,7 +188,7 @@ pub async fn require_is_owner(
 ) -> Result<()> {
     let is_owner = query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM group_ WHERE (group_.extra_perms ->> CONCAT('u/', $1::text))::boolean AND name = $2 AND workspace_id = $4) OR exists(
-            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f 
+            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f
     WHERE $2 = g.name AND $4 = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY($3::text[])
     AND value::boolean)",
         username,
@@ -418,7 +419,7 @@ async fn get_group(
     let group = not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     let members = sqlx::query_scalar!(
-        "SELECT  usr.username  
+        "SELECT  usr.username
             FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username AND usr_to_group.workspace_id = $2
             WHERE group_ = $1 AND usr.workspace_id = $2 AND usr_to_group.workspace_id = $2",
         name,
@@ -638,6 +639,21 @@ struct IGroup {
     summary: Option<String>,
     emails: Option<Vec<String>>,
 }
+
+#[derive(Serialize)]
+struct IGroupWithWorkspaces {
+    name: String,
+    summary: Option<String>,
+    emails: Option<Vec<String>>,
+    workspaces: Vec<WorkspaceInfo>,
+}
+
+#[derive(Serialize, Clone)]
+struct WorkspaceInfo {
+    workspace_id: String,
+    workspace_name: String,
+    role: String,
+}
 async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -650,6 +666,70 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 
     tx.commit().await?;
     return Ok(Json(groups));
+}
+
+async fn list_igroups_with_workspaces(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroupWithWorkspaces>> {
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Get all instance groups with their emails first
+    let groups = sqlx::query_as!(
+        IGroup,
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, summary"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Get all workspace mappings for instance groups in a single query
+    let workspace_mappings = sqlx::query!(
+        r#"
+        SELECT
+            ig.name as group_name,
+            ws.workspace_id,
+            w.name as workspace_name,
+            ws.auto_add_instance_groups_roles->ig.name as role
+        FROM instance_group ig
+        INNER JOIN workspace_settings ws ON ws.auto_add_instance_groups IS NOT NULL
+            AND ig.name = ANY(ws.auto_add_instance_groups)
+        INNER JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false
+        ORDER BY ig.name, ws.workspace_id
+        "#
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Create a map of group_name -> Vec<WorkspaceInfo>
+    let mut workspaces_by_group: std::collections::HashMap<String, Vec<WorkspaceInfo>> = std::collections::HashMap::new();
+    for mapping in workspace_mappings {
+        let role = mapping.role
+            .and_then(|r| r.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "developer".to_string());
+
+        let workspace_info = WorkspaceInfo {
+            workspace_id: mapping.workspace_id.clone(),
+            workspace_name: mapping.workspace_name,
+            role,
+        };
+
+        workspaces_by_group
+            .entry(mapping.group_name)
+            .or_insert_with(Vec::new)
+            .push(workspace_info);
+    }
+
+    let mut result = Vec::new();
+    for group in groups {
+        let workspaces = workspaces_by_group.get(&group.name).cloned().unwrap_or_default();
+
+        result.push(IGroupWithWorkspaces {
+            name: group.name,
+            summary: group.summary,
+            emails: group.emails,
+            workspaces,
+        });
+    }
+
+    tx.commit().await?;
+    return Ok(Json(result));
 }
 
 async fn get_igroup(Path(name): Path<String>, Extension(db): Extension<DB>) -> JsonResult<IGroup> {

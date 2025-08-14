@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT email_to_igroup.email\n            FROM email_to_igroup\n            INNER JOIN instance_group ON instance_group.name = email_to_igroup.igroup\n            WHERE instance_group.name = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ee182378d9a760c3593b483703ec1682488ca9e6e402ec41abaa6ae3ca263854"
+}
