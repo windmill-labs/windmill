@@ -217,7 +217,9 @@ class AIChatManager {
 					const latestMessage = getLatestAssistantMessage(this.displayMessages)
 					if (latestMessage) {
 						const codeBlocks = extractCodeFromMarkdown(latestMessage)
-						return codeBlocks[codeBlocks.length - 1]
+						if (codeBlocks.length > 0) {
+							return codeBlocks[codeBlocks.length - 1]
+						}
 					}
 					return undefined
 				},

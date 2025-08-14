@@ -580,6 +580,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				}
 			} catch (e) {
 				console.error('Error setting schema for test_run_flow tool', e)
+				// fallback to schema with any properties
+				this.def.function.parameters = {
+					type: 'object',
+					properties: {},
+					additionalProperties: true,
+					strict: false
+				}
 			}
 		},
 		requiresConfirmation: true,
