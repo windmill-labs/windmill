@@ -1,3 +1,9 @@
+<script context="module" lang="ts">
+	import pLimit from 'p-limit'
+
+	const plimit = pLimit(5)
+</script>
+
 <script lang="ts">
 	import {
 		type Job,
@@ -104,11 +110,12 @@
 				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
 				const lastJobId = lastCompletedJobId
 				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
-					JobService.getJobLogs({
-						workspace: $workspaceStore!,
-						id: lastJobId,
-						removeAnsiWarnings: true
-					}).then((res) => {
+					plimit(() =>
+						JobService.getCompletedJobLogsTail({
+							workspace: $workspaceStore!,
+							id: lastJobId
+						})
+					).then((res) => {
 						if (res && job) {
 							job.logs = res
 						}

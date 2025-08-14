@@ -18,8 +18,6 @@
 		refreshLog?: boolean
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
-		onExploreAllLogs?: () => void
-		noLogsExplorer?: boolean
 	}
 
 	let {
@@ -35,9 +33,7 @@
 		tag = undefined,
 		workspaceId = undefined,
 		downloadLogs = true,
-		tagLabel = undefined,
-		onExploreAllLogs = () => {},
-		noLogsExplorer = false
+		tagLabel = undefined
 	}: Props = $props()
 </script>
 
@@ -58,11 +54,6 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
-		{#if !noLogsExplorer}
-			<div class="absolute z-40 text-xs top-0 left-1"
-				><button class="" onclick={onExploreAllLogs}>explore all steps' logs</button></div
-			>
-		{/if}
 		<LogViewer
 			{tagLabel}
 			download={downloadLogs}

@@ -990,18 +990,6 @@
 
 	let animateLogsTab = $state(false)
 
-	function onExploreAllLogs() {
-		if (selected == 'logs') {
-			// Trigger animation when already on logs tab
-			animateLogsTab = true
-			setTimeout(() => {
-				animateLogsTab = false
-			}, 600) // Animation duration
-		} else {
-			selected = 'logs'
-		}
-	}
-
 	let noLogs = $derived(graphTabOpen && !isNodeSelected)
 </script>
 
@@ -1062,7 +1050,6 @@
 					{isOwner}
 					{hideFlowResult}
 					{hideDownloadLogs}
-					{onExploreAllLogs}
 					{innerModules}
 					{suspendStatus}
 					{hideJobId}
@@ -1452,7 +1439,6 @@
 											result={job['result']}
 											logs={job.logs ?? ''}
 											downloadLogs={!hideDownloadLogs}
-											{onExploreAllLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1529,7 +1515,6 @@
 											result={node.result}
 											tag={node.tag}
 											logs={node.logs}
-											{onExploreAllLogs}
 											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}
