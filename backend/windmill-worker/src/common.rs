@@ -640,22 +640,31 @@ impl OccupancyMetrics {
     }
 }
 
+lazy_static! {
+    static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
+    disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
-    #[cfg(unix)]
-    {
-        use process_wrap::tokio::ProcessGroup;
 
-        cmd.wrap(ProcessGroup::leader());
+    if !*DISABLE_PROCESS_GROUP && !disable_process_group {
+        #[cfg(unix)]
+        {
+            use process_wrap::tokio::ProcessGroup;
+
+            cmd.wrap(ProcessGroup::leader());
+        }
+        #[cfg(windows)]
+        {
+            cmd.wrap(JobObject);
+        }
     }
-    #[cfg(windows)]
-    {
-        cmd.wrap(JobObject);
-    }
+
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable));
@@ -1061,7 +1070,6 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
-#[derive(Clone)]
 pub struct S3ModeWorkerData {
     pub client: AuthedClient,
     pub object_key: String,

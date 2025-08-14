@@ -43,7 +43,6 @@
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
@@ -52,6 +51,8 @@
 	import EditorSettings from './EditorSettings.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
+	import ScriptGen from './copilot/ScriptGen.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -962,7 +963,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.aiGen != false}
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} {openAiChat} />
+				{#if openAiChat}
+					<FlowInlineScriptAiButton />
+				{:else}
+					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				{/if}
 			{/if}
 
 			<EditorSettings {customUi} />

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.523.0
+  version: 1.525.0
   title: Windmill API
 
   contact:
@@ -1944,6 +1944,14 @@ paths:
                     type: boolean
                   auto_add:
                     type: boolean
+                  auto_add_instance_groups:
+                    type: array
+                    items:
+                      type: string
+                  auto_add_instance_groups_roles:
+                    type: object
+                    additionalProperties:
+                      type: string
                   plan:
                     type: string
                   customer_id:
@@ -2342,6 +2350,39 @@ paths:
                   type: boolean
                 auto_add:
                   type: boolean
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_instance_groups:
+    post:
+      summary: edit instance groups
+      operationId: editInstanceGroups
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Instance Groups Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groups:
+                  type: array
+                  items:
+                    type: string
+                roles:
+                  type: object
+                  additionalProperties:
+                    type: string
 
       responses:
         "200":
@@ -7777,9 +7818,30 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: remove_ansi_warnings
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
+    get:
+      summary: get completed job logs tail
+      operationId: getCompletedJobLogsTail
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: completed job logs tail
           content:
             text/plain:
               schema:
@@ -10692,6 +10754,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/InstanceGroup"
+  /groups/list_with_workspaces:
+    get:
+      summary: list instance groups with workspace information
+      operationId: listInstanceGroupsWithWorkspaces
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list with workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/get/{name}:
     get:
@@ -14562,6 +14639,10 @@ components:
           type: array
           items:
             type: string
+        added_via:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/UserSource"
       required:
         - email
         - username
@@ -14572,6 +14653,22 @@ components:
         - disabled
         - folders
         - folders_owners
+
+    UserSource:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [domain, instance_group, manual]
+          description: "How the user was added to the workspace"
+        domain:
+          type: string
+          description: "The domain used for auto-invite (when source is 'domain')"
+        group:
+          type: string
+          description: "The instance group name (when source is 'instance_group')"
+      required:
+        - source
 
     UserUsage:
       type: object
@@ -16791,6 +16888,8 @@ components:
 
     InstanceGroup:
       type: object
+      required:
+        - name
       properties:
         name:
           type: string
@@ -16800,6 +16899,34 @@ components:
           type: array
           items:
             type: string
+
+    InstanceGroupWithWorkspaces:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceInfo"
+
+    WorkspaceInfo:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        workspace_name:
+          type: string
+        role:
+          type: string
       required:
         - name
 

@@ -1895,7 +1895,7 @@ pub async fn handle_app_dependency_job(
 //         .args(args)
 //         .stdout(Stdio::piped())
 //         .stderr(Stdio::piped());
-//     let child = start_child_process(cmd, "esbuild").await?;
+//     let child = start_child_process(cmd, "esbuild", false).await?;
 
 //     crate::handle_child::handle_child(
 //         &job.id,

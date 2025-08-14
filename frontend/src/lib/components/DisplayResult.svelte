@@ -40,6 +40,7 @@
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -95,6 +96,7 @@
 		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		growVertical?: boolean
 	}
 
 	let {
@@ -118,7 +120,8 @@
 		fixTableSizingToParent = false,
 		copilot_fix,
 		children,
-		loading = false
+		loading = false,
+		growVertical = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -540,11 +543,11 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow flex flex-col h-full {['plain', 'markdown'].includes(
-			resultKind ?? ''
-		)
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow flex flex-col',
+			['plain', 'markdown'].includes(resultKind ?? '') ? 'min-h-0' : 'min-h-[160px]',
+			growVertical ? '' : 'h-full'
+		)}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -599,7 +602,8 @@
 			</div>
 			<div class="grow relative">
 				{#if !forceJson && resultKind === 'table-col'}
-					{@const data = 'table-col' in result ? result['table-col'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-col' in result ? result['table-col'] : result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
@@ -607,7 +611,8 @@
 						objects={objectOfArraysToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row'}
-					{@const data = 'table-row' in result ? result['table-row'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-row' in result ? result['table-row'] : result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
@@ -615,7 +620,10 @@
 						objects={arrayOfRowsToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
-					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-row-object' in result
+							? result['table-row-object']
+							: result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -20,13 +19,14 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import { page } from '$app/state'
 
-	$workspaceStore = $page.params.workspace
-	let rd = $page.url.href.replace($page.url.origin, '')
+	$workspaceStore = page.params.workspace
+	let rd = page.url.href.replace(page.url.origin, '')
 
 	let job: Job | undefined = $state(undefined)
 	let currentApprovers: { resume_id: number; approver: string }[] = $state([])
-	let approver = $page.url.searchParams.get('approver') ?? undefined
+	let approver = page.url.searchParams.get('approver') ?? undefined
 
 	let completed: boolean = $state(false)
 
@@ -78,9 +78,9 @@
 		let job_result = (await JobService.getCompletedJobResult({
 			workspace: job?.workspace_id ?? '',
 			id: jobId,
-			secret: $page.params.hmac,
-			suspendedJob: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
+			secret: page.params.hmac,
+			suspendedJob: page.params.job,
+			resumeId: new Number(page.params.resume).valueOf(),
 			approver
 		})) as any
 		description = job_result?.description
@@ -93,10 +93,10 @@
 
 	async function getJob() {
 		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver
 		})
 		job = suspendedJobFlow.job as Job
@@ -105,10 +105,10 @@
 
 	async function resume() {
 		await JobService.resumeSuspendedJobPost({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver,
 			requestBody: default_payload
 		})
@@ -118,10 +118,10 @@
 
 	async function cancel() {
 		await JobService.cancelSuspendedJobPost({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver,
 			requestBody: {}
 		})
@@ -130,7 +130,7 @@
 	}
 
 	async function loadUser() {
-		userStore.set(await getUserExt($page.params.workspace))
+		userStore.set(await getUserExt(page.params.workspace ?? ''))
 	}
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -138,7 +138,9 @@
 		completed = job?.type == 'CompletedJob'
 	})
 	let alreadyResumed = $derived(
-		currentApprovers.map((x) => x.resume_id).includes(new Number($page.params.resume).valueOf())
+		currentApprovers
+			.map((x) => x.resume_id)
+			.includes(new Number(page.params.resume ?? '').valueOf())
 	)
 	let approvalStep = $derived.by(() => (job?.flow_status?.step ?? 1) - 1)
 	let schema = $derived.by(

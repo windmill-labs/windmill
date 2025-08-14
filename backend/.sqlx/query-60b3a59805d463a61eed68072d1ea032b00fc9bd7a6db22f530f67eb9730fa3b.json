@@ -42,6 +42,11 @@
         "ordinal": 7,
         "name": "role",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "added_via",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -58,6 +63,7 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
