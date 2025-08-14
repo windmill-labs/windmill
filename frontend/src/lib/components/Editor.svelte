@@ -120,8 +120,7 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable,
-		MarkerSeverity
+		type IDisposable
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -545,7 +544,6 @@
 
 	async function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
-		console.log('updating schema', lang, args, newSchemaRes)
 
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
@@ -556,10 +554,8 @@
 				})
 				dbSchema = $dbSchemas[resourcePath]
 			}
-			console.log('dbSchema', newSchemaRes, $dbSchemas, dbSchema)
 		} else {
 			dbSchema = undefined
-			console.log('dbSchema2', dbSchema)
 		}
 	}
 
