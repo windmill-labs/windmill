@@ -675,8 +675,8 @@
 	let inlineAIChatSelection: Selection | null = $state(null)
 	let selectedCode = $state('')
 
-	export function reviewAndApplyCode(code: string) {
-		aiChatEditorHandler?.reviewAndApply(code)
+	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
+		aiChatEditorHandler?.reviewAndApply(code, applyAll)
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
