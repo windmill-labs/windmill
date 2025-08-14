@@ -120,7 +120,8 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable
+		type IDisposable,
+		MarkerSeverity
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -542,17 +543,18 @@
 
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
-	function updateSchema() {
+	async function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
 		console.log('updating schema', lang, args, newSchemaRes)
 
 		if (typeof newSchemaRes === 'string') {
-			dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+			const resourcePath = newSchemaRes.replace('$res:', '')
+			dbSchema = $dbSchemas[resourcePath]
 			if (lang === 'graphql' && dbSchema === undefined) {
-				getDbSchemas(lang, newSchemaRes, $workspaceStore, $dbSchemas, (e) => {
+				await getDbSchemas(lang, resourcePath, $workspaceStore, $dbSchemas, (e) => {
 					console.error('error getting graphql db schema', e)
 				})
-				dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+				dbSchema = $dbSchemas[resourcePath]
 			}
 			console.log('dbSchema', newSchemaRes, $dbSchemas, dbSchema)
 		} else {
