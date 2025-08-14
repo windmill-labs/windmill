@@ -90,7 +90,7 @@ export function inferContentTypeFromFilePath(
     return "java";
   } else if (contentPath.endsWith(".rb")) {
     return "ruby";
-	// for related places search: ADD_NEW_LANG 
+	// for related places search: ADD_NEW_LANG
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))

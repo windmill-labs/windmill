@@ -170,7 +170,7 @@ pub async fn par_install_language_dependencies_all_at_once<
             postinstall_cb(for_all_at_once_copy.clone()).await?;
         }
         for RequiredDependency { path, _s3_handle, .. } in for_all_at_once_copy.into_iter() {
-            mark_sucess(path.clone(), job_id, w_id).await;
+            mark_success(path.clone(), job_id, w_id).await;
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
                 if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
@@ -545,7 +545,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
                 &dep._s3_handle.clone()
             );
         } else {
-            mark_sucess(dep.path, &job_id, &w_id).await;
+            mark_success(dep.path, &job_id, &w_id).await;
             print_success(
                 true,
                 false,
@@ -603,7 +603,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
             &dep.display_name
         ));
     } else {
-        mark_sucess(dep.path.clone(), &job_id, &w_id).await;
+        mark_success(dep.path.clone(), &job_id, &w_id).await;
         print_success(
             false,
             true,
@@ -646,7 +646,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
 }
 
 // Create a file to indicate that installation was successfull
-async fn mark_sucess(path: String, job_id: &Uuid, w_id: &str) {
+async fn mark_success(path: String, job_id: &Uuid, w_id: &str) {
     let valid_path = path + ".valid.windmill";
     // This is atomic operation, meaning, that it either completes and dependency is valid,
     // or it does not and dependency is invalid and will be reinstalled next run
