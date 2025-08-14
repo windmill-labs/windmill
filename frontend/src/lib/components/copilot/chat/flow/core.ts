@@ -340,7 +340,10 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 )
 
 // Will be overridden by setSchema
-const testRunFlowSchema = z.any().describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+const testRunFlowSchema = z.object({
+	args: z.object({}).nullable().optional()
+	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+})
 
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
@@ -565,13 +568,18 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		setSchema: async function(helpers: FlowAIChatHelpers) {
-			if (this.def?.function?.parameters) {
-				const flowInputsSchema = await helpers.getFlowInputsSchema()
-				this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
-				// OPEN AI model needs each property to be required
-				if (get(copilotSessionModel)?.provider === 'openai' || get(copilotSessionModel)?.provider === 'azure_openai') {
-					this.def.function.parameters.required = Object.keys(flowInputsSchema.properties)
+			try {
+				if (this.def?.function?.parameters) {
+					const flowInputsSchema = await helpers.getFlowInputsSchema()
+					this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
+					// OPEN AI model needs each property to be required
+					const model = get(copilotSessionModel)?.provider
+					if (model === 'openai' || model === 'azure_openai') {
+						this.def.function.parameters.required = Object.keys(flowInputsSchema.properties)
+					}
 				}
+			} catch (e) {
+				console.error('Error setting schema for test_run_flow tool', e)
 			}
 		},
 		requiresConfirmation: true,
