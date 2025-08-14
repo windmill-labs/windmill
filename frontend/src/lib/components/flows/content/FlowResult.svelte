@@ -30,7 +30,6 @@
 				{suspendStatus}
 				{extra}
 				hideJobId
-				noLogsExplorer
 			/>
 		</div>
 	{:else}
