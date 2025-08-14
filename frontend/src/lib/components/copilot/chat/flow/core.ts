@@ -339,10 +339,8 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
-const testRunFlowSchema = z.object({
-	args: z.object({}).nullable().optional()
-	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
-})
+// Will be overridden by setSchema
+const testRunFlowSchema = z.any().describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
