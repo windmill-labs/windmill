@@ -14,7 +14,7 @@
 	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
 	let newPath = ''
-	let lastVersion = 0
+	// let lastVersion = 0
 	let policy: any = {}
 	let summary = ''
 
@@ -49,7 +49,7 @@
 		runnables = app.value.runnables
 		files = app.value.files
 		summary = app.summary
-		lastVersion = app.version
+		// lastVersion = app.version
 		policy = app.policy
 		newPath = app.path
 	}
