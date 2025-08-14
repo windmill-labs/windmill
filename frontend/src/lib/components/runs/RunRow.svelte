@@ -134,7 +134,11 @@
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else if job.canceled}
-					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					{#if job.type == 'CompletedJob'}
+						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
+					{:else}
+						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Waiting for executor (scheduled for <TimeAgo
 						agoOnlyIfRecent
