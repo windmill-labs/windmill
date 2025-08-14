@@ -18,15 +18,22 @@ use std::{
     path::{Component, Path, PathBuf},
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
+    time::Duration,
 };
 #[cfg(windows)]
 use sysinfo::System;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::timeout};
 use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::PingJobStatusResponse, cache::{unwrap_or_error, RawNode, RawScript}, error::{self, to_anyhow}, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, KillpillSender, BASE_INTERNAL_URL, DB
+    agent_workers::PingJobStatusResponse,
+    cache::{unwrap_or_error, RawNode, RawScript},
+    error::{self, to_anyhow},
+    global_settings::CUSTOM_TAGS_SETTING,
+    indexer::TantivyIndexerSettings,
+    server::Smtp,
+    KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -1353,7 +1360,7 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     db: &DB,
 ) -> anyhow::Result<()> {
-    sqlx::query!(
+    timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
          memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
@@ -1369,8 +1376,8 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
     )
-    .execute(db)
-    .await?;
+        .execute(db))
+    .await??;
     Ok(())
 }
 

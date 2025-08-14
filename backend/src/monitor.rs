@@ -18,6 +18,7 @@ use sqlx::{Pool, Postgres};
 use tokio::{
     join,
     sync::{mpsc, RwLock},
+    time::timeout,
 };
 use uuid::Uuid;
 
@@ -684,20 +685,25 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
              VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)
-                .await {
-                tracing::error!("Error inserting log file: {:?}", e);
-            } else {
-                if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                    last_log_file_sent.replace(ts);
-                }) {
-                    tracing::error!("Error updating last log file sent: {:?}", e);
+                .execute(db)).await {
+                Ok(Ok(_)) => {
+                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                        last_log_file_sent.replace(ts);
+                    }) {
+                        tracing::error!("Error updating last log file sent: {:?}", e);
+                    }
+                    tracing::info!("Log file sent: {}", highest_file);
                 }
-                tracing::info!("Log file sent: {}", highest_file);
+                Ok(Err(e)) => {
+                    tracing::error!("Error inserting log file: {:?}", e);
+                }
+                Err(e) => {
+                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+                }
             }
         } else {
             // tracing::warn!("Not sending log file to object store in agent mode");
