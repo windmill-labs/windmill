@@ -572,10 +572,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				if (this.def?.function?.parameters) {
 					const flowInputsSchema = await helpers.getFlowInputsSchema()
 					this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
-					// OPEN AI model needs each property to be required
+					// OPEN AI model doesn't support strict mode well with schema with complex properties, so we disable it
 					const model = get(copilotSessionModel)?.provider
 					if (model === 'openai' || model === 'azure_openai') {
-						this.def.function.parameters.required = Object.keys(flowInputsSchema.properties)
+						this.def.function.strict = false
 					}
 				}
 			} catch (e) {
