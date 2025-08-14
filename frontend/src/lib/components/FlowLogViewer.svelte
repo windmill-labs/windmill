@@ -16,18 +16,17 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-	import type { FlowModuleValue, FlowStatusModule, Job } from '$lib/gen'
+	import type { FlowModule, FlowModuleValue, FlowStatusModule, Job } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import type { GraphModuleState } from './graph/model'
 	import type { Writable } from 'svelte/store'
-	import type { FlowLogEntry } from './FlowLogUtils'
 
 	type RootJobData = Partial<Job>
 
 	interface Props {
-		logEntries: FlowLogEntry[]
+		modules: FlowModule[]
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		rootJob: RootJobData
 		flowStatus: FlowStatusModule['type'] | undefined
@@ -50,7 +49,7 @@
 	}
 
 	let {
-		logEntries,
+		modules,
 		localModuleStates,
 		rootJob,
 		flowStatus,
@@ -133,28 +132,47 @@
 	}
 
 	// Find all parents of error steps
-	function findParentsOfErrors(entries: FlowLogEntry[]): Set<string> {
+	function findParentsOfErrors(modules: FlowModule[]): Set<string> {
 		const parentsWithErrors = new Set<string>()
 
-		function traverseEntries(entryList: FlowLogEntry[], parentId?: string) {
+		function traverseModules(modules: FlowModule[], parentId?: string) {
 			let hasChildError = false
 
-			for (const entry of entryList) {
+			for (const module of modules) {
 				let currentEntryHasError = false
 
 				// Check if this entry has subflows with errors
-				if (entry.subflows && entry.subflows.length > 0) {
-					for (const subflow of entry.subflows) {
-						const subflowHasError = traverseEntries(subflow, entry.stepId)
+				if (
+					module.value.type === 'forloopflow' ||
+					(module.value.type === 'whileloopflow' && module.value.modules.length > 0)
+				) {
+					const subflowHasError = traverseModules(module.value.modules, module.id)
+					if (subflowHasError) {
+						currentEntryHasError = true
+						parentsWithErrors.add(module.id)
+					}
+				} else if (module.value.type === 'branchone' || module.value.type === 'branchall') {
+					if (module.value.branches.length > 0) {
+						for (const branch of module.value.branches) {
+							const subflowHasError = traverseModules(branch.modules, module.id)
+							if (subflowHasError) {
+								currentEntryHasError = true
+								parentsWithErrors.add(module.id)
+							}
+						}
+					}
+					if (module.value.type === 'branchone' && module.value.default.length > 0) {
+						// Also check default branch
+						const subflowHasError = traverseModules(module.value.default, module.id)
 						if (subflowHasError) {
 							currentEntryHasError = true
-							parentsWithErrors.add(entry.stepId)
+							parentsWithErrors.add(module.id)
 						}
 					}
 				}
 
 				// Check if this entry itself has an error (but don't flag it - only its parents)
-				const stepStatus = $localModuleStates[entry.stepId]?.type
+				const stepStatus = $localModuleStates[module.id]?.type
 				if (stepStatus === 'Failure') {
 					currentEntryHasError = true
 					// Don't add the entry itself to parentsWithErrors
@@ -170,13 +188,13 @@
 			return hasChildError
 		}
 
-		traverseEntries(entries, flowId)
+		traverseModules(modules, flowId)
 		return parentsWithErrors
 	}
 
 	// Get flow info for display
 	const flowInfo = $derived.by(() => {
-		const parentsWithErrors = findParentsOfErrors(logEntries)
+		const parentsWithErrors = findParentsOfErrors(modules)
 		return {
 			jobId: rootJob.id,
 			inputs: rootJob.args || {},
@@ -188,6 +206,47 @@
 			parentsWithErrors
 		}
 	})
+
+	function hasSubflows(module: FlowModule) {
+		return (
+			module.value.type === 'forloopflow' ||
+			module.value.type === 'whileloopflow' ||
+			module.value.type === 'branchall' ||
+			module.value.type === 'branchone'
+		)
+	}
+
+	function getSubflows(module: FlowModule) {
+		const subflows: Array<{ modules: FlowModule[]; label: string; flowId: string }> = []
+
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			subflows.push({
+				modules: module.value.modules,
+				label: module.summary || '',
+				flowId: `${module.id}-subflow`
+			})
+		} else if (module.value.type === 'branchall' || module.value.type === 'branchone') {
+			// Add all branches
+			for (let i = 0; i < module.value.branches.length; i++) {
+				const branch = module.value.branches[i]
+				subflows.push({
+					modules: branch.modules,
+					label: branch.summary || `branch ${i + 1}`,
+					flowId: `${module.id}-subflow-${i}`
+				})
+			}
+			// Add default branch for branchone
+			if (module.value.type === 'branchone') {
+				subflows.push({
+					modules: module.value.default,
+					label: 'default',
+					flowId: `${module.id}-subflow-default`
+				})
+			}
+		}
+
+		return subflows
+	}
 </script>
 
 {#if render}
@@ -242,7 +301,7 @@
 					<div class="w-4"></div>
 				{/if}
 			</div>
-			<div class="grow min-w-0 leading-tigh">
+			<div class="grow min-w-0 leading-tight">
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
@@ -263,7 +322,7 @@
 								{#if flowInfo.label}
 									: {flowInfo.label}
 								{/if}
-								<span class="text-tertiary">{getStepProgress(rootJob, logEntries.length)}</span>
+								<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
 							</span>
 						</div>
 					</div>
@@ -340,25 +399,21 @@
 								</li>
 							{/if}
 
-							{#if logEntries.length > 0}
-								{#each logEntries as entry (entry.id)}
-									{@const isLeafStep =
-										entry.stepType !== 'branchall' &&
-										entry.stepType !== 'branchone' &&
-										entry.stepType !== 'forloopflow' &&
-										entry.stepType !== 'whileloopflow'}
-									{@const status = $localModuleStates[entry.stepId]?.type}
+							{#if modules.length > 0}
+								{#each modules as module (module.id)}
+									{@const isLeafStep = !hasSubflows(module)}
+									{@const status = $localModuleStates[module.id]?.type}
 									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
-									{@const hasEmptySubflowValue = hasEmptySubflow(entry.stepId, entry.stepType)}
+									{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 									{@const isCollapsible = !hasEmptySubflowValue}
 									<li class="border-b flex flex-row">
 										<div class="py-2 leading-tight align-top">
 											{#if isCollapsible}
 												<button
 													class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-													onclick={() => toggleExpanded(entry.id)}
+													onclick={() => toggleExpanded(module.id)}
 												>
-													{#if isExpanded(entry.id, isRunning)}
+													{#if isExpanded(module.id, isRunning)}
 														<ChevronDown size={8} />
 													{:else}
 														<ChevronRight size={8} />
@@ -383,68 +438,68 @@
 														? 'opacity-50'
 														: ''
 												)}
-												onclick={isCollapsible ? () => toggleExpanded(entry.id) : undefined}
+												onclick={isCollapsible ? () => toggleExpanded(module.id) : undefined}
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
 													<!-- Step icon -->
 													{@render stepIcon(
-														entry.stepType,
+														module.value.type,
 														status as FlowStatusModule['type'],
-														flowInfo.parentsWithErrors.has(entry.stepId)
+														flowInfo.parentsWithErrors.has(module.id)
 													)}
 
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
 															<b>
-																{entry.stepId}
+																{module.id}
 															</b>
-															{#if entry.stepType === 'forloopflow'}
+															{#if module.value.type === 'forloopflow'}
 																For loop
-															{:else if entry.stepType === 'whileloopflow'}
+															{:else if module.value.type === 'whileloopflow'}
 																While loop
-															{:else if entry.stepType === 'branchall'}
+															{:else if module.value.type === 'branchall'}
 																Branch to all
-															{:else if entry.stepType === 'branchone'}
+															{:else if module.value.type === 'branchone'}
 																Branch to one
-															{:else if entry.stepType === 'flow'}
+															{:else if module.value.type === 'flow'}
 																Subflow
 															{:else}
 																Step
 															{/if}
-															{#if entry.summary}
-																: {entry.summary}
+															{#if module.summary}
+																: {module.summary}
 															{/if}
 															{#if hasEmptySubflowValue}
 																<span class="text-tertiary">
-																	{#if entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow'}
+																	{#if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
 																		(empty loop)
-																	{:else if entry.stepType === 'branchall' || entry.stepType === 'branchone'}
+																	{:else if module.value.type === 'branchall' || module.value.type === 'branchone'}
 																		(no branch)
 																	{/if}
 																</span>
 															{/if}
 														</span>
-														{#if !hasEmptySubflowValue && $localModuleStates[entry.stepId]?.flow_jobs && (entry.stepType === 'forloopflow' || entry.stepType === 'whileloopflow')}
+														{#if !hasEmptySubflowValue && $localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
 															<span
 																class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
 															>
 																<span onclick={(e) => e.stopPropagation()}>
 																	<FlowJobsMenu
-																		moduleId={entry.stepId}
-																		id={entry.stepId}
+																		moduleId={module.id}
+																		id={module.id}
 																		{onSelectedIteration}
-																		flowJobsSuccess={$localModuleStates[entry.stepId]
+																		flowJobsSuccess={$localModuleStates[module.id]
 																			?.flow_jobs_success}
-																		flowJobs={$localModuleStates[entry.stepId]?.flow_jobs}
-																		selected={$localModuleStates[entry.stepId]
-																			?.selectedForloopIndex ?? 0}
-																		selectedManually={$localModuleStates[entry.stepId]
+																		flowJobs={$localModuleStates[module.id]?.flow_jobs}
+																		selected={$localModuleStates[module.id]?.selectedForloopIndex ??
+																			0}
+																		selectedManually={$localModuleStates[module.id]
 																			?.selectedForLoopSetManually ?? false}
 																		showIcon={false}
 																	/>
 																</span>
-																{#if entry.stepType === 'forloopflow'}
-																	{`/${$localModuleStates[entry.stepId]?.iteration_total ?? 0}`}
+																{#if module.value.type === 'forloopflow'}
+																	{`/${$localModuleStates[module.id]?.iteration_total ?? 0}`}
 																{/if}
 															</span>
 														{/if}
@@ -452,7 +507,7 @@
 												</div>
 
 												{#if isLeafStep}
-													{@const jobId = $localModuleStates[entry.stepId]?.job_id}
+													{@const jobId = $localModuleStates[module.id]?.job_id}
 													<a
 														href={getJobLink(jobId ?? '')}
 														class="text-xs text-primary hover:underline font-mono"
@@ -464,68 +519,66 @@
 												{/if}
 											</div>
 
-											{#if isCollapsible && isExpanded(entry.id, isRunning)}
-												{@const args = $localModuleStates[entry.stepId]?.args}
-												{@const logs = $localModuleStates[entry.stepId]?.logs}
-												{@const result = $localModuleStates[entry.stepId]?.result}
-												{@const jobId = $localModuleStates[entry.stepId]?.job_id}
+											{#if isCollapsible && isExpanded(module.id, isRunning)}
+												{@const args = $localModuleStates[module.id]?.args}
+												{@const logs = $localModuleStates[module.id]?.logs}
+												{@const result = $localModuleStates[module.id]?.result}
+												{@const jobId = $localModuleStates[module.id]?.job_id}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show child steps if they exist -->
-													{#if entry.subflows && entry.subflows.length > 0}
-														{#each entry.subflows as subflow, index}
-															{@const subflowLabel = entry.subflowsSummary?.[index]}
-															{@const subflowJob = {
-																id: jobId,
-																type:
-																	$localModuleStates[entry.stepId]?.type === 'Failure' ||
-																	$localModuleStates[entry.stepId]?.type === 'Success'
-																		? 'CompletedJob'
-																		: ('QueuedJob' as Job['type']),
-																logs,
-																result,
-																args,
-																success: $localModuleStates[entry.stepId]?.type === 'Success'
-															}}
-															<div class="border-l mb-2">
-																<!-- Recursively render child steps using FlowLogViewer -->
-																<FlowLogViewer
-																	logEntries={subflow}
-																	{localModuleStates}
-																	rootJob={subflowJob}
-																	flowStatus={$localModuleStates[entry.stepId]?.type}
-																	{expandedRows}
-																	{allExpanded}
-																	{showResultsInputs}
-																	{toggleExpanded}
-																	toggleExpandAll={undefined}
-																	{workspaceId}
-																	{render}
-																	level={level + 1}
-																	flowId={`${entry.stepId}-subflow-${index}`}
-																	flowSummary={subflowLabel}
-																	{onSelectedIteration}
-																	{getSelectedIteration}
-																/>
-															</div>
-														{/each}
-														<!-- Show input arguments -->
-													{:else}
+													{#each getSubflows(module) as subflow}
+														{@const subflowJob = {
+															id: jobId,
+															type:
+																$localModuleStates[module.id]?.type === 'Failure' ||
+																$localModuleStates[module.id]?.type === 'Success'
+																	? 'CompletedJob'
+																	: ('QueuedJob' as Job['type']),
+															logs,
+															result,
+															args,
+															success: $localModuleStates[module.id]?.type === 'Success'
+														}}
+														<div class="border-l mb-2">
+															<!-- Recursively render child steps using FlowLogViewer -->
+															<FlowLogViewer
+																modules={subflow.modules}
+																{localModuleStates}
+																rootJob={subflowJob}
+																flowStatus={$localModuleStates[module.id]?.type}
+																{expandedRows}
+																{allExpanded}
+																{showResultsInputs}
+																{toggleExpanded}
+																toggleExpandAll={undefined}
+																{workspaceId}
+																{render}
+																level={level + 1}
+																flowId={subflow.flowId}
+																flowSummary={subflow.label}
+																{onSelectedIteration}
+																{getSelectedIteration}
+															/>
+														</div>
+													{/each}
+													<!-- Show input arguments -->
+													{#if getSubflows(module).length === 0}
 														{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
 															<div class="mb-2">
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
 																<div
 																	class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-																	onclick={() => toggleExpanded(`${entry.id}-input`)}
+																	onclick={() => toggleExpanded(`${module.id}-input`)}
 																>
-																	{#if isExpanded(`${entry.id}-input`)}
+																	{#if isExpanded(`${module.id}-input`)}
 																		<ChevronDown size={8} />
 																	{:else}
 																		<ChevronRight size={8} />
 																	{/if}
 																	Input
 																</div>
-																{#if isExpanded(`${entry.id}-input`)}
+																{#if isExpanded(`${module.id}-input`)}
 																	<div class="pl-4">
 																		<ObjectViewer json={args} pureViewer={true} />
 																	</div>
@@ -546,7 +599,7 @@
 																noPadding
 																wrapperClass="w-full mb-2 pr-2"
 															/>
-														{:else if jobId && !entry.subflows?.[0]?.length}
+														{:else if jobId && !hasSubflows(module)}
 															<div class="mb-2">
 																<div class="text-xs text-tertiary font-mono">
 																	No logs available
@@ -562,16 +615,16 @@
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
 																<div
 																	class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
-																	onclick={() => toggleExpanded(`${entry.id}-result`)}
+																	onclick={() => toggleExpanded(`${module.id}-result`)}
 																>
-																	{#if isExpanded(`${entry.id}-result`)}
+																	{#if isExpanded(`${module.id}-result`)}
 																		<ChevronDown size={8} />
 																	{:else}
 																		<ChevronRight size={8} />
 																	{/if}
 																	Result
 																</div>
-																{#if isExpanded(`${entry.id}-result`)}
+																{#if isExpanded(`${module.id}-result`)}
 																	<div class="pl-4">
 																		<ObjectViewer json={result} pureViewer={true} />
 																	</div>
