@@ -110,8 +110,8 @@
 	import type { Text } from 'yjs'
 	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
-	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	// import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import {
 		editor as meditor,
@@ -237,7 +237,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
-	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
@@ -563,7 +563,7 @@
 		sqlSchemaCompletor?.dispose()
 	}
 	function disposeGaphqlService() {
-		graphqlService = undefined
+		// graphqlService = undefined
 	}
 
 	function addDBSchemaCompletions() {
@@ -573,14 +573,14 @@
 		}
 		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
-			graphqlService ||= initializeMode()
+			// graphqlService ||= initializeMode()
 			console.log('setting schema config', schema)
-			graphqlService?.setSchemaConfig([
-				{
-					uri: 'my-schema.graphql',
-					introspectionJSON: schema
-				}
-			])
+			// graphqlService?.setSchemaConfig([
+			// 	{
+			// 		uri: 'my-schema.graphql',
+			// 		introspectionJSON: schema
+			// 	}
+			// ])
 		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
