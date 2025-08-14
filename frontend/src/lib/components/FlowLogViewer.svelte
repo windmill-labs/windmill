@@ -30,6 +30,7 @@
 		logEntries: FlowLogEntry[]
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		rootJob: RootJobData
+		flowStatus: FlowStatusModule['type'] | undefined
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
 		showResultsInputs?: boolean
@@ -52,6 +53,7 @@
 		logEntries,
 		localModuleStates,
 		rootJob,
+		flowStatus,
 		expandedRows,
 		allExpanded,
 		showResultsInputs,
@@ -253,11 +255,11 @@
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
 						<!-- Flow icon -->
-						{@render flowIcon(getFlowStatus(rootJob), flowInfo.hasErrors)}
+						{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo.hasErrors)}
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
-								{flowId === 'root' ? 'Flow' : 'Subflow'}
+								{level == 0 ? 'Flow' : 'Subflow'}
 								{#if flowInfo.label}
 									: {flowInfo.label}
 								{/if}
@@ -490,6 +492,7 @@
 																	logEntries={subflow}
 																	{localModuleStates}
 																	rootJob={subflowJob}
+																	flowStatus={$localModuleStates[entry.stepId]?.type}
 																	{expandedRows}
 																	{allExpanded}
 																	{showResultsInputs}
@@ -630,6 +633,7 @@
 {/if}
 
 {#snippet flowIcon(status: FlowStatusModule['type'] | undefined, hasErrors: boolean)}
+	{status}
 	{@const colorClass = getStatusColor(status)}
 	<div class="relative flex items-center">
 		<BarsStaggered
