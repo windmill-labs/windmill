@@ -1,1 +1,1 @@
-https://github.com/windmill-labs/windmill-ee-private/pull/249
+d04959121c6869d764e11e005676003fd2919629
