@@ -633,7 +633,6 @@
 {/if}
 
 {#snippet flowIcon(status: FlowStatusModule['type'] | undefined, hasErrors: boolean)}
-	{status}
 	{@const colorClass = getStatusColor(status)}
 	<div class="relative flex items-center">
 		<BarsStaggered
