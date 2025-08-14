@@ -134,7 +134,7 @@ pub async fn par_install_language_dependencies_all_at_once<
         )
         .await;
         let cmd = callback(for_all_at_once_copy.clone())?;
-        let child = start_child_process(cmd, &installer_executable_name).await?;
+        let child = start_child_process(cmd, &installer_executable_name, false).await?;
         let mut buf = "".to_owned();
         let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
 
@@ -419,7 +419,8 @@ async fn spawn_wrapped_installation_threads<
 
         let action = match strategy {
             InstallStrategy::Single(ref callback) => Action::Install(
-                start_child_process(callback(dep.clone())?, &installer_executable_name).await?,
+                start_child_process(callback(dep.clone())?, &installer_executable_name, false)
+                    .await?,
             ),
             InstallStrategy::AllAtOnce(ref rw_lock) => Action::AddToBulk(Arc::clone(rw_lock)),
         };

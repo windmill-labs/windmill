@@ -403,7 +403,7 @@ Your Gemfile syntax will continue to work as-is."
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let child = start_child_process(cmd, "bundle").await?;
+        let child = start_child_process(cmd, "bundle", false).await?;
 
         handle_child::handle_child(
             job_id,
@@ -812,7 +812,7 @@ mount {{
             ]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
             &job.id,
@@ -854,7 +854,7 @@ mount {{
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "ruby").await?
+        start_child_process(cmd, "ruby", false).await?
     };
     handle_child::handle_child(
         &job.id,
