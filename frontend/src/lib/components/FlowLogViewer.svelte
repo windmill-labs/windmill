@@ -301,7 +301,7 @@
 					<div class="w-4"></div>
 				{/if}
 			</div>
-			<div class="grow min-w-0 leading-tigh">
+			<div class="grow min-w-0 leading-tight">
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
