@@ -233,7 +233,7 @@ async fn get_websocket_trigger(
             can_return_message,
             error_handler_path,
             error_handler_args,
-            retry,
+            retry
         FROM 
             websocket_trigger
         WHERE 
