@@ -380,7 +380,7 @@ class AIChatManager {
 				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
 				if (pendingPrompt) {
 					if (this.mode === AIMode.SCRIPT) {
-						pendingUserMessage = await prepareScriptUserMessage(
+						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
 							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()

@@ -338,7 +338,8 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 )
 
 const testRunFlowSchema = z.object({
-	args: z.record(z.any()).optional().describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+	args: z.object({}).nullable().optional()
+	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -539,7 +540,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: testRunFlowToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
-			
+
 			if (!flow || !flow.value) {
 				toolCallbacks.setToolStatus(toolId, { 
 					content: 'No flow available to test',
