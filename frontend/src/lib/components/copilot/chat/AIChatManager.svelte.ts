@@ -373,8 +373,13 @@ class AIChatManager {
 
 			while (true) {
 				const systemMessage = systemMessageOverride ?? this.systemMessage
-				const tools = this.tools
 				const helpers = this.helpers
+				const tools = this.tools
+				for (const tool of tools) {
+					if (tool.setSchema) {
+						await tool.setSchema(helpers)
+					}
+				}
 
 				let pendingPrompt = this.pendingPrompt
 				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined

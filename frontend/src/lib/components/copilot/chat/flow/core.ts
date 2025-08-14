@@ -14,6 +14,8 @@ import {
 } from '../script/core'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { copilotInfo, copilotSessionModel } from '$lib/stores'
+import { get } from 'svelte/store'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
 
@@ -549,16 +551,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
 			}
 
-			const parsedArgs = testRunFlowSchema.parse(args)
-			const flowArgs = parsedArgs.args || {}
-
 			return executeTestRun({
 				jobStarter: () => JobService.runFlowPreview({
 					workspace: workspace,
 					requestBody: {
-						args: flowArgs,
+						args: args,
 						value: flow.value,
-						tag: flow.tag
 					}
 				}),
 				workspace,
@@ -567,6 +565,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				startMessage: 'Starting flow test run...',
 				contextName: 'flow'
 			})
+		},
+		setSchema: async function(helpers: FlowAIChatHelpers) {
+			if (this.def?.function?.parameters) {
+				const flowInputsSchema = await helpers.getFlowInputsSchema()
+				this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
+				// OPEN AI model needs each property to be required
+				if (get(copilotSessionModel)?.provider === 'openai' || get(copilotSessionModel)?.provider === 'azure_openai') {
+					this.def.function.parameters.required = Object.keys(flowInputsSchema.properties)
+				}
+			}
 		},
 		requiresConfirmation: true,
 		showDetails: true
