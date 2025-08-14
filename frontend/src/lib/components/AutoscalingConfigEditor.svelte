@@ -262,7 +262,7 @@
 					/>
 					<ToggleButton disabled value="ecs" label="ECS (soon)" {item} />
 					<ToggleButton disabled value="nomad" label="Nomad (soon)" {item} />
-					<ToggleButton disabled value="kubernetes" label="Kubernetes (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 
@@ -324,6 +324,46 @@
 					</div>
 				</div>
 			{/if}
+
+			{#if config.integration.type === 'kubernetes'}
+				<label>
+					Worker Group
+					<input
+						oninput={() => dispatch('dirty')}
+						type="text"
+						placeholder="default"
+						bind:value={config.integration.worker_group}
+					/>
+				</label>
+
+				<label>
+					Namespace (optional)
+					<input
+						oninput={() => dispatch('dirty')}
+						type="text"
+						placeholder="windmill"
+						bind:value={config.integration.namespace}
+					/>
+				</label>
+
+				<label>
+					Kubeconfig path (optional)
+					<input
+						oninput={() => dispatch('dirty')}
+						type="text"
+						placeholder="/etc/windmill/kubeconfig"
+						bind:value={config.integration.kubeconfig_path}
+					/>
+				</label>
+
+				<div class="flex flex-row gap-2 mt-4">
+					<Button color="light" size="xs" variant="contained">Test scaling</Button>
+					<div class="flex text-xs flex-row gap-2 items-center">
+						<input class="!w-16" type="number" bind:value={test_input} />
+						workers
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2">
 				{#snippet children({ item })}
@@ -331,7 +371,7 @@
 					<ToggleButton value="script" label="Custom script" {item} />
 					<ToggleButton value="ecs" label="ECS (soon)" {item} />
 					<ToggleButton value="nomad" label="Nomad (soon)" {item} />
-					<ToggleButton value="kubernetes" label="Kubernetes (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 

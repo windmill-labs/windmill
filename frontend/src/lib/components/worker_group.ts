@@ -26,7 +26,7 @@ export type AutoscalingConfig = {
 }
 
 
-export type AutoscalingIntegration = AutoscaleScript | AutoscaleDryRun
+export type AutoscalingIntegration = AutoscaleScript | AutoscaleDryRun | AutoscaleKubernetes
 
 export type AutoscaleScript = {
     type: 'script'
@@ -36,6 +36,13 @@ export type AutoscaleScript = {
 
 export type AutoscaleDryRun = {
     type: 'dryrun'
+}
+
+export type AutoscaleKubernetes = {
+    type: 'kubernetes'
+    namespace?: string
+    worker_group?: string
+    kubeconfig_path?: string
 }
 
 export const defaultTags = [
