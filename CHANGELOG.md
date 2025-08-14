@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.525.0](https://github.com/windmill-labs/windmill/compare/v1.524.0...v1.525.0) (2025-08-14)
+
+
+### Features
+
+* **aichat:** add test tool to script and flow mode ([#6367](https://github.com/windmill-labs/windmill/issues/6367)) ([34773f2](https://github.com/windmill-labs/windmill/commit/34773f2614450d0e82b190c04bb446dec74f84dc))
+* **cli:** add better error handling with path logging for JSON parsing failures ([#6370](https://github.com/windmill-labs/windmill/issues/6370)) ([f03a8d6](https://github.com/windmill-labs/windmill/commit/f03a8d69c017e5ac8bb34cabdfd5c634dc126f3f))
+* **frontend:** add flow log view ([#6330](https://github.com/windmill-labs/windmill/issues/6330)) ([4ec1dce](https://github.com/windmill-labs/windmill/commit/4ec1dce5313177079177b9d90558e8085599d19d))
+
+
+### Bug Fixes
+
+* fix csharp build hanging ([ef14290](https://github.com/windmill-labs/windmill/commit/ef14290265eaf327d3e42b7f2fbb9dfd9eb3a873))
+* fix resource type search when adding resources ([e1629f7](https://github.com/windmill-labs/windmill/commit/e1629f799d60b4ca5db1e469cac57cc6cfc7d83f))
+* **frontend:** do not open popup when clicking on wand in flow inline script editor ([#6374](https://github.com/windmill-labs/windmill/issues/6374)) ([2b37281](https://github.com/windmill-labs/windmill/commit/2b372810844cd28019145c1a825dd0ac6e924292))
+* **frontend:** fix minor issues in the UI ([#6382](https://github.com/windmill-labs/windmill/issues/6382)) ([a41edd2](https://github.com/windmill-labs/windmill/commit/a41edd236bdd3196468cdf2586c95ff0a4c1abf5))
+
 ## [1.524.0](https://github.com/windmill-labs/windmill/compare/v1.523.0...v1.524.0) (2025-08-12)
 
 
