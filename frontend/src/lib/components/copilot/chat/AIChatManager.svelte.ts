@@ -217,7 +217,9 @@ class AIChatManager {
 					const latestMessage = getLatestAssistantMessage(this.displayMessages)
 					if (latestMessage) {
 						const codeBlocks = extractCodeFromMarkdown(latestMessage)
-						return codeBlocks[codeBlocks.length - 1]
+						if (codeBlocks.length > 0) {
+							return codeBlocks[codeBlocks.length - 1]
+						}
 					}
 					return undefined
 				},
@@ -373,14 +375,19 @@ class AIChatManager {
 
 			while (true) {
 				const systemMessage = systemMessageOverride ?? this.systemMessage
-				const tools = this.tools
 				const helpers = this.helpers
+				const tools = this.tools
+				for (const tool of tools) {
+					if (tool.setSchema) {
+						await tool.setSchema(helpers)
+					}
+				}
 
 				let pendingPrompt = this.pendingPrompt
 				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
 				if (pendingPrompt) {
 					if (this.mode === AIMode.SCRIPT) {
-						pendingUserMessage = await prepareScriptUserMessage(
+						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
 							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
@@ -528,7 +535,7 @@ class AIChatManager {
 		let reply = ''
 
 		try {
-			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
 				isPreprocessor: false
 			})
 			const messages = [userMessage]
