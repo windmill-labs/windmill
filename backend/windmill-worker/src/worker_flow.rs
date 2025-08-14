@@ -42,7 +42,7 @@ use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId,
 use windmill_common::jobs::{
     script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -2517,7 +2517,8 @@ async fn push_next_flow_job(
                 FlowModuleValue::Script { input_transforms, .. }
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
-                | FlowModuleValue::Flow { input_transforms, .. },
+                | FlowModuleValue::Flow { input_transforms, .. }
+                | FlowModuleValue::AIAgent { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status)
                     .warn_after_seconds(3)
@@ -3253,8 +3254,8 @@ enum NextStatus {
 }
 
 #[derive(Clone)]
-struct JobPayloadWithTag {
-    payload: JobPayload,
+pub struct JobPayloadWithTag {
+    pub payload: JobPayload,
     tag: Option<String>,
     delete_after_use: bool,
     timeout: Option<i32>,
@@ -3320,7 +3321,7 @@ fn payload_from_modules<'a>(
     })
 }
 
-fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModule) -> String {
+pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModule) -> String {
     if status
         .preprocessor_module
         .as_ref()
@@ -3387,6 +3388,24 @@ async fn compute_next_flow_transform(
                 flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
+                NextStatus::NextStep,
+            ))
+        }
+        FlowModuleValue::AIAgent { .. } => {
+            let Some(runnable_id) = flow_job.runnable_id else {
+                return Err(Error::internal_err(
+                    "expected runnable id for ai agent job".to_string(),
+                ));
+            };
+            let payload = JobPayload::AIAgent { flow_version: runnable_id.0 };
+            Ok(NextFlowTransform::Continue(
+                ContinuePayload::SingleJob(JobPayloadWithTag {
+                    payload,
+                    tag: None,
+                    delete_after_use,
+                    timeout: None,
+                    on_behalf_of: None,
+                }),
                 NextStatus::NextStep,
             ))
         }
@@ -4087,7 +4106,7 @@ async fn payload_from_simple_module(
     })
 }
 
-fn raw_script_to_payload(
+pub fn raw_script_to_payload(
     path: String,
     content: String,
     language: windmill_common::scripts::ScriptLang,
@@ -4137,7 +4156,7 @@ async fn flow_to_payload(
     Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
 }
 
-async fn script_to_payload(
+pub async fn script_to_payload(
     script_hash: Option<windmill_common::scripts::ScriptHash>,
     script_path: String,
     db: &sqlx::Pool<sqlx::Postgres>,

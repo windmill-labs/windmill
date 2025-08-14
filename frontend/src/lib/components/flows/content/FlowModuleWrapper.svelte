@@ -21,6 +21,7 @@
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
+	import FlowAiAgent from './FlowAIAgent.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -111,7 +112,18 @@
 </script>
 
 {#if flowModule.id === $selectedId}
-	{#if flowModule.value.type === 'forloopflow'}
+	{#if flowModule.value.type === 'aiagent'}
+		<FlowAiAgent
+			{noEditor}
+			bind:flowModule
+			{previousModule}
+			{parentModule}
+			{enableAi}
+			{savedModule}
+			forceTestTab={forceTestTab?.[flowModule.id]}
+			highlightArg={highlightArg?.[flowModule.id]}
+		/>
+	{:else if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
 		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
@@ -288,5 +300,14 @@
 				/>
 			{/each}
 		{/if}
+	{/each}
+{:else if flowModule.value.type === 'aiagent'}
+	{#each flowModule.value.tools as _, index (index)}
+		<FlowModuleWrapper
+			{noEditor}
+			bind:flowModule={flowModule.value.tools[index]}
+			bind:parentModule={flowModule}
+			previousModule={flowModule.value.tools[index - 1]}
+		/>
 	{/each}
 {/if}

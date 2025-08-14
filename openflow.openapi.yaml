@@ -212,6 +212,7 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
+        - $ref: "#/components/schemas/AiAgent"
       discriminator:
         propertyName: type
         mapping:
@@ -447,6 +448,28 @@ components:
       required:
         - branches
         - type
+
+    AiAgent:
+      type: object
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        type:
+          type: string
+          enum:
+            - aiagent
+        parallel:
+          type: boolean
+      required:
+        - tools
+        - type
+        - input_transforms
 
     Identity:
       type: object

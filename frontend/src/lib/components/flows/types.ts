@@ -89,6 +89,7 @@ export type FlowEditorContext = {
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
+	selectedTool: string | undefined
 	s3FilePicker: S3FilePicker | undefined
 	dbManagerDrawer: DbManagerDrawer | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined

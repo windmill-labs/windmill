@@ -44,7 +44,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 						: {
 								type: 'static',
 								value: undefined
-						  })
+							})
 				accu[key] = nv
 				return accu
 			}, {})
@@ -53,6 +53,50 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		return {
 			input_transforms: input_transforms,
 			schema: schema ?? emptySchema()
+		}
+	} else if (mod.type === 'aiagent') {
+		const schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties: {
+				system_prompt: {
+					default: null,
+					description: '',
+					originalType: 'string',
+					type: 'string'
+				},
+				user_message: {
+					default: null,
+					description: '',
+					originalType: 'string',
+					type: 'string'
+				},
+				resource: {
+					default: null,
+					description: '',
+					format: 'resource-openai',
+					type: 'object'
+				},
+				model: {
+					default: 'gpt-4o-mini',
+					description: '',
+					originalType: 'string',
+					type: 'string'
+				}
+			},
+			required: ['system_prompt', 'user_message', 'resource'],
+			type: 'object',
+			order: ['system_prompt', 'user_message', 'resource', 'model']
+		}
+		let input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(schema?.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? {
+					type: 'static',
+					value: undefined
+				}
+				return accu
+			}, {}),
+			schema
 		}
 	}
 

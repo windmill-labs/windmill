@@ -147,6 +147,7 @@
 		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			console.log('reload', schema)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -155,7 +156,8 @@
 				if (
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
-					flowModule.value.type == 'flow'
+					flowModule.value.type == 'flow' ||
+					flowModule.value.type == 'aiagent'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -195,6 +197,7 @@
 	let lastJobId: string | undefined = undefined
 
 	function onSelectedIdChange() {
+		console.log('onSelectedIdChange', $selectedId, $flowStateStore?.[$selectedId], flowModule)
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
@@ -519,7 +522,7 @@
 											? 'h-[calc(100%-68px)]'
 											: 'h-[calc(100%-34px)]'}
 									>
-										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
+										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 											<div class="h-full overflow-auto bg-surface" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}

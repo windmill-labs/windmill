@@ -53,6 +53,8 @@
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
+	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -103,6 +105,7 @@
 			index: number
 			detail: string
 			isPreprocessor?: boolean
+			agentId?: string
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
@@ -381,7 +384,11 @@
 		let newGraph = graph
 		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
 		// console.log('compute')
-		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
+		;[nodes, edges] = computeAIToolNodes(
+			computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges),
+			eventHandler
+		)
+		console.log('nodes', nodes)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -402,7 +409,9 @@
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
 		asset: AssetNode,
-		assetsOverflowed: AssetsOverflowedNode
+		assetsOverflowed: AssetsOverflowedNode,
+		aiTool: AiToolNode,
+		newAiTool: NewAiToolNode
 	} as any
 
 	const edgeTypes = {

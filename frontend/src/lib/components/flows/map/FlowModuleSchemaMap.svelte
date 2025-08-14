@@ -11,7 +11,8 @@
 		emptyModule,
 		pickScript,
 		pickFlow,
-		insertNewPreprocessorModule
+		insertNewPreprocessorModule,
+		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
@@ -136,6 +137,8 @@
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
+		} else if (kind == 'aiagent') {
+			;[module, state] = await createAiAgent(module.id)
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -476,8 +479,22 @@
 										instructions: detail.inlineScript?.instructions
 									})
 								}
+							} else if (detail.agentId) {
+								const parentModule = findModuleById(detail.agentId)
+
+								if (parentModule?.value.type === 'aiagent') {
+									await insertNewModuleAtIndex(
+										parentModule.value.tools,
+										0,
+										detail.kind,
+										detail.script,
+										detail.flow,
+										detail.inlineScript
+									)
+								}
 							} else {
 								const index = detail.index ?? 0
+
 								await insertNewModuleAtIndex(
 									targetModules,
 									index,
@@ -533,6 +550,7 @@
 				}
 			}}
 			onSelect={(id) => {
+				console.log('select', id)
 				flowPropPickerConfig.set(undefined)
 			}}
 			onChangeId={(detail) => {

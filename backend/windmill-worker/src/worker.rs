@@ -99,6 +99,7 @@ use tokio::{
 
 use rand::Rng;
 
+use crate::ai_executor::handle_ai_agent_job;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::{handle_bash_job, handle_powershell_job},
@@ -891,7 +892,7 @@ pub fn start_interactive_worker_shell(
     })
 }
 
-async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
+pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
     let job_dir_path = format!("{}/{}", worker_directory, job_id);
 
     create_directory_async(&job_dir_path).await;
@@ -2182,11 +2183,13 @@ pub struct SendResult {
     pub time: Instant,
 }
 
+#[derive(Clone)]
 pub enum SendResultPayload {
     JobCompleted(JobCompleted),
     UpdateFlow(UpdateFlow),
 }
 
+#[derive(Clone)]
 pub struct UpdateFlow {
     pub flow: Uuid,
     pub w_id: String,
@@ -2333,9 +2336,10 @@ pub async fn handle_queued_job(
             | JobKind::FlowDependencies,
             x,
         ) => match x.map(|x| x.0) {
-            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => {
-                Some(cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow).await?)
-            }
+            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(
+                cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                    .await?,
+            ),
             _ => None,
         },
         _ => None,
@@ -2540,6 +2544,35 @@ pub async fn handle_queued_job(
                 .flatten()
                 .map(|x| x.to_owned())
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
+            JobKind::AIAgent => match conn {
+                Connection::Sql(db) => {
+                    let runnable_id = job.runnable_id.ok_or_else(|| {
+                        Error::internal_err("expected runnable id for ai agent job".to_string())
+                    })?;
+                    let flow_data = cache::job::fetch_flow(db, &job.kind, Some(runnable_id))
+                        .or_else(|_| cache::job::fetch_preview_flow(db, &job.id, raw_flow))
+                        .await?;
+
+                    handle_ai_agent_job(
+                        job.as_ref(),
+                        &client,
+                        conn,
+                        flow_data,
+                        job_completed_tx.clone(),
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        hostname,
+                        killpill_rx,
+                    )
+                    .await
+                }
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Agent worker does not support ai agent jobs".to_string(),
+                    ));
+                }
+            },
             _ => {
                 let metric_timer = Instant::now();
                 let preview_data = preview_data.and_then(|data| match data {
@@ -2724,6 +2757,7 @@ async fn try_validate_schema(
                 JobKind::AppDependencies => 12,
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
+                JobKind::AIAgent => 15,
             };
 
             let sv = match job.runnable_id {
@@ -2764,7 +2798,7 @@ async fn try_validate_schema(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_code_execution_job(
+pub async fn handle_code_execution_job(
     job: &MiniPulledJob,
     preview: Option<Arc<ScriptData>>,
     conn: &Connection,

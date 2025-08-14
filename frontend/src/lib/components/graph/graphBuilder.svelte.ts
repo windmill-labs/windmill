@@ -18,6 +18,7 @@ export type InsertKind =
 	| 'trigger'
 	| 'approval'
 	| 'end'
+	| 'aiagent'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -99,6 +100,8 @@ export type FlowNode =
 	| TriggerN
 	| AssetN
 	| AssetsOverflowedN
+	| AiToolN
+	| NewAiToolN
 
 export type InputN = {
 	type: 'input2'
@@ -288,6 +291,23 @@ export type AssetsOverflowedN = {
 	type: 'assetsOverflowed'
 	data: {
 		overflowedAssets: AssetWithAltAccessType[]
+	}
+}
+
+export type AiToolN = {
+	type: 'aiTool'
+	data: {
+		tool: string
+		eventHandlers: GraphEventHandlers
+		moduleId: string
+	}
+}
+
+export type NewAiToolN = {
+	type: 'newAiTool'
+	data: {
+		eventHandlers: GraphEventHandlers
+		agentModuleId: string
 	}
 }
 

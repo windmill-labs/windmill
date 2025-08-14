@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::num::NonZeroI32;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -4435,6 +4436,21 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
+        JobPayload::AIAgent { flow_version } => (
+            Some(flow_version),
+            None,
+            None,
+            JobKind::AIAgent,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
     };
 
     let final_priority: Option<i16>;
@@ -4782,6 +4798,7 @@ pub async fn push<'c, 'd>(
             JobKind::FlowScript => "jobs.run.flow_script",
             JobKind::FlowNode => "jobs.run.flow_node",
             JobKind::AppScript => "jobs.run.app_script",
+            JobKind::AIAgent => "jobs.run.ai_agent",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

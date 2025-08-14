@@ -138,6 +138,13 @@ shouldUsePortal={true} -->
 						dispatch('new', { kind: 'branchall' })
 					}}
 				/>
+				<TopLevelNode
+					label="AI Agent"
+					on:select={() => {
+						dispatch('close')
+						dispatch('new', { kind: 'aiagent' })
+					}}
+				/>
 			</div>
 		{/if}
 
