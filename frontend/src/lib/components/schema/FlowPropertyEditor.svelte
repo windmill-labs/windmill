@@ -250,13 +250,16 @@
 				bind:schema={
 					() => {
 						if (oneOf?.[idx]) {
+							let properties = Object.fromEntries(
+								Object.entries(oneOf[idx].properties ?? {}).filter(
+									([k]) => k !== 'label' && k !== 'kind'
+								)
+							)
 							return {
 								...oneOf[idx],
-								properties: Object.fromEntries(
-									Object.entries(oneOf[idx].properties ?? {}).filter(
-										([k]) => k !== 'label' && k !== 'kind'
-									)
-								)
+								properties: properties,
+								order: Object.keys(properties),
+								required: oneOf[idx].required ?? []
 							}
 						}
 					},
@@ -265,7 +268,6 @@
 							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 								? 'kind'
 								: 'label'
-
 							oneOf[idx] = {
 								...(v ?? {}),
 								type: 'object',

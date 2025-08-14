@@ -272,6 +272,7 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_completed_logs_tail/:id", get(get_completed_job_logs_tail))
         .route("/get_args/:id", get(get_args))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
@@ -1361,11 +1362,55 @@ async fn get_logs_from_disk(
     return None;
 }
 
+async fn get_completed_job_logs_tail(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<String> {
+
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
+        .flatten();
+
+    let record = sqlx::query!(
+        "SELECT created_by AS \"created_by!\", coalesce(job_logs.logs, '') as logs
+        FROM v2_job
+        LEFT JOIN job_logs ON job_logs.job_id = v2_job.id
+        WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))
+        ORDER BY job_logs.log_offset DESC
+        LIMIT 100",
+        id,
+        w_id,
+        tags.as_ref().map(|v| v.as_slice())
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(record) = record {
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+ 
+        let logs = record.logs.unwrap_or_default();
+        Ok(Json(logs))
+    } else {
+        Err(Error::NotFound("Job not found".to_string()).into())
+    }
+}
+#[derive(Debug, Deserialize)]
+struct QueryJobLogs {
+    remove_ansi_warnings: Option<bool>,
+}
+
 async fn get_job_logs(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(query_job_logs): Query<QueryJobLogs>,
 ) -> error::Result<Response> {
     // let audit_author: AuditAuthor = match opt_authed {
     //     Some(authed) => (&authed).into(),
@@ -1419,10 +1464,14 @@ async fn get_job_logs(
         {
             return r.map(content_plain);
         }
-        let logs = format!(
-            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+        let logs = if query_job_logs.remove_ansi_warnings.unwrap_or(false) {
             logs
-        );
+        } else {
+            format!(
+                "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+                logs
+            )
+        };
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(

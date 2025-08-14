@@ -1,6 +1,6 @@
-import { ResourceService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
+import { capitalize, emptySchema, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
@@ -13,9 +13,10 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
+import { inferArgs } from '$lib/infer'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -67,8 +68,6 @@ async function getResourceTypes(prompt: string, workspace: string) {
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
-
-const TS_INLINE_TYPE_INSTRUCTION = `When using resource types, you should use RT.ResourceType as parameter type. For other parameters, you should inline the objects types instead of defining them separately. This is because Windmill requires the types (other than resource types) to be inlined to generate a user friendly UI from the parameters.`
 
 const TS_WINDMILL_CLIENT_CONTEXT = `
 
@@ -213,9 +212,7 @@ export function getLangContext(
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
 					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) +
-		TS_INLINE_TYPE_INSTRUCTION +
-		TS_WINDMILL_CLIENT_CONTEXT
+					: '')) + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
@@ -351,6 +348,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- After modifying the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -498,6 +496,7 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
+	tools.push(testRunScriptTool)
 	return tools
 }
 
@@ -627,15 +626,18 @@ async function formatDBSchema(dbSchema: DBSchema) {
 }
 
 export interface ScriptChatHelpers {
-	getLang: () => ScriptLang | 'bunnative'
+	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> }
+	getLastSuggestedCode: () => string | undefined
+	applyCode: (code: string, applyAll?: boolean) => void
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
+		const lang = helpers.getScriptOptions().lang
 		const formattedResourceTypes = await getFormattedResourceTypes(
-			helpers.getLang(),
+			lang,
 			args.query,
 			workspace
 		)
@@ -830,4 +832,103 @@ export async function fetchNpmPackageTypes(
 			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
 		}
 	}
+}
+
+const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'test_run_script',
+		description: 'Execute a test run of the current script in the editor',
+		// will be overridden by setSchema
+		parameters: {
+			type: 'object',
+			properties: {
+				args: {
+					type: 'object',
+					description: 'Arguments to pass to the script (optional, uses current editor args if not provided)'
+				}
+			},
+			required: []
+		}
+	},
+}
+
+export const testRunScriptTool: Tool<ScriptChatHelpers> = {
+	def: TEST_RUN_SCRIPT_TOOL,
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		const scriptOptions = helpers.getScriptOptions()
+		
+		if (!scriptOptions) {
+			toolCallbacks.setToolStatus(toolId, { 
+				content: 'No script available to test',
+				error: 'No script found in current context'
+			})
+			throw new Error('No script code available to test. Please ensure you have a script open in the editor.')
+		}
+
+		let codeToTest = scriptOptions.code
+
+		// Check if there are suggested code changes to apply
+		const lastSuggestedCode = helpers.getLastSuggestedCode()
+		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
+			codeToTest = lastSuggestedCode
+			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+			
+			// Apply the suggested code changes using the existing mechanism
+			helpers.applyCode(lastSuggestedCode, true)
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
+		}
+
+		return executeTestRun({
+			jobStarter: () => JobService.runScriptPreview({
+				workspace: workspace,
+				requestBody: {
+					path: scriptOptions.path,
+					content: codeToTest,
+					args,
+					language: scriptOptions.lang as ScriptLang,
+					tag: undefined,
+					lock: undefined,
+					script_hash: undefined
+				}
+			}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: 'Running test...',
+			contextName: 'script'
+		})
+	},
+	setSchema: async function(helpers: ScriptChatHelpers) {
+		try {
+			const scriptOptions = helpers.getScriptOptions()
+			const code = scriptOptions?.code
+			const lang = scriptOptions?.lang
+			const lastSuggestedCode = helpers.getLastSuggestedCode()
+
+			const codeToTest = lastSuggestedCode ?? code
+			if (codeToTest) {
+				const newSchema = emptySchema()
+				await inferArgs(lang, codeToTest, newSchema)
+				this.def.function.parameters = { ...newSchema, additionalProperties: false }
+				// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+				const model = get(copilotSessionModel)?.provider
+				if (model === 'openai' || model === 'azure_openai') {
+					this.def.function.strict = false
+				}
+			}
+		} catch (e) {
+			console.error('Error setting schema for test_run_script tool', e)
+			// fallback to schema with any properties
+			this.def.function.parameters = {
+				type: 'object',
+				properties: {},
+				additionalProperties: true,
+				strict: false
+			}
+		}
+	},
+	requiresConfirmation: true,
+	showDetails: true,
 }

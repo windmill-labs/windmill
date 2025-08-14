@@ -554,7 +554,7 @@ async fn install<'a>(
 
         let buf = tl.replace(['(', ')'], "");
         let &[pkg, version, ..] = buf.split_whitespace().collect_vec().as_slice() else {
-            return Err(anyhow!("Cannot deterimine version and package name for: {}", tl).into());
+            return Err(anyhow!("Cannot determine version and package name for: {}", tl).into());
         };
 
         // Strip platform from version. E.g:

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            ig.name as group_name,\n            ws.workspace_id,\n            w.name as workspace_name,\n            ws.auto_add_instance_groups_roles->ig.name as role\n        FROM instance_group ig\n        INNER JOIN workspace_settings ws ON ws.auto_add_instance_groups IS NOT NULL\n            AND ig.name = ANY(ws.auto_add_instance_groups)\n        INNER JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false\n        ORDER BY ig.name, ws.workspace_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "1e6c125c884002a1565b11a2c308ce89f9726d21bbb3cc712ad0b6450cbb44e6"
+}

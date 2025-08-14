@@ -118,7 +118,7 @@ pub async fn handle_nu_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawV
 
 //         #[cfg(windows)]
 //         nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-//         let child = start_child_process(run_cmd, "cargo").await?;
+//         let child = start_child_process(run_cmd, "cargo", false).await?;
 //         // handle_child::handle_child(
 //         //     &job.id,
 //         //     db,
@@ -272,7 +272,7 @@ async fn run<'a>(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
             &job.id,
@@ -323,7 +323,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "nu").await?
+        start_child_process(cmd, "nu", false).await?
     };
     handle_child::handle_child(
         &job.id,

@@ -8,7 +8,7 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
+import { extractCodeFromMarkdown, getLatestAssistantMessage, processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -80,13 +80,13 @@ class AIChatManager {
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
+	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
-	
+
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -205,7 +205,27 @@ class AIChatManager {
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
 			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
 			this.helpers = {
-				getLang: () => lang
+				getScriptOptions: () => {
+					return {
+						code: this.scriptEditorOptions?.code ?? '',
+						lang: lang,
+						path: this.scriptEditorOptions?.path ?? '',
+						args: this.scriptEditorOptions?.args ?? {}
+					}
+				},
+				getLastSuggestedCode: () => {
+					const latestMessage = getLatestAssistantMessage(this.displayMessages)
+					if (latestMessage) {
+						const codeBlocks = extractCodeFromMarkdown(latestMessage)
+						if (codeBlocks.length > 0) {
+							return codeBlocks[codeBlocks.length - 1]
+						}
+					}
+					return undefined
+				},
+				applyCode: (code: string, applyAll?: boolean) => {
+					this.scriptEditorApplyCode?.(code, applyAll)
+				}
 			}
 			if (options?.closeScriptSettings) {
 				const closeComponent = triggerablesByAi['close-script-builder-settings']
@@ -355,14 +375,19 @@ class AIChatManager {
 
 			while (true) {
 				const systemMessage = systemMessageOverride ?? this.systemMessage
-				const tools = this.tools
 				const helpers = this.helpers
+				const tools = this.tools
+				for (const tool of tools) {
+					if (tool.setSchema) {
+						await tool.setSchema(helpers)
+					}
+				}
 
 				let pendingPrompt = this.pendingPrompt
 				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
 				if (pendingPrompt) {
 					if (this.mode === AIMode.SCRIPT) {
-						pendingUserMessage = await prepareScriptUserMessage(
+						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
 							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
@@ -510,7 +535,7 @@ class AIChatManager {
 		let reply = ''
 
 		try {
-			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
 				isPreprocessor: false
 			})
 			const messages = [userMessage]

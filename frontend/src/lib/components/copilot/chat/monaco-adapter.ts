@@ -167,7 +167,7 @@ export class AIChatEditorHandler {
 		return changedLines
 	}
 
-	async reviewAndApply(newCode: string) {
+	async reviewAndApply(newCode: string, applyAll: boolean = false) {
 		if (aiChatManager.pendingNewCode === newCode) {
 			this.acceptAll()
 			return
@@ -222,13 +222,18 @@ export class AIChatEditorHandler {
 				}
 			})
 
-			;({ collection, ids } = await displayVisualChanges(
-				'editor-windmill-chat-style',
-				this.editor,
-				changes
-			))
-			this.decorationsCollections.push(collection)
-			this.viewZoneIds.push(...ids)
+			if (!applyAll) {
+				;({ collection, ids } = await displayVisualChanges(
+					'editor-windmill-chat-style',
+					this.editor,
+					changes
+				))
+					this.decorationsCollections.push(collection)
+					this.viewZoneIds.push(...ids)
+			}
+		}
+		if (applyAll) {
+			this.acceptAll()
 		}
 	}
 }
