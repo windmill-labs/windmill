@@ -839,6 +839,7 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 	function: {
 		name: 'test_run_script',
 		description: 'Execute a test run of the current script in the editor',
+		// will be overridden by setSchema
 		parameters: {
 			type: 'object',
 			properties: {
