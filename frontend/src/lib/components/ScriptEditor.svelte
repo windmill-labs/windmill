@@ -428,9 +428,9 @@
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
-			aiChatManager.scriptEditorApplyCode = (code: string) => {
+			aiChatManager.scriptEditorApplyCode = (code: string, applyAll: boolean = false) => {
 				hideDiffMode()
-				editor?.reviewAndApplyCode(code)
+				editor?.reviewAndApplyCode(code, applyAll)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 		})

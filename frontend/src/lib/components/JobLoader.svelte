@@ -1,3 +1,9 @@
+<script context="module" lang="ts">
+	import pLimit from 'p-limit'
+
+	const plimit = pLimit(5)
+</script>
+
 <script lang="ts">
 	import {
 		type Job,
@@ -24,6 +30,7 @@
 		started?: ({ id }: { id: string }) => void
 		running?: ({ id }: { id: string }) => void
 		resultStreamUpdate?: ({ id, result_stream }: { id: string; result_stream?: string }) => void
+		loadExtraLogs?: ({ id, logs }: { id: string; logs: string }) => void
 	}
 
 	interface Props {
@@ -83,6 +90,8 @@
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
 	let noPingTimeout: NodeJS.Timeout | undefined = undefined
+	let lastNoLogs = $state(noLogs)
+	let lastCompletedJobId = $state<string | undefined>(undefined)
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -91,6 +100,32 @@
 				isLoading = newIsLoading
 			}
 		})
+	})
+
+	const noLogsChangeRestartEvent = 'SSE restart after no logs change'
+	$effect(() => {
+		if (noLogs != lastNoLogs) {
+			lastNoLogs = noLogs
+			if (!noLogs) {
+				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
+				const lastJobId = lastCompletedJobId
+				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
+					plimit(() =>
+						JobService.getCompletedJobLogsTail({
+							workspace: $workspaceStore!,
+							id: lastJobId
+						})
+					).then((res) => {
+						if (res && job) {
+							job.logs = res
+						}
+						if (res && lastCallbacks?.loadExtraLogs) {
+							lastCallbacks.loadExtraLogs({ id: lastJobId, logs: res })
+						}
+					})
+				}
+			}
+		}
 	})
 
 	function clearCurrentId() {
@@ -106,6 +141,7 @@
 	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
+			lastCompletedJobId = undefined
 			clearCurrentJob()
 			lastCallbacks = callbacks
 			noPingTimeout = undefined
@@ -251,7 +287,6 @@
 		const id = currentId
 		if (id) {
 			lastCallbacks?.cancel?.({ id })
-			lastCallbacks = undefined
 			clearCurrentId()
 			// Clean up SSE connection
 			currentEventSource?.close()
@@ -272,7 +307,6 @@
 		if (currentId && !allowConcurentRequests) {
 			job = undefined
 			lastCallbacks?.cancel?.({ id: currentId })
-			lastCallbacks = undefined
 			await cancelJob()
 		}
 	}
@@ -298,7 +332,7 @@
 		// Clean up any existing SSE connection
 		currentEventSource?.close()
 		currentEventSource = undefined
-
+		lastCallbacks = callbacks
 		// Try SSE first, fall back to polling if needed
 		if (supportsSSE()) {
 			await loadTestJobWithSSE(testId, 0, callbacks)
@@ -497,6 +531,7 @@
 			callbacks?.change?.(job)
 
 			clearCurrentId()
+			lastCompletedJobId = id
 		}
 	}
 
@@ -673,9 +708,16 @@
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
 						currentEventSource = undefined
-						if (attempt < 3) {
-							console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
-							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), 1000)
+						let delay = 1000
+						let isNoLogsChange = error.type == noLogsChangeRestartEvent
+						if (isNoLogsChange) {
+							delay = 0
+						}
+						if (attempt < 3 || isNoLogsChange) {
+							if (!isNoLogsChange) {
+								console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
+							}
+							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), delay)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id, callbacks), 1000)
