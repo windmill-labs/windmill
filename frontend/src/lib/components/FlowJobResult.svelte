@@ -46,7 +46,7 @@
 	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
 		{#if result !== undefined || result_stream !== undefined}
-			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} />
+			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}
