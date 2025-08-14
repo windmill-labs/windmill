@@ -64,7 +64,7 @@ pub enum InstallStrategy<T: Clone + Send + Sync> {
 ///
 /// After `deps` are provided helper will check each dependency and check if it is in cache, if not it will try to pull from S3
 /// and if it does not work either, it will invoke `install_fn` closure.
-/// Closure arguments has dependency name as well as it`s expected path in cache.
+/// Closure arguments has dependency name as well as its expected path in cache.
 /// Closure should return Command that will install dependency to asked place.
 #[allow(dead_code)]
 pub async fn par_install_language_dependencies_all_at_once<
