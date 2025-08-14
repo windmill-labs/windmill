@@ -19,8 +19,6 @@
 		hideJobId?: boolean
 		extra?: import('svelte').Snippet
 		result_streams?: Record<string, string | undefined>
-		onExploreAllLogs?: () => void
-		noLogsExplorer?: boolean
 	}
 
 	let {
@@ -33,9 +31,7 @@
 		suspendStatus,
 		hideJobId,
 		extra,
-		result_streams,
-		onExploreAllLogs,
-		noLogsExplorer
+		result_streams
 	}: Props = $props()
 </script>
 
@@ -55,9 +51,7 @@
 				loading={job['running'] == true}
 				result={job.result}
 				logs={job.logs}
-				{onExploreAllLogs}
 				downloadLogs={!hideDownloadLogs}
-				{noLogsExplorer}
 			/>
 		</div>
 	{/if}
