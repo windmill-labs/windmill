@@ -291,6 +291,24 @@ export type AssetsOverflowedN = {
 	}
 }
 
+export function topologicalSort(nodes: NodeLayout[]): NodeLayout[] {
+	const nodeMap = new Map(nodes.map(n => [n.id, n]));
+	const result: NodeLayout[] = [];
+	const visited = new Set<string>();
+
+	function visit(id: string): void {
+		if (visited.has(id)) return;
+		visited.add(id);
+
+		const node = nodeMap.get(id)!;
+		node.parentIds?.forEach(visit);
+		result.push(node);
+	}
+
+	nodes.forEach(n => visit(n.id));
+	return result.reverse();
+}
+
 // input2: InputNode,
 // module: ModuleNode,
 // branchAllStart: BranchAllStart,

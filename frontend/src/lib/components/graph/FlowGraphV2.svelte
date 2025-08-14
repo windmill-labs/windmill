@@ -17,6 +17,7 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -224,7 +225,7 @@
 		const nodes2 = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
-		for (const n of nodes.reverse()) {
+		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
 			if (nodeWidths[endId] != undefined) {
