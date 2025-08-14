@@ -119,7 +119,7 @@
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~19.1.4",
 		"monaco-editor-wrapper": "6.10.0",
-		"monaco-graphql": "^1.6.2",
+		"monaco-graphql": "=1.6.0",
 		"monaco-languageclient": "9.9.0",
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
