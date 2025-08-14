@@ -120,4 +120,6 @@
 	bind:rightColumnSelect
 	{render}
 	{customUi}
+	graphTabOpen={true}
+	isNodeSelected={true}
 />

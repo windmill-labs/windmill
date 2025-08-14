@@ -72,9 +72,7 @@
 				})
 			)
 	})
-	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => jobLoader?.getLogs())
-	})
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
 	})
@@ -82,7 +80,7 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<JobLoader noLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
+<JobLoader workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}

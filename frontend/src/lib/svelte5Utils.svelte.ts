@@ -1,6 +1,7 @@
 // https://github.com/sveltejs/svelte/issues/14600
 
 import { untrack } from 'svelte'
+import { deepEqual } from 'fast-equals'
 import type { StateStore } from './utils'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
@@ -68,4 +69,32 @@ export function usePromise<T>(
 	if (loadInit) ret.refresh()
 
 	return ret
+}
+
+/**
+ * Generic change tracker class that monitors changes in state using deep equality comparison
+ * and provides a counter to trigger Svelte 5 reactivity. Similar to the pattern used in
+ * FlowGraphV2.svelte's onModulesChange2 function.
+ */
+export class ChangeTracker<T> {
+	counter = $state(0)
+	#lastState: T | undefined
+
+	constructor(initialValue?: T) {
+		this.#lastState = initialValue ? initialValue : undefined
+	}
+
+	/**
+	 * Check if the value has changed and update the counter to trigger reactivity
+	 * @param value - The current value to check for changes
+	 * @returns true if the value changed, false otherwise
+	 */
+	track(value: T): boolean {
+		if (!deepEqual(value, this.#lastState)) {
+			this.#lastState = value
+			this.counter++
+			return true
+		}
+		return false
+	}
 }

@@ -34,6 +34,7 @@
 	import { buildPrefix } from './graph/graphBuilder.svelte'
 	import { parseInputArgsAssets } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
+	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
@@ -97,6 +98,9 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		graphTabOpen: boolean
+		isNodeSelected: boolean
+		loadExtraLogs?: (logs: string) => void
 	}
 
 	let {
@@ -127,7 +131,10 @@
 		localModuleStates = writable({}),
 		localDurationStatuses = writable({}),
 		customUi,
-		onResultStreamUpdate = undefined
+		onResultStreamUpdate = undefined,
+		graphTabOpen,
+		isNodeSelected,
+		loadExtraLogs = undefined
 	}: Props = $props()
 
 	let resultStreams: Record<string, string | undefined> = $state({})
@@ -542,6 +549,14 @@
 						},
 						resultStreamUpdate({ id, result_stream }: { id: string; result_stream?: string }) {
 							onResultStreamUpdate?.({ jobId: id, result_stream })
+						},
+						loadExtraLogs({ id, logs }: { id: string; logs: string }) {
+							if (id == jobId && job) {
+								job.logs = logs
+							}
+							if (loadExtraLogs) {
+								loadExtraLogs(logs)
+							}
 						}
 					})
 				}
@@ -926,6 +941,38 @@
 
 	let subflowsSize = $state(500)
 
+	async function onSelectedIteration(
+		detail:
+			| { id: string; index: number; manuallySet: true; moduleId: string }
+			| { manuallySet: false; moduleId: string }
+	) {
+		if (detail.manuallySet) {
+			let rootJobId = detail.id
+			await tick()
+
+			let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+			if (previousId) {
+				await globalRefreshes?.[detail.moduleId]?.(true, previousId)
+			}
+
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForloop: detail.id,
+				selectedForloopIndex: detail.index,
+				selectedForLoopSetManually: true
+			}
+
+			await tick()
+
+			await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
+		} else {
+			$localModuleStates[detail.moduleId] = {
+				...$localModuleStates[detail.moduleId],
+				selectedForLoopSetManually: false
+			}
+		}
+	}
+
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onFlowModuleId())
 	})
@@ -939,10 +986,14 @@
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onModuleIdChange())
 	})
-	let selected = $derived(isListJob ? 'sequence' : 'graph')
+	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
+
+	let animateLogsTab = $state(false)
+
+	let noLogs = $derived(graphTabOpen && !isNodeSelected)
 </script>
 
-<JobLoader workspaceOverride={workspaceId} noCode noLogs bind:this={jobLoader} />
+<JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you
@@ -999,7 +1050,6 @@
 					{isOwner}
 					{hideFlowResult}
 					{hideDownloadLogs}
-					{localDurationStatuses}
 					{innerModules}
 					{suspendStatus}
 					{hideJobId}
@@ -1011,6 +1061,12 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab
+						value="logs"
+						class={animateLogsTab
+							? 'animate-pulse animate-duration-1000 bg-surface-inverse text-primary-inverse'
+							: ''}><span class="font-semibold">Logs</span></Tab
+					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
@@ -1096,6 +1152,8 @@
 										innerJobLoaded(job, j, false, force)
 									}}
 									{onResultStreamUpdate}
+									graphTabOpen={selected == 'graph' && graphTabOpen}
+									isNodeSelected={forloop_selected == loopJobId}
 								/>
 							</div>
 						{/if}
@@ -1172,6 +1230,8 @@
 											{workspaceId}
 											jobId={failedRetry}
 											{onResultStreamUpdate}
+											graphTabOpen={selected == 'graph' && graphTabOpen}
+											isNodeSelected={retry_selected == failedRetry}
 										/>
 									</div>
 								{/each}
@@ -1205,6 +1265,8 @@
 											onJobsLoaded(mod, job, force)
 										}}
 										{onResultStreamUpdate}
+										graphTabOpen={selected == 'graph' && graphTabOpen}
+										isNodeSelected={false}
 									/>
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">no subflow (empty loop?)</div>
@@ -1236,7 +1298,14 @@
 											let { job, force } = e.detail
 											onJobsLoaded(mod, job, force)
 										}}
+										loadExtraLogs={(logs) => {
+											setModuleState(mod.id ?? '', {
+												logs
+											})
+										}}
 										{onResultStreamUpdate}
+										graphTabOpen={selected == 'graph' && graphTabOpen}
+										isNodeSelected={$localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 									/>
 								{/if}
 							{:else}
@@ -1251,6 +1320,15 @@
 			{:else}
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
+		</div>
+		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
+			<FlowLogViewerWrapper
+				{job}
+				{localModuleStates}
+				{workspaceId}
+				{render}
+				{onSelectedIteration}
+			/>
 		</div>
 	</div>
 	{#if render}
@@ -1305,33 +1383,7 @@
 									selectedNode = e.id
 								}
 							}}
-							onSelectedIteration={async (detail) => {
-								if (detail.manuallySet) {
-									let rootJobId = detail.id
-									await tick()
-
-									let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
-									if (previousId) {
-										await globalRefreshes?.[detail.moduleId]?.(true, previousId)
-									}
-
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForloop: detail.id,
-										selectedForloopIndex: detail.index,
-										selectedForLoopSetManually: true
-									}
-
-									await tick()
-
-									await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
-								} else {
-									$localModuleStates[detail.moduleId] = {
-										...$localModuleStates[detail.moduleId],
-										selectedForLoopSetManually: false
-									}
-								}
-							}}
+							{onSelectedIteration}
 							earlyStop={job.raw_flow?.skip_expr !== undefined}
 							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}
@@ -1386,7 +1438,6 @@
 											col
 											result={job['result']}
 											logs={job.logs ?? ''}
-											durationStates={localDurationStatuses}
 											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else if selectedNode == 'start'}
@@ -1464,7 +1515,6 @@
 											result={node.result}
 											tag={node.tag}
 											logs={node.logs}
-											durationStates={localDurationStatuses}
 											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}

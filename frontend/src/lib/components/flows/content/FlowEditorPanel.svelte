@@ -15,7 +15,6 @@
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
 	import type { Writable } from 'svelte/store'
-	import type { DurationStatus } from '$lib/components/graph'
 
 	interface Props {
 		noEditor?: boolean
@@ -33,7 +32,6 @@
 		onTestFlow?: () => void
 		job?: Job
 		isOwner?: boolean
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
 	}
@@ -50,7 +48,6 @@
 		onTestFlow,
 		job,
 		isOwner,
-		localDurationStatuses,
 		suspendStatus,
 		onOpenDetails
 	}: Props = $props()
@@ -100,7 +97,7 @@
 		{onTestFlow}
 	/>
 {:else if $selectedId === 'Result'}
-	<FlowResult {noEditor} {job} {isOwner} {localDurationStatuses} {suspendStatus} {onOpenDetails} />
+	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}

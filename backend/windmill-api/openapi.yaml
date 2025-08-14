@@ -7777,9 +7777,30 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: remove_ansi_warnings
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
+    get:
+      summary: get completed job logs tail
+      operationId: getCompletedJobLogsTail
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: completed job logs tail
           content:
             text/plain:
               schema:

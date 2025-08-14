@@ -5,7 +5,6 @@
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
-	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 	import Badge from './common/badge/Badge.svelte'
 
@@ -15,7 +14,6 @@
 		isOwner: boolean
 		hideFlowResult: boolean
 		hideDownloadLogs: boolean
-		localDurationStatuses: Writable<Record<string, DurationStatus>>
 		innerModules: FlowStatusModule[]
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		hideJobId?: boolean
@@ -29,7 +27,6 @@
 		isOwner,
 		hideFlowResult,
 		hideDownloadLogs,
-		localDurationStatuses,
 		innerModules,
 		suspendStatus,
 		hideJobId,
@@ -54,7 +51,6 @@
 				loading={job['running'] == true}
 				result={job.result}
 				logs={job.logs}
-				durationStates={localDurationStatuses}
 				downloadLogs={!hideDownloadLogs}
 			/>
 		</div>

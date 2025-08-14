@@ -16,7 +16,7 @@
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobPreview from '$lib/components/runs/JobPreview.svelte'
+	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
@@ -834,7 +834,7 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
+				<JobRunsPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -1179,7 +1179,7 @@
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
-							<JobPreview
+							<JobRunsPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
 								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
