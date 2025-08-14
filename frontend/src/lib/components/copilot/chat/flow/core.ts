@@ -14,7 +14,7 @@ import {
 } from '../script/core'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { copilotInfo, copilotSessionModel } from '$lib/stores'
+import { copilotSessionModel } from '$lib/stores'
 import { get } from 'svelte/store'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
