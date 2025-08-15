@@ -72,7 +72,7 @@
 		isOwner?: boolean
 		selectedNode?: string | undefined
 		globalModuleStates: Writable<Record<string, GraphModuleState>>[]
-		globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
+		globalDurationStatuses?: Record<string, DurationStatus>[]
 		childFlow?: boolean
 		isSubflow?: boolean
 		reducedPolling?: boolean
@@ -81,13 +81,13 @@
 		workspace?: string | undefined
 		prefix?: string | undefined
 		subflowParentsGlobalModuleStates?: Writable<Record<string, GraphModuleState>>[]
-		subflowParentsDurationStatuses?: Writable<Record<string, DurationStatus>>[]
+		subflowParentsDurationStatuses?: Record<string, DurationStatus>[]
 		isForloopSelected?: boolean
 		parentRecursiveRefresh?: Record<string, (clear, root) => Promise<void>>
 		job?: (Job & { result_stream?: string }) | undefined
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		localDurationStatuses?: Record<string, DurationStatus>
 		onResultStreamUpdate?: ({
 			jobId,
 			result_stream
@@ -114,7 +114,7 @@
 		isOwner = false,
 		selectedNode = $bindable(undefined),
 		globalModuleStates,
-		globalDurationStatuses,
+		globalDurationStatuses = [],
 		childFlow = false,
 		isSubflow = false,
 		reducedPolling = false,
@@ -129,7 +129,7 @@
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = writable({}),
-		localDurationStatuses = writable({}),
+		localDurationStatuses = $bindable({}),
 		customUi,
 		onResultStreamUpdate = undefined,
 		graphTabOpen,
@@ -359,48 +359,35 @@
 	}
 
 	function setDurationStatusByJob(key: string, id: string, value: any) {
-		if (!deepEqual($localDurationStatuses[key]?.byJob[id], value)) {
-			$localDurationStatuses[key].byJob[id] = value
+		if (!deepEqual(localDurationStatuses[key]?.byJob[id], value)) {
+			localDurationStatuses[key].byJob[id] = value
 			globalDurationStatuses.forEach((s) => {
-				s.update((x) => {
-					x[key].byJob[id] = value
-
-					return x
-				})
+				s[key].byJob[id] = value
 			})
 			if (prefix) {
 				subflowParentsDurationStatuses.forEach((s) => {
-					s.update((x) => {
-						x[buildSubflowKey(key, prefix)].byJob[id] = value
-						return x
-					})
+					s[buildSubflowKey(key, prefix)].byJob[id] = value
 				})
 			}
 		}
 	}
 
 	function initializeByJob(modId: string) {
-		if ($localDurationStatuses[modId] == undefined) {
-			$localDurationStatuses[modId] = { byJob: {} }
+		if (localDurationStatuses[modId] == undefined) {
+			localDurationStatuses[modId] = { byJob: {} }
 		}
-		globalDurationStatuses.forEach((x) =>
-			x.update((x) => {
-				if (x[modId] == undefined) {
-					x[modId] = { byJob: {} }
-				}
-				return x
-			})
-		)
+		globalDurationStatuses.forEach((x) => {
+			if (x[modId] == undefined) {
+				x[modId] = { byJob: {} }
+			}
+		})
 		if (prefix) {
-			subflowParentsDurationStatuses.forEach((x) =>
-				x.update((x) => {
-					let key = buildSubflowKey(modId, prefix)
-					if (x[key] == undefined) {
-						x[key] = { byJob: {} }
-					}
-					return x
-				})
-			)
+			subflowParentsDurationStatuses.forEach((x) => {
+				let key = buildSubflowKey(modId, prefix)
+				if (x[key] == undefined) {
+					x[key] = { byJob: {} }
+				}
+			})
 		}
 	}
 
@@ -587,23 +574,20 @@
 
 				let common = {
 					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
-					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
+					iteration_total: localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
 				}
-				$localDurationStatuses[modId] = {
-					...($localDurationStatuses[modId] ?? { byJob: {} }),
+				localDurationStatuses[modId] = {
+					...(localDurationStatuses[modId] ?? { byJob: {} }),
 					...common
 				}
 				let prefixed = modId
-				globalDurationStatuses.forEach((x) =>
-					x.update((x) => {
-						x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
-						return x
-					})
-				)
+				globalDurationStatuses.forEach((x) => {
+					x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
+				})
 			} else {
 				updateRecursiveRefresh(jobId)
 				recursiveRefresh = {}
-				$localDurationStatuses = {}
+				localDurationStatuses = {}
 			}
 			await loadJobInProgress()
 		}
@@ -874,11 +858,9 @@
 	let flowTimeline: FlowTimeline | undefined = $state()
 
 	function loadPreviousIters(lenToAdd: number) {
-		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
+		let r = localDurationStatuses[flowJobIds?.moduleId ?? '']
 		if (r.iteration_from) {
 			r.iteration_from -= lenToAdd
-			$localDurationStatuses = $localDurationStatuses
-			globalDurationStatuses.forEach((x) => x.update((x) => x))
 		}
 		jobResults = [
 			...[...new Array(lenToAdd).keys()].map((x) => 'not computed or loaded yet'),
@@ -1006,7 +988,7 @@
 			<div class="h-8" />
 		{/if} -->
 		{#if isListJob}
-			{@const sliceFrom = $localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+			{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
 			{@const lenToAdd = Math.min(20, sliceFrom)}
 
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
@@ -1075,7 +1057,7 @@
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
-				{@const sliceFrom = $localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+				{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
@@ -1420,6 +1402,11 @@
 									expandedSubflows ?? {}
 								)}
 								durationStatuses={localDurationStatuses}
+								decreaseIterationFrom={(key, amount) => {
+									if (localDurationStatuses?.[key]?.iteration_from) {
+										localDurationStatuses[key].iteration_from -= amount
+									}
+								}}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
 							<div class="pt-2 grow flex flex-col">

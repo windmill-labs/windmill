@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import {
+		type Job,
+		JobService,
+		type RestartedFrom,
+		type OpenFlow,
+		type ScriptLang
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -40,7 +46,7 @@
 		branchOrIterationN?: number
 		scrollTop?: number
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		localDurationStatuses?: Record<string, DurationStatus>
 		onRunPreview?: () => void
 		render?: boolean
 		onJobDone?: () => void
@@ -64,7 +70,7 @@
 		branchOrIterationN = $bindable(0),
 		scrollTop = $bindable(0),
 		localModuleStates = $bindable(writable({})),
-		localDurationStatuses = $bindable(writable({})),
+		localDurationStatuses = $bindable({}),
 		onRunPreview,
 		render = false,
 		onJobDone,

@@ -24,7 +24,7 @@
 		isOwner?: boolean
 		wideResults?: boolean
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		localDurationStatuses?: Record<string, DurationStatus>
 		job?: Job | undefined
 		render?: boolean
 		suspendStatus?: any
@@ -49,7 +49,7 @@
 		isOwner = $bindable(false),
 		wideResults = false,
 		localModuleStates = $bindable(writable({})),
-		localDurationStatuses = $bindable(writable({})),
+		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
 		suspendStatus = $bindable(writable({})),
@@ -105,9 +105,7 @@
 		dispatch('jobsLoaded', job)
 	}}
 	globalModuleStates={[]}
-	globalDurationStatuses={[]}
 	{localModuleStates}
-	{localDurationStatuses}
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done
