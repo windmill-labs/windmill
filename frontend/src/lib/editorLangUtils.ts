@@ -97,6 +97,8 @@ export function extToLang(ext: string) {
             return 'nu'
         case 'java':
             return 'java'
+        case 'rb':
+            return 'ruby'
         // for related places search: ADD_NEW_LANG
         default:
             return 'unknown'

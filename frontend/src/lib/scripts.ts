@@ -143,7 +143,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['docker', 'Docker'],
 	['nu', 'Nu'],
 	['java', 'Java'],
-	['duckdb', 'DuckDB']
+	['duckdb', 'DuckDB'],
+	['ruby', 'Ruby']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -153,7 +154,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby']
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

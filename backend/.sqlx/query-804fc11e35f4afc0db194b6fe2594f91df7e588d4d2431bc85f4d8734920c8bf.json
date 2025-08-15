@@ -35,7 +35,8 @@
                 "oracledb",
                 "nu",
                 "java",
-                "duckdb"
+                "duckdb",
+                "ruby"
               ]
             }
           }

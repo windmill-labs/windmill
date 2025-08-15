@@ -13855,6 +13855,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
+name = "tree-sitter-ruby"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0484ea4ef6bb9c575b4fdabde7e31340a8d2dbc7d52b321ac83da703249f95"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "triomphe"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15215,6 +15225,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-ruby"
+version = "1.523.0"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "regex",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-ruby",
+ "wasm-bindgen",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-rust"
 version = "1.526.1"
 dependencies = [
@@ -15281,6 +15305,7 @@ dependencies = [
  "windmill-parser-nu",
  "windmill-parser-php",
  "windmill-parser-py",
+ "windmill-parser-ruby",
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
@@ -15427,6 +15452,7 @@ dependencies = [
  "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-ruby",
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
