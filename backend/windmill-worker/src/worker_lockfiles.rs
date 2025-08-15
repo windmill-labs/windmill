@@ -42,7 +42,10 @@ use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
 
 #[cfg(feature = "java")]
-use crate::java_executor::resolve;
+use crate::java_executor;
+
+#[cfg(feature = "ruby")]
+use crate::ruby_executor;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
@@ -2415,11 +2418,31 @@ async fn capture_dependency_job(
                 ));
             }
 
-            resolve(
+            java_executor::resolve(
                 job_id,
                 job_raw_code,
                 job_dir,
                 &Connection::Sql(db.clone()),
+                w_id,
+            )
+            .await
+        }
+        #[cfg(feature = "ruby")]
+        ScriptLang::Ruby => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for Ruby".to_string(),
+                ));
+            }
+
+            ruby_executor::resolve(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &Connection::Sql(db.clone()),
+                worker_name,
                 w_id,
             )
             .await

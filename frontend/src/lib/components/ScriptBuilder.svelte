@@ -1128,7 +1128,7 @@
 														>
 															<LanguageIcon {lang} />
 															<span class="ml-2 py-2 truncate">{label}</span>
-															{#if lang === 'nu'}
+															{#if lang === 'nu' || lang === 'ruby'}
 																<span class="text-tertiary !text-xs"> BETA </span>
 															{/if}
 														</Button>

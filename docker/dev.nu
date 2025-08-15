@@ -4,6 +4,8 @@
 #                run:                  #
 #        docker/dev.nu --help       #
 # ------------------------------------ #
+# NOTE:
+# Does not work if built from git worktree branch
 
 let branch = git branch --show-current;
 # cp -f Caddyfile .dev-docker/Caddyfile
@@ -57,6 +59,7 @@ def patch_custom_dockerfile [
 ] {
   open $custom_dockerfile
     | str replace 'ghcr.io/windmill-labs/windmill-ee:dev' (get_ident -f $features)
+    | str replace 'ghcr.io/windmill-labs/windmill:dev' (get_ident -f $features)
     | return $in
 }
 

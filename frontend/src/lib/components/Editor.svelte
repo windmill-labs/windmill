@@ -160,7 +160,6 @@
 	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
 
 	interface Props {
-		// for related places search: ADD_NEW_LANG
 		code?: string
 		cmdEnterAction?: (() => void) | undefined
 		formatAction?: (() => void) | undefined

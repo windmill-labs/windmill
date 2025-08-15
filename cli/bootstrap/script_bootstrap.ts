@@ -127,5 +127,10 @@ public class Main {
   }
 }
 `,
+  ruby: `
+def main a, b, c
+  puts a, b, c
+end
+`,
   // for related places search: ADD_NEW_LANG
 };

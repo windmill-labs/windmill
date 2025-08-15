@@ -55,7 +55,9 @@ pub enum ScriptLang {
     Ansible,
     CSharp,
     Nu,
-    Java, // for related places search: ADD_NEW_LANG
+    Java,
+    Ruby,
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -83,6 +85,7 @@ impl ScriptLang {
             ScriptLang::CSharp => "csharp",
             ScriptLang::Nu => "nu",
             ScriptLang::Java => "java",
+            ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -113,6 +116,8 @@ impl FromStr for ScriptLang {
             "csharp" => ScriptLang::CSharp,
             "nu" => ScriptLang::Nu,
             "java" => ScriptLang::Java,
+            "ruby" => ScriptLang::Ruby,
+            // for related places search: ADD_NEW_LANG
             language => {
                 return Err(anyhow::anyhow!("{} is currently not supported", language).into())
             }
