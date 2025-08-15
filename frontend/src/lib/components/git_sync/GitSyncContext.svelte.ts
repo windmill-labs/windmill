@@ -501,7 +501,8 @@ export function createGitSyncContext(workspace: string) {
 				workspace,
 				path: hubPaths.gitSyncTest,
 				requestBody: {
-					repo_url_resource_path: repo.git_repo_resource_path
+					repo_url_resource_path: repo.git_repo_resource_path,
+					init: repo.isUnsavedConnection || false
 				},
 				skipPreprocessor: true
 			})
