@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { ResourceService, VariableService, type Script } from '$lib/gen'
+	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -27,6 +27,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DatabaseIcon,
 		DiffIcon,
 		DollarSign,
 		File,
@@ -42,7 +43,6 @@
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
@@ -50,6 +50,9 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
+	import ScriptGen from './copilot/ScriptGen.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -112,6 +115,8 @@
 	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
+	let ducklakePicker: ItemPicker | undefined = $state()
+	let databasePicker: ItemPicker | undefined = $state()
 
 	let showContextVarPicker = $derived(
 		[
@@ -165,8 +170,7 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java',
-			'duckdb'
+			'java'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -175,6 +179,8 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
+	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -644,6 +650,48 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
+{#if showDucklakePicker}
+	<ItemPicker
+		bind:this={ducklakePicker}
+		pickCallback={async (_, name) => {
+			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+		}}
+		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
+		itemName="ducklake"
+		loadItems={async () =>
+			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	/>
+{/if}
+
+{#if showDatabasePicker}
+	<ItemPicker
+		bind:this={databasePicker}
+		pickCallback={(path, _, resType) => {
+			if (!editor) return
+			if (lang == 'duckdb') {
+				let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
+				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
+			}
+			sendUserToast(`${path} inserted at cursor`)
+		}}
+		tooltip="Attach a database resource in your script. This allows you to query data from the database using SQL."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+		itemName="Database"
+		buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
+		extraField="description"
+		extraField2="resource_type"
+		loadItems={async () =>
+			await ResourceService.listResource({
+				workspace: $workspaceStore ?? 'NO_W',
+				resourceType: 'postgresql,mysql,bigquery'
+			})}
+	></ItemPicker>
+{/if}
+
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
@@ -754,6 +802,38 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Package }}
 				>
 					+Type
+				</Button>
+			{/if}
+
+			{#if showDatabasePicker && customUi?.database != false}
+				<Button
+					aiId="editor-bar-add-database"
+					aiDescription="Add database"
+					title="Add database"
+					color="light"
+					on:click={() => databasePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DatabaseIcon }}
+					{iconOnly}
+					>+Database
+				</Button>
+			{/if}
+
+			{#if showDucklakePicker && customUi?.ducklake != false}
+				<Button
+					aiId="editor-bar-use-ducklake"
+					aiDescription="Use Ducklake"
+					title="Use Ducklake"
+					color="light"
+					on:click={() => ducklakePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DucklakeIcon }}
+					{iconOnly}
+					>+Ducklake
 				</Button>
 			{/if}
 
@@ -868,7 +948,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.aiGen != false}
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} {openAiChat} />
+				{#if openAiChat}
+					<FlowInlineScriptAiButton />
+				{:else}
+					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				{/if}
 			{/if}
 
 			<EditorSettings {customUi} />

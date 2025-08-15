@@ -57,7 +57,7 @@
 		disableMock?: boolean
 		disableHistory?: boolean
 		lastJob?: Job
-		testJob?: Job
+		testJob?: Job & { result_stream?: string }
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
 		clazz?: string
@@ -116,7 +116,7 @@
 						workspace_id: string
 						success: boolean
 				  }
-		  ) & { preview?: boolean })
+		  ) & { preview?: boolean; result_stream?: string; result?: unknown })
 		| undefined
 
 	let jsonView = $state(false)
@@ -135,9 +135,9 @@
 	}
 
 	function selectJob(nJob: SelectedJob | undefined) {
-		if (nJob && 'result' in nJob) {
+		if (nJob && (nJob.result_stream || nJob.type == 'CompletedJob')) {
 			selectedJob = nJob
-		} else if (job && 'result' in job) {
+		} else if (job && (job.result_stream || job.type == 'CompletedJob')) {
 			selectedJob = job
 		} else {
 			selectedJob = undefined
@@ -145,7 +145,7 @@
 	}
 
 	$effect(() => {
-		if (!job || !('result' in job)) {
+		if (!job || !(job.result_stream || job.type == 'CompletedJob')) {
 			return
 		}
 		selectJob(job)
@@ -266,11 +266,13 @@
 			return { ...lastJob, preview: false }
 		}
 		return undefined
-	})
+	}) as SelectedJob | undefined
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
-	const isLoadingAndNotMock = $derived(isLoading && !mock?.enabled)
+	const isLoadingAndNotMock = $derived(
+		isLoading && job?.result_stream === undefined && !mock?.enabled
+	)
 
 	const copilot_fix_render = $derived(copilot_fix)
 </script>
@@ -650,6 +652,7 @@
 							bind:forceJson
 							workspaceId={undefined}
 							jobId={undefined}
+							result_stream={undefined}
 							result={mock?.return_value}
 							externalToolbarAvailable
 							fixTableSizingToParent
@@ -669,7 +672,7 @@
 						pureViewer={false}
 					/>
 				{/if}
-			{:else if selectedJob != undefined && 'result' in selectedJob}
+			{:else if selectedJob != undefined && (selectedJob.result_stream || selectedJob.type == 'CompletedJob')}
 				{#if fullResult}
 					<div class="break-words relative h-full">
 						{#key selectedJob}
@@ -679,6 +682,7 @@
 								workspaceId={selectedJob?.workspace_id}
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
+								result_stream={selectedJob?.result_stream}
 								externalToolbarAvailable
 								fixTableSizingToParent
 								on:toolbar-location-changed={({ detail }) => {

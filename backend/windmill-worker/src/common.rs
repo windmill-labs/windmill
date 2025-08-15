@@ -359,11 +359,41 @@ pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
     return Ok(r);
 }
 
+pub async fn merge_result_stream(
+    result: error::Result<Box<RawValue>>,
+    result_stream: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    if let Some(result_stream) = result_stream {
+        result.and_then(|x| {
+            let mut value: Value = serde_json::from_str(x.get())?;
+
+            // Insert the string at the "wm_stream" field
+            if let Value::Object(ref mut map) = value {
+                map.insert("wm_stream".to_string(), Value::String(result_stream));
+            } else if value.is_null() {
+                // return Ok(unsafe_raw(json))
+                return Ok(to_raw_value(&json!(result_stream)));
+            } else {
+                return Ok(x);
+            }
+
+            // Convert back to RawValue
+            let json_string = serde_json::to_string(&value)?;
+            Ok(RawValue::from_string(json_string)?)
+        })
+    } else {
+        result
+    }
+}
 /// Read the `result.json` file. This function assumes that the file contains valid json and will
 /// result in undefined behaviour if it isn't. If the result.json is user generated or otherwise
 /// not guaranteed to be valid, use `read_and_check_result`
-pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
-    return read_file(&format!("{job_dir}/result.json")).await;
+pub async fn read_result(
+    job_dir: &str,
+    result_stream: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let rf = read_file(&format!("{job_dir}/result.json")).await;
+    merge_result_stream(rf, result_stream).await
 }
 
 pub async fn read_and_check_file(path: &str) -> error::Result<Box<RawValue>> {
@@ -612,22 +642,31 @@ impl OccupancyMetrics {
     }
 }
 
+lazy_static! {
+    static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
+    disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
-    #[cfg(unix)]
-    {
-        use process_wrap::tokio::ProcessGroup;
 
-        cmd.wrap(ProcessGroup::leader());
+    if !*DISABLE_PROCESS_GROUP && !disable_process_group {
+        #[cfg(unix)]
+        {
+            use process_wrap::tokio::ProcessGroup;
+
+            cmd.wrap(ProcessGroup::leader());
+        }
+        #[cfg(windows)]
+        {
+            cmd.wrap(JobObject);
+        }
     }
-    #[cfg(windows)]
-    {
-        cmd.wrap(JobObject);
-    }
+
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable));
@@ -1305,7 +1344,7 @@ pub async fn par_install_language_dependencies<'a>(
                     short_name: short_name.clone(),
                 })?;
                 tracing::debug!("{:?}", &cmd);
-                Some(start_child_process(cmd, &installer_executable_name).await?)
+                Some(start_child_process(cmd, &installer_executable_name, false).await?)
             } else {
                 None
             }
@@ -1502,7 +1541,7 @@ pub async fn par_install_language_dependencies<'a>(
             .await;
             let cmd = callback(not_pulled_copy.clone())?;
             tracing::debug!("{:?}", &cmd);
-            let child = start_child_process(cmd, &installer_executable_name).await?;
+            let child = start_child_process(cmd, &installer_executable_name, false).await?;
             let mut buf = "".to_owned();
             let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
             if let Err(e) = crate::handle_child::handle_child(

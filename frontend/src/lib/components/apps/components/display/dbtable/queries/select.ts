@@ -217,6 +217,28 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			query += ` LIMIT @limit OFFSET @offset`
 			break
 		}
+		case 'duckdb': {
+			const orderBy = `
+      ${columnDefs
+				.map(
+					(column) =>
+						`
+      (CASE WHEN $order_by = '${column.field}' AND $is_desc IS false THEN "${column.field}"::text END),
+      (CASE WHEN $order_by = '${column.field}' AND $is_desc IS true THEN "${column.field}"::text END) DESC`
+				)
+				.join(',\n')}`
+
+			quicksearchCondition = `($quicksearch = '' OR CONCAT(${filteredColumns.join(
+				', '
+			)}) ILIKE '%' || $quicksearch || '%')`
+
+			query += `SELECT ${filteredColumns.join(', ')} FROM ${table}\n`
+			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}\n`
+			query += ` ORDER BY ${orderBy}\n`
+			query += ` LIMIT $limit::INT OFFSET $offset::INT`
+
+			break
+		}
 
 		default:
 			throw new Error('Unsupported database type')

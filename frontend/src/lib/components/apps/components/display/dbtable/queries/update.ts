@@ -62,6 +62,13 @@ export function makeUpdateQuery(
 			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update \nWHERE ${conditions}`
 			return query
 		}
+		case 'duckdb': {
+			const conditions = columns
+				.map((c) => `($${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${c.field})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = $value_to_update \nWHERE ${conditions}`
+			return query
+		}
 		default:
 			throw new Error('Unsupported database type')
 	}

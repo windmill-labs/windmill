@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ws.ducklake->'ducklakes'->$2 AS config\n            FROM workspace_settings ws\n            WHERE ws.workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "config",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b51b1e024f6dc7f30e4fbab26243f702af06663df6ddce22dd7e3d8402eb1d94"
+}

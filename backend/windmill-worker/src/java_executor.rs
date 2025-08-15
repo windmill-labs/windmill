@@ -88,7 +88,7 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
     }
     // --- Retrieve results ---
     {
-        read_result(&args.job_dir).await
+        read_result(&args.job_dir, None).await
     }
 }
 
@@ -518,7 +518,7 @@ async fn compile<'a>(
                         std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                     );
             }
-            start_child_process(cmd, "javac").await?
+            start_child_process(cmd, "javac", false).await?
         };
         handle_child::handle_child(
             &job.id,
@@ -642,7 +642,7 @@ async fn run<'a>(
         cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
             &job.id,
@@ -701,7 +701,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "java").await?
+        start_child_process(cmd, "java", false).await?
     };
     handle_child::handle_child(
         &job.id,
@@ -718,7 +718,8 @@ async fn run<'a>(
         &mut Some(occupancy_metrics),
         None,
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 #[derive(Default, Debug)]

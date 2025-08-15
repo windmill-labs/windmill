@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
@@ -20,6 +19,7 @@
 	import { User, UserRoundX } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import { page } from '$app/state'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -55,7 +55,7 @@
 		}
 	}
 
-	const parsedCustomPath = parseCustomPath($page.params.path)
+	const parsedCustomPath = parseCustomPath(page.params.path ?? '')
 
 	async function loadApp() {
 		if (parsedCustomPath.jwt) {
@@ -142,7 +142,7 @@
 					app = app
 				}}
 				popup
-				rd={$page.url.toString()}
+				rd={page.url.toString()}
 			/>
 		{/if}
 	</div>
@@ -163,10 +163,10 @@
 					name: $userStore?.name,
 					groups: $userStore?.groups,
 					username: $userStore?.username,
-					query: Object.fromEntries($page.url.searchParams.entries()),
-					hash: $page.url.hash.substring(1)
+					query: Object.fromEntries(page.url.searchParams.entries()),
+					hash: page.url.hash.substring(1)
 				}}
-				workspace={$page.params.workspace}
+				workspace={page.params.workspace}
 				summary={app.summary}
 				app={app.value}
 				appPath={app.path}

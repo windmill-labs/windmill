@@ -452,3 +452,6 @@ pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, val
     let mut w = lock.write().await;
     *w = value;
 }
+lazy_static::lazy_static! {
+    static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+}

@@ -17,14 +17,14 @@
 	let visible = true
 	async function lookForTag(): Promise<void> {
 		try {
-			const existsWorkerWithTag = await WorkerService.existsWorkerWithTag({ tag })
-			noWorkerWithTag = !existsWorkerWithTag
+			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({ tags: tag })
+			noWorkerWithTag = !existsWorkerWithTag[tag]
 			if (noWorkerWithTag) {
 				timeout = setTimeout(() => {
 					if (visible) {
 						lookForTag()
 					}
-				}, 1000)
+				}, 2500)
 			}
 		} catch (err) {
 			console.error(err)

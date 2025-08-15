@@ -203,7 +203,7 @@ export const SQLSchemaLanguages = [
 ] as const
 
 export interface SQLSchema {
-	lang: (typeof SQLSchemaLanguages)[number]
+	lang: (typeof SQLSchemaLanguages)[number] | 'ducklake'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string

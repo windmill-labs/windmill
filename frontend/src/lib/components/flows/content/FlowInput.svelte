@@ -42,6 +42,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import type { ScriptLang } from '$lib/gen'
 
 	interface Props {
 		noEditor: boolean
@@ -50,7 +51,6 @@
 	}
 
 	let { noEditor, disabled, onTestFlow }: Props = $props()
-
 	const {
 		flowStore,
 		previewArgs,
@@ -76,6 +76,8 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
+	let dynSelectCode: string | undefined = $state(undefined)
+	let dynSelectLang: ScriptLang | undefined = $state(undefined)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -366,6 +368,7 @@
 				on:delete={(e) => {
 					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
+				showDynSelectOpt
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
@@ -406,6 +409,8 @@
 					resetArgs()
 				}}
 				bind:isValid
+				bind:dynSelectCode
+				bind:dynSelectLang
 			>
 				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>

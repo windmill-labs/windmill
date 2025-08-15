@@ -409,11 +409,18 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, \
-         dependency_job, lock_error_logs, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
-         VALUES ($1, $2, $3, $4, NULL, '', $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
+        r#"INSERT INTO flow (
+        workspace_id, path, summary, description,
+        dependency_job, lock_error_logs, draft_only, tag,
+        dedicated_worker, visible_to_runner_only, on_behalf_of_email,
+        value, schema, edited_by, edited_at
+    ) VALUES (
+        $1, $2, $3, $4,
+        NULL, '', $5, $6,
+        $7, $8, $9,
+        $10, $11::text::json, $12, now()
+    )"#,
         w_id,
         nf.path,
         nf.summary,
@@ -744,11 +751,27 @@ async fn update_flow(
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
 
     sqlx::query!(
-        "UPDATE flow SET path = $1, summary = $2, description = $3,\
-        dependency_job = NULL, lock_error_logs = '', draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
-        value = $8, schema = $9::text::json, edited_by = $10, edited_at = now()
-        WHERE path = $11 AND workspace_id = $12",
-        if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
+        "
+        UPDATE 
+            flow 
+        SET
+            path = $1,
+            summary = $2,
+            description = $3,
+            dependency_job = NULL,
+            lock_error_logs = '',
+            draft_only = NULL,
+            tag = $4,
+            dedicated_worker = $5,
+            visible_to_runner_only = $6,
+            on_behalf_of_email = $7,
+            value = $8,
+            schema = $9::text::json,
+            edited_by = $10,
+            edited_at = now()
+        WHERE 
+            path = $11 AND workspace_id = $12",
+        if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.unwrap_or_else(String::new),
         nf.tag,
@@ -761,12 +784,15 @@ async fn update_flow(
         },
         nf.value,
         schema_str,
-        &authed.username,
+        authed.username,
         flow_path,
         w_id,
     )
     .execute(&mut *tx)
-    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}")))?;
+    .await
+    .map_err(|e| {
+        error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
+    })?;
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
@@ -1047,36 +1073,80 @@ async fn get_flow_by_path(
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-
     let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
-            FROM flow
-            LEFT JOIN favorite
+            r#"
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.schema, 
+            flow_version.value, 
+            flow_version.created_at AS edited_at, 
+            flow_version.created_by AS edited_by,
+            favorite.path IS NOT NULL AS starred
+        FROM flow
+        LEFT JOIN favorite
             ON favorite.favorite_kind = 'flow' 
-                AND favorite.workspace_id = flow.workspace_id 
-                AND favorite.path = flow.path 
-                AND favorite.usr = $3
-            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 AND flow.workspace_id = $2"
+            AND favorite.workspace_id = flow.workspace_id 
+            AND favorite.path = flow.path 
+            AND favorite.usr = $3
+        LEFT JOIN flow_version 
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 AND flow.workspace_id = $2
+        "#,
         )
-            .bind(path)
-            .bind(w_id)
-            .bind(&authed.username)
-            .fetch_optional(&mut *tx)
-            .await?
+        .bind(path)
+        .bind(w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
     } else {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
-            FROM flow
-            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 AND flow.workspace_id = $2"
+            r#"
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.schema, 
+            flow_version.value, 
+            flow_version.created_at AS edited_at, 
+            flow_version.created_by AS edited_by, 
+            NULL AS starred
+        FROM flow
+        LEFT JOIN flow_version 
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 AND flow.workspace_id = $2
+        "#,
         )
-            .bind(path)
-            .bind(w_id)
-            .fetch_optional(&mut *tx)
-            .await?
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?
     };
+
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1115,20 +1185,36 @@ async fn get_flow_by_path_w_draft(
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow.description, flow_version.schema, flow_version.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only, flow.on_behalf_of_email
-         FROM flow
+        "SELECT
+            flow.path,
+            flow.summary,
+            flow.description,
+            flow_version.schema,
+            flow_version.value,
+            flow.extra_perms,
+            flow.draft_only,
+            flow.ws_error_handler_muted,
+            flow.dedicated_worker,
+            draft.value AS draft,
+            flow.tag,
+            flow.visible_to_runner_only,
+            flow.on_behalf_of_email
+        FROM flow
         LEFT JOIN draft
-            ON flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
-        LEFT JOIN flow_version 
+            ON flow.path = draft.path
+            AND draft.workspace_id = $2
+            AND draft.typ = 'flow'
+        LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1 AND flow.workspace_id = $2",
+        WHERE flow.path = $1
+        AND flow.workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;

@@ -9,6 +9,7 @@
 		HttpTriggerService,
 		VariableService,
 		type AuthenticationMethod,
+		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
 		type Retry
@@ -108,8 +109,7 @@
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
-	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
-
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -284,7 +284,6 @@
 		}
 		extraPerms = cfg?.extra_perms ?? undefined
 		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
-
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry

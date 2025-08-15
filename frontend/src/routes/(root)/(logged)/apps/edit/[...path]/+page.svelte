@@ -7,7 +7,6 @@
 		DraftService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
@@ -17,6 +16,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/state'
 
 	let app = $state(
 		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
@@ -33,18 +33,18 @@
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
-	let path = $page.params.path
+	let path = page.params.path ?? ''
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
-	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
+	const initialState = nodraft ? undefined : localStorage.getItem(`app-${page.params.path}`)
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
@@ -88,7 +88,7 @@
 					callback: reloadAction
 				})
 
-				const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+				const draftOrDeployed = cleanValueProperties(savedApp?.draft || savedApp)
 				const urlScript = {
 					...draftOrDeployed,
 					value: stateLoadedFromLocalStorage
@@ -229,13 +229,13 @@
 				summary={app.summary}
 				app={app.value}
 				newPath={app.path}
-				path={$page.params.path}
+				path={page.params.path ?? ''}
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
 				newApp={false}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
+				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
 				{#snippet unsavedConfirmationModal({

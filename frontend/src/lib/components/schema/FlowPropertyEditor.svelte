@@ -124,6 +124,7 @@
 	let initialObjectSelected = $state(
 		Object.keys(properties ?? {}).length == 0 ? 'resource' : 'custom-object'
 	)
+	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
 </script>
 
 <div class="flex flex-col gap-2">
@@ -249,13 +250,16 @@
 				bind:schema={
 					() => {
 						if (oneOf?.[idx]) {
+							let properties = Object.fromEntries(
+								Object.entries(oneOf[idx].properties ?? {}).filter(
+									([k]) => k !== 'label' && k !== 'kind'
+								)
+							)
 							return {
 								...oneOf[idx],
-								properties: Object.fromEntries(
-									Object.entries(oneOf[idx].properties ?? {}).filter(
-										([k]) => k !== 'label' && k !== 'kind'
-									)
-								)
+								properties: properties,
+								order: Object.keys(properties),
+								required: oneOf[idx].required ?? []
 							}
 						}
 					},
@@ -264,7 +268,6 @@
 							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 								? 'kind'
 								: 'label'
-
 							oneOf[idx] = {
 								...(v ?? {}),
 								type: 'object',
@@ -284,7 +287,7 @@
 				}}
 			/>
 		{/if}
-	{:else if type === 'object' && format !== 'resource-s3_object'}
+	{:else if type === 'object' && format !== 'resource-s3_object' && !isDynSelect}
 		<Tabs
 			bind:selected={initialObjectSelected}
 			on:selected={(e) => {
@@ -325,7 +328,7 @@
 		</Tabs>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object')}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDynSelect}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst

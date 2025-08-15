@@ -234,6 +234,7 @@
 	const cachedResourceMetadata = $derived(
 		flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
 	)
+	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))
 </script>
 
 <NodeWrapper>
@@ -277,10 +278,9 @@
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
-				Used in {pluralize(
-					flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset) ?? -1,
-					'step'
-				)}<br />
+				{#if usageCount !== undefined}
+					Used in {pluralize(usageCount, 'step')}<br />
+				{/if}
 				<a
 					href={undefined}
 					class={twMerge(

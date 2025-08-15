@@ -82,6 +82,7 @@ pub mod variables;
 pub mod worker;
 pub mod workspaces;
 pub mod triggers;
+pub mod result_stream;
 pub mod stream;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
@@ -134,6 +135,7 @@ lazy_static::lazy_static! {
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8000".to_string());
     pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
 
 
@@ -273,6 +275,43 @@ async fn metrics() -> Result<String, Error> {
 #[cfg(feature = "prometheus")]
 async fn reset() -> () {
     todo!()
+}
+
+pub struct PostgresUrlComponents {
+    pub scheme: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub host: String,
+    pub port: Option<u16>,
+    pub database: String,
+    pub ssl_mode: Option<String>,
+}
+
+pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
+    let parsed_url = url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+
+    let scheme = parsed_url.scheme().to_string();
+    let username = parsed_url.username().to_string();
+    let password = parsed_url.password().map(|p| p.to_string());
+    let host = parsed_url.host_str().ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?.to_string();
+    let port = parsed_url.port();
+    let database = parsed_url.path().trim_start_matches('/').to_string();
+    let mut ssl_mode = None;
+    for query in parsed_url.query_pairs() {
+        if query.0 == "sslmode" {
+            ssl_mode = Some(query.1.to_string());
+        }
+    }
+
+    Ok(PostgresUrlComponents {
+        scheme,
+        username: if username.is_empty() { None } else { Some(username) },
+        password,
+        host,
+        port,
+        database,
+        ssl_mode,
+    })
 }
 
 pub async fn get_database_url() -> Result<String, Error> {

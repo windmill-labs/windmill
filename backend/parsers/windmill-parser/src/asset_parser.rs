@@ -15,6 +15,7 @@ use AssetUsageAccessType::*;
 pub enum AssetKind {
     S3Object,
     Resource,
+    Ducklake,
 }
 
 #[derive(Serialize)]
@@ -56,6 +57,8 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
         Some((AssetKind::Resource, &s[6..]))
     } else if s.starts_with("$res:") {
         Some((AssetKind::Resource, &s[5..]))
+    } else if s.starts_with("ducklake://") {
+        Some((AssetKind::Ducklake, &s[11..]))
     } else {
         None
     }

@@ -172,9 +172,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-					day: 'numeric',
-					month: 'numeric'
-				}
+				day: 'numeric',
+				month: 'numeric'
+			}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -593,6 +593,47 @@ export type InputCat =
 	| 'oneOf'
 	| 'dynselect'
 
+export namespace DynamicSelect {
+	export type HelperScript =
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+
+	export const generatePythonFnTemplate = (functionName: string): string => {
+		return `
+def ${functionName}():
+    return [
+        { "label": "Foo", "value": "foo" },
+        { "label": "Bar", "value": "bar" }
+    ]
+
+`
+	}
+
+	export const generateJsFnTemplate = (functionName: string): string => {
+		return `
+// you can use filterText to filter the results from the backend
+// you can refer to other args directly as parameters (e.g. foobar: string)
+export function ${functionName}(filterText: string) {
+	return [
+		{ label: 'Foo', value: 'foo' },
+		{ label: 'Bar', value: 'bar' }
+	];
+}
+
+`
+	}
+
+	export const generateDefaultTemplateFn = (functionName: string, lang: ScriptLang): string => {
+		return lang === 'bun'
+			? generateJsFnTemplate(functionName)
+			: generatePythonFnTemplate(functionName)
+	}
+
+	export const getGenerateTemplateFn = (lang: ScriptLang) => {
+		return lang === 'bun' ? generateJsFnTemplate : generatePythonFnTemplate
+	}
+}
+
 export function setInputCat(
 	type: string | undefined,
 	format: string | undefined,
@@ -608,7 +649,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format?.startsWith('dynselect-')) {
+	} else if (
+		type == 'object' &&
+		(format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))
+	) {
 		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
@@ -981,7 +1025,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -1248,7 +1292,7 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 	if (meltItem) {
 		return meltItem(node)
 	}
-	return { destroy: () => {} }
+	return { destroy: () => { } }
 }
 
 export type Item = {
@@ -1453,9 +1497,9 @@ export type S3Uri = `s3://${string}/${string}`
 export type S3Object =
 	| S3Uri
 	| {
-			s3: string
-			storage?: string
-	  }
+		s3: string
+		storage?: string
+	}
 
 export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
 	if (typeof s3Object === 'object') return s3Object
@@ -1486,6 +1530,16 @@ export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
 	})
 }
 
-export function pruneNullishArrayWithSet<T>(array: (T | null | undefined)[]): T[] {
+export function pruneNullishArray<T>(array: (T | null | undefined)[]): T[] {
 	return array.filter((item): item is T => item !== null && item !== undefined)
+}
+
+export function assert(msg: string, condition: boolean, value?: any) {
+	if (!condition) {
+		let m = 'Assertion failed: ' + msg
+		if (value) m += '\nValue: ' + JSON.stringify(value, null, 2)
+		m += '\nPlease alert the Windmill team about this'
+		sendUserToast(m, true)
+		console.error(m)
+	}
 }

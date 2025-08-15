@@ -11,13 +11,14 @@ use std::{
     time::Duration,
 };
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
     sync::{mpsc, RwLock},
+    time::timeout,
 };
 use uuid::Uuid;
 
@@ -33,13 +34,13 @@ use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
-use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
+    apps::APP_WORKSPACED_ROUTE,
     auth::create_token_for_owner,
     ee_oss::CriticalErrorChannel,
     error,
@@ -77,6 +78,7 @@ use windmill_common::{
     METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
+use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
@@ -140,6 +142,9 @@ lazy_static::lazy_static! {
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
+    static ref STALE_JOB_TRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_TRESHOLD_MINUTES")
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok());
 }
 
 pub async fn initial_load(
@@ -235,6 +240,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_custom_tags_setting(db).await {
             tracing::error!("Error reloading custom tags: {:?}", e)
+        }
+
+        if let Err(e) = reload_app_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading app workspaced route: {:?}", e)
         }
     }
 
@@ -676,20 +685,25 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
              VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)
-                .await {
-                tracing::error!("Error inserting log file: {:?}", e);
-            } else {
-                if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                    last_log_file_sent.replace(ts);
-                }) {
-                    tracing::error!("Error updating last log file sent: {:?}", e);
+                .execute(db)).await {
+                Ok(Ok(_)) => {
+                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                        last_log_file_sent.replace(ts);
+                    }) {
+                        tracing::error!("Error updating last log file sent: {:?}", e);
+                    }
+                    tracing::info!("Log file sent: {}", highest_file);
                 }
-                tracing::info!("Log file sent: {}", highest_file);
+                Ok(Err(e)) => {
+                    tracing::error!("Error inserting log file: {:?}", e);
+                }
+                Err(e) => {
+                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+                }
             }
         } else {
             // tracing::warn!("Not sending log file to object store in agent mode");
@@ -1009,6 +1023,7 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_saml_metadata_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1371,6 +1386,14 @@ pub async fn monitor_db(
         }
     };
 
+    let stale_jobs_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                stale_job_cancellation(&db).await;
+            }
+        }
+    };
+
     // run every 5 minutes
     let cleanup_concurrency_counters_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
@@ -1469,6 +1492,7 @@ pub async fn monitor_db(
     join!(
         expired_items_f,
         zombie_jobs_f,
+        stale_jobs_f,
         expose_queue_metrics_f,
         verify_license_key_f,
         worker_groups_alerts_f,
@@ -1708,6 +1732,67 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
         *l = is_secure;
     }
 
+    Ok(())
+}
+
+async fn stale_job_cancellation(db: &Pool<Postgres>) {
+    if let Some(threshold) = *STALE_JOB_TRESHOLD_MINUTES {
+        let stale_jobs = sqlx::query!(
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            threshold.to_string()
+        )
+        .fetch_all(db)
+            .await
+            .ok()
+            .unwrap_or_else(|| vec![]);
+
+        if !stale_jobs.is_empty() {
+            tracing::info!(
+                "Cancelling {} stale jobs (> {} minutes old)",
+                stale_jobs.len(),
+                threshold
+            );
+        }
+        for job in stale_jobs {
+            if let Err(e) =
+                cancel_stale_job(db, job.id, job.tag, job.workspace_id, job.scheduled_for).await
+            {
+                tracing::error!("Error cancelling stale job {}: {}", job.id, e);
+            }
+        }
+    }
+}
+
+async fn cancel_stale_job(
+    db: &Pool<Postgres>,
+    id: Uuid,
+    tag: String,
+    workspace_id: String,
+    scheduled_for: DateTime<Utc>,
+) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    tracing::error!(
+        "Stale job detected: {} in workspace {} with tag {} (scheduled for: {}) . Cancelling it.",
+        id,
+        workspace_id,
+        tag,
+        scheduled_for
+    );
+    (tx, _) = cancel_job(
+        "monitor",
+        Some(format!(
+            "Stale job cancellation (scheduled for: {})",
+            scheduled_for
+        )),
+        id,
+        &workspace_id,
+        tx,
+        db,
+        true,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -2129,6 +2214,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
             AND canceled = false
+            
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
@@ -2340,6 +2426,31 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
 
+    Ok(())
+}
+
+pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let app_workspaced_route =
+        load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
+
+    println!("Updating...");
+
+    let ws_route = match app_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                APP_WORKSPACED_ROUTE_SETTING,
+                app_workspaced_route
+            );
+            false
+        }
+    };
+
+    let mut l = APP_WORKSPACED_ROUTE.write().await;
+
+    *l = ws_route;
     Ok(())
 }
 

@@ -259,7 +259,7 @@ func Run(req Req) (interface{{}}, error){{
         #[cfg(windows)]
         set_windows_env_vars(&mut build_go_cmd);
 
-        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
+        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str(), false).await?;
         handle_child(
             &job.id,
             conn,
@@ -363,7 +363,7 @@ func Run(req Req) (interface{{}}, error){{
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         #[cfg(unix)]
         let compiled_executable_name = "./main";
@@ -406,9 +406,9 @@ func Run(req Req) (interface{{}}, error){{
         set_windows_env_vars(&mut run_go);
 
         run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
-        start_child_process(run_go, &compiled_executable_name).await?
+        start_child_process(run_go, &compiled_executable_name, false).await?
     };
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -425,7 +425,7 @@ func Run(req Req) (interface{{}}, error){{
     )
     .await?;
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn gen_go_mod(
@@ -490,7 +490,7 @@ pub async fn install_go_dependencies(
 
         #[cfg(windows)]
         set_windows_env_vars(&mut child_cmd);
-        let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+        let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
         handle_child(
             job_id,
@@ -582,7 +582,7 @@ pub async fn install_go_dependencies(
 
     #[cfg(windows)]
     set_windows_env_vars(&mut child_cmd);
-    let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+    let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
     handle_child(
         job_id,

@@ -26,7 +26,9 @@
 	{#if job && !hideJobId}
 		<div>
 			<div class="text-primary whitespace-nowrap truncate text-sm">
-				<span class="font-semibold mr-1">Flow:</span>
+				{#if ['flow', 'flowpreview', 'flownode'].includes(job.job_kind)}
+					<span class="font-semibold mr-1">Flow:</span>
+				{/if}
 				<a
 					rel="noreferrer"
 					target="_blank"

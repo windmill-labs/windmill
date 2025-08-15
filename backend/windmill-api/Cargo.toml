@@ -92,6 +92,7 @@ magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
 tokio-tar.workspace = true
+tokio-postgres.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true

@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -33,7 +33,8 @@
 		onFocus,
 		onBlur,
 		onClear,
-		onCreateItem
+		onCreateItem,
+		startSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -58,9 +59,10 @@
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
+		startSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
 	} = $props()
 
-	let disabled = $derived(_disabled || loading)
+	let disabled = $derived(_disabled || (loading && !value))
 
 	let inputEl: HTMLInputElement | undefined = $state()
 
@@ -121,12 +123,14 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
+		placeholder={loading && !value
+			? 'Loading...'
+			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			value && !loading ? '!placeholder-primary' : '',
+			!loading && value ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
@@ -145,5 +149,6 @@
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		{startSnippet}
 	/>
 </div>

@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.492.1",
+    "version": "1.520.1",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -573,6 +573,10 @@
                   },
                   "company": {
                     "type": "string"
+                  },
+                  "skip_email": {
+                    "type": "boolean",
+                    "description": "Skip sending email notifications to the user"
                   }
                 },
                 "required": [
@@ -889,7 +893,7 @@
         "summary": "get connected repositories",
         "operationId": "getGlobalConnectedRepositories",
         "tags": [
-          "git_sync"
+          "Git Sync"
         ],
         "responses": {
           "200": {
@@ -1112,6 +1116,73 @@
                 "schema": {
                   "type": "boolean"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/databases_exist": {
+      "post": {
+        "summary": "checks that all given databases exist or else return the ones that don't",
+        "operationId": "databasesExist",
+        "tags": [
+          "setting"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "databases that do not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/create_ducklake_database/{name}": {
+      "post": {
+        "summary": "Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user",
+        "operationId": "createDucklakeDatabase",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The name of the database to create"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -2933,6 +3004,9 @@
                     "large_file_storage": {
                       "$ref": "#/components/schemas/LargeFileStorage"
                     },
+                    "ducklake": {
+                      "$ref": "#/components/schemas/DucklakeSettings"
+                    },
                     "git_sync": {
                       "$ref": "#/components/schemas/WorkspaceGitSyncSettings"
                     },
@@ -3738,6 +3812,78 @@
         }
       }
     },
+    "/w/{workspace}/workspaces/list_ducklakes": {
+      "get": {
+        "summary": "list ducklakes",
+        "operationId": "listDucklakes",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/edit_ducklake_config": {
+      "post": {
+        "summary": "edit ducklake settings",
+        "operationId": "editDucklakeConfig",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "Ducklake settings",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "settings"
+                ],
+                "properties": {
+                  "settings": {
+                    "$ref": "#/components/schemas/DucklakeSettings"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/workspaces/edit_git_sync_config": {
       "post": {
         "summary": "edit workspace git sync settings",
@@ -3762,6 +3908,98 @@
                     "$ref": "#/components/schemas/WorkspaceGitSyncSettings"
                   }
                 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/edit_git_sync_repository": {
+      "post": {
+        "summary": "add or update individual git sync repository",
+        "operationId": "editGitSyncRepository",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "Git sync repository settings to add or update",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "git_repo_resource_path": {
+                    "type": "string",
+                    "description": "The resource path of the git repository to update"
+                  },
+                  "repository": {
+                    "$ref": "#/components/schemas/GitRepositorySettings"
+                  }
+                },
+                "required": [
+                  "git_repo_resource_path",
+                  "repository"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/delete_git_sync_repository": {
+      "delete": {
+        "summary": "delete individual git sync repository",
+        "operationId": "deleteGitSyncRepository",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "Git sync repository to delete",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "git_repo_resource_path": {
+                    "type": "string",
+                    "description": "The resource path of the git repository to delete"
+                  }
+                },
+                "required": [
+                  "git_repo_resource_path"
+                ]
               }
             }
           }
@@ -4314,6 +4552,30 @@
         }
       }
     },
+    "/tokens/list/scopes": {
+      "get": {
+        "summary": "list of available scopes",
+        "operationId": "ListAvailableScopes",
+        "tags": [
+          "token"
+        ],
+        "responses": {
+          "200": {
+            "description": "list of available scopes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScopeDomain"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users/tokens/create": {
       "post": {
         "summary": "create token",
@@ -4486,6 +4748,7 @@
       "post": {
         "summary": "create variable",
         "operationId": "createVariable",
+        "x-mcp-tool": true,
         "tags": [
           "variable"
         ],
@@ -4495,6 +4758,7 @@
           },
           {
             "name": "already_encrypted",
+            "description": "whether the variable is already encrypted (default false)",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -4567,6 +4831,7 @@
       "delete": {
         "summary": "delete variable",
         "operationId": "deleteVariable",
+        "x-mcp-tool": true,
         "tags": [
           "variable"
         ],
@@ -4596,6 +4861,7 @@
       "post": {
         "summary": "update variable",
         "operationId": "updateVariable",
+        "x-mcp-tool": true,
         "tags": [
           "variable"
         ],
@@ -4608,6 +4874,7 @@
           },
           {
             "name": "already_encrypted",
+            "description": "whether the variable is already encrypted (default false)",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -4643,6 +4910,7 @@
       "get": {
         "summary": "get variable",
         "operationId": "getVariable",
+        "x-mcp-tool": true,
         "tags": [
           "variable"
         ],
@@ -4746,6 +5014,7 @@
       "get": {
         "summary": "list variables",
         "operationId": "listVariable",
+        "x-mcp-tool": true,
         "tags": [
           "variable"
         ],
@@ -4755,6 +5024,7 @@
           },
           {
             "name": "path_start",
+            "description": "filter variables by path prefix",
             "in": "query",
             "schema": {
               "type": "string"
@@ -4805,6 +5075,35 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/ContextualVariable"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/get_secondary_storage_names": {
+      "get": {
+        "summary": "get secondary storage names",
+        "operationId": "getSecondaryStorageNames",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
                   }
                 }
               }
@@ -5217,6 +5516,22 @@
                   },
                   "client": {
                     "type": "string"
+                  },
+                  "grant_type": {
+                    "type": "string",
+                    "default": "authorization_code"
+                  },
+                  "cc_client_id": {
+                    "type": "string",
+                    "description": "OAuth client ID for resource-level credentials (client_credentials flow only)"
+                  },
+                  "cc_client_secret": {
+                    "type": "string",
+                    "description": "OAuth client secret for resource-level credentials (client_credentials flow only)"
+                  },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "OAuth token URL override for resource-level authentication (client_credentials flow only)"
                   }
                 },
                 "required": [
@@ -5234,6 +5549,73 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/connect_client_credentials/{client}": {
+      "post": {
+        "summary": "connect OAuth using client credentials",
+        "operationId": "connectClientCredentials",
+        "tags": [
+          "oauth"
+        ],
+        "parameters": [
+          {
+            "name": "client",
+            "in": "path",
+            "description": "OAuth client name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "client credentials flow parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cc_client_id": {
+                    "type": "string",
+                    "description": "OAuth client ID for resource-level authentication"
+                  },
+                  "cc_client_secret": {
+                    "type": "string",
+                    "description": "OAuth client secret for resource-level authentication"
+                  },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "OAuth token URL override for resource-level authentication"
+                  }
+                },
+                "required": [
+                  "cc_client_id",
+                  "cc_client_secret"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OAuth token response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
                 }
               }
             }
@@ -5474,6 +5856,12 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "grant_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   }
                 }
@@ -5559,6 +5947,7 @@
       "post": {
         "summary": "create resource",
         "operationId": "createResource",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -5568,6 +5957,7 @@
           },
           {
             "name": "update_if_exists",
+            "description": "update the resource if it already exists (default false)",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -5603,6 +5993,7 @@
       "delete": {
         "summary": "delete resource",
         "operationId": "deleteResource",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -5632,6 +6023,7 @@
       "post": {
         "summary": "update resource",
         "operationId": "updateResource",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -5715,6 +6107,7 @@
       "get": {
         "summary": "get resource",
         "operationId": "getResource",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -5836,6 +6229,7 @@
       "get": {
         "summary": "list resources",
         "operationId": "listResource",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -5867,6 +6261,7 @@
           },
           {
             "name": "path_start",
+            "description": "filter resources by path prefix",
             "in": "query",
             "schema": {
               "type": "string"
@@ -6165,6 +6560,7 @@
       "get": {
         "summary": "list resource_types",
         "operationId": "listResourceType",
+        "x-mcp-tool": true,
         "tags": [
           "resource"
         ],
@@ -6859,6 +7255,7 @@
       "get": {
         "summary": "list all scripts",
         "operationId": "listScripts",
+        "x-mcp-tool": true,
         "tags": [
           "script"
         ],
@@ -6972,6 +7369,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "languages",
+            "in": "query",
+            "description": "Filter to only include scripts written in the given languages.\nAccepts multiple values as a comma-separated list.\n",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -7415,6 +7820,7 @@
       "get": {
         "summary": "get script by path",
         "operationId": "getScriptByPath",
+        "x-mcp-tool": true,
         "tags": [
           "script"
         ],
@@ -7784,6 +8190,13 @@
           },
           {
             "name": "with_starred_info",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "authed",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -8404,6 +8817,7 @@
       "get": {
         "summary": "list all flows",
         "operationId": "listFlows",
+        "x-mcp-tool": true,
         "tags": [
           "flow"
         ],
@@ -8697,6 +9111,7 @@
       "get": {
         "summary": "get flow by path",
         "operationId": "getFlowByPath",
+        "x-mcp-tool": true,
         "tags": [
           "flow"
         ],
@@ -11072,6 +11487,7 @@
       "get": {
         "summary": "list all queued jobs",
         "operationId": "listQueue",
+        "x-mcp-tool": true,
         "tags": [
           "job"
         ],
@@ -11736,6 +12152,7 @@
       "get": {
         "summary": "list all jobs",
         "operationId": "listJobs",
+        "x-mcp-tool": true,
         "tags": [
           "job"
         ],
@@ -11981,6 +12398,13 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "no_code",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -12111,7 +12535,21 @@
             }
           },
           {
+            "name": "stream_offset",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
             "name": "get_progress",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "no_logs",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -12144,10 +12582,90 @@
                     "progress": {
                       "type": "integer"
                     },
+                    "stream_offset": {
+                      "type": "integer"
+                    },
+                    "new_result_stream": {
+                      "type": "string"
+                    },
                     "flow_status": {
-                      "$ref": "#/components/schemas/WorkflowStatusRecord"
+                      "$ref": "#/components/schemas/FlowStatus"
+                    },
+                    "workflow_as_code_status": {
+                      "$ref": "#/components/schemas/WorkflowStatus"
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs_u/getupdate_sse/{id}": {
+      "get": {
+        "summary": "get job updates via server-sent events",
+        "operationId": "getJobUpdatesSSE",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          },
+          {
+            "name": "running",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "log_offset",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "stream_offset",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "get_progress",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "only_result",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "no_logs",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "server-sent events stream of job updates",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -13247,6 +13765,8 @@
       "post": {
         "summary": "create schedule",
         "operationId": "createSchedule",
+        "x-mcp-tool": true,
+        "x-mcp-instructions": "Creates a new schedule.\nThe schedule should include seconds.\nYou should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.\n",
         "tags": [
           "schedule"
         ],
@@ -13284,6 +13804,8 @@
       "post": {
         "summary": "update schedule",
         "operationId": "updateSchedule",
+        "x-mcp-tool": true,
+        "x-mcp-instructions": "Updates a schedule.\nThe schedule should include seconds.\nYou should get the schema of the script or flow before updating the schedule to correctly specify the arguments needed.\n",
         "tags": [
           "schedule"
         ],
@@ -13372,6 +13894,7 @@
       "delete": {
         "summary": "delete schedule",
         "operationId": "deleteSchedule",
+        "x-mcp-tool": true,
         "tags": [
           "schedule"
         ],
@@ -13401,6 +13924,7 @@
       "get": {
         "summary": "get schedule",
         "operationId": "getSchedule",
+        "x-mcp-tool": true,
         "tags": [
           "schedule"
         ],
@@ -13459,6 +13983,7 @@
       "get": {
         "summary": "list schedules",
         "operationId": "listSchedules",
+        "x-mcp-tool": true,
         "tags": [
           "schedule"
         ],
@@ -13485,6 +14010,7 @@
           },
           {
             "name": "is_flow",
+            "description": "filter schedules by whether they target a flow",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -13492,6 +14018,7 @@
           },
           {
             "name": "path_start",
+            "description": "filter schedules by path prefix",
             "in": "query",
             "schema": {
               "type": "string"
@@ -13608,6 +14135,119 @@
         "responses": {
           "201": {
             "description": "default error handler set"
+          }
+        }
+      }
+    },
+    "/w/{workspace}/openapi/generate": {
+      "post": {
+        "summary": "generate openapi spec from http routes/webhook",
+        "operationId": "generateOpenapiSpec",
+        "tags": [
+          "openapi"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "openapi spec info and url",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateOpenapiSpec"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "openapi spec",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/openapi/download": {
+      "post": {
+        "summary": "Download the OpenAPI v3.1 spec as a file",
+        "operationId": "DownloadOpenapiSpec",
+        "tags": [
+          "openapi"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "openapi spec info and url",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateOpenapiSpec"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Downloaded OpenAPI spec",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/create_many": {
+      "post": {
+        "summary": "create many HTTP triggers",
+        "operationId": "createHttpTriggers",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "new http trigger",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NewHttpTrigger"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "http trigger created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -13858,14 +14498,7 @@
                     "type": "string"
                   },
                   "http_method": {
-                    "type": "string",
-                    "enum": [
-                      "get",
-                      "post",
-                      "put",
-                      "delete",
-                      "patch"
-                    ]
+                    "$ref": "#/components/schemas/HttpMethod"
                   },
                   "trigger_path": {
                     "type": "string"
@@ -15908,6 +16541,35 @@
         }
       }
     },
+    "/w/{workspace}/postgres_triggers/postgres/version/{path}": {
+      "get": {
+        "summary": "get postgres version",
+        "operationId": "getPostgresVersion",
+        "tags": [
+          "postgres_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "postgres version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}": {
       "get": {
         "summary": "check if postgres configuration is set to logical",
@@ -17672,6 +18334,7 @@
       "get": {
         "summary": "list workers",
         "operationId": "listWorkers",
+        "x-mcp-tool": true,
         "tags": [
           "worker"
         ],
@@ -18060,6 +18723,140 @@
               "application/json": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent_workers/blacklist_token": {
+      "post": {
+        "summary": "blacklist agent token (requires super admin)",
+        "operationId": "blacklistAgentToken",
+        "tags": [
+          "agent_workers"
+        ],
+        "requestBody": {
+          "description": "token to blacklist",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "The agent token to blacklist"
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Optional expiration date for the blacklist entry"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "token blacklisted successfully"
+          }
+        }
+      }
+    },
+    "/agent_workers/remove_blacklist_token": {
+      "post": {
+        "summary": "remove agent token from blacklist (requires super admin)",
+        "operationId": "removeBlacklistAgentToken",
+        "tags": [
+          "agent_workers"
+        ],
+        "requestBody": {
+          "description": "token to remove from blacklist",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "The agent token to remove from blacklist"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "token removed from blacklist successfully"
+          }
+        }
+      }
+    },
+    "/agent_workers/list_blacklisted_tokens": {
+      "get": {
+        "summary": "list blacklisted agent tokens (requires super admin)",
+        "operationId": "listBlacklistedAgentTokens",
+        "tags": [
+          "agent_workers"
+        ],
+        "parameters": [
+          {
+            "name": "include_expired",
+            "in": "query",
+            "description": "Whether to include expired blacklisted tokens",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of blacklisted tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "token": {
+                        "type": "string",
+                        "description": "The blacklisted token (without prefix)"
+                      },
+                      "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the blacklist entry expires"
+                      },
+                      "blacklisted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the token was blacklisted"
+                      },
+                      "blacklisted_by": {
+                        "type": "string",
+                        "description": "Email of the user who blacklisted the token"
+                      }
+                    },
+                    "required": [
+                      "token",
+                      "expires_at",
+                      "blacklisted_at",
+                      "blacklisted_by"
+                    ]
+                  }
                 }
               }
             }
@@ -19499,9 +20296,7 @@
           "200": {
             "description": "Parquet Preview",
             "content": {
-              "application/json": {
-                "schema": {}
-              }
+              "application/json": {}
             }
           }
         }
@@ -19637,9 +20432,7 @@
           "200": {
             "description": "Csv Preview",
             "content": {
-              "application/json": {
-                "schema": {}
-              }
+              "application/json": {}
             }
           }
         }
@@ -20680,6 +21473,187 @@
           }
         }
       }
+    },
+    "/w/{workspace}/assets/list": {
+      "get": {
+        "summary": "List all assets in the workspace",
+        "operationId": "listAssets",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "all assets in the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "path",
+                      "kind",
+                      "usages"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "$ref": "#/components/schemas/AssetKind"
+                      },
+                      "usages": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "path",
+                            "kind"
+                          ],
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "$ref": "#/components/schemas/AssetUsageKind"
+                            },
+                            "access_type": {
+                              "$ref": "#/components/schemas/AssetUsageAccessType"
+                            }
+                          }
+                        }
+                      },
+                      "metadata": {
+                        "type": "object",
+                        "properties": {
+                          "resource_type": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/assets/list_by_usages": {
+      "post": {
+        "summary": "List all assets used by given usages paths",
+        "operationId": "listAssetsByUsage",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "list assets by usages",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "usages"
+                ],
+                "properties": {
+                  "usages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "kind"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "$ref": "#/components/schemas/AssetUsageKind"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "all assets used by the given usage paths, in the same order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "kind"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "$ref": "#/components/schemas/AssetKind"
+                        },
+                        "access_type": {
+                          "$ref": "#/components/schemas/AssetUsageAccessType"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/w/{workspace}/list_tools": {
+      "get": {
+        "summary": "list available MCP tools",
+        "operationId": "listMcpTools",
+        "tags": [
+          "mcp"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of MCP tools available for the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EndpointTool"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -20723,6 +21697,7 @@
         "name": "publication",
         "in": "path",
         "required": true,
+        "description": "The name of the publication",
         "schema": {
           "type": "string"
         }
@@ -21204,12 +22179,875 @@
       }
     },
     "schemas": {
-      "InputTransform": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/schemas-InputTransform"
+      "OpenFlow": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/schemas-FlowValue"
+          },
+          "schema": {
+            "type": "object"
           }
+        },
+        "required": [
+          "summary",
+          "value"
         ]
+      },
+      "FlowValue": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/schemas-FlowModule"
+            }
+          },
+          "failure_module": {
+            "$ref": "#/components/schemas/schemas-FlowModule"
+          },
+          "preprocessor_module": {
+            "$ref": "#/components/schemas/schemas-FlowModule"
+          },
+          "same_worker": {
+            "type": "boolean"
+          },
+          "concurrent_limit": {
+            "type": "number"
+          },
+          "concurrency_key": {
+            "type": "string"
+          },
+          "concurrency_time_window_s": {
+            "type": "number"
+          },
+          "skip_expr": {
+            "type": "string"
+          },
+          "cache_ttl": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "number"
+          },
+          "early_return": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "modules"
+        ]
+      },
+      "Retry": {
+        "type": "object",
+        "properties": {
+          "constant": {
+            "type": "object",
+            "properties": {
+              "attempts": {
+                "type": "integer"
+              },
+              "seconds": {
+                "type": "integer"
+              }
+            }
+          },
+          "exponential": {
+            "type": "object",
+            "properties": {
+              "attempts": {
+                "type": "integer"
+              },
+              "multiplier": {
+                "type": "integer"
+              },
+              "seconds": {
+                "type": "integer"
+              },
+              "random_factor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          }
+        }
+      },
+      "StopAfterIf": {
+        "type": "object",
+        "properties": {
+          "skip_if_stopped": {
+            "type": "boolean"
+          },
+          "expr": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expr"
+        ]
+      },
+      "FlowModule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/schemas-FlowModuleValue"
+          },
+          "stop_after_if": {
+            "$ref": "#/components/schemas/schemas-StopAfterIf"
+          },
+          "stop_after_all_iters_if": {
+            "$ref": "#/components/schemas/schemas-StopAfterIf"
+          },
+          "skip_if": {
+            "type": "object",
+            "properties": {
+              "expr": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "expr"
+            ]
+          },
+          "sleep": {
+            "$ref": "#/components/schemas/schemas-InputTransform"
+          },
+          "cache_ttl": {
+            "type": "number"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "delete_after_use": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "mock": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "return_value": {}
+            }
+          },
+          "suspend": {
+            "type": "object",
+            "properties": {
+              "required_events": {
+                "type": "integer"
+              },
+              "timeout": {
+                "type": "integer"
+              },
+              "resume_form": {
+                "type": "object",
+                "properties": {
+                  "schema": {
+                    "type": "object"
+                  }
+                }
+              },
+              "user_auth_required": {
+                "type": "boolean"
+              },
+              "user_groups_required": {
+                "$ref": "#/components/schemas/schemas-InputTransform"
+              },
+              "self_approval_disabled": {
+                "type": "boolean"
+              },
+              "hide_cancel": {
+                "type": "boolean"
+              },
+              "continue_on_disapprove_timeout": {
+                "type": "boolean"
+              }
+            }
+          },
+          "priority": {
+            "type": "number"
+          },
+          "continue_on_error": {
+            "type": "boolean"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/schemas-Retry"
+          }
+        },
+        "required": [
+          "value",
+          "id"
+        ]
+      },
+      "InputTransform": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/schemas-StaticTransform"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-JavascriptTransform"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "static": "#/components/schemas/schemas-StaticTransform",
+            "javascript": "#/components/schemas/schemas-JavascriptTransform"
+          }
+        }
+      },
+      "StaticTransform": {
+        "type": "object",
+        "properties": {
+          "value": {},
+          "type": {
+            "type": "string",
+            "enum": [
+              "static"
+            ]
+          }
+        },
+        "required": [
+          "value",
+          "type"
+        ]
+      },
+      "JavascriptTransform": {
+        "type": "object",
+        "properties": {
+          "expr": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "javascript"
+            ]
+          }
+        },
+        "required": [
+          "expr",
+          "type"
+        ]
+      },
+      "FlowModuleValue": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/schemas-RawScript"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-PathScript"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-PathFlow"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-ForloopFlow"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-WhileloopFlow"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-BranchOne"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-BranchAll"
+          },
+          {
+            "$ref": "#/components/schemas/schemas-Identity"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "rawscript": "#/components/schemas/schemas-RawScript",
+            "script": "#/components/schemas/schemas-PathScript",
+            "flow": "#/components/schemas/schemas-PathFlow",
+            "forloopflow": "#/components/schemas/schemas-ForloopFlow",
+            "whileloopflow": "#/components/schemas/schemas-WhileloopFlow",
+            "branchone": "#/components/schemas/schemas-BranchOne",
+            "branchall": "#/components/schemas/schemas-BranchAll",
+            "identity": "#/components/schemas/schemas-Identity"
+          }
+        }
+      },
+      "RawScript": {
+        "type": "object",
+        "properties": {
+          "input_transforms": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/schemas-InputTransform"
+            }
+          },
+          "content": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "deno",
+              "bun",
+              "python3",
+              "go",
+              "bash",
+              "powershell",
+              "postgresql",
+              "mysql",
+              "bigquery",
+              "snowflake",
+              "mssql",
+              "oracledb",
+              "graphql",
+              "nativets",
+              "php"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "lock": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "rawscript"
+            ]
+          },
+          "tag": {
+            "type": "string"
+          },
+          "concurrent_limit": {
+            "type": "number"
+          },
+          "concurrency_time_window_s": {
+            "type": "number"
+          },
+          "custom_concurrency_key": {
+            "type": "string"
+          },
+          "is_trigger": {
+            "type": "boolean"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "s3object",
+                    "resource",
+                    "ducklake"
+                  ]
+                },
+                "access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                },
+                "alt_access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "type",
+          "content",
+          "language",
+          "input_transforms"
+        ]
+      },
+      "PathScript": {
+        "type": "object",
+        "properties": {
+          "input_transforms": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/schemas-InputTransform"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "script"
+            ]
+          },
+          "tag_override": {
+            "type": "string"
+          },
+          "is_trigger": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "path",
+          "input_transforms"
+        ]
+      },
+      "PathFlow": {
+        "type": "object",
+        "properties": {
+          "input_transforms": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/schemas-InputTransform"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "flow"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "path",
+          "input_transforms"
+        ]
+      },
+      "ForloopFlow": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/schemas-FlowModule"
+            }
+          },
+          "iterator": {
+            "$ref": "#/components/schemas/schemas-InputTransform"
+          },
+          "skip_failures": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "forloopflow"
+            ]
+          },
+          "parallel": {
+            "type": "boolean"
+          },
+          "parallelism": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "modules",
+          "iterator",
+          "skip_failures",
+          "type"
+        ]
+      },
+      "WhileloopFlow": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/schemas-FlowModule"
+            }
+          },
+          "skip_failures": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "whileloopflow"
+            ]
+          },
+          "parallel": {
+            "type": "boolean"
+          },
+          "parallelism": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "modules",
+          "skip_failures",
+          "type"
+        ]
+      },
+      "BranchOne": {
+        "type": "object",
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string"
+                },
+                "expr": {
+                  "type": "string"
+                },
+                "modules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/schemas-FlowModule"
+                  }
+                }
+              },
+              "required": [
+                "modules",
+                "expr"
+              ]
+            }
+          },
+          "default": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/schemas-FlowModule"
+            },
+            "required": [
+              "modules"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "branchone"
+            ]
+          }
+        },
+        "required": [
+          "branches",
+          "default",
+          "type"
+        ]
+      },
+      "BranchAll": {
+        "type": "object",
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string"
+                },
+                "skip_failure": {
+                  "type": "boolean"
+                },
+                "modules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/schemas-FlowModule"
+                  }
+                }
+              },
+              "required": [
+                "modules"
+              ]
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "branchall"
+            ]
+          },
+          "parallel": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "branches",
+          "type"
+        ]
+      },
+      "Identity": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "identity"
+            ]
+          },
+          "flow": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "FlowStatus": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/schemas-FlowStatusModule"
+            }
+          },
+          "user_states": {
+            "additionalProperties": true
+          },
+          "preprocessor_module": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/schemas-FlowStatusModule"
+              }
+            ]
+          },
+          "failure_module": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/schemas-FlowStatusModule"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "parent_module": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "retry": {
+            "type": "object",
+            "properties": {
+              "fail_count": {
+                "type": "integer"
+              },
+              "failed_jobs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "step",
+          "modules",
+          "failure_module"
+        ]
+      },
+      "FlowStatusModule": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "WaitingForPriorSteps",
+              "WaitingForEvents",
+              "WaitingForExecutor",
+              "InProgress",
+              "Success",
+              "Failure"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "progress": {
+            "type": "integer"
+          },
+          "iterator": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "itered": {
+                "type": "array",
+                "items": {}
+              },
+              "args": {}
+            }
+          },
+          "flow_jobs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flow_jobs_success": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            }
+          },
+          "branch_chosen": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "branch",
+                  "default"
+                ]
+              },
+              "branch": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "branchall": {
+            "type": "object",
+            "properties": {
+              "branch": {
+                "type": "integer"
+              },
+              "len": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "branch",
+              "len"
+            ]
+          },
+          "approvers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resume_id": {
+                  "type": "integer"
+                },
+                "approver": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "resume_id",
+                "approver"
+              ]
+            }
+          },
+          "failed_retries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "skipped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "EndpointTool": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "instructions",
+          "path",
+          "method"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The tool name/operation ID"
+          },
+          "description": {
+            "type": "string",
+            "description": "Short description of the tool"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Detailed instructions for using the tool"
+          },
+          "path": {
+            "type": "string",
+            "description": "API endpoint path"
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method (GET, POST, etc.)"
+          },
+          "path_params_schema": {
+            "type": "object",
+            "description": "JSON schema for path parameters",
+            "nullable": true
+          },
+          "query_params_schema": {
+            "type": "object",
+            "description": "JSON schema for query parameters",
+            "nullable": true
+          },
+          "body_schema": {
+            "type": "object",
+            "description": "JSON schema for request body",
+            "nullable": true
+          }
+        }
       },
       "AIProvider": {
         "type": "string",
@@ -21224,6 +23062,25 @@
           "openrouter",
           "togetherai",
           "customai"
+        ]
+      },
+      "GitSyncObjectType": {
+        "type": "string",
+        "enum": [
+          "script",
+          "flow",
+          "app",
+          "folder",
+          "resource",
+          "variable",
+          "secret",
+          "resourcetype",
+          "schedule",
+          "user",
+          "group",
+          "trigger",
+          "settings",
+          "key"
         ]
       },
       "AIProviderModel": {
@@ -21574,6 +23431,40 @@
           },
           "on_behalf_of_email": {
             "type": "string"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/AssetKind"
+                },
+                "access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                },
+                "alt_access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                }
+              }
+            }
           }
         },
         "required": [
@@ -21621,6 +23512,7 @@
       },
       "ScriptArgs": {
         "type": "object",
+        "description": "The arguments to pass to the script or flow",
         "additionalProperties": {}
       },
       "Input": {
@@ -21787,6 +23679,9 @@
           "flow_status": {
             "$ref": "#/components/schemas/FlowStatus"
           },
+          "workflow_as_code_status": {
+            "$ref": "#/components/schemas/WorkflowStatus"
+          },
           "raw_flow": {
             "$ref": "#/components/schemas/FlowValue"
           },
@@ -21926,6 +23821,9 @@
           },
           "flow_status": {
             "$ref": "#/components/schemas/FlowStatus"
+          },
+          "workflow_as_code_status": {
+            "$ref": "#/components/schemas/WorkflowStatus"
           },
           "raw_flow": {
             "$ref": "#/components/schemas/FlowValue"
@@ -22307,25 +24205,32 @@
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the variable"
           },
           "value": {
-            "type": "string"
+            "type": "string",
+            "description": "The value of the variable"
           },
           "is_secret": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the variable is a secret"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The description of the variable"
           },
           "account": {
-            "type": "integer"
+            "type": "integer",
+            "description": "The account identifier"
           },
           "is_oauth": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the variable is an OAuth variable"
           },
           "expires_at": {
             "type": "string",
+            "description": "The expiration date of the variable",
             "format": "date-time"
           }
         },
@@ -22340,16 +24245,20 @@
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the variable"
           },
           "value": {
-            "type": "string"
+            "type": "string",
+            "description": "The new value of the variable"
           },
           "is_secret": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the variable is a secret"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The new description of the variable"
           }
         }
       },
@@ -22470,6 +24379,9 @@
           },
           "parameters": {
             "type": "object"
+          },
+          "span": {
+            "type": "string"
           }
         },
         "required": [
@@ -22554,45 +24466,53 @@
                       "type": "object",
                       "properties": {
                         "object": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "key": {
-                                "type": "string"
-                              },
-                              "typ": {
-                                "oneOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "float",
-                                      "int",
-                                      "bool",
-                                      "email",
-                                      "unknown",
-                                      "bytes",
-                                      "dict",
-                                      "datetime",
-                                      "sql"
-                                    ]
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "props": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
                                   },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "str": {}
-                                    },
-                                    "required": [
-                                      "str"
+                                  "typ": {
+                                    "oneOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "float",
+                                          "int",
+                                          "bool",
+                                          "email",
+                                          "unknown",
+                                          "bytes",
+                                          "dict",
+                                          "datetime",
+                                          "sql"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "str": {}
+                                        },
+                                        "required": [
+                                          "str"
+                                        ]
+                                      }
                                     ]
                                   }
+                                },
+                                "required": [
+                                  "key",
+                                  "typ"
                                 ]
                               }
-                            },
-                            "required": [
-                              "key",
-                              "typ"
-                            ]
+                            }
                           }
                         }
                       },
@@ -22690,7 +24610,8 @@
           "ansible",
           "csharp",
           "nu",
-          "java"
+          "java",
+          "duckdb"
         ]
       },
       "Preview": {
@@ -22773,14 +24694,17 @@
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the resource"
           },
           "value": {},
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The description of the resource"
           },
           "resource_type": {
-            "type": "string"
+            "type": "string",
+            "description": "The resource_type associated with the resource"
           }
         },
         "required": [
@@ -22793,12 +24717,18 @@
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the resource"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The new description of the resource"
           },
-          "value": {}
+          "value": {},
+          "resource_type": {
+            "type": "string",
+            "description": "The new resource_type to be associated with the resource"
+          }
         }
       },
       "Resource": {
@@ -23076,81 +25006,114 @@
           }
         ]
       },
+      "ErrorHandler": {
+        "type": "string",
+        "enum": [
+          "custom",
+          "slack",
+          "teams",
+          "email"
+        ]
+      },
       "NewSchedule": {
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path where the schedule will be created"
           },
           "schedule": {
-            "type": "string"
+            "type": "string",
+            "description": "The cron schedule to trigger the script or flow. Should include seconds."
           },
           "timezone": {
-            "type": "string"
+            "type": "string",
+            "description": "The timezone to use for the cron schedule"
           },
           "script_path": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger"
           },
           "is_flow": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule is for a flow"
           },
           "args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow"
           },
           "enabled": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule is enabled"
           },
           "on_failure": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on failure"
           },
           "on_failure_times": {
-            "type": "number"
+            "type": "number",
+            "description": "The number of times to retry on failure"
           },
           "on_failure_exact": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule should only run on the exact time"
           },
           "on_failure_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on failure"
           },
           "on_recovery": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on recovery"
           },
           "on_recovery_times": {
-            "type": "number"
+            "type": "number",
+            "description": "The number of times to retry on recovery"
           },
           "on_recovery_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on recovery"
           },
           "on_success": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on success"
           },
           "on_success_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on success"
           },
           "ws_error_handler_muted": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the WebSocket error handler is muted"
           },
           "retry": {
-            "$ref": "#/components/schemas/Retry"
+            "$ref": "#/components/schemas/Retry",
+            "description": "The retry configuration for the schedule"
           },
           "no_flow_overlap": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule should not run if a flow is already running"
           },
           "summary": {
-            "type": "string"
+            "type": "string",
+            "description": "The summary of the schedule"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The description of the schedule"
           },
           "tag": {
-            "type": "string"
+            "type": "string",
+            "description": "The tag of the schedule"
           },
           "paused_until": {
             "type": "string",
+            "description": "The date and time the schedule will be paused until",
             "format": "date-time"
           },
           "cron_version": {
-            "type": "string"
+            "type": "string",
+            "description": "The version of the cron schedule to use (last is v2)"
           }
         },
         "required": [
@@ -23166,72 +25129,90 @@
         "type": "object",
         "properties": {
           "schedule": {
-            "type": "string"
+            "type": "string",
+            "description": "The cron schedule to trigger the script or flow. Should include seconds."
           },
           "timezone": {
-            "type": "string"
+            "type": "string",
+            "description": "The timezone to use for the cron schedule"
           },
           "args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow"
           },
           "on_failure": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on failure"
           },
           "on_failure_times": {
-            "type": "number"
+            "type": "number",
+            "description": "The number of times to retry on failure"
           },
           "on_failure_exact": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule should only run on the exact time"
           },
           "on_failure_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on failure"
           },
           "on_recovery": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on recovery"
           },
           "on_recovery_times": {
-            "type": "number"
+            "type": "number",
+            "description": "The number of times to retry on recovery"
           },
           "on_recovery_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on recovery"
           },
           "on_success": {
-            "type": "string"
+            "type": "string",
+            "description": "The path to the script or flow to trigger on success"
           },
           "on_success_extra_args": {
-            "$ref": "#/components/schemas/ScriptArgs"
+            "$ref": "#/components/schemas/ScriptArgs",
+            "description": "The arguments to pass to the script or flow on success"
           },
           "ws_error_handler_muted": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the WebSocket error handler is muted"
           },
           "retry": {
-            "$ref": "#/components/schemas/Retry"
+            "$ref": "#/components/schemas/Retry",
+            "description": "The retry configuration for the schedule"
           },
           "no_flow_overlap": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the schedule should not run if a flow is already running"
           },
           "summary": {
-            "type": "string"
+            "type": "string",
+            "description": "The summary of the schedule"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "The description of the schedule"
           },
           "tag": {
-            "type": "string"
+            "type": "string",
+            "description": "The tag of the schedule"
           },
           "paused_until": {
             "type": "string",
+            "description": "The date and time the schedule will be paused until",
             "format": "date-time"
           },
           "cron_version": {
-            "type": "string"
+            "type": "string",
+            "description": "The version of the cron schedule to use (last is v2)"
           }
         },
         "required": [
           "schedule",
           "timezone",
-          "script_path",
-          "is_flow",
           "args"
         ]
       },
@@ -23289,6 +25270,155 @@
           "signature"
         ]
       },
+      "RunnableKind": {
+        "type": "string",
+        "enum": [
+          "script",
+          "flow"
+        ]
+      },
+      "OpenapiSpecFormat": {
+        "type": "string",
+        "enum": [
+          "yaml",
+          "json"
+        ]
+      },
+      "OpenapiHttpRouteFilters": {
+        "type": "object",
+        "properties": {
+          "folder_regex": {
+            "type": "string"
+          },
+          "path_regex": {
+            "type": "string"
+          },
+          "route_path_regex": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_regex",
+          "path_regex",
+          "route_path_regex"
+        ]
+      },
+      "WebhookFilters": {
+        "type": "object",
+        "properties": {
+          "user_or_folder_regex": {
+            "type": "string",
+            "enum": [
+              "*",
+              "u",
+              "f"
+            ]
+          },
+          "user_or_folder_regex_value": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "runnable_kind": {
+            "$ref": "#/components/schemas/RunnableKind"
+          }
+        },
+        "required": [
+          "user_or_folder_regex",
+          "user_or_folder_regex_value",
+          "path",
+          "runnable_kind"
+        ]
+      },
+      "OpenapiV3Info": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "terms_of_service": {
+            "type": "string"
+          },
+          "contact": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            }
+          },
+          "license": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "identifier": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "version"
+        ]
+      },
+      "GenerateOpenapiSpec": {
+        "type": "object",
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/OpenapiV3Info"
+          },
+          "url": {
+            "type": "string"
+          },
+          "openapi_spec_format": {
+            "$ref": "#/components/schemas/OpenapiSpecFormat"
+          },
+          "http_route_filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenapiHttpRouteFilters"
+            }
+          },
+          "webhook_filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookFilters"
+            }
+          }
+        }
+      },
+      "HttpMethod": {
+        "type": "string",
+        "enum": [
+          "get",
+          "post",
+          "put",
+          "delete",
+          "patch"
+        ]
+      },
       "HttpTrigger": {
         "allOf": [
           {
@@ -23318,16 +25448,15 @@
             ]
           },
           "http_method": {
-            "type": "string",
-            "enum": [
-              "get",
-              "post",
-              "put",
-              "delete",
-              "patch"
-            ]
+            "$ref": "#/components/schemas/HttpMethod"
           },
           "authentication_resource_path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
             "type": "string"
           },
           "is_async": {
@@ -23347,6 +25476,15 @@
           },
           "raw_string": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23375,6 +25513,12 @@
           "workspaced_route": {
             "type": "boolean"
           },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
           "static_asset_config": {
             "type": "object",
             "properties": {
@@ -23396,14 +25540,7 @@
             "type": "boolean"
           },
           "http_method": {
-            "type": "string",
-            "enum": [
-              "get",
-              "post",
-              "put",
-              "delete",
-              "patch"
-            ]
+            "$ref": "#/components/schemas/HttpMethod"
           },
           "authentication_resource_path": {
             "type": "string"
@@ -23422,6 +25559,15 @@
           },
           "raw_string": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23445,6 +25591,12 @@
             "type": "string"
           },
           "route_path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
             "type": "string"
           },
           "workspaced_route": {
@@ -23474,14 +25626,7 @@
             "type": "boolean"
           },
           "http_method": {
-            "type": "string",
-            "enum": [
-              "get",
-              "post",
-              "put",
-              "delete",
-              "patch"
-            ]
+            "$ref": "#/components/schemas/HttpMethod"
           },
           "is_async": {
             "type": "boolean"
@@ -23497,6 +25642,15 @@
           },
           "raw_string": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23607,6 +25761,15 @@
           },
           "can_return_message": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23661,6 +25824,15 @@
           },
           "can_return_message": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23714,6 +25886,15 @@
           },
           "can_return_message": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23789,7 +25970,7 @@
           "clean_start": {
             "type": "boolean"
           },
-          "topic_alias": {
+          "topic_alias_maximum": {
             "type": "number"
           },
           "session_expiry_interval": {
@@ -23860,6 +26041,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23903,6 +26093,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -23948,6 +26147,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24019,6 +26227,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24073,6 +26290,18 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "auto_acknowledge_msg": {
+            "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24148,6 +26377,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24186,6 +26424,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24226,6 +26473,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24372,6 +26628,15 @@
           "last_server_ping": {
             "type": "string",
             "format": "date-time"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24407,6 +26672,15 @@
           },
           "publication": {
             "$ref": "#/components/schemas/PublicationData"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24443,6 +26717,15 @@
           },
           "publication": {
             "$ref": "#/components/schemas/PublicationData"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24487,6 +26770,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24522,6 +26814,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24556,6 +26857,15 @@
           },
           "is_flow": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24605,6 +26915,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24646,6 +26965,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -24686,6 +27014,15 @@
           },
           "is_flow": {
             "type": "boolean"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
           }
         },
         "required": [
@@ -25272,6 +27609,51 @@
           "execution_mode"
         ]
       },
+      "ScopeDefinition": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requires_resource_path": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "label",
+          "requires_resource_path"
+        ]
+      },
+      "ScopeDomain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeDefinition"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      },
       "ListableRawApp": {
         "type": "object",
         "properties": {
@@ -25470,6 +27852,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "grant_type": {
+            "type": "string"
           }
         },
         "required": [
@@ -25505,13 +27890,17 @@
               "S3Storage",
               "AzureBlobStorage",
               "AzureWorkloadIdentity",
-              "S3AwsOidc"
+              "S3AwsOidc",
+              "GoogleCloudStorage"
             ]
           },
           "s3_resource_path": {
             "type": "string"
           },
           "azure_blob_resource_path": {
+            "type": "string"
+          },
+          "gcs_resource_path": {
             "type": "string"
           },
           "public_resource": {
@@ -25528,7 +27917,8 @@
                     "S3Storage",
                     "AzureBlobStorage",
                     "AzureWorkloadIdentity",
-                    "S3AwsOidc"
+                    "S3AwsOidc",
+                    "GoogleCloudStorage"
                   ]
                 },
                 "s3_resource_path": {
@@ -25537,8 +27927,64 @@
                 "azure_blob_resource_path": {
                   "type": "string"
                 },
+                "gcs_resource_path": {
+                  "type": "string"
+                },
                 "public_resource": {
                   "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "DucklakeSettings": {
+        "type": "object",
+        "required": [
+          "ducklakes"
+        ],
+        "properties": {
+          "ducklakes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "catalog",
+                "storage"
+              ],
+              "properties": {
+                "catalog": {
+                  "type": "object",
+                  "properties": {
+                    "resource_type": {
+                      "type": "string",
+                      "enum": [
+                        "postgresql",
+                        "mysql",
+                        "instance"
+                      ]
+                    },
+                    "resource_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "resource_type"
+                  ]
+                },
+                "storage": {
+                  "type": "object",
+                  "properties": {
+                    "storage": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
                 }
               }
             }
@@ -25637,32 +28083,6 @@
       "WorkspaceGitSyncSettings": {
         "type": "object",
         "properties": {
-          "include_path": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "include_type": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "script",
-                "flow",
-                "app",
-                "folder",
-                "resource",
-                "variable",
-                "secret",
-                "resourcetype",
-                "schedule",
-                "user",
-                "group",
-                "trigger"
-              ]
-            }
-          },
           "repositories": {
             "type": "array",
             "items": {
@@ -25683,16 +28103,7 @@
           "include_type": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "script",
-                "flow",
-                "app",
-                "resource",
-                "variable",
-                "secret",
-                "trigger"
-              ]
+              "$ref": "#/components/schemas/GitSyncObjectType"
             }
           }
         }
@@ -25734,24 +28145,42 @@
           "group_by_folder": {
             "type": "boolean"
           },
+          "collapsed": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "include_path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "include_type": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitSyncObjectType"
+                }
+              },
+              "exclude_path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "extra_include_path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "exclude_types_override": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "script",
-                "flow",
-                "app",
-                "folder",
-                "resource",
-                "variable",
-                "secret",
-                "resourcetype",
-                "schedule",
-                "user",
-                "group",
-                "trigger"
-              ]
+              "$ref": "#/components/schemas/GitSyncObjectType"
             }
           }
         },
@@ -26128,6 +28557,7 @@
           "runs",
           "schedules",
           "resources",
+          "assets",
           "variables",
           "triggers",
           "audit_logs",
@@ -26151,6 +28581,10 @@
           "variables": {
             "type": "boolean",
             "description": "Whether operators can view variables"
+          },
+          "assets": {
+            "type": "boolean",
+            "description": "Whether operators can view assets"
           },
           "audit_logs": {
             "type": "boolean",
@@ -26338,23 +28772,61 @@
           }
         }
       },
-      "StaticTransform": {
+      "AssetUsageKind": {
+        "type": "string",
+        "enum": [
+          "script",
+          "flow"
+        ]
+      },
+      "AssetUsageAccessType": {
+        "type": "string",
+        "enum": [
+          "r",
+          "w",
+          "rw"
+        ]
+      },
+      "AssetKind": {
+        "type": "string",
+        "enum": [
+          "s3object",
+          "resource",
+          "ducklake"
+        ]
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AssetKind"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ]
+      },
+      "schemas-StaticTransform": {
         "type": "object",
         "properties": {
           "value": {},
           "type": {
             "type": "string",
             "enum": [
-              "javascript"
+              "static"
             ]
           }
         },
         "required": [
-          "expr",
+          "value",
           "type"
         ]
       },
-      "JavascriptTransform": {
+      "schemas-JavascriptTransform": {
         "type": "object",
         "properties": {
           "expr": {
@@ -26375,21 +28847,21 @@
       "schemas-InputTransform": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/StaticTransform"
+            "$ref": "#/components/schemas/schemas-StaticTransform"
           },
           {
-            "$ref": "#/components/schemas/JavascriptTransform"
+            "$ref": "#/components/schemas/schemas-JavascriptTransform"
           }
         ],
         "discriminator": {
           "propertyName": "type",
           "mapping": {
-            "static": "#/components/schemas/StaticTransform",
-            "javascript": "#/components/schemas/JavascriptTransform"
+            "static": "#/components/schemas/schemas-StaticTransform",
+            "javascript": "#/components/schemas/schemas-JavascriptTransform"
           }
         }
       },
-      "RawScript": {
+      "schemas-RawScript": {
         "type": "object",
         "properties": {
           "input_transforms": {
@@ -26447,6 +28919,45 @@
           },
           "is_trigger": {
             "type": "boolean"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "s3object",
+                    "resource",
+                    "ducklake"
+                  ]
+                },
+                "access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                },
+                "alt_access_type": {
+                  "type": "string",
+                  "enum": [
+                    "r",
+                    "w",
+                    "rw"
+                  ]
+                }
+              }
+            }
           }
         },
         "required": [
@@ -26456,7 +28967,7 @@
           "input_transforms"
         ]
       },
-      "PathScript": {
+      "schemas-PathScript": {
         "type": "object",
         "properties": {
           "input_transforms": {
@@ -26490,7 +29001,7 @@
           "input_transforms"
         ]
       },
-      "PathFlow": {
+      "schemas-PathFlow": {
         "type": "object",
         "properties": {
           "input_transforms": {
@@ -26515,20 +29026,20 @@
           "input_transforms"
         ]
       },
-      "FlowModule": {
+      "schemas-FlowModule": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string"
           },
           "value": {
-            "$ref": "#/components/schemas/FlowModuleValue"
+            "$ref": "#/components/schemas/schemas-FlowModuleValue"
           },
           "stop_after_if": {
-            "$ref": "#/components/schemas/StopAfterIf"
+            "$ref": "#/components/schemas/schemas-StopAfterIf"
           },
           "stop_after_all_iters_if": {
-            "$ref": "#/components/schemas/StopAfterIf"
+            "$ref": "#/components/schemas/schemas-StopAfterIf"
           },
           "skip_if": {
             "type": "object",
@@ -26606,7 +29117,7 @@
             "type": "boolean"
           },
           "retry": {
-            "$ref": "#/components/schemas/Retry"
+            "$ref": "#/components/schemas/schemas-Retry"
           }
         },
         "required": [
@@ -26614,13 +29125,13 @@
           "id"
         ]
       },
-      "ForloopFlow": {
+      "schemas-ForloopFlow": {
         "type": "object",
         "properties": {
           "modules": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FlowModule"
+              "$ref": "#/components/schemas/schemas-FlowModule"
             }
           },
           "iterator": {
@@ -26649,13 +29160,13 @@
           "type"
         ]
       },
-      "WhileloopFlow": {
+      "schemas-WhileloopFlow": {
         "type": "object",
         "properties": {
           "modules": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FlowModule"
+              "$ref": "#/components/schemas/schemas-FlowModule"
             }
           },
           "skip_failures": {
@@ -26664,7 +29175,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "forloopflow"
+              "whileloopflow"
             ]
           },
           "parallel": {
@@ -26680,7 +29191,7 @@
           "type"
         ]
       },
-      "BranchOne": {
+      "schemas-BranchOne": {
         "type": "object",
         "properties": {
           "branches": {
@@ -26697,7 +29208,7 @@
                 "modules": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FlowModule"
+                    "$ref": "#/components/schemas/schemas-FlowModule"
                   }
                 }
               },
@@ -26710,7 +29221,7 @@
           "default": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FlowModule"
+              "$ref": "#/components/schemas/schemas-FlowModule"
             },
             "required": [
               "modules"
@@ -26729,7 +29240,7 @@
           "type"
         ]
       },
-      "BranchAll": {
+      "schemas-BranchAll": {
         "type": "object",
         "properties": {
           "branches": {
@@ -26746,13 +29257,12 @@
                 "modules": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FlowModule"
+                    "$ref": "#/components/schemas/schemas-FlowModule"
                   }
                 }
               },
               "required": [
-                "modules",
-                "expr"
+                "modules"
               ]
             }
           },
@@ -26771,7 +29281,7 @@
           "type"
         ]
       },
-      "Identity": {
+      "schemas-Identity": {
         "type": "object",
         "properties": {
           "type": {
@@ -26788,48 +29298,48 @@
           "type"
         ]
       },
-      "FlowModuleValue": {
+      "schemas-FlowModuleValue": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/RawScript"
+            "$ref": "#/components/schemas/schemas-RawScript"
           },
           {
-            "$ref": "#/components/schemas/PathScript"
+            "$ref": "#/components/schemas/schemas-PathScript"
           },
           {
-            "$ref": "#/components/schemas/PathFlow"
+            "$ref": "#/components/schemas/schemas-PathFlow"
           },
           {
-            "$ref": "#/components/schemas/ForloopFlow"
+            "$ref": "#/components/schemas/schemas-ForloopFlow"
           },
           {
-            "$ref": "#/components/schemas/WhileloopFlow"
+            "$ref": "#/components/schemas/schemas-WhileloopFlow"
           },
           {
-            "$ref": "#/components/schemas/BranchOne"
+            "$ref": "#/components/schemas/schemas-BranchOne"
           },
           {
-            "$ref": "#/components/schemas/BranchAll"
+            "$ref": "#/components/schemas/schemas-BranchAll"
           },
           {
-            "$ref": "#/components/schemas/Identity"
+            "$ref": "#/components/schemas/schemas-Identity"
           }
         ],
         "discriminator": {
           "propertyName": "type",
           "mapping": {
-            "rawscript": "#/components/schemas/RawScript",
-            "script": "#/components/schemas/PathScript",
-            "flow": "#/components/schemas/PathFlow",
-            "forloopflow": "#/components/schemas/ForloopFlow",
-            "whileloopflow": "#/components/schemas/WhileloopFlow",
-            "branchone": "#/components/schemas/BranchOne",
-            "branchall": "#/components/schemas/BranchAll",
-            "identity": "#/components/schemas/Identity"
+            "rawscript": "#/components/schemas/schemas-RawScript",
+            "script": "#/components/schemas/schemas-PathScript",
+            "flow": "#/components/schemas/schemas-PathFlow",
+            "forloopflow": "#/components/schemas/schemas-ForloopFlow",
+            "whileloopflow": "#/components/schemas/schemas-WhileloopFlow",
+            "branchone": "#/components/schemas/schemas-BranchOne",
+            "branchall": "#/components/schemas/schemas-BranchAll",
+            "identity": "#/components/schemas/schemas-Identity"
           }
         }
       },
-      "StopAfterIf": {
+      "schemas-StopAfterIf": {
         "type": "object",
         "properties": {
           "skip_if_stopped": {
@@ -26846,7 +29356,7 @@
           "expr"
         ]
       },
-      "Retry": {
+      "schemas-Retry": {
         "type": "object",
         "properties": {
           "constant": {
@@ -26881,20 +29391,20 @@
           }
         }
       },
-      "FlowValue": {
+      "schemas-FlowValue": {
         "type": "object",
         "properties": {
           "modules": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FlowModule"
+              "$ref": "#/components/schemas/schemas-FlowModule"
             }
           },
           "failure_module": {
-            "$ref": "#/components/schemas/FlowModule"
+            "$ref": "#/components/schemas/schemas-FlowModule"
           },
           "preprocessor_module": {
-            "$ref": "#/components/schemas/FlowModule"
+            "$ref": "#/components/schemas/schemas-FlowModule"
           },
           "same_worker": {
             "type": "boolean"
@@ -26925,28 +29435,7 @@
           "modules"
         ]
       },
-      "OpenFlow": {
-        "type": "object",
-        "properties": {
-          "summary": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "value": {
-            "$ref": "#/components/schemas/FlowValue"
-          },
-          "schema": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "summary",
-          "value"
-        ]
-      },
-      "FlowStatusModule": {
+      "schemas-FlowStatusModule": {
         "type": "object",
         "properties": {
           "type": {
@@ -27062,65 +29551,6 @@
         },
         "required": [
           "type"
-        ]
-      },
-      "FlowStatus": {
-        "type": "object",
-        "properties": {
-          "step": {
-            "type": "integer"
-          },
-          "modules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FlowStatusModule"
-            }
-          },
-          "user_states": {
-            "additionalProperties": true
-          },
-          "preprocessor_module": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/FlowStatusModule"
-              }
-            ]
-          },
-          "failure_module": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/FlowStatusModule"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "parent_module": {
-                    "type": "string"
-                  }
-                }
-              }
-            ]
-          },
-          "retry": {
-            "type": "object",
-            "properties": {
-              "fail_count": {
-                "type": "integer"
-              },
-              "failed_jobs": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "format": "uuid"
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "step",
-          "modules",
-          "failure_module"
         ]
       }
     }
