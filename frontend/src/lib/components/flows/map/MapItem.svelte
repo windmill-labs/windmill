@@ -3,7 +3,7 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
-	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
+	import { Building, Repeat, Square, ArrowDown, GitBranch, Bot } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -282,7 +282,9 @@
 				>
 					{#snippet icon()}
 						<div>
-							{#if mod.value.type === 'rawscript'}
+							{#if mod.value.type === 'aiagent'}
+								<Bot size={16} />
+							{:else if mod.value.type === 'rawscript'}
 								<LanguageIcon lang={mod.value.language} width={16} height={16} />
 							{:else if mod.summary == 'Terminate flow'}
 								<Square size={16} />

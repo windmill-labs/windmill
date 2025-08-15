@@ -49,7 +49,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering},
         Arc,
     },
     time::Duration,
@@ -746,7 +746,7 @@ pub async fn handle_all_job_kind_error(
                         preprocessed_args: None,
                         job: job.clone(),
                         result: Arc::new(windmill_common::worker::to_raw_value(&error_to_value(
-                            err,
+                            &err,
                         ))),
                         result_columns: None,
                         mem_peak: 0,
@@ -2546,19 +2546,25 @@ pub async fn handle_queued_job(
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
             JobKind::AIAgent => match conn {
                 Connection::Sql(db) => {
-                    let runnable_id = job.runnable_id.ok_or_else(|| {
-                        Error::internal_err("expected runnable id for ai agent job".to_string())
-                    })?;
-                    let flow_data = cache::job::fetch_flow(db, &job.kind, Some(runnable_id))
-                        .or_else(|_| cache::job::fetch_preview_flow(db, &job.id, raw_flow))
-                        .await?;
+                    let flow_data = if let Some(runnable_id) = job.runnable_id {
+                        cache::job::fetch_flow(db, &job.kind, Some(runnable_id)).await?
+                    } else if let Some(raw_flow) = raw_flow {
+                        cache::job::fetch_preview_flow(db, &job.id, Some(raw_flow)).await?
+                    } else {
+                        return Err(Error::internal_err(
+                            "expected runnable id or raw flow for ai agent job".to_string(),
+                        ));
+                    };
 
                     handle_ai_agent_job(
-                        job.as_ref(),
-                        &client,
                         conn,
+                        job.as_ref(),
                         flow_data,
-                        job_completed_tx.clone(),
+                        &client,
+                        &mut canceled_by,
+                        &mut mem_peak,
+                        &mut *occupancy_metrics,
+                        &job_completed_tx,
                         worker_dir,
                         base_internal_url,
                         worker_name,

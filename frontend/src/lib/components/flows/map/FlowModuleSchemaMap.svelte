@@ -190,6 +190,8 @@
 					return branch
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
+			} else if (mod.value.type == 'aiagent') {
+				mod.value.tools = removeAtId(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -421,6 +423,7 @@
 				}
 			}}
 			onInsert={async (detail) => {
+				console.log('oninsert', detail)
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -449,6 +452,8 @@
 							}
 						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
 							targetModules = modules
+						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
+							targetModules = mod.value.tools
 						}
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
@@ -479,21 +484,8 @@
 										instructions: detail.inlineScript?.instructions
 									})
 								}
-							} else if (detail.agentId) {
-								const parentModule = findModuleById(detail.agentId)
-
-								if (parentModule?.value.type === 'aiagent') {
-									await insertNewModuleAtIndex(
-										parentModule.value.tools,
-										0,
-										detail.kind,
-										detail.script,
-										detail.flow,
-										detail.inlineScript
-									)
-								}
 							} else {
-								const index = detail.index ?? 0
+								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
 
 								await insertNewModuleAtIndex(
 									targetModules,

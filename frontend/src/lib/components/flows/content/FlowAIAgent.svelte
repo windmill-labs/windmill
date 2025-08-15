@@ -1,3 +1,9 @@
+<script module lang="ts">
+	export function validateToolName(name: string) {
+		return /^[a-zA-Z0-9_]+$/.test(name)
+	}
+</script>
+
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
@@ -27,18 +33,6 @@
 		forceTestTab,
 		highlightArg
 	}: Props = $props()
-
-	let fakeFlowModule: FlowModule = $derived({
-		id: flowModule.id,
-		value: {
-			type: 'rawscript',
-			input_transforms:
-				flowModule.value.type === 'aiagent' ? flowModule.value.input_transforms : {},
-			content:
-				'//native\nexport async function main(system_prompt: string, user_message: string, resource: RT.Openai, model: string = "gpt-4o-mini") {}\n',
-			language: 'nativets'
-		}
-	})
 </script>
 
 <FlowModuleComponent

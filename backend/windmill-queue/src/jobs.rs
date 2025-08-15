@@ -34,7 +34,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
+use windmill_common::jobs::{FlowVersionOrRawFlow, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 #[cfg(feature = "enterprise")]
@@ -449,6 +449,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        false,
     )
     .await?;
     inner_tx.commit().await?;
@@ -501,6 +502,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         None,
+        false,
     )
     .await?;
     inner_tx.commit().await?;
@@ -1275,6 +1277,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             queued_job.priority,
             None,
+            false,
         )
         .await?;
         tx.commit().await?;
@@ -2037,6 +2040,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         priority,
         None,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -2145,6 +2149,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        false,
     )
     .await?;
     tracing::info!(
@@ -2234,6 +2239,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        false,
     )
     .await?;
     tracing::info!(
@@ -3619,7 +3625,7 @@ pub async fn push<'c, 'd>(
     root_job: Option<Uuid>,
     job_id: Option<Uuid>,
     _is_flow_step: bool,
-    mut same_worker: bool,
+    mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running and override the running arg
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
     mut tag: Option<String>,
@@ -3627,6 +3633,7 @@ pub async fn push<'c, 'd>(
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
+    running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4436,12 +4443,18 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::AIAgent { flow_version } => (
-            Some(flow_version),
+        JobPayload::AIAgent(flow_version_or_raw_flow) => (
+            match flow_version_or_raw_flow {
+                FlowVersionOrRawFlow::FlowVersion(flow_version) => Some(flow_version),
+                _ => None,
+            },
             None,
             None,
             JobKind::AIAgent,
-            None,
+            match flow_version_or_raw_flow {
+                FlowVersionOrRawFlow::RawFlow(raw_flow) => Some(raw_flow),
+                _ => None,
+            },
             None,
             None,
             None,
@@ -4478,7 +4491,7 @@ pub async fn push<'c, 'd>(
         final_priority
     };
 
-    let is_running = same_worker;
+    let is_running = same_worker || running;
     if let Some(flow) = raw_flow.as_ref() {
         same_worker = same_worker || flow.same_worker;
 

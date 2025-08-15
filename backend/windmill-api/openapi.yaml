@@ -13833,6 +13833,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
     BranchAll:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
+    AiAgent:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:

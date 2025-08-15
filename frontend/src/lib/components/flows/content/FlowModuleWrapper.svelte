@@ -43,6 +43,7 @@
 		previousModule?: FlowModule | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -53,7 +54,8 @@
 		parentModule = $bindable(),
 		previousModule = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		isAgentTool = false
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -214,6 +216,7 @@
 			{savedModule}
 			forceTestTab={forceTestTab?.[flowModule.id]}
 			highlightArg={highlightArg?.[flowModule.id]}
+			{isAgentTool}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
@@ -307,7 +310,7 @@
 			{noEditor}
 			bind:flowModule={flowModule.value.tools[index]}
 			bind:parentModule={flowModule}
-			previousModule={flowModule.value.tools[index - 1]}
+			isAgentTool
 		/>
 	{/each}
 {/if}

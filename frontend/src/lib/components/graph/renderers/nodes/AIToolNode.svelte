@@ -1,12 +1,12 @@
 <script module lang="ts">
-	export const NODE_WITH_READ_ASSET_Y_OFFSET = 45
-	export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 45
-	export const READ_ASSET_Y_OFFSET = -45
-	export const WRITE_ASSET_Y_OFFSET = 64
-	export const assetDisplaysAsInputInFlowGraph = (a: AssetWithAltAccessType) =>
-		!getAccessType(a) || getAccessType(a) === 'r' || getAccessType(a) === 'rw'
-	export const assetDisplaysAsOutputInFlowGraph = (a: AssetWithAltAccessType) =>
-		getAccessType(a) === 'w' || getAccessType(a) === 'rw'
+	export const NODE_WITH_AI_TOOL_BASE_OFFSET = 5
+	export const NODE_WITH_AI_TOOL_ROW_OFFSET = 30
+	// export const AI_TOOL_BEFORE_Y_OFFSET = -45
+
+	export const AI_TOOL_BASE_OFFSET = -5
+	export const AI_TOOL_ROW_OFFSET = -30
+
+	// export const AI_TOOL_AFTER_Y_OFFSET = 64
 
 	let computeAIToolNodesCache:
 		| [(Node & NodeLayout)[], ReturnType<typeof computeAIToolNodes>]
@@ -18,75 +18,65 @@
 	): [(Node & NodeLayout)[], Edge[]] {
 		if (nodes === computeAIToolNodesCache?.[0]) return computeAIToolNodesCache[1]
 
-		const MAX_ASSET_ROW_WIDTH = 300
-		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
-		const allAssetNodes: (Node & NodeLayout)[] = []
-		const allAssetEdges: Edge[] = []
+		const ROW_WIDTH = 275
+		const NEW_TOOL_NODE_WIDTH = 40
+		const MAX_TOOLS_PER_ROW = 2
+		const allToolNodes: (Node & NodeLayout)[] = []
+		const allToolEdges: Edge[] = []
 
-		const yPosMap: Record<number, { r?: true; w?: true }> = {}
+		const yPosMap: Record<number, number> = {}
 
 		for (const node of nodes) {
 			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
 
-			const assets: {
+			const tools: {
 				id: string
 				name: string
 			}[] = node.data.module.value.tools.map((t) => ({
 				id: t.id,
-				name: t.summary ?? t.id
+				name: t.summary ?? ''
 			}))
 
-			// const assets = node.data.assets ?? []
+			// const tools = node.data.tools ?? []
 
-			// Each asset can be displayed at the top and bottom
-			// i.e once (R or W) or twice (RW)
-			const inputAssets = assets
-			const displayedInputAssets = inputAssets.slice(0, 3)
-
-			const overflowedInputAssets = inputAssets.slice(3)
+			// Each tool can be displayed at the top and bottom
+			const inputTools = tools
 
 			// This allows calculating which nodes to offset on the y axis to
-			// make space for the asset nodes
-			if (inputAssets.length) yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
-			if (inputAssets.length) yPosMap[node.position.y].r = true
+			// make space for the tool nodes
 
-			// All asset nodes displayed on top
-			const inputAssetNodes: (Node & AiToolN)[] = displayedInputAssets.map((asset, i) => {
-				let inputAssetXGap = 12
-				let inputAssetWidth = 150
+			const totalRows = Math.ceil(inputTools.length / MAX_TOOLS_PER_ROW) + 1
+			yPosMap[node.position.y] = totalRows
 
-				const targetRowW =
-					MAX_ASSET_ROW_WIDTH -
-					(overflowedInputAssets.length ? ASSETS_OVERFLOWED_NODE_WIDTH + inputAssetXGap / 2 : 0)
-				let totalInputRowWidth = () =>
-					inputAssetWidth * displayedInputAssets.length +
-					inputAssetXGap * (displayedInputAssets.length - 1)
-				if (totalInputRowWidth() > MAX_ASSET_ROW_WIDTH) {
-					const mult = targetRowW / totalInputRowWidth()
-					inputAssetWidth = inputAssetWidth * mult
-					inputAssetXGap = inputAssetXGap * mult
-				}
+			// All tool nodes displayed on top
+			const inputToolNodes: (Node & AiToolN)[] = inputTools.map((tool, i) => {
+				let inputToolXGap = 12
+				let inputToolWidth = (ROW_WIDTH - inputToolXGap) / 2
+
+				const row = Math.floor(i / MAX_TOOLS_PER_ROW) + 1
 				return {
 					type: 'aiTool' as const,
 					parentId: node.id,
-					data: { tool: asset.name, eventHandlers, moduleId: asset.id },
-					id: `${node.id}-tool-${asset.id}`,
-					width: inputAssetWidth,
+					data: { tool: tool.name, eventHandlers, moduleId: tool.id },
+					id: `${node.id}-tool-${tool.id}`,
+					width: inputToolWidth,
 					position: {
 						x:
-							displayedInputAssets.length === 1
-								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
-								: (inputAssetWidth + inputAssetXGap) * (i - displayedInputAssets.length / 2) +
-									(NODE.width + inputAssetXGap) / 2 +
-									(overflowedInputAssets.length
-										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
-										: 0),
-						y: READ_ASSET_Y_OFFSET
+							inputTools.length === 1
+								? (ROW_WIDTH - inputToolWidth) / 2
+								: (i + 1) % 2 === 0
+									? inputToolWidth + inputToolXGap
+									: row === totalRows - 1 && inputTools.length % 2 === 1
+										? (ROW_WIDTH - inputToolWidth) / 2
+										: 0,
+						y:
+							AI_TOOL_BASE_OFFSET +
+							AI_TOOL_ROW_OFFSET * (totalRows - Math.floor(i / MAX_TOOLS_PER_ROW))
 					}
 				}
 			})
 
-			const inputAssetEdges: Edge[] = inputAssetNodes?.map((n) => ({
+			const inputToolEdges: Edge[] = inputToolNodes?.map((n) => ({
 				id: `${n.id}-edge`,
 				source: n.id ?? '',
 				target: n.parentId ?? '',
@@ -94,32 +84,24 @@
 				data: { class: '!opacity-35 dark:!opacity-20' }
 			}))
 
-			allAssetEdges.push(...(inputAssetEdges ?? []))
-			allAssetNodes.push(...(inputAssetNodes ?? []))
+			allToolEdges.push(...(inputToolEdges ?? []))
+			allToolNodes.push(...(inputToolNodes ?? []))
 
-			// If there are more than 3 assets, we create an overflow node
-			// if (overflowedInputAssets.length)
-			allAssetNodes.push({
+			// If there are more than 3 tools, we create an overflow node
+			// if (overflowedInputTools.length)
+			allToolNodes.push({
 				type: 'newAiTool',
 				data: { eventHandlers, agentModuleId: node.data.module.id },
-				id: `${node.id}-assets-overflowed-in`,
+				id: `${node.id}-tools-overflowed-in`,
 				parentId: node.id,
-				width: ASSETS_OVERFLOWED_NODE_WIDTH,
+				width: NEW_TOOL_NODE_WIDTH,
 				position: {
-					x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
-					y: READ_ASSET_Y_OFFSET
+					x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
+					y: AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET
 				}
 			} satisfies Node & NewAiToolN)
-			// allAssetEdges.push({
-			// 	id: `${node.id}-assets-overflowed-in-edge`,
-			// 	source: `${node.id}-assets-overflowed-in`,
-			// 	target: node.id,
-			// 	type: 'empty',
-			// 	data: { class: '!opacity-35 dark:!opacity-20' }
-			// })
 		}
 
-		// Shift all nodes to make space for the new asset nodes
 		const existingAssetNodes = nodes.filter((n) => n.type === 'asset')
 		const sortedNewNodes = clone(nodes)
 			.filter((n) => n.type !== 'asset')
@@ -128,8 +110,9 @@
 		let prevYPos = NaN
 		for (const node of sortedNewNodes) {
 			if (node.position.y !== prevYPos) {
-				if (yPosMap[prevYPos]?.w) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
-				if (yPosMap[node.position.y]?.r) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
+				if (yPosMap[node.position.y])
+					currentYOffset +=
+						NODE_WITH_AI_TOOL_BASE_OFFSET + NODE_WITH_AI_TOOL_ROW_OFFSET * yPosMap[node.position.y]
 
 				prevYPos = node.position.y
 			}
@@ -138,8 +121,8 @@
 		}
 
 		let ret: ReturnType<typeof computeAIToolNodes> = [
-			[...sortedNewNodes, ...existingAssetNodes, ...allAssetNodes],
-			[...edges, ...allAssetEdges]
+			[...sortedNewNodes, ...existingAssetNodes, ...allToolNodes],
+			[...edges, ...allToolEdges]
 		]
 		computeAIToolNodesCache = [nodes, ret]
 		return ret
@@ -150,67 +133,64 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type {
 		AiToolN,
-		AssetN,
-		AssetsOverflowedN,
 		GraphEventHandlers,
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { AlertTriangle, PocketKnifeIcon } from 'lucide-svelte'
-	import {
-		assetEq,
-		formatAssetKind,
-		getAccessType,
-		type AssetWithAltAccessType
-	} from '$lib/components/assets/lib'
+	import { Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
-	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
-	import { Tooltip } from '$lib/components/meltComponents'
-	import { clone, pluralize } from '$lib/utils'
+	import { clone } from '$lib/utils'
 	import type { Edge, Node } from '@xyflow/svelte'
 
-	import { NODE } from '../../util'
-	import { userStore } from '$lib/stores'
+	import type { Writable } from 'svelte/store'
+	import { validateToolName } from '$lib/components/flows/content/FlowAIAgent.svelte'
 
 	interface Props {
 		data: AiToolN['data']
 	}
 
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
-
 	let { data }: Props = $props()
 
-	const isSelected = $derived(flowGraphAssetsCtx?.val.selectedTool === data.tool)
-	// const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
-	// const cachedResourceMetadata = $derived(
-	// 	flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
-	// )
+	const { selectedId } = getContext<{
+		selectedId: Writable<string | undefined>
+	}>('FlowGraphContext')
 </script>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<Tooltip>
-			<div
+		<div class="relative group">
+			<button
 				class={twMerge(
-					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
-					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
+					'hover:bg-surface-hover text-left bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip w-full',
+					$selectedId === data.moduleId
+						? 'bg-surface-secondary !border-surface-inverse'
+						: 'border-transparent'
 				)}
-				onmouseenter={() => flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedTool = data.tool)}
-				onmouseleave={() => flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedTool = undefined)}
 				onclick={() => data.eventHandlers.select(data.moduleId)}
 			>
-				<PocketKnifeIcon size={16} />
+				<Wrench size={16} class="ml-1 shrink-0" />
 
-				<span class="text-3xs truncate flex-1">
-					{data.tool}
+				<span
+					class={twMerge(
+						'text-3xs truncate flex-1',
+						!validateToolName(data.tool) && 'text-red-400'
+					)}
+				>
+					{data.tool || 'No tool name'}
 				</span>
-			</div>
-			<svelte:fragment slot="text">
-				{data.tool}
-			</svelte:fragment>
-		</Tooltip>
+			</button>
+			<button
+				class={twMerge(
+					'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white',
+					'group-active:!flex group-hover:!flex !hidden',
+					$selectedId === data.moduleId ? '!flex' : ''
+				)}
+				title="Delete"
+				onclick={() => data.eventHandlers.delete({ id: data.moduleId }, '')}
+			>
+				<X size={12} strokeWidth={2} />
+			</button>
+		</div>
 	{/snippet}
 </NodeWrapper>

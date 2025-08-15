@@ -29,7 +29,7 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::auth::JobPerms;
+use windmill_common::auth::{get_job_perms, JobPerms};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
@@ -40,7 +40,8 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, FlowVersionOrRawFlow, JobKind, JobPayload, OnBehalfOf, RawCode,
+    ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_common::users::username_to_permissioned_as;
@@ -2826,16 +2827,9 @@ async fn push_next_flow_job(
                 .flow_innermost_root_job
                 .or_else(|| Some(flow_job.id))
             {
-                sqlx::query_as!(
-                     JobPerms,
-                     "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
-                     root_job,
-                     flow_job.workspace_id,
-                 )
-                 .fetch_optional(&mut *tx)
-                 .warn_after_seconds(3)
-                 .await?
-                 .map(|x| x.into())
+                get_job_perms(&mut *tx, root_job, &flow_job.workspace_id)
+                    .await?
+                    .map(|x| x.into())
             } else {
                 None
             }
@@ -2887,6 +2881,7 @@ async fn push_next_flow_job(
             Some(module.id.clone()),
             new_job_priority_override,
             job_perms.as_ref(),
+            false,
         )
         .warn_after_seconds(2)
         .await?;
@@ -3256,10 +3251,10 @@ enum NextStatus {
 #[derive(Clone)]
 pub struct JobPayloadWithTag {
     pub payload: JobPayload,
-    tag: Option<String>,
-    delete_after_use: bool,
-    timeout: Option<i32>,
-    on_behalf_of: Option<OnBehalfOf>,
+    pub tag: Option<String>,
+    pub delete_after_use: bool,
+    pub timeout: Option<i32>,
+    pub on_behalf_of: Option<OnBehalfOf>,
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
@@ -3392,12 +3387,12 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::AIAgent { .. } => {
-            let Some(runnable_id) = flow_job.runnable_id else {
-                return Err(Error::internal_err(
-                    "expected runnable id for ai agent job".to_string(),
-                ));
-            };
-            let payload = JobPayload::AIAgent { flow_version: runnable_id.0 };
+            let payload = JobPayload::AIAgent(
+                flow_job
+                    .runnable_id
+                    .map(|runnable_id| FlowVersionOrRawFlow::FlowVersion(runnable_id.0))
+                    .unwrap_or_else(|| FlowVersionOrRawFlow::RawFlow(flow.clone())),
+            );
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,

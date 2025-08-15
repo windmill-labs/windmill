@@ -3,18 +3,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicU16, Arc},
+    sync::{
+        atomic::{AtomicU16, Ordering},
+        Arc,
+    },
 };
 use tokio::time::Instant;
 use uuid::Uuid;
 use windmill_common::{
+    auth::{get_job_perms, JobPerms},
     cache::FlowData,
     client::AuthedClient,
-    error::{to_anyhow, Error},
-    flows::FlowModuleValue,
+    db::Authed,
+    error::{self, to_anyhow, Error},
+    flows::{FlowModule, FlowModuleValue},
     jobs::{JobPayload, DB},
     scripts::{ScriptHash, ScriptLang},
-    utils::HTTP_CLIENT,
+    utils::{WarnAfterExt, HTTP_CLIENT},
     worker::{to_raw_value, to_raw_value_owned, Connection},
 };
 use windmill_parser::Typ;
@@ -24,8 +29,11 @@ use windmill_queue::{
 };
 
 use crate::{
-    common::{build_args_map, build_args_values, OccupancyMetrics},
-    create_job_dir, handle_code_execution_job, handle_queued_job,
+    common::{build_args_map, build_args_values, error_to_value, OccupancyMetrics},
+    create_job_dir, handle_all_job_kind_error,
+    handle_child::run_future_with_polling_update_job_poller,
+    handle_code_execution_job, handle_queued_job,
+    result_processor::handle_non_flow_job_error,
     worker_flow::{get_path, raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
 };
@@ -148,19 +156,229 @@ fn parse_raw_script_schema(
 }
 
 #[async_recursion] // we only need it because handle_queued_job could call this function again but in practice it won't because we only access raw script flow modules
-pub async fn handle_ai_agent_job(
-    job: &MiniPulledJob,
-    client: &AuthedClient,
+async fn call_tool(
+    // connection
+    db: &DB,
     conn: &Connection,
-    flow_data: Arc<FlowData>,
-    // for job execution
-    job_completed_tx: JobCompletedSender,
+
+    // agent job and flow step id
+    agent_job: &MiniPulledJob,
+    flow_step_id: &str,
+
+    // tool
+    tool: &FlowModule,
+    tool_call: &OpenAIToolCall,
+
+    // execution context
+    client: &AuthedClient,
+    occupancy_metrics: &mut OccupancyMetrics,
+    base_internal_url: &str,
+    worker_dir: &str,
+    worker_name: &str,
+    hostname: &str,
+    job_completed_tx: &JobCompletedSender,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> error::Result<Arc<Box<RawValue>>> {
+    let tool_call_args =
+        serde_json::from_str::<HashMap<String, Box<RawValue>>>(&tool_call.function.arguments)?;
+
+    let job_payload = match tool.get_value()? {
+        FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
+            let payload = script_to_payload(
+                script_hash,
+                script_path,
+                db,
+                agent_job,
+                tool,
+                tag_override,
+                tool.apply_preprocessor,
+            )
+            .await?;
+            payload
+        }
+        FlowModuleValue::RawScript {
+            path,
+            content,
+            language,
+            lock,
+            tag,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            ..
+        } => {
+            let path = path.unwrap_or_else(|| {
+                format!(
+                    "{}/{}/tools/{}",
+                    agent_job.runnable_path(),
+                    flow_step_id,
+                    tool.id
+                )
+            });
+
+            let payload = raw_script_to_payload(
+                path,
+                content,
+                language,
+                lock,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                tool,
+                tag,
+                false,
+            );
+            payload
+        }
+        _ => {
+            return Err(Error::internal_err(format!(
+                "Unsupported tool: {}",
+                tool_call.function.name
+            )));
+        }
+    };
+
+    let mut tx = db.begin().await?;
+
+    let job_perms = get_job_perms(&mut *tx, &agent_job.id, &agent_job.workspace_id)
+        .await?
+        .map(|x| x.into());
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
+        (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
+    } else {
+        (
+            &agent_job.permissioned_as_email,
+            agent_job.permissioned_as.to_owned(),
+        )
+    };
+
+    let job_priority = tool.priority.or(agent_job.priority);
+
+    let tx = PushIsolationLevel::Transaction(tx);
+    let (uuid, tx) = push(
+        db,
+        tx,
+        &agent_job.workspace_id,
+        job_payload.payload,
+        PushArgs { args: &tool_call_args, extra: None },
+        &agent_job.created_by,
+        email,
+        permissioned_as,
+        Some(&format!("job-span-{}", agent_job.id)),
+        None,
+        agent_job.schedule_path(),
+        Some(agent_job.id),
+        None,
+        None,
+        false,
+        false,
+        None,
+        agent_job.visible_to_owner,
+        Some(agent_job.tag.clone()), // we reuse the same tag as the agent job because it's run on the same worker
+        job_payload.timeout,
+        None,
+        job_priority,
+        job_perms.as_ref(),
+        true,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    let tool_job = get_mini_pulled_job(db, &uuid).await?;
+
+    let Some(tool_job) = tool_job else {
+        return Err(Error::internal_err("Tool job not found".to_string()));
+    };
+
+    let tool_job = Arc::new(tool_job);
+
+    let job_dir = create_job_dir(&worker_dir, agent_job.id).await;
+
+    let (inner_job_completed_tx, inner_job_completed_rx) = JobCompletedSender::new(&conn, 1);
+
+    let inner_job_completed_rx = inner_job_completed_rx.expect(
+        "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
+    );
+
+    if let Err(err) = handle_queued_job(
+        tool_job.clone(),
+        None,
+        None,
+        None,
+        None,
+        conn,
+        client,
+        hostname,
+        worker_name,
+        worker_dir,
+        &job_dir,
+        None,
+        base_internal_url,
+        inner_job_completed_tx,
+        occupancy_metrics,
+        killpill_rx,
+        None,
+    )
+    .await
+    {
+        let err_string = format!("{}: {}", err.name(), err.to_string());
+        let err_json = error_to_value(&err);
+        let _ =
+            handle_non_flow_job_error(db, &tool_job, 0, None, err_string, err_json, worker_name)
+                .await;
+        Err(err)
+    } else {
+        let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
+
+        let result = if let Some(SendResult {
+            result: SendResultPayload::JobCompleted(JobCompleted { result, .. }),
+            ..
+        }) = send_result.as_ref()
+        {
+            job_completed_tx
+                .send(send_result.as_ref().unwrap().result.clone(), true)
+                .await
+                .map_err(to_anyhow)?;
+            result
+        } else {
+            if let Some(send_result) = send_result {
+                job_completed_tx
+                    .send(send_result.result, true)
+                    .await
+                    .map_err(to_anyhow)?;
+            }
+            return Err(Error::internal_err(
+                "Tool job completed but no result".to_string(),
+            ));
+        };
+
+        Ok(result.clone())
+    }
+}
+
+async fn run_agent(
+    // connection
+    conn: &Connection,
+
+    // agent job and flow data
+    job: &MiniPulledJob,
+    flow_step_id: &str,
+    args: AIAgentArgs,
+    tool_defs: Vec<serde_json::Value>,
+    tools: Vec<FlowModule>,
+
+    // job execution context
+    client: &AuthedClient,
+    occupancy_metrics: &mut OccupancyMetrics,
+    job_completed_tx: &JobCompletedSender,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-) -> Result<Box<RawValue>, Error> {
+) -> error::Result<Box<RawValue>> {
     let db = match conn {
         Connection::Sql(db) => db,
         Connection::Http(_) => {
@@ -169,34 +387,6 @@ pub async fn handle_ai_agent_job(
             ));
         }
     };
-
-    let args = build_args_map(job, client, conn).await?;
-
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
-
-    let Some(flow_step_id) = &job.flow_step_id else {
-        return Err(Error::internal_err(
-            "AI agent job has no flow step id".to_string(),
-        ));
-    };
-
-    let value = flow_data.value();
-
-    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
-
-    let Some(module) = module else {
-        return Err(Error::internal_err(
-            "AI agent module not found in flow".to_string(),
-        ));
-    };
-
-    let FlowModuleValue::AIAgent { input_transforms, tools } = module.get_value()? else {
-        return Err(Error::internal_err(
-            "AI agent module is not an AI agent".to_string(),
-        ));
-    };
-
-    let mut content = None;
 
     let mut messages = vec![
         serde_json::json!({
@@ -209,34 +399,7 @@ pub async fn handle_ai_agent_job(
         }),
     ];
 
-    let tool_defs = tools
-        .iter()
-        .map(|t| {
-            let module_value = t.get_value().unwrap();
-
-            let schema = match &module_value {
-                FlowModuleValue::Script { .. } => {
-                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
-                }
-                FlowModuleValue::RawScript { content, language, .. } => {
-                    parse_raw_script_schema(&content, &language)?
-                }
-                _ => {
-                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
-                }
-            };
-
-            Ok(serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": t.summary.as_ref().unwrap_or(&t.id),
-                    "parameters": schema
-                }
-            }))
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-
-    tracing::info!("tool_defs: {:#?}", tool_defs);
+    let mut content = None;
 
     for i in 0..MAX_AGENT_ITERATIONS {
         let response = {
@@ -310,169 +473,40 @@ pub async fn handle_ai_agent_job(
                 .iter()
                 .find(|t| t.summary.as_ref().unwrap_or(&t.id) == &tool_call.function.name);
             if let Some(tool) = tool {
-                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
-
-                let tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-                    &tool_call.function.arguments,
-                )?;
-
-                let job_payload = match tool.get_value()? {
-                    FlowModuleValue::Script {
-                        path: script_path,
-                        hash: script_hash,
-                        tag_override,
-                        ..
-                    } => {
-                        let payload = script_to_payload(
-                            script_hash,
-                            script_path,
-                            db,
-                            job,
-                            module,
-                            tag_override,
-                            module.apply_preprocessor,
-                        )
-                        .await?;
-                        payload
-                    }
-                    FlowModuleValue::RawScript {
-                        path,
-                        content,
-                        language,
-                        lock,
-                        tag,
-                        custom_concurrency_key,
-                        concurrent_limit,
-                        concurrency_time_window_s,
-                        ..
-                    } => {
-                        let path = path.unwrap_or_else(|| {
-                            format!("{}/{}/tools/{}", job.runnable_path(), flow_step_id, tool.id)
-                        });
-
-                        let payload = raw_script_to_payload(
-                            path,
-                            content,
-                            language,
-                            lock,
-                            custom_concurrency_key,
-                            concurrent_limit,
-                            concurrency_time_window_s,
-                            module,
-                            tag,
-                            false,
-                        );
-                        payload
-                    }
-                    _ => {
-                        return Err(Error::internal_err(format!(
-                            "Unsupported tool: {}",
-                            tool_call.function.name
-                        )));
-                    }
-                };
-
-                let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-                let (uuid, tx) = push(
+                match call_tool(
                     db,
-                    tx,
-                    &job.workspace_id,
-                    job_payload.payload,
-                    PushArgs { args: &tool_call_args, extra: None },
-                    &job.created_by,
-                    &job.permissioned_as_email,
-                    job.permissioned_as.clone(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    true, // will set running to true
-                    None,
-                    true,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
-
-                tx.commit().await?;
-
-                let tool_job = get_mini_pulled_job(db, &uuid).await?;
-
-                let Some(tool_job) = tool_job else {
-                    return Err(Error::internal_err("Tool job not found".to_string()));
-                };
-
-                let tool_job = Arc::new(tool_job);
-
-                let (same_worker_tx, same_worker_rx) =
-                    tokio::sync::mpsc::channel::<SameWorkerPayload>(1);
-
-                let same_worker_tx =
-                    crate::worker::SameWorkerSender(same_worker_tx, Arc::new(AtomicU16::new(0)));
-
-                let job_dir = create_job_dir(&worker_dir, job.id).await;
-
-                let (inner_job_completed_tx, inner_job_completed_rx) =
-                    JobCompletedSender::new(&conn, 1);
-
-                let inner_job_completed_rx = inner_job_completed_rx.expect("inner_job_completed_tx should be set as agent jobs are not supported on agent workers");
-
-                let success = handle_queued_job(
-                    tool_job,
-                    None,
-                    None,
-                    None,
-                    None,
                     conn,
+                    job,
+                    flow_step_id,
+                    tool,
+                    &tool_call,
                     client,
-                    hostname,
-                    worker_name,
-                    worker_dir,
-                    &job_dir,
-                    Some(same_worker_tx),
+                    occupancy_metrics,
                     base_internal_url,
-                    inner_job_completed_tx,
-                    &mut occupancy_metrics,
+                    worker_dir,
+                    worker_name,
+                    hostname,
+                    job_completed_tx,
                     killpill_rx,
-                    None,
                 )
-                .await?;
-
-                let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
-
-                let result = if let Some(SendResult {
-                    result: SendResultPayload::JobCompleted(JobCompleted { result, .. }),
-                    ..
-                }) = send_result.as_ref()
+                .await
                 {
-                    job_completed_tx
-                        .send(send_result.as_ref().unwrap().result.clone(), true)
-                        .await
-                        .map_err(to_anyhow)?;
-                    result
-                } else {
-                    if let Some(send_result) = send_result {
-                        job_completed_tx
-                            .send(send_result.result, true)
-                            .await
-                            .map_err(to_anyhow)?;
+                    Ok(result) => {
+                        messages.push(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result.get(),
+                        }));
                     }
-                    return Err(Error::internal_err(
-                        "Tool job completed but no result".to_string(),
-                    ));
-                };
-
-                messages.push(serde_json::json!({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result.get(),
-                }));
+                    Err(err) => {
+                        let err_string = format!("{}: {}", err.name(), err.to_string());
+                        messages.push(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": format!("Error running tool: {}", err_string),
+                        }));
+                    }
+                }
             } else {
                 return Err(Error::internal_err(format!(
                     "Tool not found: {}",
@@ -483,4 +517,115 @@ pub async fn handle_ai_agent_job(
     }
 
     Ok(to_raw_value(&content))
+}
+
+pub async fn handle_ai_agent_job(
+    // connection
+    conn: &Connection,
+
+    // agent job and flow data
+    job: &MiniPulledJob,
+    flow_data: Arc<FlowData>,
+
+    // job execution context
+    client: &AuthedClient,
+    canceled_by: &mut Option<CanceledBy>,
+    mem_peak: &mut i32,
+    occupancy_metrics: &mut OccupancyMetrics,
+    job_completed_tx: &JobCompletedSender,
+    worker_dir: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    hostname: &str,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> Result<Box<RawValue>, Error> {
+    let args = build_args_map(job, client, conn).await?;
+
+    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
+
+    let Some(flow_step_id) = &job.flow_step_id else {
+        return Err(Error::internal_err(
+            "AI agent job has no flow step id".to_string(),
+        ));
+    };
+
+    let value = flow_data.value();
+
+    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
+
+    let Some(module) = module else {
+        return Err(Error::internal_err(
+            "AI agent module not found in flow".to_string(),
+        ));
+    };
+
+    let FlowModuleValue::AIAgent { input_transforms, tools } = module.get_value()? else {
+        return Err(Error::internal_err(
+            "AI agent module is not an AI agent".to_string(),
+        ));
+    };
+
+    let tool_defs = tools
+        .iter()
+        .map(|t| {
+            let module_value = t.get_value().unwrap();
+
+            let schema = match &module_value {
+                FlowModuleValue::Script { .. } => {
+                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
+                }
+                FlowModuleValue::RawScript { content, language, .. } => {
+                    parse_raw_script_schema(&content, &language)?
+                }
+                _ => {
+                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
+                }
+            };
+
+            Ok(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.summary.as_ref().unwrap_or(&t.id),
+                    "parameters": schema
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    tracing::info!("tool_defs: {:#?}", tool_defs);
+
+    let mut inner_occupancy_metrics = occupancy_metrics.clone();
+
+    let agent_fut = run_agent(
+        conn,
+        job,
+        flow_step_id,
+        args,
+        tool_defs,
+        tools,
+        client,
+        &mut inner_occupancy_metrics,
+        job_completed_tx,
+        worker_dir,
+        base_internal_url,
+        worker_name,
+        hostname,
+        killpill_rx,
+    );
+
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        agent_fut,
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await?;
+
+    Ok(result)
 }

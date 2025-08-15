@@ -302,6 +302,7 @@ pub async fn push_scheduled_job<'c>(
         None,
         None,
         push_authed,
+        false,
     )
     .await?;
 

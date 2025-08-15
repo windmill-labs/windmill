@@ -14,6 +14,7 @@
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
 	export let allowTrigger = true
+	export let scriptOnly = false
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' = kind
@@ -66,7 +67,7 @@ shouldUsePortal={true} -->
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
-		{#if kind === 'script'}
+		{#if kind === 'script' && !scriptOnly}
 			<div class="flex-none flex flex-col text-xs text-primary">
 				<TopLevelNode
 					label="Action"

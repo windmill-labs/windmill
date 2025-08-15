@@ -5,7 +5,8 @@
 		type FlowStatus,
 		type Preview,
 		type GetJobUpdatesResponse,
-		type WorkflowStatus
+		type WorkflowStatus,
+		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick, untrack } from 'svelte'
@@ -185,6 +186,25 @@
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
+				}),
+			callbacks
+		)
+	}
+
+	export async function runFlowPreview(
+		args: Record<string, any>,
+		flow: OpenFlow & { tag?: string },
+		callbacks?: Callbacks
+	): Promise<string> {
+		return abstractRun(
+			() =>
+				JobService.runFlowPreview({
+					workspace: $workspaceStore!,
+					requestBody: {
+						args,
+						value: flow.value,
+						tag: flow.tag
+					}
 				}),
 			callbacks
 		)

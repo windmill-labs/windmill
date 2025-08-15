@@ -17,19 +17,23 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { validateToolName } from '../content/FlowAIAgent.svelte'
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined
 		title?: string | undefined
 		summary?: string | undefined
 		children?: import('svelte').Snippet
+		isAgentTool?: boolean
 	}
 
 	let {
 		flowModuleValue = undefined,
 		title = undefined,
 		summary = $bindable(undefined),
-		children
+		children,
+		isAgentTool = false
 	}: Props = $props()
 
 	let latestHash: string | undefined = $state(undefined)
@@ -81,11 +85,11 @@
 					</div>
 					<MetadataGen
 						bind:content={summary}
-						promptConfigName="summary"
+						promptConfigName={isAgentTool ? 'agentToolFunctionName' : 'summary'}
 						code={flowModuleValue.content}
 						class="w-full"
 						elementProps={{
-							placeholder: 'Summary'
+							placeholder: isAgentTool ? 'Tool name' : 'Summary'
 						}}
 					/>
 				{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
@@ -139,7 +143,14 @@
 							>
 						</div>
 					{/if}
-					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+					<input
+						bind:value={summary}
+						placeholder={isAgentTool ? 'Tool name' : 'Summary'}
+						class={twMerge(
+							'w-full grow',
+							isAgentTool && !validateToolName(summary ?? '') && '!border-red-400'
+						)}
+					/>
 				{:else if flowModuleValue.type === 'flow'}
 					<Badge color="indigo" capitalize>flow</Badge>
 					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
