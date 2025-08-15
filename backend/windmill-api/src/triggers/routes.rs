@@ -21,6 +21,23 @@ use crate::{
     utils::check_scopes,
 };
 
+#[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
+use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
+#[cfg(feature = "http_trigger")]
+use crate::triggers::http::handler::HttpTriggerHandler;
+#[cfg(all(feature = "kafka", feature = "enterprise"))]
+use crate::triggers::kafka::handler_oss::KafkaTriggerHandler;
+#[cfg(feature = "mqtt_trigger")]
+use crate::triggers::mqtt::handler::MqttTriggerHandler;
+#[cfg(all(feature = "nats", feature = "enterprise"))]
+use crate::triggers::nats::handler_oss::NatsTriggerHandler;
+#[cfg(feature = "postgres_trigger")]
+use crate::triggers::postgres::handler::PostgresTriggerHandler;
+#[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
+use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
+#[cfg(feature = "websocket")]
+use crate::triggers::websocket::handler::WebsocketTriggerHandler;
+
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
@@ -41,24 +58,38 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     router
 }
 
-pub fn complete_trigger_routes<T: TriggerCrud + 'static>(handler: &T) -> Router {
-    let standard_routes = trigger_routes::<T>();
-
-    let additional_routes = handler.additional_routes();
-
-    standard_routes.merge(additional_routes)
-}
-
 async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(new_trigger): Json<CreateTrigger<T::NewTriggerConfig>>,
+    raw_body: String,
 ) -> Result<(StatusCode, String)> {
+    // Log the raw JSON payload
+    tracing::info!(
+        "Creating {} trigger with raw JSON payload: {}",
+        T::TRIGGER_TYPE,
+        raw_body
+    );
+
+    // Manually deserialize to get better error context
+    let new_trigger: CreateTrigger<T::NewTriggerConfig> =
+        serde_json::from_str(&raw_body).map_err(|e| {
+            tracing::error!(
+                "Failed to deserialize {} trigger JSON: {} - Raw payload: {}",
+                T::TRIGGER_TYPE,
+                e,
+                raw_body
+            );
+            error::Error::BadRequest(format!("Failed to deserialize JSON: {}", e))
+        })?;
     check_scopes(&authed, || {
-        format!("{}:write:{}", T::SCOPE_NAME, &new_trigger.base.path)
+        format!(
+            "{}:write:{}",
+            T::scope_domain_name(),
+            &new_trigger.base.path
+        )
     })?;
 
     if *CLOUD_HOSTED {
@@ -74,17 +105,19 @@ async fn create_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let new_path = new_trigger.base.path.clone();
+
     handler
-        .create_trigger(&mut *tx, &authed, &workspace_id, &new_trigger)
+        .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
         .await?;
 
     audit_log(
         &mut *tx,
         &authed,
-        &format!("{}.create", T::TABLE_NAME),
+        &format!("{}_triggers.create", T::TRIGGER_TYPE),
         ActionKind::Create,
         &workspace_id,
-        Some(new_trigger.base.path.as_str()),
+        Some(&new_path),
         None,
     )
     .await?;
@@ -94,19 +127,15 @@ async fn create_trigger<T: TriggerCrud>(
         &authed.username,
         &db,
         &workspace_id,
-        windmill_git_sync::DeployedObject::HttpTrigger { path: new_trigger.base.path.clone() },
-        Some(format!(
-            "{} '{}' created",
-            T::DEPLOYMENT_NAME,
-            new_trigger.base.path.clone()
-        )),
+        T::get_deployed_object(new_path.clone()),
+        Some(format!("{} '{}' created", T::DEPLOYMENT_NAME, new_path)),
         true,
     )
     .await?;
 
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, new_trigger.base.path.to_string()))
+    Ok((StatusCode::CREATED, new_path))
 }
 
 async fn list_triggers<T: TriggerCrud>(
@@ -132,7 +161,9 @@ async fn get_trigger<T: TriggerCrud>(
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<T::Trigger> {
     let path = path.to_path();
-    check_scopes(&authed, || format!("{}:read:{}", T::SCOPE_NAME, &path))?;
+    check_scopes(&authed, || {
+        format!("{}:read:{}", T::scope_domain_name(), &path)
+    })?;
 
     let mut tx = user_db.begin(&authed).await?;
     let trigger = handler
@@ -154,7 +185,11 @@ async fn update_trigger<T: TriggerCrud>(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || {
-        format!("{}:write:{}", T::SCOPE_NAME, &edit_trigger.base.path)
+        format!(
+            "{}:write:{}",
+            T::scope_domain_name(),
+            &edit_trigger.base.path
+        )
     })?;
 
     handler
@@ -163,17 +198,18 @@ async fn update_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let new_path = edit_trigger.base.path.to_string();
     handler
-        .update_trigger(&mut *tx, &authed, &workspace_id, path, &edit_trigger)
+        .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
 
     audit_log(
         &mut *tx,
         &authed,
-        &format!("{}.update", T::TABLE_NAME),
+        &format!("{}_triggers.update", T::TRIGGER_TYPE),
         ActionKind::Update,
         &workspace_id,
-        Some(edit_trigger.base.path.as_str()),
+        Some(&new_path),
         None,
     )
     .await?;
@@ -183,12 +219,8 @@ async fn update_trigger<T: TriggerCrud>(
         &authed.username,
         &db,
         &workspace_id,
-        windmill_git_sync::DeployedObject::HttpTrigger { path: edit_trigger.base.path.clone() },
-        Some(format!(
-            "{} '{}' updated",
-            T::DEPLOYMENT_NAME,
-            edit_trigger.base.path.clone()
-        )),
+        T::get_deployed_object(new_path.clone()),
+        Some(format!("{} '{}' updated", T::DEPLOYMENT_NAME, new_path)),
         true,
     )
     .await?;
@@ -205,7 +237,9 @@ async fn delete_trigger<T: TriggerCrud>(
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
-    check_scopes(&authed, || format!("{}:write:{}", T::SCOPE_NAME, &path))?;
+    check_scopes(&authed, || {
+        format!("{}:write:{}", T::scope_domain_name(), &path)
+    })?;
 
     let mut tx = user_db.begin(&authed).await?;
     let deleted = handler
@@ -222,7 +256,7 @@ async fn delete_trigger<T: TriggerCrud>(
     audit_log(
         &mut *tx,
         &authed,
-        &format!("triggers.delete.{}:{}", T::TRIGGER_TYPE, path),
+        &format!("{}_triggers.delete", T::TRIGGER_TYPE),
         ActionKind::Delete,
         &workspace_id,
         Some(&path),
@@ -242,6 +276,9 @@ async fn exists_trigger<T: TriggerCrud>(
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    check_scopes(&authed, || {
+        format!("{}:read:{}", T::scope_domain_name(), path)
+    })?;
     let mut tx = user_db.begin(&authed).await?;
     let exists = handler.exists(&mut *tx, &workspace_id, path).await?;
     tx.commit().await?;
@@ -262,7 +299,7 @@ async fn set_enabled_trigger<T: TriggerCrud>(
     Json(payload): Json<SetEnabledPayload>,
 ) -> Result<String> {
     let path = path.to_path();
-    check_scopes(&authed, || format!("{}:write", T::SCOPE_NAME))?;
+    check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
 
     let mut tx = user_db.begin(&authed).await?;
     let updated = handler
@@ -299,7 +336,7 @@ async fn test_connection<T: TriggerCrud>(
 ) -> Result<()> {
     let connect_f = async move {
         handler
-            .test_connection(&db, &authed, &user_db, &workspace_id, &config)
+            .test_connection(&db, &authed, &user_db, &workspace_id, config)
             .await
     };
 
@@ -311,13 +348,82 @@ async fn test_connection<T: TriggerCrud>(
     Ok(())
 }
 
-#[macro_export]
-macro_rules! register_trigger_routes {
-    ($app:expr, $path:literal, $handler:expr) => {
-        $app.nest(
-            $path,
-            $crate::triggers::routes::complete_trigger_routes(&$handler)
-                .layer(Extension(Arc::new($handler))),
-        )
-    };
+pub fn complete_trigger_routes<T: TriggerCrud + 'static>(handler: T) -> Router {
+    let standard_routes = trigger_routes::<T>();
+
+    let additional_routes = handler.additional_routes();
+
+    standard_routes
+        .merge(additional_routes)
+        .layer(Extension(Arc::new(handler)))
+}
+
+pub fn generate_trigger_routers() -> Router {
+    let mut router = Router::new();
+
+    #[cfg(feature = "http_trigger")]
+    {
+        router = router.nest(
+            HttpTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(HttpTriggerHandler),
+        );
+    }
+
+    #[cfg(feature = "websocket")]
+    {
+        router = router.nest(
+            WebsocketTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(WebsocketTriggerHandler),
+        );
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    {
+        router = router.nest(
+            KafkaTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(KafkaTriggerHandler),
+        );
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    {
+        router = router.nest(
+            NatsTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(NatsTriggerHandler),
+        );
+    }
+
+    #[cfg(feature = "mqtt_trigger")]
+    {
+        router = router.nest(
+            MqttTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(MqttTriggerHandler),
+        );
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    {
+        router = router.nest(
+            SqsTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(SqsTriggerHandler),
+        );
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    {
+        router = router.nest(
+            GcpTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(GcpTriggerHandler),
+        );
+    }
+
+    #[cfg(feature = "postgres_trigger")]
+    {
+        router = router.nest(
+            PostgresTriggerHandler::ROUTE_PREFIX,
+            complete_trigger_routes(PostgresTriggerHandler),
+        );
+    }
+
+    router
 }

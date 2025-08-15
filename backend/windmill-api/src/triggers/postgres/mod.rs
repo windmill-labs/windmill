@@ -1,10 +1,3 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    postgres_triggers::trigger::Relations,
-    resources::try_get_resource_from_db_as,
-    trigger_helpers::{trigger_runnable, TriggerJobArgs},
-    users::fetch_api_authed,
-};
 use chrono::Utc;
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
@@ -13,26 +6,252 @@ use rand::Rng;
 use rust_postgres::{config::SslMode, Client, Config, NoTls};
 use rust_postgres_native_tls::MakeTlsConnector;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::value::RawValue;
-use std::collections::HashMap;
-
-use trigger::Postgres;
+use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
+    utils::empty_as_none,
 };
-mod bool;
-mod converter;
-mod hex;
-mod relation;
-mod replication_message;
-mod trigger;
 
-pub use trigger::{start_database, PostgresTrigger};
+use crate::{
+    db::{ApiAuthed, DB},
+    resources::try_get_resource_from_db_as,
+};
 
-const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associated with this trigger no longer exists. Recreate a new replication slot or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PostgresConfig {
+    pub postgres_resource_path: String,
+    pub replication_slot_name: String,
+    pub publication_name: String,
+}
 
-const ERROR_PUBLICATION_NAME_NOT_EXISTS: &str = r#"The publication associated with this trigger no longer exists. Recreate a new publication or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewPostgresConfig {
+    postgres_resource_path: String,
+    replication_slot_name: Option<String>,
+    publication_name: Option<String>,
+    publication: Option<PublicationData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditPostgresConfig {
+    pub postgres_resource_path: String,
+    pub replication_slot_name: String,
+    pub publication_name: String,
+    pub publication: Option<PublicationData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestPostgresConfig {
+    pub postgres_resource_path: String,
+}
+
+fn check_if_valid_relation<'de, D>(
+    relations: D,
+) -> std::result::Result<Option<Vec<Relations>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
+    let mut track_all_table_in_schema = false;
+    let mut track_specific_columns_in_table = false;
+    match relations {
+        Some(relations) => {
+            for relation in relations.iter() {
+                if relation.schema_name.is_empty() {
+                    return Err(serde::de::Error::custom(
+                        "Schema Name must not be empty".to_string(),
+                    ));
+                }
+
+                if !track_all_table_in_schema && relation.table_to_track.is_empty() {
+                    track_all_table_in_schema = true;
+                    continue;
+                }
+
+                for table_to_track in relation.table_to_track.iter() {
+                    if table_to_track.table_name.trim().is_empty() {
+                        return Err(serde::de::Error::custom(
+                            "Table name must not be empty".to_string(),
+                        ));
+                    }
+
+                    if !track_specific_columns_in_table && table_to_track.columns_name.is_some() {
+                        track_specific_columns_in_table = true;
+                    }
+                }
+
+                if track_all_table_in_schema && track_specific_columns_in_table {
+                    return Err(serde::de::Error::custom("Incompatible tracking options. Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations."));
+                }
+            }
+
+            if !relations
+                .iter()
+                .map(|relation| relation.schema_name.as_str())
+                .all_unique()
+            {
+                return Err(serde::de::Error::custom(
+                    "You cannot choose a schema more than one time".to_string(),
+                ));
+            }
+
+            Ok(Some(relations))
+        }
+        None => Ok(None),
+    }
+}
+
+fn check_if_valid_transaction_type<'de, D>(
+    transaction_type: D,
+) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
+    if transaction_type.len() > 3 {
+        return Err(serde::de::Error::custom(
+            "More than 3 transaction type which is not authorized, you are only allowed to those 3 transaction types: Insert, Update and Delete"
+                .to_string(),
+        ));
+    }
+    transaction_type.sort_unstable();
+    transaction_type.dedup();
+
+    for transaction in transaction_type.iter() {
+        match transaction.to_lowercase().as_ref() {
+            "insert" => {},
+            "update" => {},
+            "delete" => {},
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "Only the following transaction types are allowed: Insert, Update and Delete (case insensitive)"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
+    Ok(transaction_type)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PublicationData {
+    #[serde(default, deserialize_with = "check_if_valid_relation")]
+    pub table_to_track: Option<Vec<Relations>>,
+    #[serde(deserialize_with = "check_if_valid_transaction_type")]
+    pub transaction_to_track: Vec<String>,
+}
+
+impl PublicationData {
+    pub fn new(
+        table_to_track: Option<Vec<Relations>>,
+        transaction_to_track: Vec<String>,
+    ) -> PublicationData {
+        PublicationData { table_to_track, transaction_to_track }
+    }
+}
+
+// Slot list struct
+#[derive(FromRow, Debug, Serialize)]
+pub struct SlotList {
+    pub slot_name: Option<String>,
+    pub active: Option<bool>,
+}
+
+// Slot struct
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Slot {
+    pub name: String,
+}
+
+// Template script struct
+#[derive(Debug, Deserialize)]
+pub struct TemplateScript {
+    pub postgres_resource_path: String,
+    #[serde(deserialize_with = "check_if_valid_relation")]
+    pub relations: Option<Vec<Relations>>,
+    pub language: Language,
+}
+
+// Language enum
+#[derive(Deserialize, Debug)]
+pub enum Language {
+    #[serde(rename = "typescript", alias = "Typescript")]
+    Typescript,
+}
+
+// Test postgres struct
+#[derive(Serialize, Deserialize)]
+pub struct TestPostgres {
+    pub postgres_resource_path: String,
+}
+
+// PostgreSQL publication replication struct
+#[derive(Serialize, Deserialize)]
+pub struct PostgresPublicationReplication {
+    pub publication_name: String,
+    pub replication_slot_name: String,
+}
+
+impl PostgresPublicationReplication {
+    pub fn new(
+        publication_name: String,
+        replication_slot_name: String,
+    ) -> PostgresPublicationReplication {
+        PostgresPublicationReplication { publication_name, replication_slot_name }
+    }
+}
+
+pub const ERROR_PUBLICATION_NAME_NOT_EXISTS: &str = r#"The publication associated with this trigger no longer exists. Recreate a new publication or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
+
+#[derive(FromRow, Serialize, Deserialize, Debug)]
+pub struct Postgres {
+    pub user: String,
+    pub password: String,
+    pub host: String,
+    pub port: Option<u16>,
+    pub dbname: String,
+    #[serde(default)]
+    pub sslmode: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub root_certificate_pem: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct TableToTrack {
+    pub table_name: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub where_clause: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub columns_name: Option<Vec<String>>,
+}
+
+impl TableToTrack {
+    pub fn new(
+        table_name: String,
+        where_clause: Option<String>,
+        columns_name: Option<Vec<String>>,
+    ) -> TableToTrack {
+        TableToTrack { table_name, where_clause, columns_name }
+    }
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Relations {
+    pub schema_name: String,
+    pub table_to_track: Vec<TableToTrack>,
+}
+
+impl Relations {
+    pub fn new(schema_name: String, table_to_track: Vec<TableToTrack>) -> Relations {
+        Relations { schema_name, table_to_track }
+    }
+
+    pub fn add_new_table(&mut self, table_to_track: TableToTrack) {
+        self.table_to_track.push(table_to_track);
+    }
+}
 
 fn build_tls_connector(
     ssl_mode: SslMode,
@@ -170,93 +389,12 @@ pub async fn create_logical_replication_slot(tx: &Client, slot_name: &str) -> Re
     Ok(())
 }
 
-pub async fn get_postgres_version_internal(pg_connection: &Client) -> Result<String> {
-    let row = pg_connection
-        .query_one("SHOW server_version;", &[])
-        .await
-        .map_err(to_anyhow)?;
-
-    let postgres_version: String = row.get(0);
-
-    Ok(postgres_version)
-}
-
-pub async fn drop_publication(pg_connection: &Client, publication_name: &str) -> Result<()> {
-    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
-    let quoted_publication_name = quote_identifier(publication_name);
-    query.push_str(&quoted_publication_name);
-
-    pg_connection
-        .execute(&query, &[])
-        .await
-        .map_err(to_anyhow)?;
-
-    Ok(())
-}
-
-pub fn generate_random_string() -> String {
-    let timestamp = Utc::now().timestamp_millis().to_string();
-    let mut rng = rand::rng();
-    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-    let random_part = (0..10)
-        .map(|_| {
-            charset
-                .chars()
-                .nth(rng.random_range(0..charset.len()))
-                .unwrap()
-        })
-        .collect::<String>();
-
-    format!("{}_{}", timestamp, random_part)
-}
-
-async fn run_job(
-    payload: HashMap<String, Box<RawValue>>,
-    db: &DB,
-    trigger: &PostgresTrigger,
-) -> anyhow::Result<()> {
-    let args = PostgresTrigger::build_job_args(
-        &trigger.script_path,
-        trigger.is_flow,
-        &trigger.workspace_id,
-        db,
-        payload,
-        HashMap::new(),
-    )
-    .await?;
-
-    let authed = fetch_api_authed(
-        trigger.edited_by.clone(),
-        trigger.email.clone(),
-        &trigger.workspace_id,
-        db,
-        Some(format!("postgres-{}", trigger.path)),
-    )
-    .await?;
-
-    trigger_runnable(
-        db,
-        None,
-        authed,
-        &trigger.workspace_id,
-        &trigger.script_path,
-        trigger.is_flow,
-        args,
-        trigger.retry.as_ref(),
-        trigger.error_handler_path.as_deref(),
-        trigger.error_handler_args.as_ref(),
-        format!("postgres_trigger/{}", trigger.path),
-    )
-    .await?;
-
-    Ok(())
-}
-
 pub async fn check_if_valid_publication_for_postgres_version(
     pg_connection: &Client,
     table_to_track: Option<&[Relations]>,
 ) -> Result<bool> {
+    use crate::triggers::postgres::handler::get_postgres_version_internal;
+
     let postgres_version = get_postgres_version_internal(pg_connection).await?;
 
     let pg_14 = postgres_version.starts_with("14");
@@ -364,99 +502,35 @@ pub async fn create_pg_publication(
     Ok(())
 }
 
-fn check_if_valid_transaction_type<'de, D>(
-    transaction_type: D,
-) -> std::result::Result<Vec<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
-    if transaction_type.len() > 3 {
-        return Err(serde::de::Error::custom(
-            "More than 3 transaction type which is not authorized, you are only allowed to those 3 transaction types: Insert, Update and Delete"
-                .to_string(),
-        ));
-    }
-    transaction_type.sort_unstable();
-    transaction_type.dedup();
+pub async fn drop_publication(pg_connection: &Client, publication_name: &str) -> Result<()> {
+    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
+    let quoted_publication_name = quote_identifier(publication_name);
+    query.push_str(&quoted_publication_name);
 
-    for transaction in transaction_type.iter() {
-        match transaction.to_lowercase().as_ref() {
-            "insert" => {},
-            "update" => {},
-            "delete" => {},
-            _ => {
-                return Err(serde::de::Error::custom(
-                    "Only the following transaction types are allowed: Insert, Update and Delete (case insensitive)"
-                        .to_string(),
-                ))
-            }
-        }
-    }
+    pg_connection
+        .execute(&query, &[])
+        .await
+        .map_err(to_anyhow)?;
 
-    Ok(transaction_type)
+    Ok(())
 }
 
-fn check_if_valid_relation<'de, D>(
-    relations: D,
-) -> std::result::Result<Option<Vec<Relations>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
-    let mut track_all_table_in_schema = false;
-    let mut track_specific_columns_in_table = false;
-    match relations {
-        Some(relations) => {
-            for relation in relations.iter() {
-                if relation.schema_name.is_empty() {
-                    return Err(serde::de::Error::custom(
-                        "Schema Name must not be empty".to_string(),
-                    ));
-                }
+pub fn generate_random_string() -> String {
+    let timestamp = Utc::now().timestamp_millis().to_string();
+    let mut rng = rand::rng();
+    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-                if !track_all_table_in_schema && relation.table_to_track.is_empty() {
-                    track_all_table_in_schema = true;
-                    continue;
-                }
+    let random_part = (0..10)
+        .map(|_| {
+            charset
+                .chars()
+                .nth(rng.random_range(0..charset.len()))
+                .unwrap()
+        })
+        .collect::<String>();
 
-                for table_to_track in relation.table_to_track.iter() {
-                    if table_to_track.table_name.trim().is_empty() {
-                        return Err(serde::de::Error::custom(
-                            "Table name must not be empty".to_string(),
-                        ));
-                    }
-
-                    if !track_specific_columns_in_table && table_to_track.columns_name.is_some() {
-                        track_specific_columns_in_table = true;
-                    }
-                }
-
-                if track_all_table_in_schema && track_specific_columns_in_table {
-                    return Err(serde::de::Error::custom("Incompatible tracking options. Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations."));
-                }
-            }
-
-            if !relations
-                .iter()
-                .map(|relation| relation.schema_name.as_str())
-                .all_unique()
-            {
-                return Err(serde::de::Error::custom(
-                    "You cannot choose a schema more than one time".to_string(),
-                ));
-            }
-
-            Ok(Some(relations))
-        }
-        None => Ok(None),
-    }
+    format!("{}_{}", timestamp, random_part)
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct PublicationData {
-    #[serde(default, deserialize_with = "check_if_valid_relation")]
-    pub table_to_track: Option<Vec<Relations>>,
-    #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    pub transaction_to_track: Vec<String>,
-}
+pub mod handler;
+mod mapper;

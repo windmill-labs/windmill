@@ -1,64 +1,32 @@
+use std::borrow::Cow;
+
 use crate::{
     db::{ApiAuthed, DB},
     triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
 };
-use axum::{async_trait, routing::Router};
+use axum::async_trait;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json as SqlxJson, FromRow, PgExecutor};
+use sqlx::{types::Json as SqlxJson, PgConnection};
 use tokio_tungstenite::connect_async;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     jobs::JobTriggerKind,
 };
+use windmill_git_sync::DeployedObject;
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct WebsocketConfig {
-    pub url: String,
-    pub filters: Vec<SqlxJson<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
-    pub can_return_message: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewWebsocketConfig {
-    pub url: String,
-    pub filters: Vec<Box<RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_messages: Option<Vec<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_runnable_args: Option<Box<RawValue>>,
-    #[serde(default)]
-    pub can_return_message: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditWebsocketConfig {
-    pub url: String,
-    pub filters: Vec<Box<RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_messages: Option<Vec<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_runnable_args: Option<Box<RawValue>>,
-    pub can_return_message: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestWebsocketConfig {
-    pub url: String,
-}
+use super::{
+    get_url_from_runnable_value, EditWebsocketConfig, NewWebsocketConfig, TestWebsocketConfig,
+    WebsocketConfig,
+};
 
 pub struct WebsocketTriggerHandler;
 
 #[async_trait]
 impl TriggerCrud for WebsocketTriggerHandler {
-    type Trigger = Trigger<WebsocketConfig>;
     type TriggerConfig = WebsocketConfig;
+    type Trigger = Trigger<Self::TriggerConfig>;
     type EditTriggerConfig = EditWebsocketConfig;
     type NewTriggerConfig = NewWebsocketConfig;
     type TestConnectionConfig = TestWebsocketConfig;
@@ -71,6 +39,10 @@ impl TriggerCrud for WebsocketTriggerHandler {
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
     const DEPLOYMENT_NAME: &'static str = "WebSocket trigger";
+
+    fn get_deployed_object(path: String) -> DeployedObject {
+        DeployedObject::WebsocketTrigger { path }
+    }
 
     fn additional_select_fields(&self) -> Vec<&'static str> {
         vec![
@@ -89,11 +61,18 @@ impl TriggerCrud for WebsocketTriggerHandler {
             ));
         }
 
-        // Basic URL validation
         if !new.url.starts_with("ws://") && !new.url.starts_with("wss://") {
             return Err(Error::BadRequest(
                 "WebSocket URL must start with ws:// or wss://".to_string(),
             ));
+        }
+
+        if let Some(args) = &new.url_runnable_args {
+            if !args.is_object() {
+                return Err(Error::BadRequest(
+                    "url_runnable_args must be an object".to_string(),
+                ));
+            }
         }
 
         Ok(())
@@ -111,35 +90,43 @@ impl TriggerCrud for WebsocketTriggerHandler {
             ));
         }
 
-        // Basic URL validation
         if !edit.url.starts_with("ws://") && !edit.url.starts_with("wss://") {
             return Err(Error::BadRequest(
                 "WebSocket URL must start with ws:// or wss://".to_string(),
             ));
         }
 
+        if let Some(args) = &edit.url_runnable_args {
+            if !args.is_object() {
+                return Err(Error::BadRequest(
+                    "url_runnable_args must be an object".to_string(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
-    async fn create_trigger<'e, E: PgExecutor<'e>>(
+    async fn create_trigger(
         &self,
-        executor: E,
+        _db: &DB,
+        tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
-        trigger: &CreateTrigger<Self::NewTriggerConfig>,
+        trigger: CreateTrigger<Self::NewTriggerConfig>,
     ) -> Result<()> {
         let filters = trigger
             .config
             .filters
             .into_iter()
-            .map(SqlxJson)
+            .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
             .collect_vec();
         let initial_messages = trigger
             .config
             .initial_messages
             .unwrap_or_default()
             .into_iter()
-            .map(SqlxJson)
+            .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
             .collect_vec();
         sqlx::query!(
             r#"
@@ -166,13 +153,16 @@ impl TriggerCrud for WebsocketTriggerHandler {
             "#,
             w_id,
             trigger.base.path,
-            trigger.base.url,
+            trigger.config.url,
             trigger.base.script_path,
             trigger.base.is_flow,
             trigger.base.enabled.unwrap_or(true),
             &filters as _,
             &initial_messages as _,
-            trigger.config.url_runnable_args.map(SqlxJson) as _,
+            trigger
+                .config
+                .url_runnable_args
+                .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap())) as _,
             authed.username,
             trigger.config.can_return_message,
             authed.email,
@@ -180,31 +170,32 @@ impl TriggerCrud for WebsocketTriggerHandler {
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
         )
-        .execute(executor)
+        .execute(&mut *tx)
         .await?;
         Ok(())
     }
 
-    async fn update_trigger<'e, E: PgExecutor<'e>>(
+    async fn update_trigger(
         &self,
-        executor: E,
+        _db: &DB,
+        tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         path: &str,
-        trigger: &EditTrigger<Self::EditTriggerConfig>,
+        trigger: EditTrigger<Self::EditTriggerConfig>,
     ) -> Result<()> {
         let filters = trigger
             .config
             .filters
             .into_iter()
-            .map(SqlxJson)
+            .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
             .collect_vec();
         let initial_messages = trigger
             .config
             .initial_messages
             .unwrap_or_default()
             .into_iter()
-            .map(SqlxJson)
+            .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
             .collect_vec();
 
         // important to update server_id to NULL to stop current websocket listener
@@ -238,7 +229,11 @@ impl TriggerCrud for WebsocketTriggerHandler {
             trigger.base.is_flow,
             filters.as_slice() as &[SqlxJson<Box<RawValue>>],
             initial_messages.as_slice() as &[SqlxJson<Box<RawValue>>],
-            trigger.config.url_runnable_args.map(SqlxJson) as Option<SqlxJson<Box<RawValue>>>,
+            trigger
+                .config
+                .url_runnable_args
+                .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
+                as Option<SqlxJson<Box<RawValue>>>,
             &authed.username,
             &authed.email,
             trigger.config.can_return_message,
@@ -248,7 +243,7 @@ impl TriggerCrud for WebsocketTriggerHandler {
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
         )
-        .execute(executor)
+        .execute(&mut *tx)
         .await?;
 
         Ok(())
@@ -256,47 +251,45 @@ impl TriggerCrud for WebsocketTriggerHandler {
 
     async fn test_connection(
         &self,
-        _db: &DB,
-        _authed: &ApiAuthed,
+        db: &DB,
+        authed: &ApiAuthed,
         _user_db: &UserDB,
-        _workspace_id: &str,
-        config: &Self::TestConnectionConfig,
-    ) -> Result<serde_json::Value> {
-        // Test WebSocket connection
-        let connect_result = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            connect_async(&config.url),
-        )
-        .await;
+        workspace_id: &str,
+        config: Self::TestConnectionConfig,
+    ) -> Result<()> {
+        let url = &config.url;
 
-        match connect_result {
-            Ok(Ok((ws_stream, response))) => {
-                // Connection successful, close it immediately
-                drop(ws_stream);
-                Ok(serde_json::json!({
-                    "success": true,
-                    "message": "Successfully connected to WebSocket",
-                    "status": response.status().as_u16(),
-                    "headers": response.headers().len()
-                }))
+        let connect_url: Cow<str> = if url.starts_with("$") {
+            if url.starts_with("$flow:") || url.starts_with("$script:") {
+                let path = url.splitn(2, ':').nth(1).unwrap();
+                Cow::Owned(
+                    get_url_from_runnable_value(
+                        path,
+                        url.starts_with("$flow:"),
+                        &db,
+                        authed.clone(),
+                        config.url_runnable_args.as_ref(),
+                        &workspace_id,
+                    )
+                    .await?,
+                )
+            } else {
+                return Err(Error::BadConfig(format!(
+                    "Invalid WebSocket runnable path: {}",
+                    url
+                )));
             }
-            Ok(Err(e)) => Err(Error::BadConfig(format!(
-                "Failed to connect to WebSocket: {}",
-                e
-            ))),
-            Err(_) => Err(Error::BadConfig(
-                "WebSocket connection timeout after 10 seconds".to_string(),
-            )),
-        }
-    }
+        } else {
+            Cow::Borrowed(&url)
+        };
 
-    fn additional_routes(&self) -> Router {
-        // WebSocket triggers don't need additional routes
-        Router::new()
-    }
-}
+        connect_async(connect_url.as_ref()).await.map_err(|err| {
+            Error::BadConfig(format!(
+                "Error connecting to WebSocket: {}",
+                err.to_string()
+            ))
+        })?;
 
-// Helper function to create the handler instance
-pub fn create_websocket_trigger_handler() -> WebsocketTriggerHandler {
-    WebsocketTriggerHandler
+        Ok(())
+    }
 }
