@@ -1,6 +1,6 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
+import { capitalize, emptySchema, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
@@ -16,6 +16,7 @@ import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$l
 import { createSearchHubScriptsTool, type Tool, executeTestRun } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
+import { inferArgs } from '$lib/infer'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -838,6 +839,7 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 	function: {
 		name: 'test_run_script',
 		description: 'Execute a test run of the current script in the editor',
+		// will be overridden by setSchema
 		parameters: {
 			type: 'object',
 			properties: {
@@ -884,7 +886,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 				requestBody: {
 					path: scriptOptions.path,
 					content: codeToTest,
-					args: args.args || scriptOptions.args || {},
+					args,
 					language: scriptOptions.lang as ScriptLang,
 					tag: undefined,
 					lock: undefined,
@@ -897,6 +899,35 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			startMessage: 'Running test...',
 			contextName: 'script'
 		})
+	},
+	setSchema: async function(helpers: ScriptChatHelpers) {
+		try {
+			const scriptOptions = helpers.getScriptOptions()
+			const code = scriptOptions?.code
+			const lang = scriptOptions?.lang
+			const lastSuggestedCode = helpers.getLastSuggestedCode()
+
+			const codeToTest = lastSuggestedCode ?? code
+			if (codeToTest) {
+				const newSchema = emptySchema()
+				await inferArgs(lang, codeToTest, newSchema)
+				this.def.function.parameters = { ...newSchema, additionalProperties: false }
+				// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+				const model = get(copilotSessionModel)?.provider
+				if (model === 'openai' || model === 'azure_openai') {
+					this.def.function.strict = false
+				}
+			}
+		} catch (e) {
+			console.error('Error setting schema for test_run_script tool', e)
+			// fallback to schema with any properties
+			this.def.function.parameters = {
+				type: 'object',
+				properties: {},
+				additionalProperties: true,
+				strict: false
+			}
+		}
 	},
 	requiresConfirmation: true,
 	showDetails: true,

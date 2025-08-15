@@ -14,6 +14,8 @@ import {
 } from '../script/core'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { copilotSessionModel } from '$lib/stores'
+import { get } from 'svelte/store'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
 
@@ -337,8 +339,10 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+// Will be overridden by setSchema
 const testRunFlowSchema = z.object({
-	args: z.record(z.any()).optional().describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+	args: z.object({}).nullable().optional()
+	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -539,7 +543,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: testRunFlowToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
-			
+
 			if (!flow || !flow.value) {
 				toolCallbacks.setToolStatus(toolId, { 
 					content: 'No flow available to test',
@@ -548,16 +552,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
 			}
 
-			const parsedArgs = testRunFlowSchema.parse(args)
-			const flowArgs = parsedArgs.args || {}
-
 			return executeTestRun({
 				jobStarter: () => JobService.runFlowPreview({
 					workspace: workspace,
 					requestBody: {
-						args: flowArgs,
+						args: args,
 						value: flow.value,
-						tag: flow.tag
 					}
 				}),
 				workspace,
@@ -566,6 +566,28 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				startMessage: 'Starting flow test run...',
 				contextName: 'flow'
 			})
+		},
+		setSchema: async function(helpers: FlowAIChatHelpers) {
+			try {
+				if (this.def?.function?.parameters) {
+					const flowInputsSchema = await helpers.getFlowInputsSchema()
+					this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
+					// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+					const model = get(copilotSessionModel)?.provider
+					if (model === 'openai' || model === 'azure_openai') {
+						this.def.function.strict = false
+					}
+				}
+			} catch (e) {
+				console.error('Error setting schema for test_run_flow tool', e)
+				// fallback to schema with any properties
+				this.def.function.parameters = {
+					type: 'object',
+					properties: {},
+					additionalProperties: true,
+					strict: false
+				}
+			}
 		},
 		requiresConfirmation: true,
 		showDetails: true

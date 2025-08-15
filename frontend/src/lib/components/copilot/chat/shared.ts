@@ -171,6 +171,7 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
 	showDetails?: boolean
 }
