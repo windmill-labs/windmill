@@ -8,7 +8,8 @@
 		type FlowStatus,
 		type FlowModuleValue,
 		type FlowModule,
-		ResourceService
+		ResourceService,
+		type CompletedJob
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -101,7 +102,7 @@
 		loadExtraLogs?: (logs: string) => void
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
-		onDone?: ({ job }: { job: Job }) => void
+		onDone?: ({ job }: { job: CompletedJob }) => void
 	}
 
 	let {

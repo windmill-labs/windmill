@@ -5,7 +5,7 @@
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import type { Job } from '$lib/gen'
+	import type { CompletedJob, Job } from '$lib/gen'
 
 	interface Props {
 		jobId: string
@@ -32,7 +32,7 @@
 		}
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
-		onDone?: ({ job }: { job: Job }) => void
+		onDone?: ({ job }: { job: CompletedJob }) => void
 	}
 
 	let {

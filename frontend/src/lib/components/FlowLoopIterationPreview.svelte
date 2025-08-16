@@ -178,8 +178,8 @@
 				<FlowStatusViewer
 					bind:flowStateStore={flowStateStore.val}
 					{jobId}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
+					onJobsLoaded={({ job }) => {
+						job = job
 					}}
 					bind:selectedJobStep
 				/>
