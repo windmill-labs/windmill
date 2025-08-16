@@ -17,7 +17,7 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, readFieldsRecursively, sendUserToast } from '$lib/utils'
+	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -27,7 +27,7 @@
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -453,7 +453,7 @@
 		}
 	}
 
-	const flowStateStore = writable({} as FlowState)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
@@ -538,11 +538,11 @@
 					}
 
 					mod.value.input_transforms = input_transforms
-					if (!deepEqual(schema, $flowStateStore[mod.id]?.schema)) {
-						if (!$flowStateStore[mod.id]) {
-							$flowStateStore[mod.id] = { schema }
+					if (!deepEqual(schema, flowStateStore.val[mod.id]?.schema)) {
+						if (!flowStateStore.val[mod.id]) {
+							flowStateStore.val[mod.id] = { schema }
 						} else {
-							$flowStateStore[mod.id].schema = schema
+							flowStateStore.val[mod.id].schema = schema
 						}
 						reload++
 					}
@@ -586,20 +586,16 @@
 		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
 	})
 
-	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
-		flowPreviewContent?.getLocalModuleStates() ?? writable({})
-	)
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
 
-	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
-		flowPreviewContent?.getSuspendStatus() ?? writable({})
-	)
+	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
 	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
 	$effect(() => {
 		derivedModuleStates.update((currentStates) => {
-			return showJobStatus ? $localModuleStates : currentStates
+			return showJobStatus ? localModuleStates : currentStates
 		})
 	})
 	$effect(() => {
@@ -785,7 +781,7 @@
 						bind:this={flowPreviewButtons}
 						{onJobDone}
 						onRunPreview={() => {
-							localModuleStates.set({})
+							localModuleStates = {}
 							showJobStatus = true
 						}}
 					/>

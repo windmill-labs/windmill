@@ -26,7 +26,6 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
-	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
@@ -45,7 +44,7 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		branchOrIterationN?: number
 		scrollTop?: number
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
 		onRunPreview?: () => void
 		render?: boolean
@@ -69,7 +68,7 @@
 		rightColumnSelect = $bindable('timeline'),
 		branchOrIterationN = $bindable(0),
 		scrollTop = $bindable(0),
-		localModuleStates = $bindable(writable({})),
+		localModuleStates = $bindable({}),
 		localDurationStatuses = $bindable({}),
 		onRunPreview,
 		render = false,
@@ -83,7 +82,7 @@
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
-	let suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $state(writable({}))
+	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
 	let isOwner: boolean = $state(false)
 
 	export function test() {
@@ -574,7 +573,7 @@
 					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
-					{flowStateStore}
+					bind:flowStateStore={flowStateStore.val}
 					{jobId}
 					on:done={(x) => {
 						isRunning = false

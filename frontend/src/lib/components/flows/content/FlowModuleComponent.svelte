@@ -169,11 +169,11 @@
 				}
 			}
 			await tick()
-			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-				if (!$flowStateStore[flowModule.id]) {
-					$flowStateStore[flowModule.id] = { schema }
+			if (!deepEqual(schema, flowStateStore.val[flowModule.id]?.schema)) {
+				if (!flowStateStore.val[flowModule.id]) {
+					flowStateStore.val[flowModule.id] = { schema }
 				} else {
-					$flowStateStore[flowModule.id].schema = schema
+					flowStateStore.val[flowModule.id].schema = schema
 				}
 			}
 		} catch (e) {
@@ -195,7 +195,7 @@
 	let lastJobId: string | undefined = undefined
 
 	function onSelectedIdChange() {
-		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
 		lastJobId = undefined
@@ -203,31 +203,31 @@
 
 	async function getLastJob() {
 		if (
-			!$flowStateStore ||
+			!flowStateStore ||
 			!flowModule.id ||
-			$flowStateStore[flowModule.id]?.previewResult === 'never tested this far' ||
-			!$flowStateStore[flowModule.id]?.previewJobId ||
-			!$flowStateStore[flowModule.id]?.previewWorkspaceId
+			flowStateStore.val[flowModule.id]?.previewResult === 'never tested this far' ||
+			!flowStateStore.val[flowModule.id]?.previewJobId ||
+			!flowStateStore.val[flowModule.id]?.previewWorkspaceId
 		) {
 			return
 		}
 
 		if (
-			lastJobId == $flowStateStore[flowModule.id]?.previewJobId ||
-			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId ||
-			$flowStateStore[flowModule.id]?.previewSuccess == undefined
+			lastJobId == flowStateStore.val[flowModule.id]?.previewJobId ||
+			lastJob?.id == flowStateStore.val[flowModule.id]?.previewJobId ||
+			flowStateStore.val[flowModule.id]?.previewSuccess == undefined
 		) {
 			return
 		}
-		lastJobId = $flowStateStore[flowModule.id]?.previewJobId
+		lastJobId = flowStateStore.val[flowModule.id]?.previewJobId
 
 		const job = await JobService.getJob({
-			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
-			id: $flowStateStore[flowModule.id]?.previewJobId ?? '',
+			workspace: flowStateStore.val[flowModule.id]?.previewWorkspaceId ?? '',
+			id: flowStateStore.val[flowModule.id]?.previewJobId ?? '',
 			noCode: true
 		})
 		if (job && job.type === 'CompletedJob') {
-			lastJobId = $flowStateStore[flowModule.id]?.previewJobId
+			lastJobId = flowStateStore.val[flowModule.id]?.previewJobId
 			lastJob = job
 		}
 	}
@@ -251,9 +251,9 @@
 
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, flowStore.val, previewArgs.val)
+			? getFailureStepPropPicker(flowStateStore, flowStore.val, previewArgs.val)
 			: getStepPropPicker(
-					$flowStateStore,
+					flowStateStore,
 					parentModule,
 					previousModule,
 					flowModule.id,
@@ -269,7 +269,7 @@
 	$effect(() => {
 		if (testJob && testJob.type === 'CompletedJob') {
 			lastJob = $state.snapshot(testJob)
-		} else if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+		} else if ($workspaceStore && $pathStore && flowModule?.id && flowStateStore) {
 			untrack(() => getLastJob())
 		}
 	})
@@ -361,7 +361,7 @@
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
-						$flowStateStore[module.id] = state
+						flowStateStore.val[module.id] = state
 					}}
 					on:reload={async () => {
 						if (flowModule.value.type == 'script') {
@@ -380,14 +380,14 @@
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
 							$selectedId,
-							$flowStateStore[flowModule.id].schema,
+							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
 						if (flowModule.value.type == 'rawscript') {
 							module.value.input_transforms = flowModule.value.input_transforms
 						}
 						flowModule = module
-						$flowStateStore[module.id] = state
+						flowStateStore.val[module.id] = state
 					}}
 				/>
 			{/snippet}
@@ -539,7 +539,7 @@
 														class="px-1 xl:px-2"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={$flowStateStore[$selectedId]?.schema ?? {}}
+														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -567,7 +567,7 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={$flowStateStore[$selectedId]?.schema ?? {}}
+												schema={flowStateStore.val[$selectedId]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress

@@ -35,7 +35,7 @@
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
+		testSteps?.updateStepArgs(mod.id, flowStateStore, flowStore?.val, previewArgs?.val)
 		runTest(testSteps.getStepArgs(mod.id)?.value)
 	}
 
@@ -92,12 +92,14 @@
 
 	function jobDone(testJob: Job & { result?: any }) {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
-			if ($flowStateStore[mod.id]) {
-				$flowStateStore[mod.id].previewResult = testJob.result
-				$flowStateStore[mod.id].previewSuccess = testJob.success
-				$flowStateStore[mod.id].previewJobId = testJob.id
-				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
-				$flowStateStore = $flowStateStore
+			if (flowStateStore.val[mod.id]) {
+				flowStateStore.val[mod.id] = {
+					...flowStateStore.val[mod.id],
+					previewResult: testJob.result,
+					previewSuccess: testJob.success,
+					previewJobId: testJob.id,
+					previewWorkspaceId: testJob.workspace_id
+				}
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
 		}

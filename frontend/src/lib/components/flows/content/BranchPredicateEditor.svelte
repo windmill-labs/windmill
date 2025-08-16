@@ -25,7 +25,7 @@
 	let editor: SimpleEditor | undefined = undefined
 	let open = false
 	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
+		flowStateStore,
 		parentModule,
 		previousModule,
 		parentModule.id,

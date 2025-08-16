@@ -5,7 +5,6 @@ import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
-import type { Writable } from 'svelte/store'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
 export type InsertKind =
@@ -341,7 +340,7 @@ export function graphBuilder(
 		individualStepTests: boolean
 		flowJob: Job | undefined
 		showJobStatus: boolean
-		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},

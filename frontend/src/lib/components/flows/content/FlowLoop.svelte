@@ -55,7 +55,7 @@
 
 	let stepPropPicker = $derived(
 		getStepPropPicker(
-			$flowStateStore,
+			flowStateStore,
 			parentModule,
 			previousModule,
 			mod.id,
@@ -72,7 +72,7 @@
 	let iteratorFieldFocused = $state(false)
 	let iteratorGen: IteratorGen | undefined = $state(undefined)
 
-	let previewIterationArgs = $derived($flowStateStore[mod.id]?.previewArgs ?? {})
+	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
 
 	function setExpr(code: string) {
 		if (mod.value.type === 'forloopflow') {

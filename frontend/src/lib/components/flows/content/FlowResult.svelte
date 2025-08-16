@@ -2,14 +2,13 @@
 	import FlowPreviewResult from '$lib/components/FlowPreviewResult.svelte'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import type { Writable } from 'svelte/store'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface Props {
 		job?: Job
 		isOwner?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noEditor: boolean
 		onOpenDetails?: () => void
 	}

@@ -1,5 +1,4 @@
 import type { FlowStatusModule, Job } from '$lib/gen'
-import type { Writable } from 'svelte/store'
 import type { FlowState } from '../flows/flowState'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
@@ -30,9 +29,9 @@ export type DurationStatus = {
 }
 
 export type FlowStatusViewerContext = {
-	flowStateStore?: Writable<FlowState>
-	retryStatus: Writable<Record<string, number | undefined>>
-	suspendStatus: Writable<Record<string, { nb: number; job: Job }>>
+	flowStateStore?: FlowState
+	retryStatus: Record<string, number | undefined>
+	suspendStatus: Record<string, { nb: number; job: Job }>
 	hideDownloadInGraph?: boolean
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean

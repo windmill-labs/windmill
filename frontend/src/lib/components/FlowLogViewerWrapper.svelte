@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import { type Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import { untrack } from 'svelte'
@@ -9,7 +8,7 @@
 
 	interface Props {
 		job: Job
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		localModuleStates: Record<string, GraphModuleState>
 		workspaceId: string | undefined
 		render: boolean
 		onSelectedIteration: (
@@ -44,7 +43,7 @@
 	}
 
 	function getSelectedIteration(stepId: string): number {
-		return $localModuleStates[stepId]?.selectedForloopIndex ?? 0
+		return localModuleStates[stepId]?.selectedForloopIndex ?? 0
 	}
 
 	function toggleExpandAll() {

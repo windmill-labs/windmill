@@ -23,7 +23,7 @@
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
 		getStepPropPicker(
-			$flowStateStore,
+			flowStateStore,
 			parentModule,
 			previousModule,
 			flowModule.id,

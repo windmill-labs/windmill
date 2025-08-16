@@ -33,7 +33,7 @@
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
@@ -933,19 +933,15 @@
 		}
 	}
 
-	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
-		flowPreviewContent?.getLocalModuleStates() ?? writable({})
-	)
-	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
-		flowPreviewContent?.getSuspendStatus() ?? writable({})
-	)
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
+	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
 	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
 	$effect(() => {
 		derivedModuleStates.update((currentStates) => {
-			return showJobStatus ? $localModuleStates : currentStates
+			return showJobStatus ? localModuleStates : currentStates
 		})
 	})
 	$effect(() => {
@@ -1025,7 +1021,7 @@
 							for (const mod of restoredModules) {
 								if (mod) {
 									try {
-										loadFlowModuleState(mod).then((state) => ($flowStateStore[mod.id] = state))
+										loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
 									} catch (e) {
 										console.error('Error loading state for restored node', e)
 									}
@@ -1158,7 +1154,7 @@
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
-							localModuleStates.set({})
+							localModuleStates = {}
 							showJobStatus = true
 						}}
 					/>
@@ -1185,7 +1181,7 @@
 				</div>
 			</div>
 			<!-- metadata -->
-			{#if $flowStateStore}
+			{#if flowStateStore}
 				<FlowEditor
 					bind:this={flowEditor}
 					{disabledFlowInputs}

@@ -95,7 +95,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: Record<string, { job: Job; nb: number }>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -171,7 +171,7 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = writable({}),
+		suspendStatus = {},
 		flowHasChanged = false
 	}: Props = $props()
 

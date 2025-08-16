@@ -11,7 +11,7 @@ export const importFlowStore = writable<Flow | undefined>(undefined)
 export async function initFlow(
 	flow: Flow,
 	flowStore: StateStore<Flow>,
-	flowStateStore: Writable<FlowState>
+	flowStateStore: StateStore<FlowState>
 ) {
 	await initFlowState(flow, flowStateStore)
 	flowStore.val = flow

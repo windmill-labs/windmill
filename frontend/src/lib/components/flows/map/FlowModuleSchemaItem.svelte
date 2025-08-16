@@ -164,31 +164,35 @@
 		connectingData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? pickableIds[id]
-				: (flowStateStore?.[id]?.previewResult ?? {})
+				: (flowStateStore?.val?.[id]?.previewResult ?? {})
 	}
 	$effect(() => {
-		const args = [id, pickableIds, $flowPropPickerConfig, $flowStateStore] as const
+		const args = [id, pickableIds, $flowPropPickerConfig, flowStateStore] as const
 		untrack(() => updateConnectingData(...args))
 	})
 
 	function updateLastJob(flowStateStore: any | undefined) {
-		if (!flowStateStore || !id || flowStateStore[id]?.previewResult === 'never tested this far') {
+		if (
+			!flowStateStore ||
+			!id ||
+			flowStateStore.val[id]?.previewResult === 'never tested this far'
+		) {
 			return
 		}
 		lastJob = {
-			id: flowStateStore[id]?.previewJobId ?? '',
-			result: flowStateStore[id]?.previewResult,
+			id: flowStateStore.val[id]?.previewJobId ?? '',
+			result: flowStateStore.val[id]?.previewResult,
 			type: 'CompletedJob' as const,
-			workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
-			success: flowStateStore[id]?.previewSuccess ?? undefined
+			workspace_id: flowStateStore.val[id]?.previewWorkspaceId ?? '',
+			success: flowStateStore.val[id]?.previewSuccess ?? undefined
 		}
 	}
 
 	$effect(() => {
 		if (testJob && testJob.type === 'CompletedJob') {
 			lastJob = $state.snapshot(testJob)
-		} else if (flowStateStore && $flowStateStore) {
-			untrack(() => updateLastJob($flowStateStore))
+		} else if (flowStateStore && flowStateStore) {
+			untrack(() => updateLastJob(flowStateStore))
 		}
 	})
 
@@ -268,7 +272,7 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore?.[id]}
+	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { writable, type Writable } from 'svelte/store'
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 	import type { FlowState } from './flows/flowState'
 	import { createEventDispatcher, setContext, untrack } from 'svelte'
@@ -12,7 +11,7 @@
 		jobId: string
 		initialJob?: Job | undefined
 		workspaceId?: string | undefined
-		flowStateStore?: Writable<FlowState>
+		flowStateStore?: FlowState
 		selectedJobStep?: string | undefined
 		hideFlowResult?: boolean
 		hideTimeline?: boolean
@@ -23,7 +22,7 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		isOwner?: boolean
 		wideResults?: boolean
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
 		job?: Job | undefined
 		render?: boolean
@@ -37,7 +36,7 @@
 		jobId,
 		initialJob = undefined,
 		workspaceId = undefined,
-		flowStateStore = writable({}),
+		flowStateStore = $bindable({}),
 		selectedJobStep = $bindable(undefined),
 		hideFlowResult = false,
 		hideTimeline = false,
@@ -48,17 +47,17 @@
 		rightColumnSelect = $bindable('timeline'),
 		isOwner = $bindable(false),
 		wideResults = false,
-		localModuleStates = $bindable(writable({})),
+		localModuleStates = $bindable({}),
 		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
-		suspendStatus = $bindable(writable({})),
+		suspendStatus = $bindable({}),
 		customUi
 	}: Props = $props()
 
 	let lastJobId: string = jobId
 
-	let retryStatus = writable({})
+	let retryStatus = $state({})
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,
@@ -77,8 +76,8 @@
 	async function updateJobId() {
 		if (jobId !== lastJobId) {
 			lastJobId = jobId
-			$retryStatus = {}
-			$suspendStatus = {}
+			retryStatus = {}
+			suspendStatus = {}
 		}
 	}
 

@@ -49,7 +49,7 @@
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
 		job?: Job
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: Record<string, { job: Job; nb: number }>
 		showJobStatus?: boolean
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean

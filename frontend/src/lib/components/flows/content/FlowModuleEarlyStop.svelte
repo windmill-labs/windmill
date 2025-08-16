@@ -23,7 +23,7 @@
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
 		getStepPropPicker(
-			$flowStateStore,
+			flowStateStore,
 			undefined,
 			undefined,
 			flowModule.id,
@@ -55,7 +55,7 @@
 	let isBranchAll = $derived(flowModule.value.type === 'branchall')
 	let isStopAfterIfEnabled = $derived(Boolean(flowModule.stop_after_if))
 	let isStopAfterAllIterationsEnabled = $derived(Boolean(flowModule.stop_after_all_iters_if))
-	let result = $derived($flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 	let parentLoopId = $derived(checkIfParentLoop(flowStore.val))
 </script>
 
