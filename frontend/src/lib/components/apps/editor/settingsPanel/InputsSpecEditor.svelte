@@ -56,6 +56,7 @@
 		documentationLink?: string | undefined
 		markdownTooltip?: string | undefined
 		securedContext?: boolean
+		disabled?: boolean
 	}
 
 	let {
@@ -76,6 +77,7 @@
 		customTitle = undefined,
 		displayType = false,
 		allowTypeChange = true,
+		disabled = false,
 		shouldFormatExpression = false,
 		fixedOverflowWidgets = true,
 		loading = false,
@@ -274,6 +276,7 @@
 				{recomputeOnInputChanged}
 				{showOnDemandOnlyToggle}
 				{securedContext}
+				{disabled}
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />

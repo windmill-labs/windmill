@@ -90,7 +90,7 @@ pub async fn composer_install(
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, &*COMPOSER_PATH).await?;
+    let child_process = start_child_process(child_cmd, &*COMPOSER_PATH, false).await?;
 
     handle_child(
         job_id,
@@ -306,7 +306,7 @@ try {{
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let cmd = {
             let script_path = format!("{job_dir}/wrapper.php");
@@ -325,7 +325,7 @@ try {{
                 .stderr(Stdio::piped());
             php_cmd
         };
-        start_child_process(cmd, &*PHP_PATH).await?
+        start_child_process(cmd, &*PHP_PATH, false).await?
     };
 
     handle_child(

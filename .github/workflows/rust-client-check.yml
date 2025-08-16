@@ -1,0 +1,27 @@
+name: Rust Client Check
+on:
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
+  push:
+    paths:
+      - "rust-client/**"
+      - "backend/**/*.rs"
+      - "backend/windmill-api/openapi.yaml"
+      - "version.txt"
+      - "flake.nix"
+      - ".github/workflows/rust-client-check.yml"
+
+jobs:
+  check_rust_client:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v20
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Check rust client builds
+        run: cd rust-client && nix develop ../ --command ./dev.nu --check
+        timeout-minutes: 16

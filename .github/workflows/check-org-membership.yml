@@ -46,7 +46,13 @@ jobs:
             exit 0
           fi
 
-          # 2. Otherwise fall back to the org-membership check
+          # 2. Disallow other bots
+          if [[ "${COMMENTER}" =~ \[bot\]$ ]]; then
+            echo "is_member=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 3. Otherwise check if the user is a member of the organization
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $ORG_ACCESS_TOKEN" \
             -H "Accept: application/vnd.github+json" \

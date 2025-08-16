@@ -26,20 +26,24 @@
 	} = $props()
 
 	let iconComponent = $derived(
-		name === 'teams'
-			? APP_TO_ICON_COMPONENT.ms_teams_webhook
-			: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+		name
+			? name === 'teams'
+				? APP_TO_ICON_COMPONENT.ms_teams_webhook
+				: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+			: undefined
 	)
+
+	let widthInPixels = $derived(parseInt(width))
 </script>
 
-<div class="truncate flex flex-row gap-2 {center ? 'justify-center items-center' : ''}  -pl-2">
+<div class="truncate flex flex-row gap-2 items-center {center ? 'justify-center ' : ''} -pl-2">
 	{#if !silent && !after}
 		{name}
 	{/if}
 	{#if iconComponent}
 		{@const SvelteComponent = iconComponent}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
-			<SvelteComponent {height} {width} />
+			<SvelteComponent {height} {width} size={widthInPixels} />
 		</span>
 	{:else if formatExtension}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
