@@ -13,7 +13,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool, executeTestRun } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun, buildSchemaForTool } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import { inferArgs } from '$lib/infer'
@@ -888,9 +888,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 					content: codeToTest,
 					args,
 					language: scriptOptions.lang as ScriptLang,
-					tag: undefined,
-					lock: undefined,
-					script_hash: undefined
 				}
 			}),
 			workspace,
@@ -901,7 +898,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	setSchema: async function(helpers: ScriptChatHelpers) {
-		try {
+		await buildSchemaForTool(this.def, async () => {
 			const scriptOptions = helpers.getScriptOptions()
 			const code = scriptOptions?.code
 			const lang = scriptOptions?.lang
@@ -911,23 +908,10 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			if (codeToTest) {
 				const newSchema = emptySchema()
 				await inferArgs(lang, codeToTest, newSchema)
-				this.def.function.parameters = { ...newSchema, additionalProperties: false }
-				// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-				const model = get(copilotSessionModel)?.provider
-				if (model === 'openai' || model === 'azure_openai') {
-					this.def.function.strict = false
-				}
+				return newSchema
 			}
-		} catch (e) {
-			console.error('Error setting schema for test_run_script tool', e)
-			// fallback to schema with any properties
-			this.def.function.parameters = {
-				type: 'object',
-				properties: {},
-				additionalProperties: true,
-				strict: false
-			}
-		}
+			return emptySchema()
+		})
 	},
 	requiresConfirmation: true,
 	showDetails: true,
