@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+#[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
 

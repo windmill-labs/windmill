@@ -14,6 +14,7 @@ use windmill_common::{
 
 use crate::{db::ApiAuthed, ee_oss::interpolate, resources::try_get_resource_from_db_as};
 
+#[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
 

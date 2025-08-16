@@ -31,6 +31,7 @@ lazy_static::lazy_static! {
 
 use crate::{db::ApiAuthed, resources::try_get_resource_from_db_as};
 
+#[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
 

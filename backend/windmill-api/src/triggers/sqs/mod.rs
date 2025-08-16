@@ -20,6 +20,7 @@ use windmill_common::{
     DB,
 };
 
+#[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
 
