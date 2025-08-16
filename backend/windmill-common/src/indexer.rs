@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error, DB};
+use crate::{db::DB, error};
 
 pub const BYTES_PER_MB: u64 = 1_048_576;
 pub const BYTES_PER_KB: u64 = 1024;

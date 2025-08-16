@@ -22,26 +22,123 @@ use futures::{pin_mut, SinkExt, StreamExt};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, CopyBothDuplex, SimpleQueryMessage};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::Json as SqlxJson;
+use sqlx::{types::Json as SqlxJson, FromRow};
 
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow},
     triggers::TriggerKind,
-    utils::report_critical_error,
+    utils::{empty_as_none, report_critical_error},
     worker::to_raw_value,
     INSTANCE_NAME,
 };
 
 use super::{
     drop_publication, get_default_pg_connection, get_raw_postgres_connection,
-    handler::{drop_logical_replication_slot, Postgres, PostgresTrigger},
-    replication_message::PrimaryKeepAliveBody,
-    Error, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    replication_message::PrimaryKeepAliveBody, Error, ERROR_PUBLICATION_NAME_NOT_EXISTS,
+    ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 
+pub async fn drop_logical_replication_slot(
+    pg_connection: &Client,
+    slot_name: &str,
+) -> error::Result<()> {
+    let row = pg_connection
+        .query_opt(
+            r#"
+            SELECT 
+                active_pid 
+            FROM 
+                pg_replication_slots 
+            WHERE 
+                slot_name = $1
+            "#,
+            &[&slot_name],
+        )
+        .await
+        .map_err(to_anyhow)?;
+
+    let active_pid = row.map(|r| r.get::<_, Option<i32>>(0)).flatten();
+
+    if let Some(pid) = active_pid {
+        pg_connection
+            .execute("SELECT pg_terminate_backend($1)", &[&pid])
+            .await
+            .map_err(to_anyhow)?;
+    }
+
+    pg_connection
+        .execute("SELECT pg_drop_replication_slot($1)", &[&slot_name])
+        .await
+        .map_err(to_anyhow)?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct TableToTrack {
+    pub table_name: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub where_clause: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub columns_name: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Relations {
+    pub schema_name: String,
+    pub table_to_track: Vec<TableToTrack>,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum Language {
+    #[serde(rename = "typescript", alias = "Typescript")]
+    Typescript,
+}
+
+#[derive(FromRow, Serialize, Deserialize, Debug)]
+pub struct Postgres {
+    pub user: String,
+    pub password: String,
+    pub host: String,
+    pub port: Option<u16>,
+    pub dbname: String,
+    #[serde(default)]
+    pub sslmode: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub root_certificate_pem: Option<String>,
+}
+
+#[derive(FromRow, Deserialize, Serialize, Debug)]
+pub struct PostgresTrigger {
+    pub path: String,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub workspace_id: String,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_perms: Option<serde_json::Value>,
+    pub postgres_resource_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    pub replication_slot_name: String,
+    pub publication_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
+}
 pub struct LogicalReplicationSettings {
     pub streaming: bool,
 }

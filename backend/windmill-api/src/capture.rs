@@ -8,16 +8,16 @@
 
 #[cfg(feature = "http_trigger")]
 use {
-    crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs},
+    crate::triggers::http::{http_trigger_args::RawHttpTriggerArgs, HttpMethod},
     axum::response::{IntoResponse, Response},
     std::collections::HashMap,
 };
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use {
-    crate::gcp_triggers_oss::{
+    crate::triggers::gcp::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
-        CreateUpdateConfig, SubscriptionMode,
+        CreateUpdateConfig, GcpSubscriptionMode,
     },
     axum::extract::Request,
     http::HeaderMap,
@@ -168,7 +168,7 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    pub subscription_mode: SubscriptionMode,
+    pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -392,7 +392,7 @@ async fn set_gcp_trigger_config(
     )
     .await?;
     gcp_config.create_update = Some(config);
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
+    gcp_config.subscription_mode = GcpSubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)

@@ -33,7 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 #[cfg(feature = "enterprise")]
@@ -2242,42 +2242,6 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     );
     tx.commit().await?;
     Ok(())
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
-#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum JobTriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-    Schedule,
-    Gcp,
-}
-
-impl std::fmt::Display for JobTriggerKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = match self {
-            JobTriggerKind::Webhook => "webhook",
-            JobTriggerKind::Http => "http",
-            JobTriggerKind::Websocket => "websocket",
-            JobTriggerKind::Kafka => "kafka",
-            JobTriggerKind::Email => "email",
-            JobTriggerKind::Nats => "nats",
-            JobTriggerKind::Mqtt => "mqtt",
-            JobTriggerKind::Sqs => "sqs",
-            JobTriggerKind::Postgres => "postgres",
-            JobTriggerKind::Schedule => "schedule",
-            JobTriggerKind::Gcp => "gcp",
-        };
-        write!(f, "{}", kind)
-    }
 }
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]

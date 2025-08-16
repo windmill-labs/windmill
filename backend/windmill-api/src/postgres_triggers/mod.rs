@@ -1,5 +1,6 @@
 use crate::{
     db::{ApiAuthed, DB},
+    postgres_triggers::trigger::Relations,
     resources::try_get_resource_from_db_as,
     trigger_helpers::{trigger_runnable, TriggerJobArgs},
     users::fetch_api_authed,
@@ -11,38 +12,23 @@ use pg_escape::quote_identifier;
 use rand::Rng;
 use rust_postgres::{config::SslMode, Client, Config, NoTls};
 use rust_postgres_native_tls::MakeTlsConnector;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 
-use axum::{
-    routing::{delete, get, post},
-    Router,
-};
-pub use handler::PostgresTrigger;
-use handler::{
-    alter_publication, create_postgres_trigger, create_publication, create_slot,
-    create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
-    exists_postgres_trigger, get_postgres_trigger, get_postgres_version,
-    get_postgres_version_internal, get_publication_info, get_template_script,
-    is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Postgres,
-    Relations,
-};
+use trigger::Postgres;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
 };
 mod bool;
 mod converter;
-mod handler;
 mod hex;
-mod mapper;
 mod relation;
 mod replication_message;
 mod trigger;
 
-pub use handler::PublicationData;
-pub use trigger::start_database;
+pub use trigger::{start_database, PostgresTrigger};
 
 const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associated with this trigger no longer exists. Recreate a new replication slot or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
 
@@ -184,7 +170,90 @@ pub async fn create_logical_replication_slot(tx: &Client, slot_name: &str) -> Re
     Ok(())
 }
 
-async fn check_if_valid_publication_for_postgres_version(
+pub async fn get_postgres_version_internal(pg_connection: &Client) -> Result<String> {
+    let row = pg_connection
+        .query_one("SHOW server_version;", &[])
+        .await
+        .map_err(to_anyhow)?;
+
+    let postgres_version: String = row.get(0);
+
+    Ok(postgres_version)
+}
+
+pub async fn drop_publication(pg_connection: &Client, publication_name: &str) -> Result<()> {
+    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
+    let quoted_publication_name = quote_identifier(publication_name);
+    query.push_str(&quoted_publication_name);
+
+    pg_connection
+        .execute(&query, &[])
+        .await
+        .map_err(to_anyhow)?;
+
+    Ok(())
+}
+
+pub fn generate_random_string() -> String {
+    let timestamp = Utc::now().timestamp_millis().to_string();
+    let mut rng = rand::rng();
+    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+    let random_part = (0..10)
+        .map(|_| {
+            charset
+                .chars()
+                .nth(rng.random_range(0..charset.len()))
+                .unwrap()
+        })
+        .collect::<String>();
+
+    format!("{}_{}", timestamp, random_part)
+}
+
+async fn run_job(
+    payload: HashMap<String, Box<RawValue>>,
+    db: &DB,
+    trigger: &PostgresTrigger,
+) -> anyhow::Result<()> {
+    let args = PostgresTrigger::build_job_args(
+        &trigger.script_path,
+        trigger.is_flow,
+        &trigger.workspace_id,
+        db,
+        payload,
+        HashMap::new(),
+    )
+    .await?;
+
+    let authed = fetch_api_authed(
+        trigger.edited_by.clone(),
+        trigger.email.clone(),
+        &trigger.workspace_id,
+        db,
+        Some(format!("postgres-{}", trigger.path)),
+    )
+    .await?;
+
+    trigger_runnable(
+        db,
+        None,
+        authed,
+        &trigger.workspace_id,
+        &trigger.script_path,
+        trigger.is_flow,
+        args,
+        trigger.retry.as_ref(),
+        trigger.error_handler_path.as_deref(),
+        trigger.error_handler_args.as_ref(),
+        format!("postgres_trigger/{}", trigger.path),
+    )
+    .await?;
+
+    Ok(())
+}
+
+pub async fn check_if_valid_publication_for_postgres_version(
     pg_connection: &Client,
     table_to_track: Option<&[Relations]>,
 ) -> Result<bool> {
@@ -295,118 +364,99 @@ pub async fn create_pg_publication(
     Ok(())
 }
 
-pub async fn drop_publication(pg_connection: &Client, publication_name: &str) -> Result<()> {
-    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
-    let quoted_publication_name = quote_identifier(publication_name);
-    query.push_str(&quoted_publication_name);
+fn check_if_valid_transaction_type<'de, D>(
+    transaction_type: D,
+) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
+    if transaction_type.len() > 3 {
+        return Err(serde::de::Error::custom(
+            "More than 3 transaction type which is not authorized, you are only allowed to those 3 transaction types: Insert, Update and Delete"
+                .to_string(),
+        ));
+    }
+    transaction_type.sort_unstable();
+    transaction_type.dedup();
 
-    pg_connection
-        .execute(&query, &[])
-        .await
-        .map_err(to_anyhow)?;
+    for transaction in transaction_type.iter() {
+        match transaction.to_lowercase().as_ref() {
+            "insert" => {},
+            "update" => {},
+            "delete" => {},
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "Only the following transaction types are allowed: Insert, Update and Delete (case insensitive)"
+                        .to_string(),
+                ))
+            }
+        }
+    }
 
-    Ok(())
+    Ok(transaction_type)
 }
 
-pub fn generate_random_string() -> String {
-    let timestamp = Utc::now().timestamp_millis().to_string();
-    let mut rng = rand::rng();
-    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+fn check_if_valid_relation<'de, D>(
+    relations: D,
+) -> std::result::Result<Option<Vec<Relations>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
+    let mut track_all_table_in_schema = false;
+    let mut track_specific_columns_in_table = false;
+    match relations {
+        Some(relations) => {
+            for relation in relations.iter() {
+                if relation.schema_name.is_empty() {
+                    return Err(serde::de::Error::custom(
+                        "Schema Name must not be empty".to_string(),
+                    ));
+                }
 
-    let random_part = (0..10)
-        .map(|_| {
-            charset
-                .chars()
-                .nth(rng.random_range(0..charset.len()))
-                .unwrap()
-        })
-        .collect::<String>();
+                if !track_all_table_in_schema && relation.table_to_track.is_empty() {
+                    track_all_table_in_schema = true;
+                    continue;
+                }
 
-    format!("{}_{}", timestamp, random_part)
+                for table_to_track in relation.table_to_track.iter() {
+                    if table_to_track.table_name.trim().is_empty() {
+                        return Err(serde::de::Error::custom(
+                            "Table name must not be empty".to_string(),
+                        ));
+                    }
+
+                    if !track_specific_columns_in_table && table_to_track.columns_name.is_some() {
+                        track_specific_columns_in_table = true;
+                    }
+                }
+
+                if track_all_table_in_schema && track_specific_columns_in_table {
+                    return Err(serde::de::Error::custom("Incompatible tracking options. Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations."));
+                }
+            }
+
+            if !relations
+                .iter()
+                .map(|relation| relation.schema_name.as_str())
+                .all_unique()
+            {
+                return Err(serde::de::Error::custom(
+                    "You cannot choose a schema more than one time".to_string(),
+                ));
+            }
+
+            Ok(Some(relations))
+        }
+        None => Ok(None),
+    }
 }
 
-fn publication_service() -> Router {
-    Router::new()
-        .route("/get/:publication_name/*path", get(get_publication_info))
-        .route("/create/:publication_name/*path", post(create_publication))
-        .route("/update/:publication_name/*path", post(alter_publication))
-        .route(
-            "/delete/:publication_name/*path",
-            delete(delete_publication),
-        )
-        .route("/list/*path", get(list_database_publication))
-}
-
-fn slot_service() -> Router {
-    Router::new()
-        .route("/list/*path", get(list_slot_name))
-        .route("/create/*path", post(create_slot))
-        .route("/delete/*path", delete(drop_slot_name))
-}
-
-fn postgres_service() -> Router {
-    Router::new().route("/version/*path", get(get_postgres_version))
-}
-
-pub fn workspaced_service() -> Router {
-    Router::new()
-        .route("/test", post(test_postgres_connection))
-        .route("/create", post(create_postgres_trigger))
-        .route("/list", get(list_postgres_triggers))
-        .route("/get/*path", get(get_postgres_trigger))
-        .route("/update/*path", post(update_postgres_trigger))
-        .route("/delete/*path", delete(delete_postgres_trigger))
-        .route("/exists/*path", get(exists_postgres_trigger))
-        .route("/setenabled/*path", post(set_enabled))
-        .route("/get_template_script/:id", get(get_template_script))
-        .route("/create_template_script", post(create_template_script))
-        .route(
-            "/is_valid_postgres_configuration/*path",
-            get(is_database_in_logical_level),
-        )
-        .nest("/publication", publication_service())
-        .nest("/slot", slot_service())
-        .nest("/postgres", postgres_service())
-}
-
-async fn run_job(
-    payload: HashMap<String, Box<RawValue>>,
-    db: &DB,
-    trigger: &PostgresTrigger,
-) -> anyhow::Result<()> {
-    let args = PostgresTrigger::build_job_args(
-        &trigger.script_path,
-        trigger.is_flow,
-        &trigger.workspace_id,
-        db,
-        payload,
-        HashMap::new(),
-    )
-    .await?;
-
-    let authed = fetch_api_authed(
-        trigger.edited_by.clone(),
-        trigger.email.clone(),
-        &trigger.workspace_id,
-        db,
-        Some(format!("postgres-{}", trigger.path)),
-    )
-    .await?;
-
-    trigger_runnable(
-        db,
-        None,
-        authed,
-        &trigger.workspace_id,
-        &trigger.script_path,
-        trigger.is_flow,
-        args,
-        trigger.retry.as_ref(),
-        trigger.error_handler_path.as_deref(),
-        trigger.error_handler_args.as_ref(),
-        format!("postgres_trigger/{}", trigger.path),
-    )
-    .await?;
-
-    Ok(())
+#[derive(Deserialize, Serialize, Debug)]
+pub struct PublicationData {
+    #[serde(default, deserialize_with = "check_if_valid_relation")]
+    pub table_to_track: Option<Vec<Relations>>,
+    #[serde(deserialize_with = "check_if_valid_transaction_type")]
+    pub transaction_to_track: Vec<String>,
 }
