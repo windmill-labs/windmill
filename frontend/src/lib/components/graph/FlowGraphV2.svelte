@@ -54,6 +54,7 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -73,6 +74,7 @@
 		maxHeight?: number | undefined
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		testModuleStates?: ModulesTestStates
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -144,6 +146,7 @@
 		maxHeight = undefined,
 		notSelectable = false,
 		flowModuleStates = undefined,
+		testModuleStates = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -430,6 +433,7 @@
 				disableAi,
 				insertable,
 				flowModuleStates,
+				testModuleStates,
 				selectedId: $selectedId,
 				path,
 				newFlow,

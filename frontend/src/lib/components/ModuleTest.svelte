@@ -42,7 +42,6 @@
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
-
 		if (modulesTestStates.states[mod.id]) {
 			modulesTestStates.states[mod.id].cancel = async () => {
 				await jobLoader?.cancelJob()
@@ -102,7 +101,9 @@
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
 		}
-		modulesTestStates.states[mod.id].testJob = undefined
+		if (modulesTestStates.states[mod.id]) {
+			modulesTestStates.states[mod.id].testJob = testJob
+		}
 	}
 
 	export function cancelJob() {
@@ -111,16 +112,16 @@
 
 	$effect(() => {
 		// Update testIsLoading to read the state from parent components
-		testIsLoading = modulesTestStates.states[mod.id]?.loading ?? false
+		testIsLoading = modulesTestStates.states?.[mod.id]?.loading ?? false
 	})
 
 	$effect(() => {
 		// Update testJob to read the state from parent components
-		testJob = modulesTestStates.states[mod.id]?.testJob
+		testJob = modulesTestStates.states?.[mod.id]?.testJob
 	})
 
 	modulesTestStates.states[mod.id] = {
-		...(modulesTestStates.states[mod.id] ?? { loading: false }),
+		...(modulesTestStates.states?.[mod.id] ?? { loading: false }),
 		loading: testIsLoading,
 		testJob: testJob
 	}
@@ -135,13 +136,13 @@
 		() => modulesTestStates.states[mod.id]?.loading ?? false,
 		(v) => {
 			let newLoading = v ?? false
-			if (modulesTestStates.states[mod.id]?.loading !== newLoading) {
+			if (modulesTestStates.states && modulesTestStates.states?.[mod.id]?.loading !== newLoading) {
 				modulesTestStates.states[mod.id] = {
-					...(modulesTestStates.states[mod.id] ?? {}),
-					loading: newLoading
+					...(modulesTestStates.states?.[mod.id] ?? {}),
+					loading: newLoading,
+					hiddenInGraph: false
 				}
 			}
 		}
 	}
-	bind:job={modulesTestStates.states[mod.id].testJob}
 />

@@ -38,6 +38,7 @@
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import type { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -51,6 +52,7 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
@@ -79,7 +81,8 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
-		localModuleStates = $bindable({}),
+		localModuleStates = {},
+		testModuleStates = undefined,
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -386,6 +389,7 @@
 			{onTestUpTo}
 			{onEditInput}
 			flowModuleStates={localModuleStates}
+			{testModuleStates}
 			{isOwner}
 			{individualStepTests}
 			{flowJob}

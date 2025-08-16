@@ -42,7 +42,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs, updateDerivedModuleStatesFromTestJobs } from './flows/utils'
+	import { cleanInputs } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -577,13 +577,7 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
-	let testModuleId: string | undefined = $state(undefined)
-	let modulesTestStates = new ModulesTestStates((moduleId) => {
-		// Update the derived store with test job states
-		delete derivedModuleStates[moduleId]
-		testModuleId = moduleId
-		showJobStatus = false
-	})
+	let modulesTestStates = new ModulesTestStates()
 	let outputPickerOpenFns: Record<string, () => void> = $state({})
 	let flowEditor: FlowEditor | undefined = $state(undefined)
 
@@ -936,32 +930,6 @@
 	let localModuleStates: Record<string, GraphModuleState> = $state({})
 	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
 
-	// Create a derived store that only shows the module states when showModuleStatus is true
-	// this store can also be updated
-	let derivedModuleStates = $state({})
-	$effect(() => {
-		derivedModuleStates = showJobStatus ? localModuleStates : {}
-	})
-	$effect(() => {
-		let newStates = updateDerivedModuleStatesFromTestJobs(
-			testModuleId,
-			modulesTestStates,
-			derivedModuleStates
-		)
-		if (newStates) {
-			derivedModuleStates = newStates
-		}
-	})
-
-	function resetModulesStates() {
-		derivedModuleStates = localModuleStates
-		showJobStatus = false
-	}
-
-	const individualStepTests = $derived(
-		!(showJobStatus && job) && Object.keys(derivedModuleStates).length > 0
-	)
-
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
@@ -1160,6 +1128,7 @@
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
+							modulesTestStates.hideJobsInGraph()
 							localModuleStates = {}
 							showJobStatus = true
 						}}
@@ -1230,18 +1199,21 @@
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					onOpenPreview={flowPreviewButtons?.openPreview}
-					localModuleStates={derivedModuleStates}
+					localModuleStates={showJobStatus ? localModuleStates : {}}
+					{showJobStatus}
+					testModuleStates={modulesTestStates}
 					isOwner={flowPreviewContent?.getIsOwner()}
 					onTestFlow={flowPreviewButtons?.runPreview}
 					isRunning={flowPreviewContent?.getIsRunning()}
 					onCancelTestFlow={flowPreviewContent?.cancelTest}
-					onHideJobStatus={resetModulesStates}
-					{individualStepTests}
+					onHideJobStatus={() => {
+						modulesTestStates.hideJobsInGraph()
+						showJobStatus = false
+					}}
 					{job}
 					{suspendStatus}
-					{showJobStatus}
 					onDelete={(id) => {
-						delete derivedModuleStates[id]
+						delete localModuleStates[id]
 					}}
 					{flowHasChanged}
 				/>

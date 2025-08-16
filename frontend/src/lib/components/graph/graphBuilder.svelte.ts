@@ -6,6 +6,7 @@ import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
+import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
 
 export type InsertKind =
 	| 'script'
@@ -129,6 +130,7 @@ export type ModuleN = {
 		eventHandlers: GraphEventHandlers
 		moving: string | undefined
 		flowModuleState: GraphModuleState | undefined
+		testModuleState: ModuleTestState | undefined
 		insertable: boolean
 		editMode: boolean
 		flowJob: Job | undefined
@@ -329,6 +331,7 @@ export function graphBuilder(
 		disableAi: boolean
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		testModuleStates: ModulesTestStates | undefined
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -392,6 +395,7 @@ export function graphBuilder(
 					eventHandlers: eventHandlers,
 					moving: moving,
 					flowModuleState: extra.flowModuleStates?.[module.id],
+					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable,
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,

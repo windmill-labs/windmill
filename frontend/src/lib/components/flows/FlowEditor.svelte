@@ -16,6 +16,7 @@
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -27,6 +28,7 @@
 		disabledFlowInputs?: boolean
 		smallErrorHandler?: boolean
 		newFlow?: boolean
+		showJobStatus?: boolean
 		savedFlow?:
 			| (Flow & {
 					draft?: Flow | undefined
@@ -41,6 +43,7 @@
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
 		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -50,7 +53,6 @@
 		individualStepTests?: boolean
 		job?: Job
 		suspendStatus?: Record<string, { job: Job; nb: number }>
-		showJobStatus?: boolean
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 	}
@@ -63,6 +65,7 @@
 		disableSettings = false,
 		disabledFlowInputs = false,
 		smallErrorHandler = false,
+		showJobStatus = false,
 		newFlow = false,
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
@@ -70,7 +73,8 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		localModuleStates = $bindable({}),
+		localModuleStates = {},
+		testModuleStates = undefined,
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -83,7 +87,6 @@
 		individualStepTests = false,
 		job,
 		suspendStatus,
-		showJobStatus,
 		onDelete,
 		flowHasChanged
 	}: Props = $props()
@@ -134,6 +137,7 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
+						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {
@@ -144,6 +148,7 @@
 						{onTestUpTo}
 						{onEditInput}
 						{localModuleStates}
+						{testModuleStates}
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
@@ -155,7 +160,6 @@
 						{onHideJobStatus}
 						{individualStepTests}
 						flowJob={job}
-						{showJobStatus}
 						{suspendStatus}
 						{onDelete}
 						{flowHasChanged}

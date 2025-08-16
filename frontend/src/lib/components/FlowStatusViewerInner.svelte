@@ -738,7 +738,7 @@
 
 	function innerJobLoaded(jobLoaded: Job, j: number, clicked: boolean, force: boolean) {
 		let modId = flowJobIds?.moduleId
-
+		console.log('innerJobLoaded', jobLoaded)
 		if (modId) {
 			setIteration(
 				j,
@@ -753,7 +753,6 @@
 					...((flowStateStore[modId] as object) ?? {}),
 					previewResult: jobLoaded.args
 				}
-				console.log('flowStateStore', flowStateStore[modId])
 			}
 			if (flowStateStore?.[modId]) {
 				if (!childFlow) {
