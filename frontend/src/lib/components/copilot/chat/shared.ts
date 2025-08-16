@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
-import { workspaceStore } from '$lib/stores'
+import { copilotSessionModel, workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -252,6 +252,22 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		return JSON.stringify(results)
 	}
 })
+
+export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<void> {
+	try {
+		const schema = await schemaBuilder()
+		toolDef.function.parameters = { ...schema, additionalProperties: false }
+		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+		const model = get(copilotSessionModel)?.provider
+		if (model === 'openai' || model === 'azure_openai') {
+			toolDef.function.strict = false
+		}
+	} catch (error) {
+		console.error('Error building schema for tool', error)
+		// fallback to schema with any properties
+		toolDef.function.parameters = { type: 'object', properties: {}, additionalProperties: true, strict: false }
+	}
+}
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
