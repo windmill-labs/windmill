@@ -11,7 +11,6 @@ use {
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::{
-        db::UserDB,
         error::{Error, Result},
         jobs::JobTriggerKind,
     },
@@ -72,6 +71,7 @@ impl TriggerCrud for NatsTriggerHandler {
 
     async fn create_trigger(
         &self,
+        _db: &DB,
         _executor: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,

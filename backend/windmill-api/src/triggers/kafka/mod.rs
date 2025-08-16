@@ -12,7 +12,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, ee::interpolate, resources::try_get_resource_from_db_as};
+use crate::{db::ApiAuthed, ee_oss::interpolate, resources::try_get_resource_from_db_as};
 
 mod handler_ee;
 pub mod handler_oss;

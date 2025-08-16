@@ -11,7 +11,6 @@ use {
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::{
-        db::UserDB,
         error::{Error, Result},
         jobs::JobTriggerKind,
     },

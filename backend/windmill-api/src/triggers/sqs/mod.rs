@@ -16,7 +16,7 @@ use windmill_common::{
     },
     db::UserDB,
     error::{to_anyhow, Error, Result},
-    oidc_ee::WorkspaceClaim,
+    oidc_oss::WorkspaceClaim,
     DB,
 };
 
@@ -173,7 +173,7 @@ async fn get_sqs_auth_data(
                 None,
             ),
             AWSAuthConfig::Oidc(oidc) => {
-                let id_token = windmill_common::oidc_ee::generate_id_token(
+                let id_token = windmill_common::oidc_oss::generate_id_token(
                     Some(db),
                     WorkspaceClaim { workspace: w_id.to_string() },
                     AWS_OIDC_AUDIENCE,

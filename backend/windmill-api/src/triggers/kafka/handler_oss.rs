@@ -11,7 +11,6 @@ use {
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::{
-        db::UserDB,
         error::{Error, Result},
         jobs::JobTriggerKind,
     },
@@ -66,7 +65,8 @@ impl TriggerCrud for KafkaTriggerHandler {
 
     async fn create_trigger(
         &self,
-        _executor: &mut PgConnection,
+        _db: &DB,
+        _tx: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
         _trigger: CreateTrigger<Self::NewTriggerConfig>,

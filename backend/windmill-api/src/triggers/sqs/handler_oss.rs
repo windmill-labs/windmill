@@ -71,6 +71,7 @@ impl TriggerCrud for SqsTriggerHandler {
 
     async fn create_trigger(
         &self,
+        _db: &DB,
         _tx: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
