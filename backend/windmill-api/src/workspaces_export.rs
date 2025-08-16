@@ -15,8 +15,24 @@ use crate::{
     db::DB,
     folders::Folder,
     resources::{Resource, ResourceType},
-    triggers::{StandardTriggerQuery, TriggerCrud},
 };
+
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "nats",
+        )
+    )
+))]
+use crate::triggers::TriggerCrud;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -540,13 +556,15 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::http::handler::HttpTriggerHandler;
             let handler = HttpTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let http_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in http_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(&trigger_str, &format!("{}.http_trigger.json", trigger.base.path))
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.http_trigger.json", trigger.base.path),
+                    )
                     .await?;
             }
         }
@@ -555,8 +573,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::websocket::handler::WebsocketTriggerHandler;
             let handler = WebsocketTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in websocket_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -573,8 +590,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::kafka::handler_oss::KafkaTriggerHandler;
             let handler = KafkaTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in kafka_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -591,13 +607,15 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
             let handler = SqsTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in sqs_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(&trigger_str, &format!("{}.sqs_trigger.json", trigger.base.path))
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.sqs_trigger.json", trigger.base.path),
+                    )
                     .await?;
             }
         }
@@ -606,13 +624,15 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
             let handler = GcpTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in gcp_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(&trigger_str, &format!("{}.gcp_trigger.json", trigger.base.path))
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.gcp_trigger.json", trigger.base.path),
+                    )
                     .await?;
             }
         }
@@ -621,14 +641,16 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::nats::handler_oss::NatsTriggerHandler;
             let handler = NatsTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in nats_triggers {
                 let trigger_str: &String =
                     &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(&trigger_str, &format!("{}.nats_trigger.json", trigger.base.path))
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.nats_trigger.json", trigger.base.path),
+                    )
                     .await?;
             }
         }
@@ -637,8 +659,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::postgres::handler::PostgresTriggerHandler;
             let handler = PostgresTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in postgres_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -655,13 +676,15 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::mqtt::handler::MqttTriggerHandler;
             let handler = MqttTriggerHandler;
-            let query = StandardTriggerQuery::default();
-            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, &query).await?;
+            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in mqtt_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(&trigger_str, &format!("{}.mqtt_trigger.json", trigger.base.path))
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.mqtt_trigger.json", trigger.base.path),
+                    )
                     .await?;
             }
         }

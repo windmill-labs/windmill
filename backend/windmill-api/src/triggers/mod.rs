@@ -397,7 +397,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         &self,
         tx: &mut PgConnection,
         workspace_id: &str,
-        query: &StandardTriggerQuery,
+        query: Option<&StandardTriggerQuery>,
     ) -> Result<Vec<Self::Trigger>> {
         let mut fields = vec![
             "workspace_id",
@@ -419,27 +419,27 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
 
-        let (per_page, offset) =
-            paginate(Pagination { per_page: query.per_page, page: query.page });
-
         sqlb.fields(&fields)
             .order_by("edited_at", true)
-            .and_where("workspace_id = ?".bind(&workspace_id))
-            .offset(offset)
-            .limit(per_page);
+            .and_where("workspace_id = ?".bind(&workspace_id));
 
-        if let Some(path) = &query.path {
-            sqlb.and_where_eq("script_path", "?".bind(path));
+        if let Some(query) = query {
+            let (per_page, offset) =
+                paginate(Pagination { per_page: query.per_page, page: query.page });
+            if let Some(path) = &query.path {
+                sqlb.and_where_eq("script_path", "?".bind(path));
+            }
+
+            if let Some(is_flow) = query.is_flow {
+                sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+            }
+
+            if let Some(path_start) = &query.path_start {
+                sqlb.and_where_like_left("path", path_start);
+            }
+
+            sqlb.offset(offset).limit(per_page);
         }
-
-        if let Some(is_flow) = query.is_flow {
-            sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
-        }
-
-        if let Some(path_start) = &query.path_start {
-            sqlb.and_where_like_left("path", path_start);
-        }
-
         let sql = sqlb
             .sql()
             .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;

@@ -147,7 +147,7 @@ async fn list_triggers<T: TriggerCrud>(
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let triggers = handler
-        .list_triggers(&mut *tx, &workspace_id, &query)
+        .list_triggers(&mut *tx, &workspace_id, Some(&query))
         .await?;
     tx.commit().await?;
 
@@ -348,6 +348,7 @@ async fn test_connection<T: TriggerCrud>(
     Ok(())
 }
 
+#[allow(unused)]
 pub fn complete_trigger_routes<T: TriggerCrud + 'static>(handler: T) -> Router {
     let standard_routes = trigger_routes::<T>();
 
@@ -359,6 +360,7 @@ pub fn complete_trigger_routes<T: TriggerCrud + 'static>(handler: T) -> Router {
 }
 
 pub fn generate_trigger_routers() -> Router {
+    #[allow(unused_mut)]
     let mut router = Router::new();
 
     #[cfg(feature = "http_trigger")]

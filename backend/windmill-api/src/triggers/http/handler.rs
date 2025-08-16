@@ -41,6 +41,12 @@ use windmill_common::{
 };
 use windmill_git_sync::handle_deployment_metadata;
 
+#[cfg(feature = "parquet")]
+use {
+    crate::job_helpers_oss::get_workspace_s3_resource,
+    windmill_common::s3_helpers::build_object_store_client,
+};
+
 use super::{
     generate_route_path_key, route_path_key_exists, validate_authentication_method, EditHttpConfig,
     HttpConfig, NewHttpConfig, VALID_ROUTE_PATH_RE,
@@ -771,7 +777,7 @@ async fn route_job(
                 config.storage,
             )
             .await?;
-            let s3_resource = s3_resource_opt.ok_or(error::Error::internal_err(
+            let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
                 "No files storage resource defined at the workspace level".to_string(),
             ))?;
             let s3_client = build_object_store_client(&s3_resource).await?;
@@ -803,14 +809,14 @@ async fn route_job(
 
             let s3_object = s3_object.map_err(|err| {
                 tracing::warn!("Error retrieving file from S3: {:?}", err);
-                error::Error::internal_err(format!("Error retrieving file: {}", err.to_string()))
+                Error::internal_err(format!("Error retrieving file: {}", err.to_string()))
             })?;
 
             let mut response_headers = http::HeaderMap::new();
             if let Some(ref e_tag) = s3_object.meta.e_tag {
-                if let Some(if_none_match) = headers.get(IF_NONE_MATCH) {
+                if let Some(if_none_match) = headers.get(http::header::IF_NONE_MATCH) {
                     if if_none_match == e_tag {
-                        return Ok::<_, error::Error>((
+                        return Ok::<_, Error>((
                             StatusCode::NOT_MODIFIED,
                             response_headers,
                             axum::body::Body::empty(),
@@ -852,7 +858,7 @@ async fn route_job(
             }
 
             let body_stream = axum::body::Body::from_stream(s3_object.into_stream());
-            Ok::<_, error::Error>((StatusCode::OK, response_headers, body_stream))
+            Ok::<_, Error>((StatusCode::OK, response_headers, body_stream))
         };
         match build_static_response_f.await {
             Ok((status, headers, body_stream)) => {
