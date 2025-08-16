@@ -1,5 +1,5 @@
 import type { Flow, OpenFlow } from '$lib/gen'
-import { writable, type Writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
@@ -11,7 +11,7 @@ export const importFlowStore = writable<Flow | undefined>(undefined)
 export async function initFlow(
 	flow: Flow,
 	flowStore: StateStore<Flow>,
-	flowStateStore: Writable<FlowState>
+	flowStateStore: StateStore<FlowState>
 ) {
 	await initFlowState(flow, flowStateStore)
 	flowStore.val = flow

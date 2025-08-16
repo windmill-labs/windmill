@@ -101,7 +101,7 @@
 	let args = $state(<Record<string, any>>{})
 
 	onMount(() => {
-		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
+		testSteps?.updateStepArgs(mod.id, flowStateStore, flowStore?.val, previewArgs?.val)
 		args = testSteps?.getStepArgs(mod.id) ?? { value: {} }
 	})
 </script>

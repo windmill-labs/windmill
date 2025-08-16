@@ -4,24 +4,22 @@
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
-	import type { Writable } from 'svelte/store'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
 	interface Props {
 		selfWaitTime?: number | undefined
 		aggregateWaitTime?: number | undefined
 		flowModules: string[]
-		durationStatuses: Writable<
-			Record<
-				string,
-				{
-					byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-					iteration_from?: number
-					iteration_total?: number
-				}
-			>
+		durationStatuses: Record<
+			string,
+			{
+				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+				iteration_from?: number
+				iteration_total?: number
+			}
 		>
 		flowDone?: boolean
+		decreaseIterationFrom?: (key: string, amount: number) => void
 	}
 
 	let {
@@ -29,7 +27,8 @@
 		aggregateWaitTime = undefined,
 		flowModules,
 		durationStatuses,
-		flowDone = false
+		flowDone = false,
+		decreaseIterationFrom
 	}: Props = $props()
 
 	let min: undefined | number = $state(undefined)
@@ -43,15 +42,15 @@
 		  >
 		| undefined = $state(undefined)
 
-	let { debounced, clearDebounce } = debounce(() => computeItems($durationStatuses), 30)
+	let { debounced, clearDebounce } = debounce(() => computeItems(durationStatuses), 30)
 	$effect(() => {
-		flowDone != undefined && $durationStatuses && untrack(() => debounced())
+		flowDone != undefined && durationStatuses && untrack(() => debounced())
 	})
 
 	export function reset() {
 		min = undefined
 		max = undefined
-		items = computeItems($durationStatuses)
+		items = computeItems(durationStatuses)
 	}
 
 	function computeItems(
@@ -173,18 +172,14 @@
 		{/if}
 		{#each Object.values(flowModules) as k (k)}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
-				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
+				{#if (durationStatuses?.[k]?.iteration_from ?? 0) > 0}
 					<div class="w-full flex flex-row-reverse sticky top-0">
 						<button
 							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
 							onclick={() => {
-								let r = $durationStatuses[k]
-								if (r.iteration_from) {
-									r.iteration_from -= 20
-									$durationStatuses = $durationStatuses
-								}
+								decreaseIterationFrom?.(k, 20)
 							}}
-							>Viewing iterations {$durationStatuses[k].iteration_from} to {$durationStatuses[k]
+							>Viewing iterations {durationStatuses[k].iteration_from} to {durationStatuses[k]
 								.iteration_total}. Load more
 						</button>
 					</div>

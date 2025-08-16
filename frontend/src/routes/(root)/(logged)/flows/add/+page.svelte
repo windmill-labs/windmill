@@ -5,14 +5,12 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { tick } from 'svelte'
-	import { writable } from 'svelte/store'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 
@@ -56,7 +54,7 @@
 			schema: emptySchema()
 		}
 	})
-	const flowStateStore = writable<FlowState>({})
+	const flowStateStore = $state({ val: {} })
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)

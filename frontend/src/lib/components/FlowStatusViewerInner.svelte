@@ -8,14 +8,15 @@
 		type FlowStatus,
 		type FlowModuleValue,
 		type FlowModule,
-		ResourceService
+		ResourceService,
+		type CompletedJob
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
-	import { createEventDispatcher, getContext, setContext, tick, untrack } from 'svelte'
+	import { getContext, setContext, tick, untrack } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -27,7 +28,6 @@
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
-	import { get, writable, type Unsubscriber, type Writable } from 'svelte/store'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
@@ -38,8 +38,7 @@
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
-
-	const dispatch = createEventDispatcher()
+	import { writable } from 'svelte/store'
 
 	let {
 		flowStateStore,
@@ -71,8 +70,8 @@
 		render?: boolean
 		isOwner?: boolean
 		selectedNode?: string | undefined
-		globalModuleStates: Writable<Record<string, GraphModuleState>>[]
-		globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
+		globalModuleStates: Record<string, GraphModuleState>[]
+		globalDurationStatuses?: Record<string, DurationStatus>[]
 		childFlow?: boolean
 		isSubflow?: boolean
 		reducedPolling?: boolean
@@ -80,14 +79,14 @@
 		hideFlowResult?: boolean
 		workspace?: string | undefined
 		prefix?: string | undefined
-		subflowParentsGlobalModuleStates?: Writable<Record<string, GraphModuleState>>[]
-		subflowParentsDurationStatuses?: Writable<Record<string, DurationStatus>>[]
+		subflowParentsGlobalModuleStates?: Record<string, GraphModuleState>[]
+		subflowParentsDurationStatuses?: Record<string, DurationStatus>[]
 		isForloopSelected?: boolean
-		parentRecursiveRefresh?: Record<string, (clear, root) => Promise<void>>
+		updateRecursiveRefreshFn?: (jobId: string, updateFn: (clear, root) => Promise<void>) => void
 		job?: (Job & { result_stream?: string }) | undefined
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		localModuleStates?: Record<string, GraphModuleState>
+		localDurationStatuses?: Record<string, DurationStatus>
 		onResultStreamUpdate?: ({
 			jobId,
 			result_stream
@@ -101,6 +100,9 @@
 		graphTabOpen: boolean
 		isNodeSelected: boolean
 		loadExtraLogs?: (logs: string) => void
+		onStart?: () => void
+		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
+		onDone?: ({ job }: { job: CompletedJob }) => void
 	}
 
 	let {
@@ -114,7 +116,8 @@
 		isOwner = false,
 		selectedNode = $bindable(undefined),
 		globalModuleStates,
-		globalDurationStatuses,
+		globalDurationStatuses = [],
+		updateRecursiveRefreshFn = undefined,
 		childFlow = false,
 		isSubflow = false,
 		reducedPolling = false,
@@ -125,16 +128,18 @@
 		subflowParentsGlobalModuleStates = [],
 		subflowParentsDurationStatuses = [],
 		isForloopSelected = false,
-		parentRecursiveRefresh = $bindable({}),
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
-		localModuleStates = writable({}),
-		localDurationStatuses = writable({}),
+		localModuleStates = $bindable({}),
+		localDurationStatuses = $bindable({}),
 		customUi,
 		onResultStreamUpdate = undefined,
 		graphTabOpen,
 		isNodeSelected,
-		loadExtraLogs = undefined
+		loadExtraLogs = undefined,
+		onStart = undefined,
+		onJobsLoaded = undefined,
+		onDone = undefined
 	}: Props = $props()
 
 	let resultStreams: Record<string, string | undefined> = $state({})
@@ -152,6 +157,11 @@
 	}
 
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
+	let updateRecursiveRefreshInner = (jobId: string, updateFn: (clear, root) => Promise<void>) => {
+		if (jobId) {
+			recursiveRefresh[jobId] = updateFn
+		}
+	}
 
 	// Add support for the input args assets shown as an asset node
 	const _flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
@@ -190,7 +200,7 @@
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
-	let selectedId: Writable<string | undefined> = writable(selectedNode)
+	let selectedId = writable<string | undefined>(selectedNode)
 
 	function onFlowModuleId() {
 		if (globalRefreshes) {
@@ -204,26 +214,24 @@
 	}
 
 	function updateModuleStates(
-		moduleState: Writable<Record<string, GraphModuleState>>,
+		moduleState: Record<string, GraphModuleState>,
 		key: string,
 		newValue: GraphModuleState,
 		keepType: boolean | undefined
 	) {
-		const state = get(moduleState)
+		const state = moduleState
 		if (
 			newValue.selectedForloop != undefined &&
 			state[key]?.selectedForloop != undefined &&
 			newValue.selectedForloop != state[key].selectedForloop
 		) {
+			let newState = { ...state[key] }
 			if (
 				newValue.type == 'InProgress' &&
 				state[key]?.type != 'InProgress' &&
 				!(keepType && (state[key]?.type === 'Success' || state[key]?.type === 'Failure'))
 			) {
-				moduleState.update((state) => {
-					state[key].type = 'InProgress'
-					return state
-				})
+				newState.type = 'InProgress'
 			}
 
 			if (
@@ -231,13 +239,11 @@
 				!deepEqual(state[key]?.args, newValue.args) ||
 				!deepEqual(state[key]?.result, newValue.result)
 			) {
-				moduleState.update((state) => {
-					state[key].args = newValue.args
-					state[key].result = newValue.result
-					state[key].job_id = newValue.job_id
-					return state
-				})
+				newState.args = newValue.args
+				newState.result = newValue.result
+				newState.job_id = newValue.job_id
 			}
+			state[key] = newState
 			return
 		}
 
@@ -261,10 +267,7 @@
 			newValue.type = state[key].type
 		}
 		if (!deepEqual(state[key], newValue)) {
-			moduleState.update((state) => {
-				state[key] = newValue
-				return state
-			})
+			state[key] = newValue
 		}
 	}
 
@@ -274,49 +277,47 @@
 
 	async function refresh(clearLoop: boolean, rootJob: string | undefined) {
 		let modId = flowJobIds?.moduleId
-
+		console.log('refresh', clearLoop, rootJob, modId)
 		if (clearLoop) {
 			if (!rootJob) {
 				let topLevelModuleStates = globalModuleStates?.[globalModuleStates?.length - 1]
 				if (modId) {
-					topLevelModuleStates?.update((x) => {
-						if (modId) {
-							delete x[modId]
-						}
-						return x
-					})
+					delete topLevelModuleStates[modId]
 				}
 
 				if (subflowParentsGlobalModuleStates.length > 0) {
-					subflowParentsGlobalModuleStates?.[subflowParentsGlobalModuleStates?.length - 1]?.update(
-						(x) => {
-							for (let mod of innerModules ?? []) {
-								if (mod.id) {
-									delete x[buildSubflowKey(mod.id, prefix)]
-								}
-							}
+					let subflowModuleStates =
+						subflowParentsGlobalModuleStates?.[subflowParentsGlobalModuleStates?.length - 1]
 
-							return x
+					for (let mod of innerModules ?? []) {
+						if (mod.id) {
+							delete subflowModuleStates[buildSubflowKey(mod.id, prefix)]
 						}
-					)
+					}
 				} else {
-					topLevelModuleStates?.update((x) => {
-						for (let mod of innerModules ?? []) {
-							if (mod.id) {
-								delete x[mod.id]
-							}
+					for (let mod of innerModules ?? []) {
+						if (mod.id) {
+							delete topLevelModuleStates[mod.id]
 						}
-
-						return x
-					})
+					}
 				}
 			}
 		} else {
 			let state = modId ? getTopModuleStates()?.[modId] : undefined
 			let loopjob = state?.selectedForloop
 			let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
+			console.log(
+				'refresh ' + modId + ' 3',
+				flowJobIds,
+				loopjob,
+				storedListJobs,
+				loopjob,
+				njob,
+				modId
+			)
 			if (njob) {
-				dispatch('jobsLoaded', { job: njob, force: true })
+				console.log('refresh ' + modId + ' 4', njob, onJobsLoaded)
+				onJobsLoaded?.({ job: njob, force: true })
 			}
 		}
 
@@ -331,11 +332,11 @@
 
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
-			parentRecursiveRefresh[jobId] = async (clear, root) => {
+			updateRecursiveRefreshFn?.(jobId, async (clear, root) => {
 				if (globalModuleStates.length > 0 || isSubflow) {
 					await refresh(clear, root)
 				}
-			}
+			})
 		}
 	}
 
@@ -345,67 +346,54 @@
 		force?: boolean,
 		keepType?: boolean
 	) {
-		let newValue = { ...($localModuleStates[key] ?? {}), ...value }
-		if (!deepEqual($localModuleStates[key], value) || force) {
+		let newValue = { ...(localModuleStates[key] ?? {}), ...value }
+		if (!deepEqual(localModuleStates[key], value) || force) {
+			console.log('setModuleState', key, value, force)
 			;[localModuleStates, ...globalModuleStates].forEach((s) => {
 				updateModuleStates(s, key, newValue, keepType)
 			})
 			if (prefix) {
-				subflowParentsGlobalModuleStates.forEach((s) =>
+				subflowParentsGlobalModuleStates.forEach((s) => {
 					updateModuleStates(s, buildSubflowKey(key, prefix), newValue, keepType)
-				)
+				})
 			}
 		}
 	}
 
 	function setDurationStatusByJob(key: string, id: string, value: any) {
-		if (!deepEqual($localDurationStatuses[key]?.byJob[id], value)) {
-			$localDurationStatuses[key].byJob[id] = value
+		if (!deepEqual(localDurationStatuses[key]?.byJob[id], value)) {
+			localDurationStatuses[key].byJob[id] = value
 			globalDurationStatuses.forEach((s) => {
-				s.update((x) => {
-					x[key].byJob[id] = value
-
-					return x
-				})
+				s[key].byJob[id] = value
 			})
 			if (prefix) {
 				subflowParentsDurationStatuses.forEach((s) => {
-					s.update((x) => {
-						x[buildSubflowKey(key, prefix)].byJob[id] = value
-						return x
-					})
+					s[buildSubflowKey(key, prefix)].byJob[id] = value
 				})
 			}
 		}
 	}
 
 	function initializeByJob(modId: string) {
-		if ($localDurationStatuses[modId] == undefined) {
-			$localDurationStatuses[modId] = { byJob: {} }
+		if (localDurationStatuses[modId] == undefined) {
+			localDurationStatuses[modId] = { byJob: {} }
 		}
-		globalDurationStatuses.forEach((x) =>
-			x.update((x) => {
-				if (x[modId] == undefined) {
-					x[modId] = { byJob: {} }
-				}
-				return x
-			})
-		)
+		globalDurationStatuses.forEach((x) => {
+			if (x[modId] == undefined) {
+				x[modId] = { byJob: {} }
+			}
+		})
 		if (prefix) {
-			subflowParentsDurationStatuses.forEach((x) =>
-				x.update((x) => {
-					let key = buildSubflowKey(modId, prefix)
-					if (x[key] == undefined) {
-						x[key] = { byJob: {} }
-					}
-					return x
-				})
-			)
+			subflowParentsDurationStatuses.forEach((x) => {
+				let key = buildSubflowKey(modId, prefix)
+				if (x[key] == undefined) {
+					x[key] = { byJob: {} }
+				}
+			})
 		}
 	}
 
-	let innerModules: FlowStatusModule[] = $state([])
-
+	let innerModules = $state(undefined) as FlowStatusModule[] | undefined
 	function updateStatus(status: FlowStatus) {
 		innerModules =
 			status?.modules?.concat(
@@ -418,29 +406,27 @@
 
 		let count = status.retry?.fail_count
 		if (count) {
-			$retryStatus[jobId ?? ''] = count
-		} else if ($retryStatus[jobId ?? ''] != undefined) {
-			delete $retryStatus[jobId ?? '']
-			$retryStatus = $retryStatus
+			retryStatus.val[jobId ?? ''] = count
+		} else if (retryStatus.val[jobId ?? ''] != undefined) {
+			delete retryStatus.val[jobId ?? '']
 		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
 
 		if (jobStatus && jobStatus.count != undefined) {
-			$suspendStatus[jobId ?? ''] = { nb: jobStatus.count, job: job! }
-		} else if ($suspendStatus[jobId ?? ''] != undefined) {
-			delete $suspendStatus[jobId ?? '']
-			$suspendStatus = $suspendStatus
+			suspendStatus.val[jobId ?? ''] = { nb: jobStatus.count, job: job! }
+		} else if (suspendStatus.val[jobId ?? ''] != undefined) {
+			delete suspendStatus.val[jobId ?? '']
 		}
 	}
 
 	function updateInnerModules() {
-		if ($localModuleStates) {
-			innerModules.forEach((mod, i) => {
+		if (localModuleStates) {
+			innerModules?.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
-					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
+					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
 					JobService.getJob({
 						workspace: workspaceId ?? $workspaceStore ?? '',
@@ -466,7 +452,7 @@
 				} else if (
 					(mod.flow_jobs || mod.branch_chosen) &&
 					(mod.type == 'Success' || mod.type == 'Failure') &&
-					!['Success', 'Failure'].includes($localModuleStates?.[mod.id ?? '']?.type)
+					!['Success', 'Failure'].includes(localModuleStates?.[mod.id ?? '']?.type)
 				) {
 					let branchChosen = mod.branch_chosen
 						? {
@@ -519,20 +505,20 @@
 	let jobLoader: JobLoader | undefined = undefined
 
 	function setJob(newJob: Job, force: boolean) {
-		if (!deepEqual(job, newJob) || isForloopSelected || force) {
+		if (!deepEqual(job, newJob) || isForloopSelected || force || innerModules == undefined) {
 			job = newJob
 			job?.flow_status && updateStatus(job?.flow_status)
-			dispatch('jobsLoaded', { job, force: false })
+			onJobsLoaded?.({ job, force: false })
 			notAnonynmous = false
 			if (job?.type == 'CompletedJob' && !destroyed) {
-				dispatch('done', job)
+				onDone?.({ job })
 			}
 		}
 	}
 	async function loadJobInProgress() {
 		if (!started) {
 			started = true
-			dispatch('start')
+			onStart?.()
 		}
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -577,68 +563,55 @@
 	updateRecursiveRefresh(jobId)
 
 	async function updateJobId() {
-		if (jobId !== job?.id) {
-			$localModuleStates = {}
+		if (jobId !== job?.id || innerModules == undefined) {
+			localModuleStates = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
-			innerModules = []
+			innerModules = undefined
 			if (flowJobIds) {
 				let modId = flowJobIds?.moduleId ?? ''
 
 				let common = {
 					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
-					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
+					iteration_total: localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
 				}
-				$localDurationStatuses[modId] = {
-					...($localDurationStatuses[modId] ?? { byJob: {} }),
+				localDurationStatuses[modId] = {
+					...(localDurationStatuses[modId] ?? { byJob: {} }),
 					...common
 				}
 				let prefixed = modId
-				globalDurationStatuses.forEach((x) =>
-					x.update((x) => {
-						x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
-						return x
-					})
-				)
+				globalDurationStatuses.forEach((x) => {
+					x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
+				})
 			} else {
 				updateRecursiveRefresh(jobId)
 				recursiveRefresh = {}
-				$localDurationStatuses = {}
+				localDurationStatuses = {}
 			}
 			await loadJobInProgress()
 		}
 	}
 
 	function getTopModuleStates() {
-		return get(globalModuleStates?.[globalModuleStates?.length - 1])
+		return globalModuleStates?.[globalModuleStates?.length - 1]
 	}
 
 	let forloop_selected = $state(getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop)
 
-	let sub: Unsubscriber | undefined = undefined
-	let timeoutForloopSelectedSub: NodeJS.Timeout | undefined = undefined
-	let timeoutForloopSelected: NodeJS.Timeout | undefined = undefined
-
-	function onModuleIdChange() {
-		clearTimeout(timeoutForloopSelectedSub)
-		timeoutForloopSelectedSub = setTimeout(() => {
-			sub?.()
-			sub = globalModuleStates?.[globalModuleStates?.length - 1].subscribe((x) => {
-				const newForloopSelected = x[flowJobIds?.moduleId ?? '']?.selectedForloop
-				if (newForloopSelected != forloop_selected) {
-					clearTimeout(timeoutForloopSelected)
-					timeoutForloopSelected = setTimeout(() => {
-						forloop_selected = newForloopSelected
-					}, 200)
-				}
-			})
-		}, 200)
+	// let sub: Unsubscriber | undefined = undefined
+	function onSelectedForloopChange(selectedForloop: string | undefined) {
+		untrack(() => {
+			if (selectedForloop != forloop_selected) {
+				// console.log('onSelectedForloopChange 2', selectedForloop, forloop_selected)
+				forloop_selected = selectedForloop
+			}
+		})
 	}
 
 	onDestroy(() => {
 		destroyed = true
 		timeout && clearTimeout(timeout)
-		sub?.()
+		// sub?.()
 	})
 
 	function isSuccess(arg: any): boolean | undefined {
@@ -649,16 +622,15 @@
 		}
 	}
 
-	function onJobsLoaded(mod: FlowStatusModule, job: Job, force?: boolean): void {
-		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
+	function onJobsLoadedInner(mod: FlowStatusModule, job: Job, force?: boolean): void {
+		if (mod.id && ((mod.flow_jobs ?? []).length == 0 || force)) {
 			if (!childFlow) {
-				if ($flowStateStore?.[mod.id]) {
-					$flowStateStore[mod.id] = {
-						...$flowStateStore[mod.id],
+				if (flowStateStore) {
+					flowStateStore[mod.id] = {
+						...(flowStateStore?.[mod.id] ?? {}),
 						previewResult: job['result'],
 						previewArgs: job.args,
 						previewJobId: job.id,
-						previewWorkspaceId: job.workspace_id,
 						previewSuccess: job['success']
 					}
 				}
@@ -706,7 +678,7 @@
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped
-						// retries: $flowStateStore?.raw_flow
+						// retries: flowStateStore?.raw_flow
 					},
 					force
 				)
@@ -729,8 +701,7 @@
 	) {
 		if (modId) {
 			let globalState = globalModuleStates?.[globalModuleStates?.length - 1]
-			let globalStateGet = globalState ? get(globalState) : undefined
-			let state = globalStateGet?.[modId]
+			let state = globalState?.[modId]
 
 			if (clicked && state?.selectedForloop) {
 				await globalRefreshes?.[modId]?.(true, state.selectedForloop)
@@ -743,7 +714,7 @@
 			) {
 				let setManually = clicked || manualOnce
 
-				let newState = {
+				let newState: Partial<GraphModuleState> = {
 					...(state ?? {}),
 					selectedForloop: id,
 					selectedForloopIndex: j,
@@ -755,15 +726,11 @@
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
 				if (selectedNotEqual) {
-					globalState?.update((topLevelModuleStates) => {
-						topLevelModuleStates[modId] = {
-							type: 'WaitingForPriorSteps',
-							args: {},
-							...newState
-						}
-						return topLevelModuleStates
-						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
-					})
+					globalState[modId] = {
+						type: 'WaitingForPriorSteps',
+						args: {},
+						...newState
+					}
 				}
 			}
 
@@ -785,28 +752,28 @@
 				innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow'
 			)
 
-			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
-				$flowStateStore[modId] = {
-					...(($flowStateStore[modId] as object) ?? {}),
-					previewResult: jobLoaded.args
+			// if (flowStateStore) {
+			// 	flowStateStore[modId] = {
+			// 		...((flowStateStore[modId] as object) ?? {}),
+			// 		previewResult: jobLoaded.args
+			// 	}
+			// }
+			if (!childFlow && flowStateStore?.[modId]) {
+				if (
+					!flowStateStore?.[modId]?.previewResult ||
+					!Array.isArray(flowStateStore[modId]?.previewResult)
+				) {
+					flowStateStore[modId].previewResult = []
 				}
+				flowStateStore[modId].previewArgs = jobLoaded.args
 			}
-			if ($flowStateStore?.[modId]) {
-				if (!childFlow) {
-					if (
-						!$flowStateStore[modId].previewResult ||
-						!Array.isArray($flowStateStore[modId]?.previewResult)
-					) {
-						$flowStateStore[modId].previewResult = []
-					}
-					$flowStateStore[modId].previewArgs = jobLoaded.args
+			if (jobLoaded.type == 'QueuedJob') {
+				jobResults[j] = 'Job in progress ...'
+			} else if (jobLoaded.type == 'CompletedJob') {
+				if (flowStateStore?.[modId]) {
+					flowStateStore[modId].previewResult[j] = jobLoaded.result
 				}
-				if (jobLoaded.type == 'QueuedJob') {
-					jobResults[j] = 'Job in progress ...'
-				} else if (jobLoaded.type == 'CompletedJob') {
-					$flowStateStore[modId].previewResult[j] = jobLoaded.result
-					jobResults[j] = jobLoaded.result
-				}
+				jobResults[j] = jobLoaded.result
 			}
 
 			let started_at = jobLoaded.started_at ? new Date(jobLoaded.started_at).getTime() : undefined
@@ -830,9 +797,8 @@
 				v.args = jobLoaded.args
 				v.job_id = jobLoaded.id
 			}
-
 			if (jobLoaded.type == 'QueuedJob') {
-				if (started_at && $localModuleStates[modId]?.type != 'InProgress') {
+				if (started_at && localModuleStates[modId]?.type != 'InProgress') {
 					v.type = 'InProgress'
 				}
 			} else if (jobLoaded.type == 'CompletedJob') {
@@ -842,7 +808,6 @@
 				}
 			}
 			setModuleState(modId, v, force, true)
-
 			if (jobLoaded.type == 'QueuedJob') {
 				setDurationStatusByJob(modId, job_id, {
 					created_at,
@@ -865,7 +830,7 @@
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
-					onJobsLoaded({ id } as FlowStatusModule, jobLoaded)
+					onJobsLoadedInner({ id } as FlowStatusModule, jobLoaded)
 				}
 			}
 		}
@@ -874,11 +839,9 @@
 	let flowTimeline: FlowTimeline | undefined = $state()
 
 	function loadPreviousIters(lenToAdd: number) {
-		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
+		let r = localDurationStatuses[flowJobIds?.moduleId ?? '']
 		if (r.iteration_from) {
 			r.iteration_from -= lenToAdd
-			$localDurationStatuses = $localDurationStatuses
-			globalDurationStatuses.forEach((x) => x.update((x) => x))
 		}
 		jobResults = [
 			...[...new Array(lenToAdd).keys()].map((x) => 'not computed or loaded yet'),
@@ -894,17 +857,14 @@
 
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
-			;[...globalModuleStates, localModuleStates].forEach((stateMapStore) => {
-				stateMapStore.update((stateMap) => {
-					if (id) {
-						Object.keys(stateMap).forEach((key) => {
-							if (stateMap[key]?.parent_module == parent_module) {
-								delete stateMap[key]
-							}
-						})
-					}
-					return stateMap
-				})
+			;[...globalModuleStates, localModuleStates].forEach((stateMap) => {
+				if (id) {
+					Object.keys(stateMap).forEach((key) => {
+						if (stateMap[key]?.parent_module == parent_module) {
+							delete stateMap[key]
+						}
+					})
+				}
 			})
 		}
 	}
@@ -950,13 +910,13 @@
 			let rootJobId = detail.id
 			await tick()
 
-			let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+			let previousId = localModuleStates[detail.moduleId]?.selectedForloop
 			if (previousId) {
 				await globalRefreshes?.[detail.moduleId]?.(true, previousId)
 			}
 
-			$localModuleStates[detail.moduleId] = {
-				...$localModuleStates[detail.moduleId],
+			localModuleStates[detail.moduleId] = {
+				...localModuleStates[detail.moduleId],
 				selectedForloop: detail.id,
 				selectedForloopIndex: detail.index,
 				selectedForLoopSetManually: true
@@ -966,8 +926,8 @@
 
 			await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
 		} else {
-			$localModuleStates[detail.moduleId] = {
-				...$localModuleStates[detail.moduleId],
+			localModuleStates[detail.moduleId] = {
+				...localModuleStates[detail.moduleId],
 				selectedForLoopSetManually: false
 			}
 		}
@@ -984,7 +944,10 @@
 	})
 	let isListJob = $derived(flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs))
 	$effect(() => {
-		flowJobIds?.moduleId && untrack(() => onModuleIdChange())
+		let selectedForloop =
+			globalModuleStates?.[globalModuleStates?.length - 1]?.[flowJobIds?.moduleId ?? '']
+				?.selectedForloop
+		flowJobIds?.moduleId && onSelectedForloopChange(selectedForloop)
 	})
 	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
 
@@ -1006,7 +969,7 @@
 			<div class="h-8" />
 		{/if} -->
 		{#if isListJob}
-			{@const sliceFrom = $localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+			{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
 			{@const lenToAdd = Math.min(20, sliceFrom)}
 
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
@@ -1042,7 +1005,7 @@
 					/>
 				</div>
 			{/if}
-		{:else if render}
+		{:else if render && innerModules}
 			<div class={'border rounded-md shadow p-2'}>
 				<FlowPreviewResult
 					{job}
@@ -1058,7 +1021,7 @@
 			</div>
 		{/if}
 		{#if render}
-			{#if innerModules.length > 0 && !isListJob}
+			{#if innerModules && innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab
@@ -1075,7 +1038,7 @@
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
-				{@const sliceFrom = $localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+				{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
@@ -1126,7 +1089,7 @@
 							<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 								<FlowStatusViewerInner
 									{globalRefreshes}
-									parentRecursiveRefresh={recursiveRefresh}
+									updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 									{childFlow}
 									job={storedListJobs[j]}
 									initialJob={storedListJobs[j]}
@@ -1146,8 +1109,7 @@
 										(!!flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20)}
 									{workspaceId}
 									jobId={loopJobId}
-									on:jobsLoaded={(e) => {
-										let { job, force } = e.detail
+									onJobsLoaded={({ job, force }) => {
 										storedListJobs[j] = job
 										innerJobLoaded(job, j, false, force)
 									}}
@@ -1159,14 +1121,14 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
+			{:else if innerModules && innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
 				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
 					</h3>
 
-					{#each innerModules as mod, i}
+					{#each innerModules ?? [] as mod, i}
 						{#if render}
 							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">
@@ -1218,7 +1180,7 @@
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
 										<FlowStatusViewerInner
 											{globalRefreshes}
-											parentRecursiveRefresh={recursiveRefresh}
+											updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -1240,7 +1202,7 @@
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<FlowStatusViewerInner
 										{globalRefreshes}
-										parentRecursiveRefresh={recursiveRefresh}
+										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 										globalModuleStates={[]}
 										globalDurationStatuses={[]}
 										prefix={buildPrefix(prefix, mod.id ?? '')}
@@ -1260,9 +1222,9 @@
 										{reducedPolling}
 										isSubflow
 										childFlow
-										on:jobsLoaded={(e) => {
-											let { force, job } = e.detail
-											onJobsLoaded(mod, job, force)
+										onJobsLoaded={({ job, force }) => {
+											console.log('2', job, force)
+											onJobsLoadedInner(mod, job, force)
 										}}
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
@@ -1273,7 +1235,7 @@
 								{:else}
 									<FlowStatusViewerInner
 										{globalRefreshes}
-										parentRecursiveRefresh={recursiveRefresh}
+										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -1294,9 +1256,9 @@
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
 											: undefined}
-										on:jobsLoaded={(e) => {
-											let { job, force } = e.detail
-											onJobsLoaded(mod, job, force)
+										onJobsLoaded={({ job, force }) => {
+											console.log('3', job, force)
+											onJobsLoadedInner(mod, job, force)
 										}}
 										loadExtraLogs={(logs) => {
 											setModuleState(mod.id ?? '', {
@@ -1305,13 +1267,13 @@
 										}}
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
-										isNodeSelected={$localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
+										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 									/>
 								{/if}
 							{:else}
 								<ModuleStatus
 									type={mod.type}
-									scheduled_for={$localModuleStates?.[mod.id ?? '']?.scheduled_for}
+									scheduled_for={localModuleStates?.[mod.id ?? '']?.scheduled_for}
 								/>
 							{/if}
 						</li>
@@ -1337,14 +1299,14 @@
 				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
-							{#each Object.values($retryStatus) as count}
+							{#each Object.values(retryStatus?.val ?? {}) as count}
 								{#if count}
 									<span class="text-sm">
 										Retry in progress, # of failed attempts: {count}
 									</span>
 								{/if}
 							{/each}
-							{#each Object.values($suspendStatus) as count}
+							{#each Object.values(suspendStatus?.val ?? {}) as count}
 								{#if count.nb}
 									<span class="text-sm">
 										Flow suspended, waiting for {count.nb} events
@@ -1359,7 +1321,7 @@
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
-							flowModuleStates={$localModuleStates}
+							flowModuleStates={localModuleStates}
 							bind:expandedSubflows
 							onSelect={(e) => {
 								console.log('onSelect', e)
@@ -1420,11 +1382,16 @@
 									expandedSubflows ?? {}
 								)}
 								durationStatuses={localDurationStatuses}
+								decreaseIterationFrom={(key, amount) => {
+									if (localDurationStatuses?.[key]?.iteration_from) {
+										localDurationStatuses[key].iteration_from -= amount
+									}
+								}}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
 							<div class="pt-2 grow flex flex-col">
 								{#if selectedNode}
-									{@const node = $localModuleStates[selectedNode]}
+									{@const node = localModuleStates[selectedNode]}
 
 									{#if selectedNode == 'end'}
 										<FlowJobResult

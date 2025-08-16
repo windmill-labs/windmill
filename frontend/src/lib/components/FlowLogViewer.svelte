@@ -21,13 +21,12 @@
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import type { GraphModuleState } from './graph/model'
-	import type { Writable } from 'svelte/store'
 
 	type RootJobData = Partial<Job>
 
 	interface Props {
 		modules: FlowModule[]
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		localModuleStates: Record<string, GraphModuleState>
 		rootJob: RootJobData
 		flowStatus: FlowStatusModule['type'] | undefined
 		expandedRows: Record<string, boolean>
@@ -122,7 +121,7 @@
 	}
 
 	function hasEmptySubflow(stepId: string, stepType: FlowModuleValue['type'] | undefined): boolean {
-		const state = $localModuleStates[stepId]
+		const state = localModuleStates[stepId]
 
 		if (!state || !stepType) return false
 		return (
@@ -172,7 +171,7 @@
 				}
 
 				// Check if this entry itself has an error (but don't flag it - only its parents)
-				const stepStatus = $localModuleStates[module.id]?.type
+				const stepStatus = localModuleStates[module.id]?.type
 				if (stepStatus === 'Failure') {
 					currentEntryHasError = true
 					// Don't add the entry itself to parentsWithErrors
@@ -402,7 +401,7 @@
 							{#if modules.length > 0}
 								{#each modules as module (module.id)}
 									{@const isLeafStep = !hasSubflows(module)}
-									{@const status = $localModuleStates[module.id]?.type}
+									{@const status = localModuleStates[module.id]?.type}
 									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 									{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 									{@const isCollapsible = !hasEmptySubflowValue}
@@ -479,7 +478,7 @@
 																</span>
 															{/if}
 														</span>
-														{#if !hasEmptySubflowValue && $localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
+														{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
 															<span
 																class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
 															>
@@ -488,18 +487,18 @@
 																		moduleId={module.id}
 																		id={module.id}
 																		{onSelectedIteration}
-																		flowJobsSuccess={$localModuleStates[module.id]
+																		flowJobsSuccess={localModuleStates[module.id]
 																			?.flow_jobs_success}
-																		flowJobs={$localModuleStates[module.id]?.flow_jobs}
-																		selected={$localModuleStates[module.id]?.selectedForloopIndex ??
+																		flowJobs={localModuleStates[module.id]?.flow_jobs}
+																		selected={localModuleStates[module.id]?.selectedForloopIndex ??
 																			0}
-																		selectedManually={$localModuleStates[module.id]
+																		selectedManually={localModuleStates[module.id]
 																			?.selectedForLoopSetManually ?? false}
 																		showIcon={false}
 																	/>
 																</span>
 																{#if module.value.type === 'forloopflow'}
-																	{`/${$localModuleStates[module.id]?.iteration_total ?? 0}`}
+																	{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
 																{/if}
 															</span>
 														{/if}
@@ -507,7 +506,7 @@
 												</div>
 
 												{#if isLeafStep}
-													{@const jobId = $localModuleStates[module.id]?.job_id}
+													{@const jobId = localModuleStates[module.id]?.job_id}
 													<a
 														href={getJobLink(jobId ?? '')}
 														class="text-xs text-primary hover:underline font-mono"
@@ -520,24 +519,24 @@
 											</div>
 
 											{#if isCollapsible && isExpanded(module.id, isRunning)}
-												{@const args = $localModuleStates[module.id]?.args}
-												{@const logs = $localModuleStates[module.id]?.logs}
-												{@const result = $localModuleStates[module.id]?.result}
-												{@const jobId = $localModuleStates[module.id]?.job_id}
+												{@const args = localModuleStates[module.id]?.args}
+												{@const logs = localModuleStates[module.id]?.logs}
+												{@const result = localModuleStates[module.id]?.result}
+												{@const jobId = localModuleStates[module.id]?.job_id}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show child steps if they exist -->
 													{#each getSubflows(module) as subflow}
 														{@const subflowJob = {
 															id: jobId,
 															type:
-																$localModuleStates[module.id]?.type === 'Failure' ||
-																$localModuleStates[module.id]?.type === 'Success'
+																localModuleStates[module.id]?.type === 'Failure' ||
+																localModuleStates[module.id]?.type === 'Success'
 																	? 'CompletedJob'
 																	: ('QueuedJob' as Job['type']),
 															logs,
 															result,
 															args,
-															success: $localModuleStates[module.id]?.type === 'Success'
+															success: localModuleStates[module.id]?.type === 'Success'
 														}}
 														<div class="border-l mb-2">
 															<!-- Recursively render child steps using FlowLogViewer -->
@@ -545,7 +544,7 @@
 																modules={subflow.modules}
 																{localModuleStates}
 																rootJob={subflowJob}
-																flowStatus={$localModuleStates[module.id]?.type}
+																flowStatus={localModuleStates[module.id]?.type}
 																{expandedRows}
 																{allExpanded}
 																{showResultsInputs}

@@ -1,6 +1,5 @@
 import type { OpenFlow } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
-import type { Writable } from 'svelte/store'
 import type { FlowState } from './flows/flowState'
 import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
 import type { DiffDrawerI } from './diff_drawer'
@@ -16,7 +15,7 @@ export type FlowBuilderProps = {
     initialArgs?: Record<string, any>
     loading?: boolean
     flowStore: StateStore<OpenFlow>
-    flowStateStore: Writable<FlowState>
+    flowStateStore: StateStore<FlowState>
     savedFlow?: FlowWithDraftAndDraftTriggers | undefined
     diffDrawer?: DiffDrawerI | undefined
     customUi?: FlowBuilderWhitelabelCustomUi
