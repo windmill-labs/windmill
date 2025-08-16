@@ -14,6 +14,7 @@
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		noEditor?: boolean
@@ -31,7 +32,7 @@
 		onTestFlow?: () => void
 		job?: Job
 		isOwner?: boolean
-		suspendStatus?: Record<string, { job: Job; nb: number }>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
 	}
 

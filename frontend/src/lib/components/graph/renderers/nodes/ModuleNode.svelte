@@ -40,6 +40,10 @@
 	})
 </script>
 
+<!-- 
+<pre class="text-2xs absolute -top-4 left-0">
+{JSON.stringify(state)}
+</pre> -->
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		{#if data.module.value.type == 'flow'}

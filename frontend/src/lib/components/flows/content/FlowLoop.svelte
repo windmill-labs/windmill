@@ -55,7 +55,7 @@
 
 	let stepPropPicker = $derived(
 		getStepPropPicker(
-			flowStateStore,
+			flowStateStore.val,
 			parentModule,
 			previousModule,
 			mod.id,

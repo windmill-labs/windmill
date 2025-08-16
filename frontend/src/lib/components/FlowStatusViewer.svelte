@@ -1,9 +1,9 @@
 <script lang="ts">
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 	import type { FlowState } from './flows/flowState'
-	import { createEventDispatcher, setContext, untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
-	import { isOwner as loadIsOwner } from '$lib/utils'
+	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { Job } from '$lib/gen'
 
@@ -26,10 +26,13 @@
 		localDurationStatuses?: Record<string, DurationStatus>
 		job?: Job | undefined
 		render?: boolean
-		suspendStatus?: any
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		onStart?: () => void
+		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
+		onDone?: ({ job }: { job: Job }) => void
 	}
 
 	let {
@@ -51,13 +54,16 @@
 		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
-		suspendStatus = $bindable({}),
-		customUi
+		suspendStatus = $bindable({ val: {} }),
+		customUi,
+		onStart,
+		onJobsLoaded,
+		onDone
 	}: Props = $props()
 
 	let lastJobId: string = jobId
 
-	let retryStatus = $state({})
+	let retryStatus = $state({ val: {} })
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,
@@ -76,12 +82,10 @@
 	async function updateJobId() {
 		if (jobId !== lastJobId) {
 			lastJobId = jobId
-			retryStatus = {}
-			suspendStatus = {}
+			retryStatus.val = {}
+			suspendStatus.val = {}
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 
 	let lastScriptPath: string | undefined = $state(undefined)
 
@@ -93,24 +97,20 @@
 	})
 </script>
 
-<pre class="text-2xs">
-{JSON.stringify(flowStateStore, null, 2)}
-</pre>
 <FlowStatusViewerInner
 	{hideFlowResult}
-	on:jobsLoaded={({ detail }) => {
-		let { job } = detail
+	onJobsLoaded={({ job, force }) => {
 		if (job.script_path != lastScriptPath && job.script_path) {
 			lastScriptPath = job.script_path
 			loadOwner(lastScriptPath ?? '')
 		}
-		dispatch('jobsLoaded', job)
+		onJobsLoaded?.({ job, force })
 	}}
 	globalModuleStates={[]}
 	bind:localModuleStates
 	bind:selectedNode={selectedJobStep}
-	on:start
-	on:done
+	{onStart}
+	{onDone}
 	bind:job
 	{initialJob}
 	{jobId}

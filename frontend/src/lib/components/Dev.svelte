@@ -51,7 +51,6 @@
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
-	import { updateDerivedModuleStatesFromTestJobs } from './flows/utils'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -116,7 +115,6 @@
 	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
 	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
 	let showJobStatus = $state(false)
-	let testModuleId: string | undefined = $state(undefined)
 
 	type LastEditScript = {
 		content: string
@@ -464,8 +462,6 @@
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const modulesTestStates = new ModulesTestStates((moduleId) => {
 		// Update the derived store with test job states
-		delete $derivedModuleStates[moduleId]
-		testModuleId = moduleId
 		showJobStatus = false
 	})
 	const outputPickerOpenFns: Record<string, () => void> = $state({})
@@ -588,19 +584,10 @@
 
 	let localModuleStates: Record<string, GraphModuleState> = $state({})
 
-	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
-	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
-	$effect(() => {
-		derivedModuleStates.update((currentStates) => {
-			return showJobStatus ? localModuleStates : currentStates
-		})
-	})
-	$effect(() => {
-		updateDerivedModuleStatesFromTestJobs(testModuleId, modulesTestStates, derivedModuleStates)
-	})
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 	function onJobDone() {
@@ -635,13 +622,8 @@
 	}
 
 	function resetModulesStates() {
-		derivedModuleStates.set({})
 		showJobStatus = false
 	}
-
-	const individualStepTests = $derived(
-		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
-	)
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
@@ -796,7 +778,7 @@
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
-								localModuleStates={derivedModuleStates}
+								{localModuleStates}
 								onTestUpTo={flowPreviewButtons?.testUpTo}
 								isOwner={flowPreviewContent?.getIsOwner?.()}
 								onTestFlow={flowPreviewButtons?.runPreview}
@@ -804,11 +786,11 @@
 								onCancelTestFlow={flowPreviewContent?.cancelTest}
 								onOpenPreview={flowPreviewButtons?.openPreview}
 								onHideJobStatus={resetModulesStates}
-								{individualStepTests}
 								flowJob={job}
 								{showJobStatus}
 								onDelete={(id) => {
-									delete $derivedModuleStates[id]
+									delete localModuleStates[id]
+									delete modulesTestStates.states[id]
 								}}
 								{flowHasChanged}
 							/>

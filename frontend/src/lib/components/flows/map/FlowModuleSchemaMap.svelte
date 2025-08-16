@@ -38,7 +38,8 @@
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
-	import type { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -65,7 +66,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
-		suspendStatus?: Record<string, { job: Job; nb: number }>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 	}
@@ -82,7 +83,7 @@
 		onTestUpTo,
 		onEditInput,
 		localModuleStates = {},
-		testModuleStates = undefined,
+		testModuleStates = new ModulesTestStates(),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -95,7 +96,7 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = $bindable({}),
+		suspendStatus = $bindable({ val: {} }),
 		onDelete,
 		flowHasChanged
 	}: Props = $props()
@@ -394,7 +395,7 @@
 			{individualStepTests}
 			{flowJob}
 			{showJobStatus}
-			{suspendStatus}
+			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)

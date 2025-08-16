@@ -17,6 +17,7 @@
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -52,7 +53,7 @@
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
 		job?: Job
-		suspendStatus?: Record<string, { job: Job; nb: number }>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 	}

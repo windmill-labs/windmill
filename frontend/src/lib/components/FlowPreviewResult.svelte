@@ -4,7 +4,7 @@
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, type StateStore } from '$lib/utils'
 	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
@@ -14,7 +14,7 @@
 		hideFlowResult: boolean
 		hideDownloadLogs: boolean
 		innerModules: FlowStatusModule[]
-		suspendStatus: Record<string, { job: Job; nb: number }>
+		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 		hideJobId?: boolean
 		extra?: import('svelte').Snippet
 		result_streams?: Record<string, string | undefined>
@@ -56,9 +56,9 @@
 	{/if}
 {:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 	<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
-{:else if suspendStatus && Object.keys(suspendStatus).length > 0}
+{:else if suspendStatus.val && Object.keys(suspendStatus.val).length > 0}
 	<div class="flex gap-2 flex-col">
-		{#each Object.values(suspendStatus) as suspendCount (suspendCount.job.id)}
+		{#each Object.values(suspendStatus.val) as suspendCount (suspendCount.job.id)}
 			<div>
 				<div class="text-sm">
 					Flow suspended, waiting for {suspendCount.nb} events

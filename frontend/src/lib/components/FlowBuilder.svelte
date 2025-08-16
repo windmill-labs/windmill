@@ -25,6 +25,7 @@
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
+		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -928,7 +929,7 @@
 	}
 
 	let localModuleStates: Record<string, GraphModuleState> = $state({})
-	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
@@ -1214,6 +1215,7 @@
 					{suspendStatus}
 					onDelete={(id) => {
 						delete localModuleStates[id]
+						delete modulesTestStates.states[id]
 					}}
 					{flowHasChanged}
 				/>

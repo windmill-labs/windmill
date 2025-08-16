@@ -252,7 +252,7 @@
 		$executionCount != undefined && failureModule
 			? getFailureStepPropPicker(flowStateStore, flowStore.val, previewArgs.val)
 			: getStepPropPicker(
-					flowStateStore,
+					flowStateStore.val,
 					parentModule,
 					previousModule,
 					flowModule.id,

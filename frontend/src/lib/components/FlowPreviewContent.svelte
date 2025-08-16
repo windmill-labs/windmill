@@ -19,7 +19,7 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
-	import { emptyString, sendUserToast } from '$lib/utils'
+	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -82,7 +82,7 @@
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
-	let suspendStatus: Record<string, { job: Job; nb: number }> = $state({})
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
 	export function test() {
@@ -575,7 +575,7 @@
 					wideResults
 					bind:flowStateStore={flowStateStore.val}
 					{jobId}
-					on:done={(x) => {
+					onDone={() => {
 						isRunning = false
 						$executionCount = $executionCount + 1
 						onJobDone?.()

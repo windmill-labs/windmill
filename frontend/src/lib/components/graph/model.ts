@@ -1,4 +1,5 @@
 import type { FlowStatusModule, Job } from '$lib/gen'
+import type { StateStore } from '$lib/utils'
 import type { FlowState } from '../flows/flowState'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
@@ -30,8 +31,8 @@ export type DurationStatus = {
 
 export type FlowStatusViewerContext = {
 	flowStateStore?: FlowState
-	retryStatus: Record<string, number | undefined>
-	suspendStatus: Record<string, { nb: number; job: Job }>
+	retryStatus: StateStore<Record<string, number | undefined>>
+	suspendStatus: StateStore<Record<string, { nb: number; job: Job }>>
 	hideDownloadInGraph?: boolean
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean
