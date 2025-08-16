@@ -97,8 +97,7 @@
 					...flowStateStore.val[mod.id],
 					previewResult: testJob.result,
 					previewSuccess: testJob.success,
-					previewJobId: testJob.id,
-					previewWorkspaceId: testJob.workspace_id
+					previewJobId: testJob.id
 				}
 			}
 			stepHistoryLoader?.resetInitial(mod.id)

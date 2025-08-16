@@ -13,20 +13,19 @@
 
 	let { data }: Props = $props()
 
-	let moduleState = $derived(data.flowModuleStates?.[data.id])
 	let flowJobs = $derived(
-		moduleState?.flow_jobs
+		data.flowModuleState?.flow_jobs
 			? {
-					flowJobs: moduleState?.flow_jobs,
-					selected: moduleState?.selectedForloopIndex ?? 0,
-					selectedManually: moduleState?.selectedForLoopSetManually,
-					flowJobsSuccess: moduleState?.flow_jobs_success
+					flowJobs: data.flowModuleState?.flow_jobs,
+					selected: data.flowModuleState?.selectedForloopIndex ?? 0,
+					selectedManually: data.flowModuleState?.selectedForLoopSetManually,
+					flowJobsSuccess: data.flowModuleState?.flow_jobs_success
 				}
 			: (undefined as any)
 	)
 
 	let type = $derived.by(() => {
-		let typ = data.flowModuleStates?.[data.id]?.type
+		let typ = data.flowModuleState?.type
 		if (!typ && flowJobs) {
 			return 'InProgress'
 		}
@@ -34,6 +33,7 @@
 	})
 </script>
 
+<!-- {JSON.stringify(flow, null, 2)} -->
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		{#if data.module.value.type == 'flow'}
@@ -59,27 +59,27 @@
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
-					((moduleState?.selectedForloopIndex ?? 0) >= 0
-						? (moduleState?.selectedForloopIndex ?? 0) + 1
-						: moduleState?.flow_jobs?.length) +
+					((data.flowModuleState?.selectedForloopIndex ?? 0) >= 0
+						? (data.flowModuleState?.selectedForloopIndex ?? 0) + 1
+						: data.flowModuleState?.flow_jobs?.length) +
 					'/' +
-					(moduleState?.iteration_total ?? '?')
+					(data.flowModuleState?.iteration_total ?? '?')
 				: ''}
 			bgColor={getStateColor(
 				data.editMode ? undefined : type,
 				darkMode,
 				true,
-				moduleState?.skipped
+				data.flowModuleState?.skipped
 			)}
 			bgHoverColor={getStateHoverColor(
 				data.editMode ? undefined : type,
 				darkMode,
 				true,
-				moduleState?.skipped
+				data.flowModuleState?.skipped
 			)}
 			moving={data.moving}
-			duration_ms={moduleState?.duration_ms}
-			retries={moduleState?.retries}
+			duration_ms={data.flowModuleState?.duration_ms}
+			retries={data.flowModuleState?.retries}
 			{flowJobs}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
@@ -108,7 +108,7 @@
 			isOwner={data.isOwner}
 			{type}
 			{darkMode}
-			skipped={moduleState?.skipped}
+			skipped={data.flowModuleState?.skipped}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

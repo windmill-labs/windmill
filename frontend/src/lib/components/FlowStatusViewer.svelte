@@ -93,6 +93,9 @@
 	})
 </script>
 
+<pre class="text-2xs">
+{JSON.stringify(flowStateStore, null, 2)}
+</pre>
 <FlowStatusViewerInner
 	{hideFlowResult}
 	on:jobsLoaded={({ detail }) => {
@@ -104,7 +107,7 @@
 		dispatch('jobsLoaded', job)
 	}}
 	globalModuleStates={[]}
-	{localModuleStates}
+	bind:localModuleStates
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done

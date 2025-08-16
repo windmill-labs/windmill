@@ -7,7 +7,7 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow, Job } from '$lib/gen'
@@ -40,7 +40,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -70,7 +70,7 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		localModuleStates = writable({}),
+		localModuleStates = $bindable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,

@@ -1,5 +1,5 @@
 import type { Flow, OpenFlow } from '$lib/gen'
-import { writable, type Writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'

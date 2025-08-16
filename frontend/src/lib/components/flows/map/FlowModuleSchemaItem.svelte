@@ -183,7 +183,6 @@
 			id: flowStateStore.val[id]?.previewJobId ?? '',
 			result: flowStateStore.val[id]?.previewResult,
 			type: 'CompletedJob' as const,
-			workspace_id: flowStateStore.val[id]?.previewWorkspaceId ?? '',
 			success: flowStateStore.val[id]?.previewSuccess ?? undefined
 		}
 	}

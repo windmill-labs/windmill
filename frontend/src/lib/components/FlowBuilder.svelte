@@ -580,7 +580,7 @@
 	let testModuleId: string | undefined = $state(undefined)
 	let modulesTestStates = new ModulesTestStates((moduleId) => {
 		// Update the derived store with test job states
-		delete $derivedModuleStates[moduleId]
+		delete derivedModuleStates[moduleId]
 		testModuleId = moduleId
 		showJobStatus = false
 	})
@@ -938,23 +938,28 @@
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
-	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
+	let derivedModuleStates = $state({})
 	$effect(() => {
-		derivedModuleStates.update((currentStates) => {
-			return showJobStatus ? localModuleStates : currentStates
-		})
+		derivedModuleStates = showJobStatus ? localModuleStates : {}
 	})
 	$effect(() => {
-		updateDerivedModuleStatesFromTestJobs(testModuleId, modulesTestStates, derivedModuleStates)
+		let newStates = updateDerivedModuleStatesFromTestJobs(
+			testModuleId,
+			modulesTestStates,
+			derivedModuleStates
+		)
+		if (newStates) {
+			derivedModuleStates = newStates
+		}
 	})
 
 	function resetModulesStates() {
-		derivedModuleStates.set({})
+		derivedModuleStates = localModuleStates
 		showJobStatus = false
 	}
 
 	const individualStepTests = $derived(
-		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
+		!(showJobStatus && job) && Object.keys(derivedModuleStates).length > 0
 	)
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
@@ -1151,6 +1156,7 @@
 							showCaptureHint.set(true)
 						}}
 						{onJobDone}
+						bind:localModuleStates
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
@@ -1235,7 +1241,7 @@
 					{suspendStatus}
 					{showJobStatus}
 					onDelete={(id) => {
-						delete $derivedModuleStates[id]
+						delete derivedModuleStates[id]
 					}}
 					{flowHasChanged}
 				/>

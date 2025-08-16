@@ -128,7 +128,7 @@ export type ModuleN = {
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
 		moving: string | undefined
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		editMode: boolean
 		flowJob: Job | undefined
@@ -291,21 +291,21 @@ export type AssetsOverflowedN = {
 }
 
 export function topologicalSort(nodes: NodeLayout[]): NodeLayout[] {
-	const nodeMap = new Map(nodes.map(n => [n.id, n]));
-	const result: NodeLayout[] = [];
-	const visited = new Set<string>();
+	const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+	const result: NodeLayout[] = []
+	const visited = new Set<string>()
 
 	function visit(id: string): void {
-		if (visited.has(id)) return;
-		visited.add(id);
+		if (visited.has(id)) return
+		visited.add(id)
 
-		const node = nodeMap.get(id)!;
-		node.parentIds?.forEach(visit);
-		result.push(node);
+		const node = nodeMap.get(id)!
+		node.parentIds?.forEach(visit)
+		result.push(node)
 	}
 
-	nodes.forEach(n => visit(n.id));
-	return result.reverse();
+	nodes.forEach((n) => visit(n.id))
+	return result.reverse()
 }
 
 // input2: InputNode,
@@ -391,7 +391,7 @@ export function graphBuilder(
 					parentIds: [],
 					eventHandlers: eventHandlers,
 					moving: moving,
-					flowModuleStates: extra.flowModuleStates,
+					flowModuleState: extra.flowModuleStates?.[module.id],
 					insertable: extra.insertable,
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,

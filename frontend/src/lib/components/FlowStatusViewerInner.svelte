@@ -627,7 +627,6 @@
 						previewResult: job['result'],
 						previewArgs: job.args,
 						previewJobId: job.id,
-						previewWorkspaceId: job.workspace_id,
 						previewSuccess: job['success']
 					}
 				}
@@ -749,26 +748,27 @@
 				innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow'
 			)
 
-			if (flowStateStore && flowStateStore?.[modId] == undefined) {
-				flowStateStore.val[modId] = {
-					...((flowStateStore.val[modId] as object) ?? {}),
+			if (flowStateStore) {
+				flowStateStore[modId] = {
+					...((flowStateStore[modId] as object) ?? {}),
 					previewResult: jobLoaded.args
 				}
+				console.log('flowStateStore', flowStateStore[modId])
 			}
 			if (flowStateStore?.[modId]) {
 				if (!childFlow) {
 					if (
-						!flowStateStore.val[modId].previewResult ||
-						!Array.isArray(flowStateStore.val[modId]?.previewResult)
+						!flowStateStore?.[modId]?.previewResult ||
+						!Array.isArray(flowStateStore[modId]?.previewResult)
 					) {
-						flowStateStore.val[modId].previewResult = []
+						flowStateStore[modId].previewResult = []
 					}
-					flowStateStore.val[modId].previewArgs = jobLoaded.args
+					flowStateStore[modId].previewArgs = jobLoaded.args
 				}
 				if (jobLoaded.type == 'QueuedJob') {
 					jobResults[j] = 'Job in progress ...'
 				} else if (jobLoaded.type == 'CompletedJob') {
-					flowStateStore.val[modId].previewResult[j] = jobLoaded.result
+					flowStateStore[modId].previewResult[j] = jobLoaded.result
 					jobResults[j] = jobLoaded.result
 				}
 			}

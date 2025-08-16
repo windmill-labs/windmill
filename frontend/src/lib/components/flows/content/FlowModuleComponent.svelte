@@ -206,8 +206,7 @@
 			!flowStateStore ||
 			!flowModule.id ||
 			flowStateStore.val[flowModule.id]?.previewResult === 'never tested this far' ||
-			!flowStateStore.val[flowModule.id]?.previewJobId ||
-			!flowStateStore.val[flowModule.id]?.previewWorkspaceId
+			!flowStateStore.val[flowModule.id]?.previewJobId
 		) {
 			return
 		}
@@ -222,7 +221,7 @@
 		lastJobId = flowStateStore.val[flowModule.id]?.previewJobId
 
 		const job = await JobService.getJob({
-			workspace: flowStateStore.val[flowModule.id]?.previewWorkspaceId ?? '',
+			workspace: $workspaceStore ?? '',
 			id: flowStateStore.val[flowModule.id]?.previewJobId ?? '',
 			noCode: true
 		})

@@ -9,7 +9,6 @@ export type FlowModuleState = {
 	previewResult?: any
 	previewArgs?: any
 	previewJobId?: string
-	previewWorkspaceId?: string
 	previewSuccess?: boolean
 }
 

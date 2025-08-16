@@ -36,7 +36,6 @@
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
-	import { writable, type Writable } from 'svelte/store'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
@@ -51,7 +50,7 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
@@ -80,7 +79,7 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
-		localModuleStates = writable({}),
+		localModuleStates = $bindable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -115,7 +114,7 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		let module = emptyModule(flowStateStore, flowStore.val, kind == 'flow')
+		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
 		if (wsFlow) {
@@ -307,7 +306,6 @@
 					...(flowStateStore.val[moduleId] ?? {}),
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
-					previewWorkspaceId: previousJobId[0].workspace_id,
 					previewSuccess: getJobResult.success
 				}
 				if (stepHistoryLoader) {
@@ -387,7 +385,7 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
-			flowModuleStates={$localModuleStates}
+			flowModuleStates={localModuleStates}
 			{isOwner}
 			{individualStepTests}
 			{flowJob}
