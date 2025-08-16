@@ -780,6 +780,7 @@
 								disableStaticInputs
 								{localModuleStates}
 								onTestUpTo={flowPreviewButtons?.testUpTo}
+								testModuleStates={modulesTestStates}
 								isOwner={flowPreviewContent?.getIsOwner?.()}
 								onTestFlow={flowPreviewButtons?.runPreview}
 								isRunning={flowPreviewContent?.getIsRunning?.()}
