@@ -12,7 +12,7 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { copilotSessionModel } from '$lib/stores'
 import { get } from 'svelte/store'
@@ -354,7 +354,8 @@ const testRunFlowToolDef = createToolDef(
 const testRunStepSchema = z.object({
 	stepId: z.string().describe('The id of the step to test'),
 	args: z
-		.record(z.any())
+		.object({})
+		.nullable()
 		.optional()
 		.describe('Arguments to pass to the step (optional, uses default step inputs if not provided)')
 })
@@ -592,32 +593,17 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		setSchema: async function(helpers: FlowAIChatHelpers) {
-			try {
-				if (this.def?.function?.parameters) {
-					const flowInputsSchema = await helpers.getFlowInputsSchema()
-					this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
-					// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-					const model = get(copilotSessionModel)?.provider
-					if (model === 'openai' || model === 'azure_openai') {
-						this.def.function.strict = false
-					}
-				}
-			} catch (e) {
-				console.error('Error setting schema for test_run_flow tool', e)
-				// fallback to schema with any properties
-				this.def.function.parameters = {
-					type: 'object',
-					properties: {},
-					additionalProperties: true,
-					strict: false
-				}
-			}
+			await buildSchemaForTool(this.def, async () => {
+				const flowInputsSchema = await helpers.getFlowInputsSchema()
+				return flowInputsSchema
+			})
 		},
 		requiresConfirmation: true,
 		showDetails: true
 	},
 	{
-		def: testRunStepToolDef,
+		// set strict to false to avoid issues with open ai models
+		def: { ...testRunStepToolDef, function: { ...testRunStepToolDef.function, strict: false } },
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -661,11 +647,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: moduleValue.content ?? '',
 								language: moduleValue.language,
-								args:
-									module.id === 'preprocessor'
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs,
-								tag: flow.tag || moduleValue.tag
+								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs
 							}
 						}),
 					workspace,
@@ -676,18 +658,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				})
 			} else if (moduleValue.type === 'script') {
 				// Test script step - need to get the script content
-				let script
-				if (moduleValue.hash) {
-					script = await ScriptService.getScriptByHash({
-						workspace: workspace,
-						hash: moduleValue.hash
-					})
-				} else {
-					script = await ScriptService.getScriptByPath({
-						workspace: workspace,
-						path: moduleValue.path
-					})
-				}
+				const script = moduleValue.hash
+					? await ScriptService.getScriptByHash({
+							workspace: workspace,
+							hash: moduleValue.hash
+						})
+					: await ScriptService.getScriptByPath({
+							workspace: workspace,
+							path: moduleValue.path
+						})
 
 				return executeTestRun({
 					jobStarter: () =>
@@ -696,12 +675,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: script.content,
 								language: script.language,
-								args:
-									module.id === 'preprocessor'
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs,
-								tag: flow.tag || (moduleValue.tag_override ? moduleValue.tag_override : script.tag),
-								lock: script.lock
+								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs,
 							}
 						}),
 					workspace,
@@ -745,8 +719,7 @@ export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
-ALWAYS use the \`test_run_flow\` tool to test the flow, and iterate on the flow until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
-Use the \`test_run_step\` tool to test individual steps of the flow when debugging or validating specific step functionality.
+ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 
 ## Understanding User Requests
 
