@@ -71,7 +71,7 @@ impl TriggerCrud for GcpTriggerHandler {
         ))
     }
 
-    async fn create_trigger<'e, E: PgExecutor<'e>>(
+    async fn create_trigger(
         &self,
         _db: &DB,
         _executor: &mut PgConnection,
@@ -84,7 +84,7 @@ impl TriggerCrud for GcpTriggerHandler {
         ))
     }
 
-    async fn update_trigger<'e, E: PgExecutor<'e>>(
+    async fn update_trigger(
         &self,
         _db: &DB,
         _executor: &mut PgConnection,

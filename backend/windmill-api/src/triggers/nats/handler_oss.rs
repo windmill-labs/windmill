@@ -70,7 +70,7 @@ impl TriggerCrud for NatsTriggerHandler {
         ))
     }
 
-    async fn create_trigger<'e, E: PgExecutor<'e>>(
+    async fn create_trigger(
         &self,
         _executor: &mut PgConnection,
         _authed: &ApiAuthed,
@@ -82,7 +82,7 @@ impl TriggerCrud for NatsTriggerHandler {
         ))
     }
 
-    async fn update_trigger<'e, E: PgExecutor<'e>>(
+    async fn update_trigger(
         &self,
         _db: &DB,
         _executor: &mut PgConnection,

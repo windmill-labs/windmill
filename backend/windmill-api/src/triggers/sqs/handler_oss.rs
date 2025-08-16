@@ -69,7 +69,7 @@ impl TriggerCrud for SqsTriggerHandler {
         ))
     }
 
-    async fn create_trigger<'e, E: PgExecutor<'e>>(
+    async fn create_trigger(
         &self,
         _tx: &mut PgConnection,
         _authed: &ApiAuthed,
@@ -81,7 +81,7 @@ impl TriggerCrud for SqsTriggerHandler {
         ))
     }
 
-    async fn update_trigger<'e, E: PgExecutor<'e>>(
+    async fn update_trigger(
         &self,
         _db: &DB,
         _tx: &mut PgConnection,
