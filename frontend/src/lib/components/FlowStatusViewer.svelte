@@ -109,6 +109,7 @@
 	globalModuleStates={[]}
 	bind:localModuleStates
 	bind:selectedNode={selectedJobStep}
+	bind:localDurationStatuses
 	{onStart}
 	{onDone}
 	bind:job

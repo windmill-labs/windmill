@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { debounce, displayDate, msToSec } from '$lib/utils'
+	import { debounce, displayDate, msToSec, readFieldsRecursively } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
@@ -44,6 +44,7 @@
 
 	let { debounced, clearDebounce } = debounce(() => computeItems(durationStatuses), 30)
 	$effect(() => {
+		readFieldsRecursively(durationStatuses)
 		flowDone != undefined && durationStatuses && untrack(() => debounced())
 	})
 

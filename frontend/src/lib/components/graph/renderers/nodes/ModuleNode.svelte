@@ -40,9 +40,8 @@
 	})
 </script>
 
-<!-- 
-<pre class="text-2xs absolute -top-4 left-0">
-{JSON.stringify(state)}
+<!-- <pre class="text-2xs absolute -top-4 -left-10">
+{JSON.stringify(data.flowModuleState?.job_id)}
 </pre> -->
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}

@@ -13,7 +13,7 @@
 		isOwner: boolean
 		hideFlowResult: boolean
 		hideDownloadLogs: boolean
-		innerModules: FlowStatusModule[]
+		innerModules: FlowStatusModule[] | undefined
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 		hideJobId?: boolean
 		extra?: import('svelte').Snippet
@@ -73,7 +73,7 @@
 	>
 		<pre class="w-full">{job.logs}</pre>
 	</div>
-{:else if innerModules?.length > 0}
+{:else if innerModules && innerModules?.length > 0}
 	<div class="flex flex-col gap-1">
 		{#each innerModules as mod, i (mod.id)}
 			{#if mod.type == 'InProgress'}
