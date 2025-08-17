@@ -1,19 +1,16 @@
+#[cfg(not(feature = "private"))]
+use windmill_common::triggers::TriggerKind;
+
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
     super::{EditGcpConfig, GcpConfig, NewGcpConfig, TestGcpConfig},
-    crate::{
-        db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
-    },
+    crate::db::{ApiAuthed, DB},
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::{
-        error::{Error, Result},
-        jobs::JobTriggerKind,
-    },
+    windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
 
@@ -31,7 +28,7 @@ impl TriggerCrud for GcpTriggerHandler {
 
     const TABLE_NAME: &'static str = "gcp_trigger";
     const TRIGGER_TYPE: &'static str = "gcp";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Gcp;
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Gcp;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = false;

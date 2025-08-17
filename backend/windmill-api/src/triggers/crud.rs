@@ -1,3 +1,20 @@
+use crate::{
+    db::ApiAuthed,
+    triggers::{CreateTrigger, EditTrigger, StandardTriggerQuery},
+};
+use async_trait::async_trait;
+use serde::{de::DeserializeOwned, Serialize};
+use sql_builder::{bind::Bind, SqlBuilder};
+use sqlx::{FromRow, PgConnection};
+use std::fmt::Debug;
+use windmill_common::{
+    db::UserDB,
+    error::{Error, Result},
+    utils::{paginate, Pagination},
+    DB,
+};
+use windmill_git_sync::DeployedObject;
+
 use axum::{
     extract::{Path, Query},
     http::StatusCode,
@@ -7,19 +24,13 @@ use axum::{
 use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB,
-    error::{self, JsonResult, Result},
+    error::{self, JsonResult},
     utils::StripPath,
     worker::CLOUD_HOSTED,
-    DB,
 };
 use windmill_git_sync::handle_deployment_metadata;
 
-use crate::{
-    db::ApiAuthed,
-    triggers::{CreateTrigger, EditTrigger, StandardTriggerQuery, TriggerCrud},
-    utils::check_scopes,
-};
+use crate::utils::check_scopes;
 
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
 use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
@@ -37,6 +48,272 @@ use crate::triggers::postgres::handler::PostgresTriggerHandler;
 use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
 #[cfg(feature = "websocket")]
 use crate::triggers::websocket::handler::WebsocketTriggerHandler;
+
+#[async_trait]
+pub trait TriggerCrud: Send + Sync + 'static {
+    type Trigger: Serialize
+        + DeserializeOwned
+        + for<'r> FromRow<'r, sqlx::postgres::PgRow>
+        + Send
+        + Sync
+        + Unpin;
+
+    type TriggerConfig: Debug
+        + DeserializeOwned
+        + for<'r> FromRow<'r, sqlx::postgres::PgRow>
+        + Serialize
+        + Send
+        + Sync
+        + Unpin;
+
+    type EditTriggerConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
+    type NewTriggerConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
+    type TestConnectionConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
+
+    const TABLE_NAME: &'static str;
+    const TRIGGER_TYPE: &'static str;
+    const SCOPE_NAME: &'static str = Self::TRIGGER_TYPE;
+    const SUPPORTS_ENABLED: bool = true;
+    const SUPPORTS_SERVER_STATE: bool = true;
+    const SUPPORTS_TEST_CONNECTION: bool = false;
+    const ROUTE_PREFIX: &'static str;
+    const DEPLOYMENT_NAME: &'static str;
+
+    fn get_deployed_object(path: String) -> DeployedObject;
+
+    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
+        Ok(())
+    }
+
+    fn scope_domain_name() -> &'static str {
+        &Self::ROUTE_PREFIX[1..]
+    }
+
+    async fn validate_edit(
+        &self,
+        _workspace_id: &str,
+        _path: &str,
+        _edit: &Self::EditTriggerConfig,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn additional_select_fields(&self) -> Vec<&'static str> {
+        vec![]
+    }
+
+    async fn create_trigger(
+        &self,
+        db: &DB,
+        tx: &mut PgConnection,
+        authed: &ApiAuthed,
+        w_id: &str,
+        trigger: CreateTrigger<Self::NewTriggerConfig>,
+    ) -> Result<()>;
+
+    async fn update_trigger(
+        &self,
+        db: &DB,
+        tx: &mut PgConnection,
+        authed: &ApiAuthed,
+        workspace_id: &str,
+        path: &str,
+        trigger: EditTrigger<Self::EditTriggerConfig>,
+    ) -> Result<()>;
+
+    async fn test_connection(
+        &self,
+        _db: &DB,
+        _authed: &ApiAuthed,
+        _user_db: &UserDB,
+        _workspace_id: &str,
+        _config: Self::TestConnectionConfig,
+    ) -> Result<()> {
+        Err(
+            anyhow::anyhow!("Test connection not supported for this trigger type".to_string(),)
+                .into(),
+        )
+    }
+
+    fn additional_routes(&self) -> axum::Router {
+        axum::Router::new()
+    }
+
+    async fn get_trigger_by_path(
+        &self,
+        tx: &mut PgConnection,
+        workspace_id: &str,
+        path: &str,
+    ) -> Result<Self::Trigger> {
+        let mut fields = vec![
+            "workspace_id",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+        ];
+
+        if Self::SUPPORTS_SERVER_STATE {
+            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+        }
+
+        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+        fields.extend(self.additional_select_fields());
+
+        let sql = format!(
+            "SELECT {} FROM {} WHERE workspace_id = $1 AND path = $2",
+            fields.join(", "),
+            Self::TABLE_NAME
+        );
+
+        sqlx::query_as(&sql)
+            .bind(workspace_id)
+            .bind(path)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Trigger not found at path: {}", path)))
+    }
+
+    async fn exists(&self, tx: &mut PgConnection, workspace_id: &str, path: &str) -> Result<bool> {
+        let exists = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
+            Self::TABLE_NAME
+        ))
+        .bind(workspace_id)
+        .bind(path)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        Ok(exists)
+    }
+
+    async fn delete_by_path(
+        &self,
+        tx: &mut PgConnection,
+        workspace_id: &str,
+        path: &str,
+    ) -> Result<bool> {
+        let deleted = sqlx::query(&format!(
+            "DELETE FROM {} WHERE workspace_id = $1 AND path = $2",
+            Self::TABLE_NAME
+        ))
+        .bind(workspace_id)
+        .bind(path)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        Ok(deleted > 0)
+    }
+
+    async fn set_enabled(
+        &self,
+        tx: &mut PgConnection,
+        workspace_id: &str,
+        path: &str,
+        enabled: bool,
+    ) -> Result<bool> {
+        if !Self::SUPPORTS_SERVER_STATE {
+            return Err(anyhow::anyhow!(
+                "Enable/disable not supported for this trigger type".to_string(),
+            )
+            .into());
+        }
+
+        let updated = sqlx::query(&format!(
+            "UPDATE {} SET enabled = $3 WHERE workspace_id = $1 AND path = $2",
+            Self::TABLE_NAME
+        ))
+        .bind(workspace_id)
+        .bind(path)
+        .bind(enabled)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        Ok(updated > 0)
+    }
+
+    async fn trigger_count(
+        &self,
+        tx: &mut PgConnection,
+        workspace_id: &str,
+        is_flow: bool,
+        script_path: &str,
+    ) -> i64 {
+        let count = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM {} WHERE workspace_id = $1 AND is_flow = $2 AND script_path = $3",
+            Self::TABLE_NAME
+        ))
+        .bind(workspace_id)
+        .bind(is_flow)
+        .bind(script_path)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap_or(0);
+
+        count
+    }
+
+    async fn list_triggers(
+        &self,
+        tx: &mut PgConnection,
+        workspace_id: &str,
+        query: Option<&StandardTriggerQuery>,
+    ) -> Result<Vec<Self::Trigger>> {
+        let mut fields = vec![
+            "workspace_id",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+        ];
+
+        if Self::SUPPORTS_SERVER_STATE {
+            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+        }
+
+        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+        fields.extend(self.additional_select_fields());
+
+        let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
+
+        sqlb.fields(&fields)
+            .order_by("edited_at", true)
+            .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(query) = query {
+            let (per_page, offset) =
+                paginate(Pagination { per_page: query.per_page, page: query.page });
+            if let Some(path) = &query.path {
+                sqlb.and_where_eq("script_path", "?".bind(path));
+            }
+
+            if let Some(is_flow) = query.is_flow {
+                sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+            }
+
+            if let Some(path_start) = &query.path_start {
+                sqlb.and_where_like_left("path", path_start);
+            }
+
+            sqlb.offset(offset).limit(per_page);
+        }
+        let sql = sqlb
+            .sql()
+            .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
+
+        let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
+
+        Ok(triggers)
+    }
+}
 
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()

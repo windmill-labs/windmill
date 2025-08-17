@@ -51,6 +51,7 @@ pub struct GcpConfig {
     pub delivery_type: DeliveryMode,
     pub delivery_config: Option<SqlxJson<PushConfig>>,
     pub subscription_mode: GcpSubscriptionMode,
+    pub auto_acknowledge_msg: Option<bool>,
 }
 
 #[derive(Default, Clone, FromRow, Deserialize, Serialize, Debug)]

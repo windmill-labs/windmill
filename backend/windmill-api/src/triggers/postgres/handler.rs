@@ -16,7 +16,6 @@ use uuid;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, Result},
-    jobs::JobTriggerKind,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -51,7 +50,6 @@ impl TriggerCrud for PostgresTriggerHandler {
 
     const TABLE_NAME: &'static str = "postgres_trigger";
     const TRIGGER_TYPE: &'static str = "postgres";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Postgres;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;

@@ -12,7 +12,6 @@ use tokio_tungstenite::connect_async;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    jobs::JobTriggerKind,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -33,7 +32,6 @@ impl TriggerCrud for WebsocketTriggerHandler {
 
     const TABLE_NAME: &'static str = "websocket_trigger";
     const TRIGGER_TYPE: &'static str = "websocket";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;

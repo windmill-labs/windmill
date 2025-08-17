@@ -3,17 +3,14 @@ pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditSqsConfig, NewSqsConfig, SqsConfig, TestSqsConfig},
+    super::{EditSqsConfig, NewSqsConfig, SqsConfig, TestSqsConfig, TriggerCrud},
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+        triggers::{CreateTrigger, EditTrigger, Trigger},
     },
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::{
-        error::{Error, Result},
-        jobs::JobTriggerKind,
-    },
+    windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
 
@@ -32,7 +29,6 @@ impl TriggerCrud for SqsTriggerHandler {
 
     const TABLE_NAME: &'static str = "sqs_trigger";
     const TRIGGER_TYPE: &'static str = "sqs";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Sqs;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = false;

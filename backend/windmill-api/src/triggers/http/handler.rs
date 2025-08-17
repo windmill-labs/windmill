@@ -32,12 +32,7 @@ use std::{
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB,
-    error::{Error, Result},
-    jobs::JobTriggerKind,
-    triggers::TriggerKind,
-    utils::{not_found_if_none, require_admin, StripPath},
-    worker::CLOUD_HOSTED,
+    db::UserDB, error::{Error, Result}, triggers::TriggerKind, utils::{not_found_if_none, require_admin, StripPath}, worker::CLOUD_HOSTED
 };
 use windmill_git_sync::handle_deployment_metadata;
 
@@ -206,7 +201,6 @@ impl TriggerCrud for HttpTriggerHandler {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Http;
     const SUPPORTS_ENABLED: bool = false;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;

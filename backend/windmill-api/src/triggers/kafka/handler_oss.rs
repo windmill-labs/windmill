@@ -12,7 +12,6 @@ use {
     sqlx::PgConnection,
     windmill_common::{
         error::{Error, Result},
-        jobs::JobTriggerKind,
     },
     windmill_git_sync::DeployedObject,
 };
@@ -31,7 +30,6 @@ impl TriggerCrud for KafkaTriggerHandler {
 
     const TABLE_NAME: &'static str = "kafka_trigger";
     const TRIGGER_TYPE: &'static str = "kafka";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Kafka;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = false;

@@ -14819,6 +14819,7 @@ dependencies = [
  "async-oauth2",
  "async-recursion",
  "async-stream",
+ "async-trait",
  "async_zip",
  "aws-config",
  "aws-sdk-sqs",

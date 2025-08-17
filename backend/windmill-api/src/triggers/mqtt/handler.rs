@@ -9,7 +9,6 @@ use sqlx::{types::Json as SqlxJson, PgConnection};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    jobs::JobTriggerKind,
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::DeployedObject;
@@ -32,7 +31,6 @@ impl TriggerCrud for MqttTriggerHandler {
 
     const TABLE_NAME: &'static str = "mqtt_trigger";
     const TRIGGER_TYPE: &'static str = "mqtt";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Mqtt;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;

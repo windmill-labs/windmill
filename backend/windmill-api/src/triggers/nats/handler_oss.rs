@@ -10,10 +10,7 @@ use {
     },
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::{
-        error::{Error, Result},
-        jobs::JobTriggerKind,
-    },
+    windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
 
@@ -31,7 +28,6 @@ impl TriggerCrud for NatsTriggerHandler {
 
     const TABLE_NAME: &'static str = "nats_trigger";
     const TRIGGER_TYPE: &'static str = "nats";
-    const TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Nats;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = false;
