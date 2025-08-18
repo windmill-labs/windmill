@@ -16,6 +16,7 @@
 	import {
 		Calendar,
 		Check,
+		ExternalLink,
 		FastForward,
 		Folder,
 		Hourglass,
@@ -32,6 +33,7 @@
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
+	import RunBadges from './RunBadges.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -65,6 +67,7 @@
 		}
 	}}
 >
+	<!-- Flow status-->
 	<div class="w-1/12 flex justify-center">
 		{#if selectionMode && isJobSelectable(selectionMode)(job)}
 			<div class="px-2">
@@ -112,6 +115,7 @@
 		{/if}
 	</div>
 
+	<!-- Job time-->
 	<div class="w-2/12 flex justify-start">
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
@@ -144,6 +148,7 @@
 		</div>
 	</div>
 
+	<!-- Job path-->
 	<div class="w-4/12 flex justify-start flex-col">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
@@ -248,7 +253,8 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="w-3/12 flex justify-start">
+	<!-- Author and schedule-->
+	<div class="w-2/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -291,4 +297,22 @@
 			</div>
 		{/if}
 	</div>
+
+	<div class="w-2/12 flex justify-start gap-1">
+		<RunBadges {job} showScriptHash={false} verySmall />
+	</div>
+
+	<!-- Job link-->
+	{#if !isExternal}
+		<div class="w-1/12 flex justify-end">
+			<a
+				target="_blank"
+				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				class="text-right float-right text-gray-300 hover:text-primary dark:text-gray-300 px-2"
+				title="See run detail in a new tab"
+			>
+				<ExternalLink size={14} />
+			</a>
+		</div>
+	{/if}
 </div>

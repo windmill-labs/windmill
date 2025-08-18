@@ -22,9 +22,7 @@
 		encodeState,
 		isFlowPreview,
 		isNotFlow,
-		isScriptPreview,
-		truncateHash,
-		truncateRev
+		isScriptPreview
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -82,20 +80,21 @@
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
-	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
+
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import { setContext, untrack } from 'svelte'
-	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
+
 	import FlowAssetsHandler, {
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
+	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -762,96 +761,14 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
-						{#if job.script_hash}
-							{#if job.job_kind == 'script'}
-								<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
-									><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-								>
-							{:else}
-								<div>
-									<Badge color="gray">{truncateHash(job.script_hash)}</Badge>
-								</div>
-							{/if}
-						{/if}
-						{#if job && 'job_kind' in job}
-							<div>
-								<Badge color="blue">{job.job_kind}</Badge>
-							</div>
-						{/if}
-						{#if job && job.flow_status && job.job_kind === 'script'}
-							<PreprocessedArgsDisplay preprocessed={job.preprocessed} />
-						{/if}
-						{#if persistentScriptDefinition}
-							<button onclick={() => persistentScriptDrawer?.open?.(persistentScriptDefinition)}
-								><Badge color="red">persistent</Badge></button
-							>
-						{/if}
-						{#if job && 'priority' in job}
-							<div>
-								<Badge color="blue">priority: {job.priority}</Badge>
-							</div>
-						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency', 'ruby'].includes(job.tag)}
-							<!-- for related places search: ADD_NEW_LANG -->
-							<div>
-								<Badge color="indigo">Tag: {job.tag}</Badge>
-							</div>
-						{/if}
-						{#if !job.visible_to_owner}
-							<div>
-								<Badge color="red">
-									only visible to you
-									<Tooltip>
-										{#snippet text()}
-											The option to hide this run from the owner of this script or flow was
-											activated
-										{/snippet}
-									</Tooltip>
-								</Badge>
-							</div>
-						{/if}
-						{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
-							{#each job?.['labels'] as label}
-								<div>
-									<Badge>Label: {label}</Badge>
-								</div>
-							{/each}
-						{/if}
-						{#if concurrencyKey}
-							<div>
-								<Tooltip notClickable>
-									{#snippet text()}
-										This job has concurrency limits enabled with the key
-										<a
-											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-										>
-											{concurrencyKey}
-										</a>
-									{/snippet}
-									<a
-										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-									>
-										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
-									>
-								</Tooltip>
-							</div>
-						{/if}
-						{#if job?.worker}
-							<div>
-								<Tooltip notClickable>
-									{#snippet text()}
-										worker:
-										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-											{job?.worker}
-										</a><br />
-										<WorkerHostname worker={job?.worker!} minTs={job?.['created_at']} />
-									{/snippet}
-									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
-									>
-								</Tooltip>
-							</div>
-						{/if}
+						<RunBadges
+							{job}
+							displayPersistentScriptDefinition={!!persistentScriptDefinition}
+							openPersistentScriptDrawer={() => {
+								persistentScriptDrawer?.open?.(persistentScriptDefinition)
+							}}
+							{concurrencyKey}
+						/>
 					</div>
 				{/if}
 			</div>

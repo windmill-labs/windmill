@@ -265,12 +265,13 @@
 					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
 				>
 			{/if}
-			<div class="w-4/12 text-xs font-semibold"></div>
+			<div class="w-2/12 text-xs font-semibold"></div>
 			<div class="w-4/12 text-xs font-semibold">Path</div>
 			{#if containsLabel}
 				<div class="w-3/12 text-xs font-semibold">Label</div>
 			{/if}
-			<div class="w-3/12 text-xs font-semibold">Triggered by</div>
+			<div class="w-2/12 text-xs font-semibold">Triggered by</div>
+			<div class="w-2/12 text-xs font-semibold">Tags</div>
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
