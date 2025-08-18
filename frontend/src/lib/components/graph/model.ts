@@ -24,13 +24,12 @@ export type GraphModuleStates = {
 }
 
 export type DurationStatus = {
-	iteration_from?: number
-	iteration_total?: number
 	byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
 }
 
-export type GlobalModuleState = {
-
+export type GlobalIterationBounds = {
+	iteration_from?: number
+	iteration_total?: number
 }
 
 export type FlowStatusViewerContext = {

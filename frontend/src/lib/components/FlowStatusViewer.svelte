@@ -66,6 +66,8 @@
 	let retryStatus = $state({ val: {} })
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
 
+	let globalIterationBounds = $state({})
+
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,
@@ -87,6 +89,7 @@
 			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
+			globalIterationBounds = {}
 		}
 	}
 
@@ -119,6 +122,7 @@
 		onJobsLoaded?.({ job, force })
 	}}
 	globalModuleStates={[]}
+	{globalIterationBounds}
 	bind:localModuleStates
 	bind:selectedNode={selectedJobStep}
 	bind:localDurationStatuses

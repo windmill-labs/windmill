@@ -20,7 +20,12 @@
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
+	import {
+		type DurationStatus,
+		type FlowStatusViewerContext,
+		type GlobalIterationBounds,
+		type GraphModuleState
+	} from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -71,6 +76,7 @@
 		selectedNode?: string | undefined
 		globalModuleStates: Record<string, GraphModuleState>[]
 		globalDurationStatuses?: Record<string, DurationStatus>[]
+		globalIterationBounds: Record<string, GlobalIterationBounds>
 		isSelectedBranch?: boolean
 		childFlow?: boolean
 		isSubflow?: boolean
@@ -118,6 +124,7 @@
 		selectedNode = $bindable(undefined),
 		globalModuleStates,
 		globalDurationStatuses = [],
+		globalIterationBounds,
 		updateRecursiveRefreshFn = undefined,
 		isSelectedBranch = true,
 		childFlow = false,
@@ -571,18 +578,20 @@
 			if (flowJobIds) {
 				let modId = flowJobIds?.moduleId ?? ''
 
-				let common = {
-					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
-					iteration_total: localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
+				if (localDurationStatuses[modId] == undefined) {
+					localDurationStatuses[modId] = { byJob: {} }
 				}
-				localDurationStatuses[modId] = {
-					...(localDurationStatuses[modId] ?? { byJob: {} }),
-					...common
-				}
-				let prefixed = modId
+				let prefixed = buildSubflowKey(modId, prefix)
 				globalDurationStatuses.forEach((x) => {
-					x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
+					if (x[prefixed] == undefined) {
+						x[prefixed] = { byJob: {} }
+					}
 				})
+
+				globalIterationBounds[prefixed] = {
+					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_total: flowJobIds?.length
+				}
 			} else {
 				recursiveRefresh = {}
 				localDurationStatuses = {}
@@ -758,7 +767,10 @@
 			// 		previewResult: jobLoaded.args
 			// 	}
 			// }
-			if (!childFlow && flowStateStore?.[modId]) {
+			if (flowStateStore && flowStateStore[modId] == undefined) {
+				flowStateStore[modId] = {}
+			}
+			if (flowStateStore) {
 				if (
 					!flowStateStore?.[modId]?.previewResult ||
 					!Array.isArray(flowStateStore[modId]?.previewResult)
@@ -838,10 +850,11 @@
 
 	let flowTimeline: FlowTimeline | undefined = $state()
 
-	function loadPreviousIters(lenToAdd: number) {
-		let r = localDurationStatuses[flowJobIds?.moduleId ?? '']
-		if (r.iteration_from) {
-			r.iteration_from -= lenToAdd
+	function loadPreviousIters(innerKey: string, lenToAdd: number) {
+		let key = buildSubflowKey(innerKey, prefix)
+		if (globalIterationBounds[key]) {
+			globalIterationBounds[key].iteration_from =
+				(globalIterationBounds[key]?.iteration_from ?? 0) - lenToAdd
 		}
 		// updateSlicedListJobIds()
 	}
@@ -974,7 +987,9 @@
 			<div class="h-8" />
 		{/if} -->
 		{#if isListJob}
-			{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+			{@const sliceFrom =
+				globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
+					?.iteration_from ?? 0}
 			{@const lenToAdd = Math.min(20, sliceFrom)}
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
 				{@const allToAdd = (flowJobIds?.length ?? 0) - sliceFrom}
@@ -982,7 +997,7 @@
 					For performance reasons, only the last 20 items are shown by default <button
 						class="text-primary underline ml-4"
 						onclick={() => {
-							loadPreviousIters(lenToAdd)
+							loadPreviousIters(flowJobIds?.moduleId ?? '', lenToAdd)
 						}}
 						>Load {lenToAdd} prior
 					</button>
@@ -991,7 +1006,7 @@
 						<button
 							class="text-primary underline ml-4"
 							onclick={() => {
-								loadPreviousIters(allToAdd)
+								loadPreviousIters(flowJobIds?.moduleId ?? '', allToAdd)
 							}}
 							>Load {allToAdd} prior
 						</button>
@@ -1042,7 +1057,9 @@
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
-				{@const sliceFrom = localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
+				{@const sliceFrom =
+					globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
+						?.iteration_from ?? 0}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
@@ -1122,6 +1139,7 @@
 									{onResultStreamUpdate}
 									graphTabOpen={selected == 'graph' && graphTabOpen}
 									isNodeSelected={forloop_selected == loopJobId}
+									{globalIterationBounds}
 								/>
 							</div>
 						{/if}
@@ -1202,6 +1220,7 @@
 											{onResultStreamUpdate}
 											graphTabOpen={selected == 'graph' && graphTabOpen}
 											isNodeSelected={retry_selected == failedRetry}
+											{globalIterationBounds}
 										/>
 									</div>
 								{/each}
@@ -1215,6 +1234,7 @@
 										globalModuleStates={[]}
 										{updateGlobalRefresh}
 										globalDurationStatuses={[]}
+										{globalIterationBounds}
 										prefix={buildPrefix(prefix, mod.id ?? '')}
 										subflowParentsGlobalModuleStates={[
 											localModuleStates,
@@ -1278,6 +1298,7 @@
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
+										{globalIterationBounds}
 									/>
 								{/if}
 							{:else}
@@ -1391,11 +1412,11 @@
 									job?.raw_flow?.modules ?? [],
 									expandedSubflows ?? {}
 								)}
+								buildSubflowKey={(key) => buildSubflowKey(key, prefix)}
+								{globalIterationBounds}
 								durationStatuses={localDurationStatuses}
 								decreaseIterationFrom={(key, amount) => {
-									if (localDurationStatuses?.[key]?.iteration_from) {
-										localDurationStatuses[key].iteration_from -= amount
-									}
+									loadPreviousIters(key, amount)
 								}}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
