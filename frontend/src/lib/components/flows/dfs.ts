@@ -2,7 +2,8 @@ import type { FlowModule } from '$lib/gen'
 
 export function dfs<T>(
 	modules: FlowModule[],
-	f: (x: FlowModule, modules: FlowModule[], branches: FlowModule[][]) => T
+	f: (x: FlowModule, modules: FlowModule[], branches: FlowModule[][]) => T,
+	{ skipToolNodes = false }: { skipToolNodes?: boolean } = {}
 ): T[] {
 	let result: T[] = []
 	for (const module of modules) {
@@ -22,7 +23,7 @@ export function dfs<T>(
 			for (const branch of allBranches) {
 				result = result.concat(dfs(branch, f))
 			}
-		} else if (module.value.type == 'aiagent') {
+		} else if (module.value.type == 'aiagent' && !skipToolNodes) {
 			result = result.concat(f(module, modules, [module.value.tools]))
 			result = result.concat(dfs(module.value.tools, f))
 		} else {

@@ -915,7 +915,7 @@
 		modules: FlowModule[],
 		expandedSubflows: Record<string, FlowModule[]>
 	): string[] {
-		const ids = dfs(modules, (x) => x.id)
+		const ids = dfs(modules, (x) => x.id, { skipToolNodes: true })
 
 		function rec(ids: string[], prefix: string | undefined): string[] {
 			return ids.concat(
