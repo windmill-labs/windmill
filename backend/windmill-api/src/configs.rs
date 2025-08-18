@@ -264,7 +264,6 @@ async fn native_kubernetes_autoscaling_healthcheck(
 
 #[cfg(not(all(feature = "enterprise", feature = "private")))]
 async fn native_kubernetes_autoscaling_healthcheck(
-    Path(_worker_group): Path<String>,
 ) -> Result<(), error::Error> {
     Err(error::Error::BadRequest(
         "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
