@@ -6,17 +6,22 @@ use axum::{
     body::Body,
     extract::{Path, Request},
     response::{IntoResponse, Response},
-    routing::{delete, get, put},
+    routing::{delete, get, post, put},
     Extension, Router,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
-use http::{HeaderMap, HeaderValue};
+use base64::{engine::general_purpose, Engine};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use hmac::{Hmac, Mac};
+use http::{HeaderMap, HeaderValue, StatusCode};
 use object_store::PutMultipartOpts;
+use reqwest::multipart;
+use serde_json::json;
+use sha2::Sha256;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
     jwt,
-    s3_helpers::build_object_store_client,
+    s3_helpers::{build_object_store_client, ObjectStoreResource},
 };
 
 use crate::{
@@ -31,11 +36,9 @@ use crate::{
 pub fn workspaced_unauthed_service() -> Router {
     // Most routes are duplicated to support the s3://storage/path syntax
     Router::new()
-        .route("/s3%3A//:storage/*key", get(get_object))
         .route("/:storage/*key", get(get_object))
-        .route("/s3%3A//:storage/*key", put(put_object))
         .route("/:storage/*key", put(put_object))
-        .route("/s3%3A//:storage/*key", delete(delete_object))
+        .route("/:storage/*key", post(post_object))
         .route("/:storage/*key", delete(delete_object))
 }
 
@@ -98,6 +101,74 @@ async fn put_object(
         PutMultipartOpts { ..Default::default() },
     )
     .await
+}
+
+async fn post_object(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, storage_str, object_key)): Path<(String, String, String)>,
+    Extension(auth_cache): Extension<Arc<AuthCache>>,
+    req: Request<Body>,
+) -> Result<Response> {
+    tracing::info!("POST S3 object: {}/{}", w_id, object_key);
+    tracing::info!("{:?}", req.headers());
+    let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
+    let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
+    let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
+        return Err(Error::NotAuthorized("Invalid token".to_string()));
+    };
+    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+
+    let (_, s3_resource) =
+        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
+    let s3_resource = s3_resource.ok_or_else(|| {
+        Error::InternalErr(format!(
+            "Storage {} not found at the workspace level",
+            storage_str
+        ))
+    })?;
+
+    // Object Store does not support POST :(
+    // But DuckDB uses POST when uploading and won't work unless
+    // it receives the expected response
+
+    let s3_resource = match s3_resource {
+        ObjectStoreResource::S3(s3_resource) => s3_resource,
+        _ => {
+            return Err(Error::InternalErr(
+                "POST operation is only supported for S3 storage".to_string(),
+            ));
+        }
+    };
+
+    let (presigned_url, fields) = generate_presigned_post(
+        &s3_resource.access_key.as_deref().unwrap_or(""),
+        &s3_resource.secret_key.as_deref().unwrap_or(""),
+        &s3_resource.bucket,
+        &s3_resource.region,
+        &object_key,
+        3600, // 1 hour expiration
+    );
+
+    let mut form = multipart::Form::new();
+    for (key, value) in fields {
+        form = form.text(key, value);
+    }
+
+    form = form.part(
+        "file",
+        multipart::Part::bytes("Hello, S3!".as_bytes().to_vec()),
+    );
+
+    // Send POST request
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&presigned_url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(to_anyhow)?;
+    Ok(convert_reqwest_to_axum_response(response).await?)
 }
 
 async fn delete_object(
@@ -259,4 +330,72 @@ fn parse_authorization_header(value: &str) -> Option<AuthorizationHeader> {
     };
 
     Some(AuthorizationHeader { sign_method, credential, signed_headers, signature })
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn generate_presigned_post(
+    access_key: &str,
+    secret_key: &str,
+    bucket: &str,
+    region: &str,
+    object_key: &str,
+    expiration_secs: i64,
+) -> (String, [(String, String); 5]) {
+    let expiration = (Utc::now() + Duration::seconds(expiration_secs))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    // Build the policy JSON
+    let policy = json!({
+        "expiration": expiration,
+        "conditions": [
+            {"bucket": bucket},
+            ["starts-with", "$key", object_key],
+            ["content-length-range", 0, 10485760], // max 10MB example
+        ]
+    });
+
+    let policy_str = serde_json::to_string(&policy).unwrap();
+    let policy_base64 = general_purpose::STANDARD.encode(policy_str.as_bytes());
+
+    // Signature is HMAC-SHA256 of base64(policy)
+    let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes()).unwrap();
+    mac.update(policy_base64.as_bytes());
+    let signature = mac.finalize().into_bytes();
+    let signature_base64 = general_purpose::STANDARD.encode(signature);
+
+    // URL to POST to
+    let url = format!("https://{}.s3.{}.amazonaws.com/", bucket, region);
+
+    // Fields to send in the multipart/form POST
+    let fields = [
+        ("key".to_string(), object_key.to_string()),
+        ("policy".to_string(), policy_base64),
+        ("x-amz-signature".to_string(), signature_base64),
+        (
+            "x-amz-credential".to_string(),
+            format!("{}/{}", access_key, region),
+        ),
+        (
+            "x-amz-algorithm".to_string(),
+            "AWS4-HMAC-SHA256".to_string(),
+        ),
+        // You might need x-amz-date and x-amz-security-token (if using temp creds)
+    ];
+
+    (url, fields)
+}
+
+pub async fn convert_reqwest_to_axum_response(res: reqwest::Response) -> Result<Response<Body>> {
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = res.bytes_stream();
+
+    let mut builder = Response::builder()
+        .status(StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR));
+    for (key, value) in headers.iter() {
+        builder = builder.header(key, value);
+    }
+    let response = builder.body(Body::from_stream(bytes)).map_err(to_anyhow)?;
+    Ok(response)
 }
