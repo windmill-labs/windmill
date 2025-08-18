@@ -4,10 +4,8 @@
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
-		msToReadableTime,
 		truncateHash,
 		truncateRev,
-		isFlowPreview,
 		isScriptPreview,
 		isJobSelectable
 	} from '$lib/utils'
@@ -114,16 +112,11 @@
 		{/if}
 	</div>
 
-	<div class="w-4/12 flex justify-start">
+	<div class="w-2/12 flex justify-start">
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
 					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToReadableTime(
-							job.duration_ms
-						)}{#if job.job_kind == 'flow' || isFlowPreview(job.job_kind)}&nbsp;total{/if})
-					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}
@@ -157,18 +150,15 @@
 				No job found
 			{:else}
 				<div class="flex flex-row gap-1 min-w-0">
-					<div class="whitespace-nowrap text-xs font-semibold truncate">
+					<div class="whitespace-nowrap text-xs text-secondary truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
 								{#if isExternal}
 									<span class="w-30 justify-center">-</span>
 								{:else}
-									<a
-										href="{base}/run/{job.id}?workspace={job.workspace_id}"
-										class="truncate w-30 dark:text-blue-400"
-									>
+									<span class="truncate w-30">
 										{job.script_path}
-									</a>
+									</span>
 									<Button
 										title="Filter by path"
 										size="xs2"
