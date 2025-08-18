@@ -18,7 +18,6 @@
 		Check,
 		ExternalLink,
 		FastForward,
-		Folder,
 		Hourglass,
 		ListFilter,
 		Play,
@@ -34,26 +33,38 @@
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import RunBadges from './RunBadges.svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	const dispatch = createEventDispatcher()
 
-	export let job: Job
-	export let selected: boolean = false
-	export let containerWidth: number = 0
-	export let containsLabel: boolean = false
-	export let activeLabel: string | null
-	export let selectionMode: RunsSelectionMode | false = false
+	interface Props {
+		job: Job
+		selected?: boolean
+		containerWidth?: number
+		containsLabel?: boolean
+		activeLabel: string | null
+		selectionMode?: RunsSelectionMode | false
+	}
 
-	let scheduleEditor: ScheduleEditor
+	let {
+		job,
+		selected = false,
+		containerWidth = 0,
+		containsLabel = false,
+		activeLabel,
+		selectionMode = false
+	}: Props = $props()
 
-	$: isExternal = job && job.id === '-'
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+
+	let isExternal = $derived(job && job.id === '-')
 </script>
 
 <Portal name="run-row">
 	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
@@ -61,7 +72,7 @@
 		'flex flex-row items-center h-full'
 	)}
 	style="width: {containerWidth}px"
-	on:click={() => {
+	onclick={() => {
 		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
 			dispatch('select')
 		}
@@ -149,7 +160,7 @@
 	</div>
 
 	<!-- Job path-->
-	<div class="w-4/12 flex justify-start flex-col">
+	<div class="w-4/12 flex justify-start flex-col pr-4">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -164,31 +175,42 @@
 									<span class="truncate w-30">
 										{job.script_path}
 									</span>
-									<Button
-										title="Filter by path"
-										size="xs2"
-										color="light"
-										on:click={() => {
-											dispatch('filterByPath', job.script_path)
-										}}
-									>
-										<ListFilter size={10} />
-									</Button>
 								{/if}
-								{#if job.script_path?.startsWith('f/')}
-									<Button
-										title="Filter by folder"
-										size="xs2"
-										color="light"
-										on:click={() => {
-											// split script_path by / and get the second element
-											const folder = job.script_path?.split('/')[1]
-
-											dispatch('filterByFolder', folder)
+								{#if !isExternal || job.script_path?.startsWith('f/')}
+									{@const isFolder = job.script_path?.startsWith('f/')}
+									<DropdownV2
+										items={() => {
+											const items = isExternal
+												? []
+												: [
+														{
+															displayName: `Filter by path: ${job.script_path}`,
+															action: () => dispatch('filterByPath', job.script_path),
+															disabled: isExternal
+														}
+													]
+											if (isFolder) {
+												const folder = job.script_path?.split('/')[1]
+												return [
+													{
+														displayName: `Filter by folder: ${folder}`,
+														action: () => dispatch('filterByFolder', folder)
+													},
+													...items
+												]
+											}
+											return items
 										}}
+										class="w-fit"
 									>
-										<Folder size={10} />
-									</Button>
+										{#snippet buttonReplacement()}
+											<div
+												class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+											>
+												<ListFilter size={10} />
+											</div>
+										{/snippet}
+									</DropdownV2>
 								{/if}
 							</div>
 						{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
@@ -254,7 +276,7 @@
 		</div>
 	{/if}
 	<!-- Author and schedule-->
-	<div class="w-2/12 flex justify-start">
+	<div class="w-2/12 flex justify-start pr-4">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -268,15 +290,22 @@
 						{truncateRev(job.schedule_path, 20)}
 					</div>
 				</Button>
-				<Button
-					size="xs2"
-					color="light"
-					on:click={() => {
-						dispatch('filterBySchedule', job.schedule_path)
-					}}
+				<DropdownV2
+					items={[
+						{
+							displayName: `Filter by schedule: ${truncateRev(job.schedule_path, 20)}`,
+							action: () => dispatch('filterBySchedule', job.schedule_path)
+						}
+					]}
 				>
-					<ListFilter size={10} />
-				</Button>
+					{#snippet buttonReplacement()}
+						<div
+							class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+						>
+							<ListFilter size={10} />
+						</div>
+					{/snippet}
+				</DropdownV2>
 			</div>
 		{:else}
 			<div class="flex flex-row gap-1 items-center">
@@ -284,15 +313,24 @@
 					{truncateRev(job.created_by ?? '', 20)}
 				</div>
 				{#if !isExternal}
-					<Button
-						size="xs2"
-						color="light"
-						on:click={() => {
-							dispatch('filterByUser', job.created_by ?? '')
-						}}
+					<DropdownV2
+						items={[
+							{
+								displayName: `Filter by triggered by: ${job.created_by}`,
+								action: () => dispatch('filterByUser', job.created_by ?? '')
+							}
+						]}
+						customWidth={256}
+						class="w-fit"
 					>
-						<ListFilter size={10} />
-					</Button>
+						{#snippet buttonReplacement()}
+							<div
+								class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+							>
+								<ListFilter size={10} />
+							</div>
+						{/snippet}
+					</DropdownV2>
 				{/if}
 			</div>
 		{/if}
