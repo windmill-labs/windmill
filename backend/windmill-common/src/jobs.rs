@@ -19,7 +19,7 @@ use crate::{
     auth::is_super_admin_email,
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
-    flows::{FlowModule, FlowNodeId, FlowValue, Retry},
+    flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
@@ -376,7 +376,10 @@ pub enum JobPayload {
     },
     Identity,
     Noop,
-    AIAgent(FlowVersionOrRawFlow),
+    AIAgent {
+        flow_version_or_raw_flow: FlowVersionOrRawFlow,
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug)]

@@ -380,7 +380,8 @@
 		// console.log('compute')
 		;[nodes, edges] = computeAIToolNodes(
 			computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges),
-			eventHandler
+			eventHandler,
+			editMode
 		)
 		console.log('nodes', nodes)
 		await tick()

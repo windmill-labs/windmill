@@ -14,7 +14,8 @@
 
 	export function computeAIToolNodes(
 		[nodes, edges]: [(Node & NodeLayout)[], Edge[]],
-		eventHandlers: GraphEventHandlers
+		eventHandlers: GraphEventHandlers,
+		editable: boolean
 	): [(Node & NodeLayout)[], Edge[]] {
 		if (nodes === computeAIToolNodesCache?.[0]) return computeAIToolNodesCache[1]
 
@@ -37,23 +38,17 @@
 				name: t.summary ?? ''
 			}))
 
-			// const tools = node.data.tools ?? []
-
-			// Each tool can be displayed at the top and bottom
-			const inputTools = tools
-
-			// This allows calculating which nodes to offset on the y axis to
-			// make space for the tool nodes
-
-			const totalRows = Math.ceil(inputTools.length / MAX_TOOLS_PER_ROW) + 1
+			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (editable ? 1 : 0) // + 1 for add tool node when editable
 			yPosMap[node.position.y] = totalRows
 
 			// All tool nodes displayed on top
-			const inputToolNodes: (Node & AiToolN)[] = inputTools.map((tool, i) => {
+			const inputToolNodes: (Node & AiToolN)[] = tools.map((tool, i) => {
 				let inputToolXGap = 12
 				let inputToolWidth = (ROW_WIDTH - inputToolXGap) / 2
 
 				const row = Math.floor(i / MAX_TOOLS_PER_ROW) + 1
+
+				const isLastRow = editable ? row === totalRows - 1 : row === totalRows
 				return {
 					type: 'aiTool' as const,
 					parentId: node.id,
@@ -62,11 +57,11 @@
 					width: inputToolWidth,
 					position: {
 						x:
-							inputTools.length === 1
+							tools.length === 1
 								? (ROW_WIDTH - inputToolWidth) / 2
 								: (i + 1) % 2 === 0
 									? inputToolWidth + inputToolXGap
-									: row === totalRows - 1 && inputTools.length % 2 === 1
+									: isLastRow && tools.length % 2 === 1
 										? (ROW_WIDTH - inputToolWidth) / 2
 										: 0,
 						y:
@@ -87,19 +82,19 @@
 			allToolEdges.push(...(inputToolEdges ?? []))
 			allToolNodes.push(...(inputToolNodes ?? []))
 
-			// If there are more than 3 tools, we create an overflow node
-			// if (overflowedInputTools.length)
-			allToolNodes.push({
-				type: 'newAiTool',
-				data: { eventHandlers, agentModuleId: node.data.module.id },
-				id: `${node.id}-tools-overflowed-in`,
-				parentId: node.id,
-				width: NEW_TOOL_NODE_WIDTH,
-				position: {
-					x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
-					y: AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET
-				}
-			} satisfies Node & NewAiToolN)
+			if (editable) {
+				allToolNodes.push({
+					type: 'newAiTool',
+					data: { eventHandlers, agentModuleId: node.data.module.id },
+					id: `${node.id}-tools-overflowed-in`,
+					parentId: node.id,
+					width: NEW_TOOL_NODE_WIDTH,
+					position: {
+						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
+						y: AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET
+					}
+				} satisfies Node & NewAiToolN)
+			}
 		}
 
 		const existingAssetNodes = nodes.filter((n) => n.type === 'asset')

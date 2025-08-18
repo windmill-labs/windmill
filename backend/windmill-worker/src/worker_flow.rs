@@ -29,7 +29,7 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::auth::{get_job_perms, JobPerms};
+use windmill_common::auth::get_job_perms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
@@ -43,7 +43,7 @@ use windmill_common::jobs::{
     script_path_to_payload, FlowVersionOrRawFlow, JobKind, JobPayload, OnBehalfOf, RawCode,
     ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::{ScriptHash, ScriptLang};
+use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -3387,12 +3387,21 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::AIAgent { .. } => {
-            let payload = JobPayload::AIAgent(
-                flow_job
+            let path = get_path(flow_job, status, module);
+            let payload = JobPayload::AIAgent {
+                flow_version_or_raw_flow: flow_job
                     .runnable_id
-                    .map(|runnable_id| FlowVersionOrRawFlow::FlowVersion(runnable_id.0))
+                    .map(|runnable_id| {
+                        if flow_job.kind != JobKind::FlowNode {
+                            FlowVersionOrRawFlow::FlowVersion(runnable_id.0)
+                        } else {
+                            // if parent is a flow node, we don't have the flow version, so we use the raw flow
+                            FlowVersionOrRawFlow::RawFlow(flow.clone())
+                        }
+                    })
                     .unwrap_or_else(|| FlowVersionOrRawFlow::RawFlow(flow.clone())),
-            );
+                path,
+            };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,

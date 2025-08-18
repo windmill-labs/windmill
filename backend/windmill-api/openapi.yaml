@@ -14413,6 +14413,7 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
             ]
         schedule_path:
           type: string
@@ -14522,6 +14523,7 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
             ]
         schedule_path:
           type: string

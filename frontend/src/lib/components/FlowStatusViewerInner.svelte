@@ -705,7 +705,9 @@
 						flow_jobs_success: mod.flow_jobs_success,
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
-						skipped: mod.skipped
+						skipped: mod.skipped,
+						actions:
+							job.job_kind === 'aiagent' && job.flow_status ? job.flow_status.actions : undefined
 						// retries: $flowStateStore?.raw_flow
 					},
 					force
@@ -1453,6 +1455,10 @@
 											<p class="p-2 text-secondary">No arguments</p>
 										{/if}
 									{:else if node}
+										{@const module =
+											stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
+										{@const agentTools =
+											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
 										{#if node.flow_jobs_results}
 											<span class="pl-1 text-tertiary"
 												>Result of step as collection of all subflows</span
@@ -1516,6 +1522,13 @@
 											tag={node.tag}
 											logs={node.logs}
 											downloadLogs={!hideDownloadLogs}
+											aiAgentStatus={node.actions && agentTools && node.job_id
+												? {
+														jobId: node.job_id,
+														actions: node.actions,
+														tools: agentTools
+													}
+												: undefined}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

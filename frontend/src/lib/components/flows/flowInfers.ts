@@ -59,33 +59,60 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties: {
 				system_prompt: {
-					default: null,
-					description: '',
-					originalType: 'string',
 					type: 'string'
 				},
 				user_message: {
-					default: null,
-					description: '',
-					originalType: 'string',
 					type: 'string'
 				},
-				resource: {
-					default: null,
-					description: '',
-					format: 'resource-openai',
-					type: 'object'
+				provider: {
+					type: 'object',
+					oneOf: [
+						{
+							type: 'object',
+							title: 'OpenAI',
+							properties: {
+								kind: { type: 'string', enum: ['OpenAI'] },
+								resource: {
+									type: 'object',
+									format: 'resource-openai'
+								}
+							},
+							required: ['kind', 'resource']
+						},
+						{
+							type: 'object',
+							title: 'Anthropic',
+							properties: {
+								kind: { type: 'string', enum: ['Anthropic'] },
+								resource: {
+									type: 'object',
+									format: 'resource-anthropic'
+								}
+							},
+							required: ['kind', 'resource']
+						}
+					]
 				},
 				model: {
-					default: 'gpt-4o-mini',
-					description: '',
-					originalType: 'string',
 					type: 'string'
+				},
+				max_completion_tokens: {
+					type: 'number'
+				},
+				temperature: {
+					type: 'number'
 				}
 			},
-			required: ['system_prompt', 'user_message', 'resource'],
+			required: ['provider', 'model', 'system_prompt', 'user_message'],
 			type: 'object',
-			order: ['system_prompt', 'user_message', 'resource', 'model']
+			order: [
+				'provider',
+				'model',
+				'system_prompt',
+				'user_message',
+				'max_completion_tokens',
+				'temperature'
+			]
 		}
 		let input_transforms = mod.input_transforms ?? {}
 		return {

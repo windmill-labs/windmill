@@ -1,61 +1,65 @@
 use async_recursion::async_recursion;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        Arc,
-    },
-};
-use tokio::time::Instant;
-use uuid::Uuid;
+use std::{collections::HashMap, sync::Arc};
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
-    auth::{get_job_perms, JobPerms},
+    auth::get_job_perms,
     cache::FlowData,
     client::AuthedClient,
-    db::Authed,
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue},
-    jobs::{JobPayload, DB},
-    scripts::{ScriptHash, ScriptLang},
-    utils::{WarnAfterExt, HTTP_CLIENT},
-    worker::{to_raw_value, to_raw_value_owned, Connection},
+    jobs::DB,
+    scripts::ScriptLang,
+    utils::HTTP_CLIENT,
+    worker::{to_raw_value, Connection},
 };
 use windmill_parser::Typ;
 use windmill_queue::{
     get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
-    PushIsolationLevel, SameWorkerPayload,
+    PushIsolationLevel,
 };
 
 use crate::{
-    common::{build_args_map, build_args_values, error_to_value, OccupancyMetrics},
-    create_job_dir, handle_all_job_kind_error,
+    common::{build_args_map, error_to_value, OccupancyMetrics},
+    create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
-    handle_code_execution_job, handle_queued_job,
+    handle_queued_job, parse_sig_of_lang,
     result_processor::handle_non_flow_job_error,
-    worker_flow::{get_path, raw_script_to_payload, script_to_payload},
+    worker_flow::{raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
 };
 
-#[derive(Deserialize, Serialize)]
+const MAX_AGENT_ITERATIONS: usize = 10;
+
+lazy_static::lazy_static! {
+    static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+}
+
+#[derive(Deserialize, Serialize, Clone)]
 struct OpenAIFunction {
     name: String,
     arguments: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct OpenAIToolCall {
     id: String,
     function: OpenAIFunction,
     r#type: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 struct OpenAIMessage {
     role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -68,89 +72,245 @@ struct OpenAIResponse {
     choices: Vec<OpenAIChoice>,
 }
 
-#[derive(Deserialize)]
-struct OpenAIResource {
+#[derive(Serialize)]
+struct OpenAIRequest<'a> {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<&'a Vec<&'a ToolDef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+}
+
+#[derive(Serialize, Clone)]
+struct ToolDefFunction {
+    name: String,
+    parameters: OpenAPISchema,
+}
+
+#[derive(Serialize, Clone)]
+struct ToolDef {
+    r#type: String,
+    function: ToolDefFunction,
+}
+
+struct Tool {
+    module: FlowModule,
+    def: ToolDef,
+}
+
+#[derive(Deserialize, Debug)]
+struct AIAgentArgs {
+    model: String,
+    provider: Provider,
+    system_prompt: String,
+    user_message: String,
+    temperature: Option<f32>,
+    max_completion_tokens: Option<u32>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ProviderResource {
+    #[serde(alias = "apiKey")]
     api_key: String,
 }
 
-#[derive(Deserialize)]
-struct AIAgentArgs {
-    model: String,
-    resource: OpenAIResource,
-    system_prompt: String,
-    user_message: String,
+#[derive(Deserialize, Debug)]
+#[serde(tag = "kind")]
+enum Provider {
+    OpenAI { resource: ProviderResource },
+    Anthropic { resource: ProviderResource },
 }
 
-const MAX_AGENT_ITERATIONS: usize = 10;
-
-fn typ_to_openai_typ(typ: &Typ) -> serde_json::Value {
-    match typ {
-        Typ::Str(_) => serde_json::json!("string"),
-        Typ::Int => serde_json::json!("integer"),
-        Typ::Float => serde_json::json!("number"),
-        Typ::Bool => serde_json::json!("boolean"),
-        Typ::List(typ) => serde_json::json!({
-            "type": "array",
-            "items": typ_to_openai_typ(typ)
-        }),
-        Typ::Bytes => serde_json::json!("string"),
-        Typ::Datetime => serde_json::json!("string"),
-        Typ::Resource(resource) => serde_json::json!("string"),
-        Typ::Email => serde_json::json!("string"),
-        Typ::Sql => serde_json::json!("string"),
-        Typ::DynSelect(dyn_select) => serde_json::json!("string"),
-        Typ::Object(typ) => {
-            serde_json::json!({
-                "type": "object",
-                "properties": typ.props.as_ref().map(|props| props.iter().map(|prop| {
-                    let name = prop.key.clone();
-                    let typ = typ_to_openai_typ(&prop.typ);
-                    (name, serde_json::json!({
-                        "type": typ,
-                    }))
-                }).collect::<HashMap<String, serde_json::Value>>()).unwrap_or_default(),
-                "required": typ.props.as_ref().map(|props| props.iter().map(|prop| prop.key.clone()).collect::<Vec<_>>()).unwrap_or_default(),
-            })
+impl Provider {
+    fn get_api_key(&self) -> &str {
+        match self {
+            Provider::OpenAI { resource } => &resource.api_key,
+            Provider::Anthropic { resource } => &resource.api_key,
         }
-        Typ::OneOf(variants) => serde_json::json!({
-            "type": "string",
-            "enum": variants.iter().map(|variant| variant.label.clone()).collect::<Vec<String>>(),
-        }),
-        Typ::Unknown => serde_json::json!({ "type": "object" }),
+    }
+
+    fn get_base_url(&self) -> &str {
+        match self {
+            Provider::OpenAI { .. } => "https://api.openai.com/v1",
+            Provider::Anthropic { .. } => "https://api.anthropic.com/v1",
+        }
     }
 }
 
-fn parse_raw_script_schema(
-    content: &str,
-    language: &ScriptLang,
-) -> Result<serde_json::Value, Error> {
-    let main_arg_signature = match language {
-        ScriptLang::Bun | ScriptLang::Deno | ScriptLang::Bunnative | ScriptLang::Nativets => {
-            windmill_parser_ts::parse_deno_signature(content, false, false, None)
+#[derive(Serialize)]
+struct AIAgentResult {
+    output: String,
+    messages: Vec<OpenAIMessage>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AgentAction {
+    ToolCall { job_id: uuid::Uuid, function_name: String },
+    Content { content: String },
+}
+
+#[derive(Serialize, Default, Clone, Debug)]
+struct OpenAPISchema {
+    r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    items: Option<Box<OpenAPISchema>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    properties: Option<HashMap<String, Box<OpenAPISchema>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "oneOf")]
+    one_of: Option<Vec<Box<OpenAPISchema>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#enum: Option<Vec<String>>,
+}
+
+impl OpenAPISchema {
+    fn from_str(typ: &str) -> Self {
+        OpenAPISchema { r#type: typ.to_string(), ..Default::default() }
+    }
+
+    fn from_str_with_enum(typ: &str, enu: &Option<Vec<String>>) -> Self {
+        OpenAPISchema { r#type: typ.to_string(), r#enum: enu.clone(), ..Default::default() }
+    }
+
+    fn datetime() -> Self {
+        Self {
+            r#type: "string".to_string(),
+            format: Some("date-time".to_string()),
+            ..Default::default()
         }
-        #[cfg(feature = "python")]
-        ScriptLang::Python3 => windmill_parser_py::parse_python_signature(content, None, false),
-        _ => {
-            return Err(Error::internal_err(format!(
-                "Unsupported language: {:?}",
-                language
-            )));
+    }
+
+    fn from_typ(typ: &Typ) -> Self {
+        match typ {
+            Typ::Str(enu) => Self::from_str_with_enum("string", enu),
+            Typ::Int => Self::from_str("integer"),
+            Typ::Float => Self::from_str("number"),
+            Typ::Bool => Self::from_str("boolean"),
+            Typ::Bytes => Self::from_str("string"),
+            Typ::Datetime => Self::datetime(),
+            Typ::Resource(_) => Self::from_str("string"),
+            Typ::Email => Self::from_str("string"),
+            Typ::Sql => Self::from_str("string"),
+            Typ::DynSelect(_) => Self::from_str("string"),
+            Typ::List(typ) => OpenAPISchema {
+                r#type: "array".to_string(),
+                items: Some(Box::new(Self::from_typ(typ))),
+                ..Default::default()
+            },
+            Typ::Object(typ) => OpenAPISchema {
+                r#type: "object".to_string(),
+                items: None,
+                properties: typ.props.as_ref().map(|props| {
+                    props
+                        .iter()
+                        .map(|prop| (prop.key.clone(), Box::new(Self::from_typ(&prop.typ))))
+                        .collect()
+                }),
+                required: typ
+                    .props
+                    .as_ref()
+                    .map(|props| props.iter().map(|prop| prop.key.clone()).collect()),
+                ..Default::default()
+            },
+            Typ::OneOf(variants) => OpenAPISchema {
+                r#type: "object".to_string(),
+                one_of: Some(
+                    variants
+                        .iter()
+                        .map(|variant| {
+                            let schema = OpenAPISchema {
+                                r#type: "object".to_string(),
+                                properties: Some(
+                                    variant
+                                        .properties
+                                        .iter()
+                                        .map(|prop| {
+                                            (
+                                                prop.key.clone(),
+                                                Box::new(
+                                                    if prop.key == "label" || prop.key == "kind" {
+                                                        Self::from_str_with_enum(
+                                                            "string",
+                                                            &Some(vec![variant.label.clone()]),
+                                                        )
+                                                    } else {
+                                                        Self::from_typ(&prop.typ)
+                                                    },
+                                                ),
+                                            )
+                                        })
+                                        .collect(),
+                                ),
+                                required: Some(
+                                    variant
+                                        .properties
+                                        .iter()
+                                        .map(|prop| prop.key.clone())
+                                        .collect(),
+                                ),
+                                ..Default::default()
+                            };
+                            Box::new(schema)
+                        })
+                        .collect(),
+                ),
+                ..Default::default()
+            },
+            Typ::Unknown => Self::from_str("object"),
         }
+    }
+}
+
+async fn update_flow_status_with_actions(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    actions: &[AgentAction],
+) -> Result<(), Error> {
+    sqlx::query!(r#"
+        INSERT INTO v2_job_status (id, flow_status) 
+        VALUES ($1, jsonb_set('{}'::jsonb, array['actions'], $2))
+        ON CONFLICT (id) DO UPDATE SET flow_status = jsonb_set(COALESCE(v2_job_status.flow_status, '{}'::jsonb), array['actions'], $2)
+        "#,
+        job_id,
+        sqlx::types::Json(actions) as _,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<OpenAPISchema, Error> {
+    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
+
+    let schema = OpenAPISchema {
+        r#type: "object".to_string(),
+        properties: Some(
+            main_arg_signature
+                .args
+                .iter()
+                .map(|arg| {
+                    let name = arg.name.clone();
+                    let typ = OpenAPISchema::from_typ(&arg.typ);
+                    (name, Box::new(typ))
+                })
+                .collect(),
+        ),
+        required: Some(
+            main_arg_signature
+                .args
+                .iter()
+                .map(|arg| arg.name.clone())
+                .collect(),
+        ),
+        ..Default::default()
     };
-
-    let main_arg_signature = main_arg_signature.map_err(|e| Error::internal_err(e.to_string()))?;
-
-    let schema = serde_json::json!({
-        "type": "object",
-        "properties": main_arg_signature.args.iter().map(|arg| {
-            let name = arg.name.clone();
-            let typ = typ_to_openai_typ(&arg.typ);
-            (name, serde_json::json!({
-                "type": typ,
-            }))
-        }).collect::<HashMap<String, serde_json::Value>>(),
-        "required": main_arg_signature.args.iter().map(|arg| arg.name.clone()).collect::<Vec<_>>(),
-    });
 
     Ok(schema)
 }
@@ -163,11 +323,11 @@ async fn call_tool(
 
     // agent job and flow step id
     agent_job: &MiniPulledJob,
-    flow_step_id: &str,
 
     // tool
-    tool: &FlowModule,
+    tool_module: &FlowModule,
     tool_call: &OpenAIToolCall,
+    job_id: uuid::Uuid,
 
     // execution context
     client: &AuthedClient,
@@ -182,16 +342,16 @@ async fn call_tool(
     let tool_call_args =
         serde_json::from_str::<HashMap<String, Box<RawValue>>>(&tool_call.function.arguments)?;
 
-    let job_payload = match tool.get_value()? {
+    let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             let payload = script_to_payload(
                 script_hash,
                 script_path,
                 db,
                 agent_job,
-                tool,
+                tool_module,
                 tag_override,
-                tool.apply_preprocessor,
+                tool_module.apply_preprocessor,
             )
             .await?;
             payload
@@ -208,12 +368,7 @@ async fn call_tool(
             ..
         } => {
             let path = path.unwrap_or_else(|| {
-                format!(
-                    "{}/{}/tools/{}",
-                    agent_job.runnable_path(),
-                    flow_step_id,
-                    tool.id
-                )
+                format!("{}/tools/{}", agent_job.runnable_path(), tool_module.id)
             });
 
             let payload = raw_script_to_payload(
@@ -224,7 +379,7 @@ async fn call_tool(
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                tool,
+                tool_module,
                 tag,
                 false,
             );
@@ -253,7 +408,7 @@ async fn call_tool(
         )
     };
 
-    let job_priority = tool.priority.or(agent_job.priority);
+    let job_priority = tool_module.priority.or(agent_job.priority);
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
@@ -270,7 +425,7 @@ async fn call_tool(
         agent_job.schedule_path(),
         Some(agent_job.id),
         None,
-        None,
+        Some(job_id),
         false,
         false,
         None,
@@ -302,6 +457,9 @@ async fn call_tool(
         "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
     );
 
+    #[cfg(feature = "benchmark")]
+    let mut bench = BenchmarkIter::new();
+
     if let Err(err) = handle_queued_job(
         tool_job.clone(),
         None,
@@ -320,6 +478,8 @@ async fn call_tool(
         occupancy_metrics,
         killpill_rx,
         None,
+        #[cfg(feature = "benchmark")]
+        &mut bench,
     )
     .await
     {
@@ -364,10 +524,8 @@ async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
-    flow_step_id: &str,
     args: AIAgentArgs,
-    tool_defs: Vec<serde_json::Value>,
-    tools: Vec<FlowModule>,
+    tools: Vec<Tool>,
 
     // job execution context
     client: &AuthedClient,
@@ -389,31 +547,46 @@ async fn run_agent(
     };
 
     let mut messages = vec![
-        serde_json::json!({
-            "role": "system",
-            "content": args.system_prompt
-        }),
-        serde_json::json!({
-            "role": "user",
-            "content": args.user_message
-        }),
+        OpenAIMessage {
+            role: "system".to_string(),
+            content: Some(args.system_prompt),
+            ..Default::default()
+        },
+        OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(args.user_message),
+            ..Default::default()
+        },
     ];
 
+    let mut actions = vec![];
+
     let mut content = None;
+
+    let base_url = args.provider.get_base_url();
+    let api_key = args.provider.get_api_key();
+
+    let tool_defs = if tools.is_empty() {
+        None
+    } else {
+        Some(tools.iter().map(|t| &t.def).collect())
+    };
 
     for i in 0..MAX_AGENT_ITERATIONS {
         let response = {
             let resp = HTTP_CLIENT
-                .post(format!("https://api.openai.com/v1/chat/completions"))
-                .bearer_auth(&args.resource.api_key)
-                .json(&serde_json::json!({
-                    "model": args.model,
-                    "messages": messages,
-                    "tools": tool_defs
-                }))
+                .post(format!("{}/chat/completions", base_url))
+                .bearer_auth(api_key)
+                .json(&OpenAIRequest {
+                    model: args.model.clone(),
+                    messages: messages.clone(),
+                    tools: tool_defs.as_ref(),
+                    temperature: args.temperature,
+                    max_completion_tokens: args.max_completion_tokens,
+                })
                 .send()
                 .await
-                .map_err(|e| Error::internal_err(format!("Failed to call OpenAI API: {}", e)))?;
+                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
             match resp.error_for_status_ref() {
                 Ok(_) => resp,
@@ -424,35 +597,39 @@ async fn run_agent(
                         .await
                         .unwrap_or_else(|_| "<failed to read body>".to_string());
                     tracing::error!(
-                        "Non 200 response from OpenAI API: status: {}, body: {}",
+                        "Non 200 response from API: status: {}, body: {}",
                         status,
                         text
                     );
                     return Err(Error::internal_err(format!(
-                        "Non 200 response from OpenAI API: {} - {}",
+                        "Non 200 response from API: {} - {}",
                         e, text
                     )));
                 }
             }
         };
 
-        let mut response = response.json::<OpenAIResponse>().await.map_err(|e| {
-            Error::internal_err(format!("Failed to parse OpenAI API response: {}", e))
-        })?;
+        let mut response = response
+            .json::<OpenAIResponse>()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to parse API response: {}", e)))?;
 
         let first_choice = response
             .choices
             .pop()
-            .ok_or_else(|| Error::internal_err("No response from OpenAI API"))?;
+            .ok_or_else(|| Error::internal_err("No response from API"))?;
 
         content = first_choice.message.content;
         let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
 
         if let Some(ref content) = content {
-            messages.push(serde_json::json!({
-                "role": "assistant",
-                "content": content
-            }));
+            messages.push(OpenAIMessage {
+                role: "assistant".to_string(),
+                content: Some(content.clone()),
+                ..Default::default()
+            });
+            actions.push(AgentAction::Content { content: content.clone() });
+            update_flow_status_with_actions(db, &job.id, &actions).await?;
         }
 
         if tool_calls.is_empty() {
@@ -463,23 +640,32 @@ async fn run_agent(
             ));
         }
 
-        messages.push(serde_json::json!({
-            "role": "assistant",
-            "tool_calls": tool_calls
-        }));
+        messages.push(OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(tool_calls.clone()),
+            ..Default::default()
+        });
 
-        for tool_call in tool_calls {
+        for tool_call in tool_calls.iter() {
             let tool = tools
                 .iter()
-                .find(|t| t.summary.as_ref().unwrap_or(&t.id) == &tool_call.function.name);
+                .find(|t| t.def.function.name == tool_call.function.name);
             if let Some(tool) = tool {
+                let job_id = ulid::Ulid::new().into();
+                actions.push(AgentAction::ToolCall {
+                    job_id,
+                    function_name: tool_call.function.name.clone(),
+                });
+
+                update_flow_status_with_actions(db, &job.id, &actions).await?;
+
                 match call_tool(
                     db,
                     conn,
                     job,
-                    flow_step_id,
-                    tool,
+                    &tool.module,
                     &tool_call,
+                    job_id,
                     client,
                     occupancy_metrics,
                     base_internal_url,
@@ -492,19 +678,21 @@ async fn run_agent(
                 .await
                 {
                     Ok(result) => {
-                        messages.push(serde_json::json!({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": result.get(),
-                        }));
+                        messages.push(OpenAIMessage {
+                            role: "tool".to_string(),
+                            content: Some(result.get().to_string()),
+                            tool_call_id: Some(tool_call.id.clone()),
+                            ..Default::default()
+                        });
                     }
                     Err(err) => {
                         let err_string = format!("{}: {}", err.name(), err.to_string());
-                        messages.push(serde_json::json!({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": format!("Error running tool: {}", err_string),
-                        }));
+                        messages.push(OpenAIMessage {
+                            role: "tool".to_string(),
+                            content: Some(format!("Error running tool: {}", err_string)),
+                            tool_call_id: Some(tool_call.id.clone()),
+                            ..Default::default()
+                        });
                     }
                 }
             } else {
@@ -516,7 +704,10 @@ async fn run_agent(
         }
     }
 
-    Ok(to_raw_value(&content))
+    Ok(to_raw_value(&AIAgentResult {
+        output: content.unwrap_or_default().clone(),
+        messages: messages,
+    }))
 }
 
 pub async fn handle_ai_agent_job(
@@ -559,49 +750,63 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { input_transforms, tools } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
     };
 
-    let tool_defs = tools
-        .iter()
+    let tools = tools
+        .into_iter()
         .map(|t| {
-            let module_value = t.get_value().unwrap();
+            let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
+                return Err(Error::internal_err(format!(
+                    "Invalid tool name: {:?}",
+                    t.summary
+                )));
+            };
 
-            let schema = match &module_value {
-                FlowModuleValue::Script { .. } => {
-                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
+            let schema = match &t.get_value() {
+                Ok(FlowModuleValue::Script { .. }) => {
+                    return Err(Error::internal_err(format!(
+                        "Unsupported tool: {}",
+                        summary
+                    )));
                 }
-                FlowModuleValue::RawScript { content, language, .. } => {
+                Ok(FlowModuleValue::RawScript { content, language, .. }) => {
                     parse_raw_script_schema(&content, &language)?
                 }
+                Err(e) => {
+                    return Err(Error::internal_err(format!(
+                        "Invalid tool {}: {}",
+                        summary,
+                        e.to_string()
+                    )));
+                }
                 _ => {
-                    return Err(Error::internal_err(format!("Unsupported tool: {}", t.id)));
+                    return Err(Error::internal_err(format!(
+                        "Unsupported tool: {}",
+                        summary
+                    )));
                 }
             };
 
-            Ok(serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": t.summary.as_ref().unwrap_or(&t.id),
-                    "parameters": schema
-                }
-            }))
+            Ok(Tool {
+                def: ToolDef {
+                    r#type: "function".to_string(),
+                    function: ToolDefFunction { name: summary.clone(), parameters: schema },
+                },
+                module: t,
+            })
         })
         .collect::<Result<Vec<_>, Error>>()?;
-
-    tracing::info!("tool_defs: {:#?}", tool_defs);
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
     let agent_fut = run_agent(
         conn,
         job,
-        flow_step_id,
         args,
-        tool_defs,
         tools,
         client,
         &mut inner_occupancy_metrics,

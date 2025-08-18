@@ -4,7 +4,7 @@
 	import ScriptFix from './copilot/ScriptFix.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
-	import type { Script, Job, FlowModule } from '$lib/gen'
+	import { type Script, type Job, type FlowModule } from '$lib/gen'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext } from './flows/types'

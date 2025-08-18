@@ -762,7 +762,7 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
-						{#if job.script_hash}
+						{#if job.script_hash && job.job_kind !== 'aiagent'}
 							{#if job.job_kind == 'script'}
 								<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 									><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
@@ -920,7 +920,7 @@
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
-				{#if job?.workflow_as_code_status}
+				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
 					<div class="mt-10"></div>
 					<WorkflowTimeline
 						flow_status={asWorkflowStatus(job.workflow_as_code_status)}

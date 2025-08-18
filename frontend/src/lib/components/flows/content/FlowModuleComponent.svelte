@@ -514,7 +514,22 @@
 								{/if}
 							</Pane>
 						{/if}
-						<Pane bind:size={editorSettingsPanelSize} minSize={20}>
+						<Pane
+							bind:size={
+								() => {
+									if (flowModule.value.type === 'aiagent') {
+										return 100
+									}
+									return editorSettingsPanelSize
+								},
+								(v) => {
+									if (flowModule.value.type !== 'aiagent') {
+										editorSettingsPanelSize = v
+									}
+								}
+							}
+							minSize={20}
+						>
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<Tabs bind:selected>

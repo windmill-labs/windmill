@@ -506,7 +506,6 @@ components:
               properties:
                 parent_module:
                   type: string
-
         retry:
           type: object
           properties:
@@ -517,6 +516,35 @@ components:
               items:
                 type: string
                 format: uuid
+        actions:
+          type: array
+          items:
+            type: object
+            oneOf:
+              - type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  type:
+                    type: string
+                    enum: [tool_call]
+                required:
+                  - job_id
+                  - function_name
+                  - type
+              - type: object
+                properties:
+                  content:
+                    type: string
+                  type:
+                    type: string
+                    enum: [content]
+                required:
+                  - content
+                  - type
       required:
         - step
         - modules

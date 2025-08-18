@@ -17,9 +17,17 @@
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
+		mode?: 'flow' | 'aiagent'
 	}
 
-	let { job, localModuleStates, workspaceId, render, onSelectedIteration }: Props = $props()
+	let {
+		job,
+		localModuleStates,
+		workspaceId,
+		render,
+		onSelectedIteration,
+		mode = 'flow'
+	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
 	let expandedRows: Record<string, boolean> = $state({})
@@ -69,5 +77,6 @@
 		{getSelectedIteration}
 		flowId="root"
 		flowStatus={undefined}
+		{mode}
 	/>
 </div>

@@ -49,7 +49,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
@@ -3528,7 +3528,7 @@ mount {{
     result
 }
 
-fn parse_sig_of_lang(
+pub fn parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
     main_override: Option<String>,

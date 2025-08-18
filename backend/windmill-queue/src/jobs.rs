@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::num::NonZeroI32;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -4443,12 +4442,12 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::AIAgent(flow_version_or_raw_flow) => (
+        JobPayload::AIAgent { flow_version_or_raw_flow, path } => (
             match flow_version_or_raw_flow {
                 FlowVersionOrRawFlow::FlowVersion(flow_version) => Some(flow_version),
                 _ => None,
             },
-            None,
+            Some(path),
             None,
             JobKind::AIAgent,
             match flow_version_or_raw_flow {
@@ -4537,7 +4536,10 @@ pub async fn push<'c, 'd>(
         let per_workspace = per_workspace_tag(&workspace_id).await;
 
         let default = || {
-            let ntag = if job_kind.is_flow() || job_kind == JobKind::Identity {
+            let ntag = if job_kind.is_flow()
+                || job_kind == JobKind::Identity
+                || job_kind == JobKind::AIAgent
+            {
                 "flow".to_string()
             } else if job_kind == JobKind::Dependencies
                 || job_kind == JobKind::FlowDependencies
@@ -4696,7 +4698,7 @@ pub async fn push<'c, 'd>(
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 THEN now() END, $30, $31)",
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
         job_id,
         workspace_id,
         raw_code,
@@ -4740,6 +4742,7 @@ pub async fn push<'c, 'd>(
         job_authed.groups.as_slice(),
         root_job.or(parent_job),
         trigger_kind as Option<JobTriggerKind>,
+        running,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
