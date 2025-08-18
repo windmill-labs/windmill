@@ -50,11 +50,11 @@ const targets = [
     desc: "Java",
     features: "java-parser",
     env: "tree-sitter",
-  # }, {
-  #   ident: "ruby",
-  #   desc: "Ruby",
-  #   features: "ruby-parser",
-  #   env: "tree-sitter",
+  }, {
+    ident: "ruby",
+    desc: "Ruby",
+    features: "ruby-parser",
+    env: "tree-sitter",
   },
   # ^^^ Add new entry here ^^^
 ];
@@ -130,3 +130,4 @@ def main [
     }
   }
 }
+

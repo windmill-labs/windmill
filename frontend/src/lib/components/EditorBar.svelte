@@ -43,7 +43,6 @@
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
@@ -52,6 +51,8 @@
 	import EditorSettings from './EditorSettings.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
+	import ScriptGen from './copilot/ScriptGen.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -131,7 +132,8 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java'
+			'java',
+      'ruby'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -150,7 +152,8 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java'
+			'java',
+      'ruby'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -169,7 +172,8 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java'
+			'java',
+      'ruby',
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -435,6 +439,8 @@
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`System.getenv("${name}");`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			editor.insertAtCursor(`ENV['${name}']`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -505,6 +511,11 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_variable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -594,6 +605,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_resource("${path}")`)
 		} else if (lang == 'duckdb') {
 			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
 			if (!t) {
@@ -947,7 +963,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.aiGen != false}
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} {openAiChat} />
+				{#if openAiChat}
+					<FlowInlineScriptAiButton />
+				{:else}
+					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				{/if}
 			{/if}
 
 			<EditorSettings {customUi} />

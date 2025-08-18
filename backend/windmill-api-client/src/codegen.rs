@@ -7,6 +7,20 @@ pub mod types {
     use serde::{Deserialize, Serialize};
     #[allow(unused_imports)]
     use std::convert::TryFrom;
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct AiConfig {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub code_completion_model: Option<AiProviderModel>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub default_model: Option<AiProviderModel>,
+        #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        pub providers: std::collections::HashMap<String, AiProviderConfig>,
+    }
+    impl From<&AiConfig> for AiConfig {
+        fn from(value: &AiConfig) -> Self {
+            value.clone()
+        }
+    }
     #[derive(
         Clone,
         Copy,
@@ -22,6 +36,8 @@ pub mod types {
     pub enum AiProvider {
         #[serde(rename = "openai")]
         Openai,
+        #[serde(rename = "azure_openai")]
+        AzureOpenai,
         #[serde(rename = "anthropic")]
         Anthropic,
         #[serde(rename = "mistral")]
@@ -34,6 +50,8 @@ pub mod types {
         Groq,
         #[serde(rename = "openrouter")]
         Openrouter,
+        #[serde(rename = "togetherai")]
+        Togetherai,
         #[serde(rename = "customai")]
         Customai,
     }
@@ -46,12 +64,14 @@ pub mod types {
         fn to_string(&self) -> String {
             match *self {
                 Self::Openai => "openai".to_string(),
+                Self::AzureOpenai => "azure_openai".to_string(),
                 Self::Anthropic => "anthropic".to_string(),
                 Self::Mistral => "mistral".to_string(),
                 Self::Deepseek => "deepseek".to_string(),
                 Self::Googleai => "googleai".to_string(),
                 Self::Groq => "groq".to_string(),
                 Self::Openrouter => "openrouter".to_string(),
+                Self::Togetherai => "togetherai".to_string(),
                 Self::Customai => "customai".to_string(),
             }
         }
@@ -61,12 +81,14 @@ pub mod types {
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
                 "openai" => Ok(Self::Openai),
+                "azure_openai" => Ok(Self::AzureOpenai),
                 "anthropic" => Ok(Self::Anthropic),
                 "mistral" => Ok(Self::Mistral),
                 "deepseek" => Ok(Self::Deepseek),
                 "googleai" => Ok(Self::Googleai),
                 "groq" => Ok(Self::Groq),
                 "openrouter" => Ok(Self::Openrouter),
+                "togetherai" => Ok(Self::Togetherai),
                 "customai" => Ok(Self::Customai),
                 _ => Err("invalid value"),
             }
@@ -91,12 +113,35 @@ pub mod types {
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct AiResource {
-        pub path: String,
+    pub struct AiProviderConfig {
+        pub models: Vec<String>,
+        pub resource_path: String,
+    }
+    impl From<&AiProviderConfig> for AiProviderConfig {
+        fn from(value: &AiProviderConfig) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct AiProviderModel {
+        pub model: String,
         pub provider: AiProvider,
     }
-    impl From<&AiResource> for AiResource {
-        fn from(value: &AiResource) -> Self {
+    impl From<&AiProviderModel> for AiProviderModel {
+        fn from(value: &AiProviderModel) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct Alert {
+        pub alert_cooldown_seconds: i64,
+        pub alert_time_threshold_seconds: i64,
+        pub jobs_num_threshold: i64,
+        pub name: String,
+        pub tags_to_monitor: Vec<String>,
+    }
+    impl From<&Alert> for Alert {
+        fn from(value: &Alert) -> Self {
             value.clone()
         }
     }
@@ -210,6 +255,201 @@ pub mod types {
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct Asset {
+        pub kind: AssetKind,
+        pub path: String,
+    }
+    impl From<&Asset> for Asset {
+        fn from(value: &Asset) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AssetKind {
+        #[serde(rename = "s3object")]
+        S3object,
+        #[serde(rename = "resource")]
+        Resource,
+        #[serde(rename = "ducklake")]
+        Ducklake,
+    }
+    impl From<&AssetKind> for AssetKind {
+        fn from(value: &AssetKind) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AssetKind {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::S3object => "s3object".to_string(),
+                Self::Resource => "resource".to_string(),
+                Self::Ducklake => "ducklake".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AssetKind {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "s3object" => Ok(Self::S3object),
+                "resource" => Ok(Self::Resource),
+                "ducklake" => Ok(Self::Ducklake),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AssetKind {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AssetKind {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AssetKind {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AssetUsageAccessType {
+        #[serde(rename = "r")]
+        R,
+        #[serde(rename = "w")]
+        W,
+        #[serde(rename = "rw")]
+        Rw,
+    }
+    impl From<&AssetUsageAccessType> for AssetUsageAccessType {
+        fn from(value: &AssetUsageAccessType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AssetUsageAccessType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::R => "r".to_string(),
+                Self::W => "w".to_string(),
+                Self::Rw => "rw".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AssetUsageAccessType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "r" => Ok(Self::R),
+                "w" => Ok(Self::W),
+                "rw" => Ok(Self::Rw),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AssetUsageAccessType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AssetUsageAccessType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AssetUsageAccessType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AssetUsageKind {
+        #[serde(rename = "script")]
+        Script,
+        #[serde(rename = "flow")]
+        Flow,
+    }
+    impl From<&AssetUsageKind> for AssetUsageKind {
+        fn from(value: &AssetUsageKind) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AssetUsageKind {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Script => "script".to_string(),
+                Self::Flow => "flow".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AssetUsageKind {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "script" => Ok(Self::Script),
+                "flow" => Ok(Self::Flow),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AssetUsageKind {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AssetUsageKind {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AssetUsageKind {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct AuditLog {
         pub action_kind: AuditLogActionKind,
         pub id: i64,
@@ -218,6 +458,8 @@ pub mod types {
         pub parameters: std::collections::HashMap<String, serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub resource: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub span: Option<String>,
         pub timestamp: chrono::DateTime<chrono::offset::Utc>,
         pub username: String,
     }
@@ -690,6 +932,81 @@ pub mod types {
             value.parse()
         }
     }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AuthenticationMethod {
+        #[serde(rename = "none")]
+        None,
+        #[serde(rename = "windmill")]
+        Windmill,
+        #[serde(rename = "api_key")]
+        ApiKey,
+        #[serde(rename = "basic_http")]
+        BasicHttp,
+        #[serde(rename = "custom_script")]
+        CustomScript,
+        #[serde(rename = "signature")]
+        Signature,
+    }
+    impl From<&AuthenticationMethod> for AuthenticationMethod {
+        fn from(value: &AuthenticationMethod) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AuthenticationMethod {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::None => "none".to_string(),
+                Self::Windmill => "windmill".to_string(),
+                Self::ApiKey => "api_key".to_string(),
+                Self::BasicHttp => "basic_http".to_string(),
+                Self::CustomScript => "custom_script".to_string(),
+                Self::Signature => "signature".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AuthenticationMethod {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "none" => Ok(Self::None),
+                "windmill" => Ok(Self::Windmill),
+                "api_key" => Ok(Self::ApiKey),
+                "basic_http" => Ok(Self::BasicHttp),
+                "custom_script" => Ok(Self::CustomScript),
+                "signature" => Ok(Self::Signature),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AuthenticationMethod {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AuthenticationMethod {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AuthenticationMethod {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct AutoscalingEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -708,6 +1025,65 @@ pub mod types {
     impl From<&AutoscalingEvent> for AutoscalingEvent {
         fn from(value: &AutoscalingEvent) -> Self {
             value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AwsAuthResourceType {
+        #[serde(rename = "oidc")]
+        Oidc,
+        #[serde(rename = "credentials")]
+        Credentials,
+    }
+    impl From<&AwsAuthResourceType> for AwsAuthResourceType {
+        fn from(value: &AwsAuthResourceType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AwsAuthResourceType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Oidc => "oidc".to_string(),
+                Self::Credentials => "credentials".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AwsAuthResourceType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "oidc" => Ok(Self::Oidc),
+                "credentials" => Ok(Self::Credentials),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AwsAuthResourceType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AwsAuthResourceType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AwsAuthResourceType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -874,9 +1250,8 @@ pub mod types {
     pub struct Capture {
         pub created_at: chrono::DateTime<chrono::offset::Utc>,
         pub id: i64,
-        pub payload: serde_json::Value,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub trigger_extra: Option<serde_json::Value>,
+        pub main_args: serde_json::Value,
+        pub preprocessor_args: serde_json::Value,
         pub trigger_kind: CaptureTriggerKind,
     }
     impl From<&Capture> for Capture {
@@ -930,6 +1305,8 @@ pub mod types {
         Sqs,
         #[serde(rename = "mqtt")]
         Mqtt,
+        #[serde(rename = "gcp")]
+        Gcp,
     }
     impl From<&CaptureTriggerKind> for CaptureTriggerKind {
         fn from(value: &CaptureTriggerKind) -> Self {
@@ -948,6 +1325,7 @@ pub mod types {
                 Self::Postgres => "postgres".to_string(),
                 Self::Sqs => "sqs".to_string(),
                 Self::Mqtt => "mqtt".to_string(),
+                Self::Gcp => "gcp".to_string(),
             }
         }
     }
@@ -964,6 +1342,7 @@ pub mod types {
                 "postgres" => Ok(Self::Postgres),
                 "sqs" => Ok(Self::Sqs),
                 "mqtt" => Ok(Self::Mqtt),
+                "gcp" => Ok(Self::Gcp),
                 _ => Err("invalid value"),
             }
         }
@@ -1063,6 +1442,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub visible_to_owner: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub worker: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workflow_as_code_status: Option<WorkflowStatus>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String>,
     }
@@ -1200,6 +1581,39 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct Configs(pub Option<ConfigsInner>);
+    impl std::ops::Deref for Configs {
+        type Target = Option<ConfigsInner>;
+        fn deref(&self) -> &Option<ConfigsInner> {
+            &self.0
+        }
+    }
+    impl From<Configs> for Option<ConfigsInner> {
+        fn from(value: Configs) -> Self {
+            value.0
+        }
+    }
+    impl From<&Configs> for Configs {
+        fn from(value: &Configs) -> Self {
+            value.clone()
+        }
+    }
+    impl From<Option<ConfigsInner>> for Configs {
+        fn from(value: Option<ConfigsInner>) -> Self {
+            Self(value)
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct ConfigsInner {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub alerts: Vec<Alert>,
+    }
+    impl From<&ConfigsInner> for ConfigsInner {
+        fn from(value: &ConfigsInner) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct ContextualVariable {
         pub description: String,
         pub is_custom: bool,
@@ -1237,9 +1651,12 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct CreateResource {
+        ///The description of the resource
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub description: Option<String>,
+        ///The path to the resource
         pub path: String,
+        ///The resource_type associated with the resource
         pub resource_type: String,
         pub value: serde_json::Value,
     }
@@ -1250,15 +1667,22 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct CreateVariable {
+        ///The account identifier
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub account: Option<i64>,
+        ///The description of the variable
         pub description: String,
+        ///The expiration date of the variable
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub expires_at: Option<chrono::DateTime<chrono::offset::Utc>>,
+        ///Whether the variable is an OAuth variable
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_oauth: Option<bool>,
+        ///Whether the variable is a secret
         pub is_secret: bool,
+        ///The path to the variable
         pub path: String,
+        ///The value of the variable
         pub value: String,
     }
     impl From<&CreateVariable> for CreateVariable {
@@ -1307,27 +1731,11 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct EditHttpTrigger {
-        pub http_method: EditHttpTriggerHttpMethod,
-        pub is_async: bool,
-        pub is_flow: bool,
-        pub is_static_website: bool,
-        pub path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub raw_string: Option<bool>,
-        pub requires_auth: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub route_path: Option<String>,
-        pub script_path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub static_asset_config: Option<EditHttpTriggerStaticAssetConfig>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub workspaced_route: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub wrap_body: Option<bool>,
+    pub struct DeleteGcpSubscription {
+        pub subscription_id: String,
     }
-    impl From<&EditHttpTrigger> for EditHttpTrigger {
-        fn from(value: &EditHttpTrigger) -> Self {
+    impl From<&DeleteGcpSubscription> for DeleteGcpSubscription {
+        fn from(value: &DeleteGcpSubscription) -> Self {
             value.clone()
         }
     }
@@ -1343,63 +1751,198 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         PartialOrd,
         Serialize
     )]
-    pub enum EditHttpTriggerHttpMethod {
-        #[serde(rename = "get")]
-        Get,
-        #[serde(rename = "post")]
-        Post,
-        #[serde(rename = "put")]
-        Put,
-        #[serde(rename = "delete")]
-        Delete,
-        #[serde(rename = "patch")]
-        Patch,
+    pub enum DeliveryType {
+        #[serde(rename = "push")]
+        Push,
+        #[serde(rename = "pull")]
+        Pull,
     }
-    impl From<&EditHttpTriggerHttpMethod> for EditHttpTriggerHttpMethod {
-        fn from(value: &EditHttpTriggerHttpMethod) -> Self {
+    impl From<&DeliveryType> for DeliveryType {
+        fn from(value: &DeliveryType) -> Self {
             value.clone()
         }
     }
-    impl ToString for EditHttpTriggerHttpMethod {
+    impl ToString for DeliveryType {
         fn to_string(&self) -> String {
             match *self {
-                Self::Get => "get".to_string(),
-                Self::Post => "post".to_string(),
-                Self::Put => "put".to_string(),
-                Self::Delete => "delete".to_string(),
-                Self::Patch => "patch".to_string(),
+                Self::Push => "push".to_string(),
+                Self::Pull => "pull".to_string(),
             }
         }
     }
-    impl std::str::FromStr for EditHttpTriggerHttpMethod {
+    impl std::str::FromStr for DeliveryType {
         type Err = &'static str;
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
-                "get" => Ok(Self::Get),
-                "post" => Ok(Self::Post),
-                "put" => Ok(Self::Put),
-                "delete" => Ok(Self::Delete),
-                "patch" => Ok(Self::Patch),
+                "push" => Ok(Self::Push),
+                "pull" => Ok(Self::Pull),
                 _ => Err("invalid value"),
             }
         }
     }
-    impl std::convert::TryFrom<&str> for EditHttpTriggerHttpMethod {
+    impl std::convert::TryFrom<&str> for DeliveryType {
         type Error = &'static str;
         fn try_from(value: &str) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<&String> for EditHttpTriggerHttpMethod {
+    impl std::convert::TryFrom<&String> for DeliveryType {
         type Error = &'static str;
         fn try_from(value: &String) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<String> for EditHttpTriggerHttpMethod {
+    impl std::convert::TryFrom<String> for DeliveryType {
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct DucklakeSettings {
+        pub ducklakes: std::collections::HashMap<String, DucklakeSettingsDucklakesValue>,
+    }
+    impl From<&DucklakeSettings> for DucklakeSettings {
+        fn from(value: &DucklakeSettings) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct DucklakeSettingsDucklakesValue {
+        pub catalog: DucklakeSettingsDucklakesValueCatalog,
+        pub storage: DucklakeSettingsDucklakesValueStorage,
+    }
+    impl From<&DucklakeSettingsDucklakesValue> for DucklakeSettingsDucklakesValue {
+        fn from(value: &DucklakeSettingsDucklakesValue) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct DucklakeSettingsDucklakesValueCatalog {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub resource_path: Option<String>,
+        pub resource_type: DucklakeSettingsDucklakesValueCatalogResourceType,
+    }
+    impl From<&DucklakeSettingsDucklakesValueCatalog>
+    for DucklakeSettingsDucklakesValueCatalog {
+        fn from(value: &DucklakeSettingsDucklakesValueCatalog) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum DucklakeSettingsDucklakesValueCatalogResourceType {
+        #[serde(rename = "postgresql")]
+        Postgresql,
+        #[serde(rename = "mysql")]
+        Mysql,
+        #[serde(rename = "instance")]
+        Instance,
+    }
+    impl From<&DucklakeSettingsDucklakesValueCatalogResourceType>
+    for DucklakeSettingsDucklakesValueCatalogResourceType {
+        fn from(value: &DucklakeSettingsDucklakesValueCatalogResourceType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for DucklakeSettingsDucklakesValueCatalogResourceType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Postgresql => "postgresql".to_string(),
+                Self::Mysql => "mysql".to_string(),
+                Self::Instance => "instance".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for DucklakeSettingsDucklakesValueCatalogResourceType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "postgresql" => Ok(Self::Postgresql),
+                "mysql" => Ok(Self::Mysql),
+                "instance" => Ok(Self::Instance),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str>
+    for DucklakeSettingsDucklakesValueCatalogResourceType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String>
+    for DucklakeSettingsDucklakesValueCatalogResourceType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String>
+    for DucklakeSettingsDucklakesValueCatalogResourceType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct DucklakeSettingsDucklakesValueStorage {
+        pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub storage: Option<String>,
+    }
+    impl From<&DucklakeSettingsDucklakesValueStorage>
+    for DucklakeSettingsDucklakesValueStorage {
+        fn from(value: &DucklakeSettingsDucklakesValueStorage) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct EditHttpTrigger {
+        pub authentication_method: AuthenticationMethod,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub authentication_resource_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub http_method: HttpMethod,
+        pub is_async: bool,
+        pub is_flow: bool,
+        pub is_static_website: bool,
+        pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub raw_string: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub route_path: Option<String>,
+        pub script_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub static_asset_config: Option<EditHttpTriggerStaticAssetConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspaced_route: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub wrap_body: Option<bool>,
+    }
+    impl From<&EditHttpTrigger> for EditHttpTrigger {
+        fn from(value: &EditHttpTrigger) -> Self {
+            value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1417,10 +1960,16 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditKafkaTrigger {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub group_id: String,
         pub is_flow: bool,
         pub kafka_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub topics: Vec<String>,
     }
@@ -1436,9 +1985,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub client_version: Option<MqttClientVersion>,
         pub enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub mqtt_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub subscribe_topics: Vec<MqttSubscribeTopic>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1455,9 +2010,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     pub struct EditNatsTrigger {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub consumer_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub nats_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub stream_name: Option<String>,
@@ -1472,6 +2033,10 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditPostgresTrigger {
         pub enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub path: String,
         pub postgres_resource_path: String,
@@ -1479,6 +2044,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub publication: Option<PublicationData>,
         pub publication_name: String,
         pub replication_slot_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
     }
     impl From<&EditPostgresTrigger> for EditPostgresTrigger {
@@ -1488,10 +2055,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditResource {
+        ///The new description of the resource
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub description: Option<String>,
+        ///The path to the resource
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub path: Option<String>,
+        ///The new resource_type to be associated with the resource
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub resource_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub value: Option<serde_json::Value>,
     }
@@ -1515,38 +2087,53 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditSchedule {
         pub args: ScriptArgs,
+        ///The version of the cron schedule to use (last is v2)
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cron_version: Option<String>,
+        ///The description of the schedule
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        ///Whether the schedule should not run if a flow is already running
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub no_flow_overlap: Option<bool>,
+        ///The path to the script or flow to trigger on failure
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure: Option<String>,
+        ///Whether the schedule should only run on the exact time
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_exact: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_extra_args: Option<ScriptArgs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_times: Option<f64>,
+        ///The path to the script or flow to trigger on recovery
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery_extra_args: Option<ScriptArgs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery_times: Option<f64>,
+        ///The path to the script or flow to trigger on success
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_success: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_success_extra_args: Option<ScriptArgs>,
+        ///The date and time the schedule will be paused until
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub paused_until: Option<chrono::DateTime<chrono::offset::Utc>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub retry: Option<Retry>,
+        ///The cron schedule to trigger the script or flow. Should include seconds.
         pub schedule: String,
+        ///The summary of the schedule
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub summary: Option<String>,
+        ///The tag of the schedule
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tag: Option<String>,
+        ///The timezone to use for the cron schedule
         pub timezone: String,
+        ///Whether the WebSocket error handler is muted
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ws_error_handler_muted: Option<bool>,
     }
@@ -1557,13 +2144,20 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditSqsTrigger {
+        pub aws_auth_resource_type: AwsAuthResourceType,
         pub aws_resource_path: String,
         pub enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub message_attributes: Vec<String>,
         pub path: String,
         pub queue_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
     }
     impl From<&EditSqsTrigger> for EditSqsTrigger {
@@ -1573,12 +2167,16 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditVariable {
+        ///The new description of the variable
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub description: Option<String>,
+        ///Whether the variable is a secret
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_secret: Option<bool>,
+        ///The path to the variable
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub path: Option<String>,
+        ///The new value of the variable
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub value: Option<String>,
     }
@@ -1590,11 +2188,17 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EditWebsocketTrigger {
         pub can_return_message: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub filters: Vec<EditWebsocketTriggerFiltersItem>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub initial_messages: Vec<WebsocketTriggerInitialMessage>,
         pub is_flow: bool,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1627,6 +2231,104 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&EditWorkspaceUser> for EditWorkspaceUser {
         fn from(value: &EditWorkspaceUser) -> Self {
             value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct EndpointTool {
+        ///JSON schema for request body
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub body_schema: Option<std::collections::HashMap<String, serde_json::Value>>,
+        ///Short description of the tool
+        pub description: String,
+        ///Detailed instructions for using the tool
+        pub instructions: String,
+        ///HTTP method (GET, POST, etc.)
+        pub method: String,
+        ///The tool name/operation ID
+        pub name: String,
+        ///API endpoint path
+        pub path: String,
+        ///JSON schema for path parameters
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub path_params_schema: Option<
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
+        ///JSON schema for query parameters
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub query_params_schema: Option<
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
+    }
+    impl From<&EndpointTool> for EndpointTool {
+        fn from(value: &EndpointTool) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum ErrorHandler {
+        #[serde(rename = "custom")]
+        Custom,
+        #[serde(rename = "slack")]
+        Slack,
+        #[serde(rename = "teams")]
+        Teams,
+        #[serde(rename = "email")]
+        Email,
+    }
+    impl From<&ErrorHandler> for ErrorHandler {
+        fn from(value: &ErrorHandler) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for ErrorHandler {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Custom => "custom".to_string(),
+                Self::Slack => "slack".to_string(),
+                Self::Teams => "teams".to_string(),
+                Self::Email => "email".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for ErrorHandler {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "custom" => Ok(Self::Custom),
+                "slack" => Ok(Self::Slack),
+                "teams" => Ok(Self::Teams),
+                "email" => Ok(Self::Email),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for ErrorHandler {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for ErrorHandler {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for ErrorHandler {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1771,9 +2473,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub sleep: Option<InputTransform>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub stop_after_all_iters_if: Option<FlowModuleStopAfterAllItersIf>,
+        pub stop_after_all_iters_if: Option<StopAfterIf>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub stop_after_if: Option<FlowModuleStopAfterIf>,
+        pub stop_after_if: Option<StopAfterIf>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1805,30 +2507,6 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     impl From<&FlowModuleSkipIf> for FlowModuleSkipIf {
         fn from(value: &FlowModuleSkipIf) -> Self {
-            value.clone()
-        }
-    }
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct FlowModuleStopAfterAllItersIf {
-        pub expr: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub skip_if_stopped: Option<bool>,
-    }
-    impl From<&FlowModuleStopAfterAllItersIf> for FlowModuleStopAfterAllItersIf {
-        fn from(value: &FlowModuleStopAfterAllItersIf) -> Self {
-            value.clone()
-        }
-    }
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct FlowModuleStopAfterIf {
-        pub expr: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub skip_if_stopped: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub error_message: Option<String>
-    }
-    impl From<&FlowModuleStopAfterIf> for FlowModuleStopAfterIf {
-        fn from(value: &FlowModuleStopAfterIf) -> Self {
             value.clone()
         }
     }
@@ -2319,18 +2997,125 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct GitRepositorySettings {
+    pub struct GcpTrigger {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub delivery_config: Option<PushConfig>,
+        pub delivery_type: DeliveryType,
+        pub enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub gcp_resource_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub server_id: Option<String>,
+        pub subscription_id: String,
+        pub subscription_mode: SubscriptionMode,
+        pub topic_id: String,
+    }
+    impl From<&GcpTrigger> for GcpTrigger {
+        fn from(value: &GcpTrigger) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GcpTriggerData {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub auto_acknowledge_msg: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub base_endpoint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub delivery_config: Option<PushConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub delivery_type: Option<DeliveryType>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub gcp_resource_path: String,
+        pub is_flow: bool,
+        pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        pub script_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub subscription_id: Option<String>,
+        pub subscription_mode: SubscriptionMode,
+        pub topic_id: String,
+    }
+    impl From<&GcpTriggerData> for GcpTriggerData {
+        fn from(value: &GcpTriggerData) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GenerateOpenapiSpec {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub exclude_types_override: Vec<GitRepositorySettingsExcludeTypesOverrideItem>,
+        pub http_route_filters: Vec<OpenapiHttpRouteFilters>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub info: Option<OpenapiV3Info>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub openapi_spec_format: Option<OpenapiSpecFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub url: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub webhook_filters: Vec<WebhookFilters>,
+    }
+    impl From<&GenerateOpenapiSpec> for GenerateOpenapiSpec {
+        fn from(value: &GenerateOpenapiSpec) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GetAllTopicSubscription {
+        pub topic_id: String,
+    }
+    impl From<&GetAllTopicSubscription> for GetAllTopicSubscription {
+        fn from(value: &GetAllTopicSubscription) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GitRepositorySettings {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub collapsed: Option<bool>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub exclude_types_override: Vec<GitSyncObjectType>,
         pub git_repo_resource_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub group_by_folder: Option<bool>,
         pub script_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub settings: Option<GitRepositorySettingsSettings>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub use_individual_branch: Option<bool>,
     }
     impl From<&GitRepositorySettings> for GitRepositorySettings {
         fn from(value: &GitRepositorySettings) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GitRepositorySettingsSettings {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub exclude_path: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub extra_include_path: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub include_path: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub include_type: Vec<GitSyncObjectType>,
+    }
+    impl From<&GitRepositorySettingsSettings> for GitRepositorySettingsSettings {
+        fn from(value: &GitRepositorySettingsSettings) -> Self {
             value.clone()
         }
     }
@@ -2346,7 +3131,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         PartialOrd,
         Serialize
     )]
-    pub enum GitRepositorySettingsExcludeTypesOverrideItem {
+    pub enum GitSyncObjectType {
         #[serde(rename = "script")]
         Script,
         #[serde(rename = "flow")]
@@ -2369,14 +3154,19 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         User,
         #[serde(rename = "group")]
         Group,
+        #[serde(rename = "trigger")]
+        Trigger,
+        #[serde(rename = "settings")]
+        Settings,
+        #[serde(rename = "key")]
+        Key,
     }
-    impl From<&GitRepositorySettingsExcludeTypesOverrideItem>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
-        fn from(value: &GitRepositorySettingsExcludeTypesOverrideItem) -> Self {
+    impl From<&GitSyncObjectType> for GitSyncObjectType {
+        fn from(value: &GitSyncObjectType) -> Self {
             value.clone()
         }
     }
-    impl ToString for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl ToString for GitSyncObjectType {
         fn to_string(&self) -> String {
             match *self {
                 Self::Script => "script".to_string(),
@@ -2390,10 +3180,13 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Schedule => "schedule".to_string(),
                 Self::User => "user".to_string(),
                 Self::Group => "group".to_string(),
+                Self::Trigger => "trigger".to_string(),
+                Self::Settings => "settings".to_string(),
+                Self::Key => "key".to_string(),
             }
         }
     }
-    impl std::str::FromStr for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::str::FromStr for GitSyncObjectType {
         type Err = &'static str;
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
@@ -2408,28 +3201,76 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "schedule" => Ok(Self::Schedule),
                 "user" => Ok(Self::User),
                 "group" => Ok(Self::Group),
+                "trigger" => Ok(Self::Trigger),
+                "settings" => Ok(Self::Settings),
+                "key" => Ok(Self::Key),
                 _ => Err("invalid value"),
             }
         }
     }
-    impl std::convert::TryFrom<&str> for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::convert::TryFrom<&str> for GitSyncObjectType {
         type Error = &'static str;
         fn try_from(value: &str) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<&String>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::convert::TryFrom<&String> for GitSyncObjectType {
         type Error = &'static str;
         fn try_from(value: &String) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<String>
-    for GitRepositorySettingsExcludeTypesOverrideItem {
+    impl std::convert::TryFrom<String> for GitSyncObjectType {
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GithubInstallations(pub Vec<GithubInstallationsItem>);
+    impl std::ops::Deref for GithubInstallations {
+        type Target = Vec<GithubInstallationsItem>;
+        fn deref(&self) -> &Vec<GithubInstallationsItem> {
+            &self.0
+        }
+    }
+    impl From<GithubInstallations> for Vec<GithubInstallationsItem> {
+        fn from(value: GithubInstallations) -> Self {
+            value.0
+        }
+    }
+    impl From<&GithubInstallations> for GithubInstallations {
+        fn from(value: &GithubInstallations) -> Self {
+            value.clone()
+        }
+    }
+    impl From<Vec<GithubInstallationsItem>> for GithubInstallations {
+        fn from(value: Vec<GithubInstallationsItem>) -> Self {
+            Self(value)
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GithubInstallationsItem {
+        pub account_id: String,
+        pub installation_id: f64,
+        pub repositories: Vec<GithubInstallationsItemRepositoriesItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspace_id: Option<String>,
+    }
+    impl From<&GithubInstallationsItem> for GithubInstallationsItem {
+        fn from(value: &GithubInstallationsItem) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct GithubInstallationsItemRepositoriesItem {
+        pub name: String,
+        pub url: String,
+    }
+    impl From<&GithubInstallationsItemRepositoriesItem>
+    for GithubInstallationsItemRepositoriesItem {
+        fn from(value: &GithubInstallationsItemRepositoriesItem) -> Self {
+            value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2538,24 +3379,6 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct HttpTrigger {
-        pub http_method: HttpTriggerHttpMethod,
-        pub is_async: bool,
-        pub is_static_website: bool,
-        pub raw_string: bool,
-        pub requires_auth: bool,
-        pub route_path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub static_asset_config: Option<HttpTriggerStaticAssetConfig>,
-        pub workspaced_route: bool,
-        pub wrap_body: bool,
-    }
-    impl From<&HttpTrigger> for HttpTrigger {
-        fn from(value: &HttpTrigger) -> Self {
-            value.clone()
-        }
-    }
     #[derive(
         Clone,
         Copy,
@@ -2568,7 +3391,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         PartialOrd,
         Serialize
     )]
-    pub enum HttpTriggerHttpMethod {
+    pub enum HttpMethod {
         #[serde(rename = "get")]
         Get,
         #[serde(rename = "post")]
@@ -2580,12 +3403,12 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "patch")]
         Patch,
     }
-    impl From<&HttpTriggerHttpMethod> for HttpTriggerHttpMethod {
-        fn from(value: &HttpTriggerHttpMethod) -> Self {
+    impl From<&HttpMethod> for HttpMethod {
+        fn from(value: &HttpMethod) -> Self {
             value.clone()
         }
     }
-    impl ToString for HttpTriggerHttpMethod {
+    impl ToString for HttpMethod {
         fn to_string(&self) -> String {
             match *self {
                 Self::Get => "get".to_string(),
@@ -2596,7 +3419,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             }
         }
     }
-    impl std::str::FromStr for HttpTriggerHttpMethod {
+    impl std::str::FromStr for HttpMethod {
         type Err = &'static str;
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
@@ -2609,22 +3432,52 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             }
         }
     }
-    impl std::convert::TryFrom<&str> for HttpTriggerHttpMethod {
+    impl std::convert::TryFrom<&str> for HttpMethod {
         type Error = &'static str;
         fn try_from(value: &str) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<&String> for HttpTriggerHttpMethod {
+    impl std::convert::TryFrom<&String> for HttpMethod {
         type Error = &'static str;
         fn try_from(value: &String) -> Result<Self, &'static str> {
             value.parse()
         }
     }
-    impl std::convert::TryFrom<String> for HttpTriggerHttpMethod {
+    impl std::convert::TryFrom<String> for HttpMethod {
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct HttpTrigger {
+        pub authentication_method: AuthenticationMethod,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub authentication_resource_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub http_method: HttpMethod,
+        pub is_async: bool,
+        pub is_static_website: bool,
+        pub raw_string: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        pub route_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub static_asset_config: Option<HttpTriggerStaticAssetConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub summary: Option<String>,
+        pub workspaced_route: bool,
+        pub wrap_body: bool,
+    }
+    impl From<&HttpTrigger> for HttpTrigger {
+        fn from(value: &HttpTrigger) -> Self {
+            value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2640,27 +3493,71 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct HubScriptKind(pub serde_json::Value);
-    impl std::ops::Deref for HubScriptKind {
-        type Target = serde_json::Value;
-        fn deref(&self) -> &serde_json::Value {
-            &self.0
-        }
-    }
-    impl From<HubScriptKind> for serde_json::Value {
-        fn from(value: HubScriptKind) -> Self {
-            value.0
-        }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum HubScriptKind {
+        #[serde(rename = "script")]
+        Script,
+        #[serde(rename = "failure")]
+        Failure,
+        #[serde(rename = "trigger")]
+        Trigger,
+        #[serde(rename = "approval")]
+        Approval,
     }
     impl From<&HubScriptKind> for HubScriptKind {
         fn from(value: &HubScriptKind) -> Self {
             value.clone()
         }
     }
-    impl From<serde_json::Value> for HubScriptKind {
-        fn from(value: serde_json::Value) -> Self {
-            Self(value)
+    impl ToString for HubScriptKind {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Script => "script".to_string(),
+                Self::Failure => "failure".to_string(),
+                Self::Trigger => "trigger".to_string(),
+                Self::Approval => "approval".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for HubScriptKind {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "script" => Ok(Self::Script),
+                "failure" => Ok(Self::Failure),
+                "trigger" => Ok(Self::Trigger),
+                "approval" => Ok(Self::Approval),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for HubScriptKind {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for HubScriptKind {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for HubScriptKind {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2776,6 +3673,21 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     impl From<&InstanceGroup> for InstanceGroup {
         fn from(value: &InstanceGroup) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct InstanceGroupWithWorkspaces {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub emails: Vec<String>,
+        pub name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub workspaces: Vec<WorkspaceInfo>,
+    }
+    impl From<&InstanceGroupWithWorkspaces> for InstanceGroupWithWorkspaces {
+        fn from(value: &InstanceGroupWithWorkspaces) -> Self {
             value.clone()
         }
     }
@@ -3013,10 +3925,16 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub enabled: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub group_id: String,
         pub kafka_resource_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
         pub topics: Vec<String>,
@@ -3085,6 +4003,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub azure_blob_resource_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub gcs_resource_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub public_resource: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub s3_resource_path: Option<String>,
@@ -3105,6 +4025,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     pub struct LargeFileStorageSecondaryStorageValue {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub azure_blob_resource_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub gcs_resource_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub public_resource: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3135,6 +4057,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         AzureBlobStorage,
         AzureWorkloadIdentity,
         S3AwsOidc,
+        GoogleCloudStorage,
     }
     impl From<&LargeFileStorageSecondaryStorageValueType>
     for LargeFileStorageSecondaryStorageValueType {
@@ -3149,6 +4072,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::AzureBlobStorage => "AzureBlobStorage".to_string(),
                 Self::AzureWorkloadIdentity => "AzureWorkloadIdentity".to_string(),
                 Self::S3AwsOidc => "S3AwsOidc".to_string(),
+                Self::GoogleCloudStorage => "GoogleCloudStorage".to_string(),
             }
         }
     }
@@ -3160,6 +4084,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "AzureBlobStorage" => Ok(Self::AzureBlobStorage),
                 "AzureWorkloadIdentity" => Ok(Self::AzureWorkloadIdentity),
                 "S3AwsOidc" => Ok(Self::S3AwsOidc),
+                "GoogleCloudStorage" => Ok(Self::GoogleCloudStorage),
                 _ => Err("invalid value"),
             }
         }
@@ -3199,6 +4124,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         AzureBlobStorage,
         AzureWorkloadIdentity,
         S3AwsOidc,
+        GoogleCloudStorage,
     }
     impl From<&LargeFileStorageType> for LargeFileStorageType {
         fn from(value: &LargeFileStorageType) -> Self {
@@ -3212,6 +4138,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::AzureBlobStorage => "AzureBlobStorage".to_string(),
                 Self::AzureWorkloadIdentity => "AzureWorkloadIdentity".to_string(),
                 Self::S3AwsOidc => "S3AwsOidc".to_string(),
+                Self::GoogleCloudStorage => "GoogleCloudStorage".to_string(),
             }
         }
     }
@@ -3223,6 +4150,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "AzureBlobStorage" => Ok(Self::AzureBlobStorage),
                 "AzureWorkloadIdentity" => Ok(Self::AzureWorkloadIdentity),
                 "S3AwsOidc" => Ok(Self::S3AwsOidc),
+                "GoogleCloudStorage" => Ok(Self::GoogleCloudStorage),
                 _ => Err("invalid value"),
             }
         }
@@ -3252,6 +4180,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub extra_perms: std::collections::HashMap<String, bool>,
         pub id: i64,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub raw_app: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub starred: Option<bool>,
         pub summary: String,
@@ -3479,7 +4409,12 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "str")]
         Str(Option<Vec<String>>),
         #[serde(rename = "object")]
-        Object(Vec<MainArgSignatureArgsItemTypObjectItem>),
+        Object {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            name: Option<String>,
+            #[serde(default, skip_serializing_if = "Vec::is_empty")]
+            props: Vec<MainArgSignatureArgsItemTypObjectPropsItem>,
+        },
         #[serde(rename = "list")]
         List(MainArgSignatureArgsItemTypList),
     }
@@ -3496,12 +4431,6 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<Option<Vec<String>>> for MainArgSignatureArgsItemTyp {
         fn from(value: Option<Vec<String>>) -> Self {
             Self::Str(value)
-        }
-    }
-    impl From<Vec<MainArgSignatureArgsItemTypObjectItem>>
-    for MainArgSignatureArgsItemTyp {
-        fn from(value: Vec<MainArgSignatureArgsItemTypObjectItem>) -> Self {
-            Self::Object(value)
         }
     }
     impl From<MainArgSignatureArgsItemTypList> for MainArgSignatureArgsItemTyp {
@@ -3543,18 +4472,18 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub struct MainArgSignatureArgsItemTypObjectItem {
+    pub struct MainArgSignatureArgsItemTypObjectPropsItem {
         pub key: String,
-        pub typ: MainArgSignatureArgsItemTypObjectItemTyp,
+        pub typ: MainArgSignatureArgsItemTypObjectPropsItemTyp,
     }
-    impl From<&MainArgSignatureArgsItemTypObjectItem>
-    for MainArgSignatureArgsItemTypObjectItem {
-        fn from(value: &MainArgSignatureArgsItemTypObjectItem) -> Self {
+    impl From<&MainArgSignatureArgsItemTypObjectPropsItem>
+    for MainArgSignatureArgsItemTypObjectPropsItem {
+        fn from(value: &MainArgSignatureArgsItemTypObjectPropsItem) -> Self {
             value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    pub enum MainArgSignatureArgsItemTypObjectItemTyp {
+    pub enum MainArgSignatureArgsItemTypObjectPropsItemTyp {
         #[serde(rename = "float")]
         Float,
         #[serde(rename = "int")]
@@ -3576,13 +4505,13 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(rename = "str")]
         Str(serde_json::Value),
     }
-    impl From<&MainArgSignatureArgsItemTypObjectItemTyp>
-    for MainArgSignatureArgsItemTypObjectItemTyp {
-        fn from(value: &MainArgSignatureArgsItemTypObjectItemTyp) -> Self {
+    impl From<&MainArgSignatureArgsItemTypObjectPropsItemTyp>
+    for MainArgSignatureArgsItemTypObjectPropsItemTyp {
+        fn from(value: &MainArgSignatureArgsItemTypObjectPropsItemTyp) -> Self {
             value.clone()
         }
     }
-    impl From<serde_json::Value> for MainArgSignatureArgsItemTypObjectItemTyp {
+    impl From<serde_json::Value> for MainArgSignatureArgsItemTypObjectPropsItemTyp {
         fn from(value: serde_json::Value) -> Self {
             Self::Str(value)
         }
@@ -3807,8 +4736,14 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
         pub mqtt_resource_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
         pub subscribe_topics: Vec<MqttSubscribeTopic>,
@@ -3839,7 +4774,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub session_expiry_interval: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub topic_alias: Option<f64>,
+        pub topic_alias_maximum: Option<f64>,
     }
     impl From<&MqttV5Config> for MqttV5Config {
         fn from(value: &MqttV5Config) -> Self {
@@ -3854,8 +4789,14 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
         pub nats_resource_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3870,18 +4811,30 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewHttpTrigger {
-        pub http_method: NewHttpTriggerHttpMethod,
+        pub authentication_method: AuthenticationMethod,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub authentication_resource_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub http_method: HttpMethod,
         pub is_async: bool,
         pub is_flow: bool,
         pub is_static_website: bool,
         pub path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub raw_string: Option<bool>,
-        pub requires_auth: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub route_path: String,
         pub script_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub static_asset_config: Option<NewHttpTriggerStaticAssetConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspaced_route: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3890,77 +4843,6 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&NewHttpTrigger> for NewHttpTrigger {
         fn from(value: &NewHttpTrigger) -> Self {
             value.clone()
-        }
-    }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
-    pub enum NewHttpTriggerHttpMethod {
-        #[serde(rename = "get")]
-        Get,
-        #[serde(rename = "post")]
-        Post,
-        #[serde(rename = "put")]
-        Put,
-        #[serde(rename = "delete")]
-        Delete,
-        #[serde(rename = "patch")]
-        Patch,
-    }
-    impl From<&NewHttpTriggerHttpMethod> for NewHttpTriggerHttpMethod {
-        fn from(value: &NewHttpTriggerHttpMethod) -> Self {
-            value.clone()
-        }
-    }
-    impl ToString for NewHttpTriggerHttpMethod {
-        fn to_string(&self) -> String {
-            match *self {
-                Self::Get => "get".to_string(),
-                Self::Post => "post".to_string(),
-                Self::Put => "put".to_string(),
-                Self::Delete => "delete".to_string(),
-                Self::Patch => "patch".to_string(),
-            }
-        }
-    }
-    impl std::str::FromStr for NewHttpTriggerHttpMethod {
-        type Err = &'static str;
-        fn from_str(value: &str) -> Result<Self, &'static str> {
-            match value {
-                "get" => Ok(Self::Get),
-                "post" => Ok(Self::Post),
-                "put" => Ok(Self::Put),
-                "delete" => Ok(Self::Delete),
-                "patch" => Ok(Self::Patch),
-                _ => Err("invalid value"),
-            }
-        }
-    }
-    impl std::convert::TryFrom<&str> for NewHttpTriggerHttpMethod {
-        type Error = &'static str;
-        fn try_from(value: &str) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<&String> for NewHttpTriggerHttpMethod {
-        type Error = &'static str;
-        fn try_from(value: &String) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<String> for NewHttpTriggerHttpMethod {
-        type Error = &'static str;
-        fn try_from(value: String) -> Result<Self, &'static str> {
-            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -3980,10 +4862,16 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     pub struct NewKafkaTrigger {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub group_id: String,
         pub is_flow: bool,
         pub kafka_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub topics: Vec<String>,
     }
@@ -4000,9 +4888,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub client_version: Option<MqttClientVersion>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub mqtt_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub subscribe_topics: Vec<MqttSubscribeTopic>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4021,9 +4915,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub consumer_name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub nats_resource_path: String,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub stream_name: Option<String>,
@@ -4038,6 +4938,10 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewPostgresTrigger {
         pub enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         pub path: String,
         pub postgres_resource_path: String,
@@ -4047,6 +4951,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub publication_name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub replication_slot_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
     }
     impl From<&NewPostgresTrigger> for NewPostgresTrigger {
@@ -4057,43 +4963,62 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewSchedule {
         pub args: ScriptArgs,
+        ///The version of the cron schedule to use (last is v2)
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cron_version: Option<String>,
+        ///The description of the schedule
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        ///Whether the schedule is enabled
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        ///Whether the schedule is for a flow
         pub is_flow: bool,
+        ///Whether the schedule should not run if a flow is already running
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub no_flow_overlap: Option<bool>,
+        ///The path to the script or flow to trigger on failure
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure: Option<String>,
+        ///Whether the schedule should only run on the exact time
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_exact: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_extra_args: Option<ScriptArgs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_failure_times: Option<f64>,
+        ///The path to the script or flow to trigger on recovery
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery_extra_args: Option<ScriptArgs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_recovery_times: Option<f64>,
+        ///The path to the script or flow to trigger on success
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_success: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_success_extra_args: Option<ScriptArgs>,
+        ///The path where the schedule will be created
         pub path: String,
+        ///The date and time the schedule will be paused until
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub paused_until: Option<chrono::DateTime<chrono::offset::Utc>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub retry: Option<Retry>,
+        ///The cron schedule to trigger the script or flow. Should include seconds.
         pub schedule: String,
+        ///The path to the script or flow to trigger
         pub script_path: String,
+        ///The summary of the schedule
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub summary: Option<String>,
+        ///The tag of the schedule
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tag: Option<String>,
+        ///The timezone to use for the cron schedule
         pub timezone: String,
+        ///Whether the WebSocket error handler is muted
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ws_error_handler_muted: Option<bool>,
     }
@@ -4104,6 +5029,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewScript {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub assets: Vec<NewScriptAssetsItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cache_ttl: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4161,6 +5088,146 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&NewScript> for NewScript {
         fn from(value: &NewScript) -> Self {
             value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct NewScriptAssetsItem {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub access_type: Option<NewScriptAssetsItemAccessType>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub alt_access_type: Option<NewScriptAssetsItemAltAccessType>,
+        pub kind: AssetKind,
+        pub path: String,
+    }
+    impl From<&NewScriptAssetsItem> for NewScriptAssetsItem {
+        fn from(value: &NewScriptAssetsItem) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum NewScriptAssetsItemAccessType {
+        #[serde(rename = "r")]
+        R,
+        #[serde(rename = "w")]
+        W,
+        #[serde(rename = "rw")]
+        Rw,
+    }
+    impl From<&NewScriptAssetsItemAccessType> for NewScriptAssetsItemAccessType {
+        fn from(value: &NewScriptAssetsItemAccessType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for NewScriptAssetsItemAccessType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::R => "r".to_string(),
+                Self::W => "w".to_string(),
+                Self::Rw => "rw".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for NewScriptAssetsItemAccessType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "r" => Ok(Self::R),
+                "w" => Ok(Self::W),
+                "rw" => Ok(Self::Rw),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for NewScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for NewScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for NewScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum NewScriptAssetsItemAltAccessType {
+        #[serde(rename = "r")]
+        R,
+        #[serde(rename = "w")]
+        W,
+        #[serde(rename = "rw")]
+        Rw,
+    }
+    impl From<&NewScriptAssetsItemAltAccessType> for NewScriptAssetsItemAltAccessType {
+        fn from(value: &NewScriptAssetsItemAltAccessType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for NewScriptAssetsItemAltAccessType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::R => "r".to_string(),
+                Self::W => "w".to_string(),
+                Self::Rw => "rw".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for NewScriptAssetsItemAltAccessType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "r" => Ok(Self::R),
+                "w" => Ok(Self::W),
+                "rw" => Ok(Self::Rw),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for NewScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for NewScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for NewScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(
@@ -4253,14 +5320,21 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewSqsTrigger {
+        pub aws_auth_resource_type: AwsAuthResourceType,
         pub aws_resource_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub is_flow: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub message_attributes: Vec<String>,
         pub path: String,
         pub queue_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
     }
     impl From<&NewSqsTrigger> for NewSqsTrigger {
@@ -4304,11 +5378,17 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub can_return_message: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub filters: Vec<NewWebsocketTriggerFiltersItem>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub initial_messages: Vec<WebsocketTriggerInitialMessage>,
         pub is_flow: bool,
         pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         pub script_path: String,
         pub url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4383,6 +5463,121 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct OpenapiHttpRouteFilters {
+        pub folder_regex: String,
+        pub path_regex: String,
+        pub route_path_regex: String,
+    }
+    impl From<&OpenapiHttpRouteFilters> for OpenapiHttpRouteFilters {
+        fn from(value: &OpenapiHttpRouteFilters) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum OpenapiSpecFormat {
+        #[serde(rename = "yaml")]
+        Yaml,
+        #[serde(rename = "json")]
+        Json,
+    }
+    impl From<&OpenapiSpecFormat> for OpenapiSpecFormat {
+        fn from(value: &OpenapiSpecFormat) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for OpenapiSpecFormat {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Yaml => "yaml".to_string(),
+                Self::Json => "json".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for OpenapiSpecFormat {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "yaml" => Ok(Self::Yaml),
+                "json" => Ok(Self::Json),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for OpenapiSpecFormat {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for OpenapiSpecFormat {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for OpenapiSpecFormat {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct OpenapiV3Info {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub contact: Option<OpenapiV3InfoContact>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub license: Option<OpenapiV3InfoLicense>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub terms_of_service: Option<String>,
+        pub title: String,
+        pub version: String,
+    }
+    impl From<&OpenapiV3Info> for OpenapiV3Info {
+        fn from(value: &OpenapiV3Info) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct OpenapiV3InfoContact {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub email: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub url: Option<String>,
+    }
+    impl From<&OpenapiV3InfoContact> for OpenapiV3InfoContact {
+        fn from(value: &OpenapiV3InfoContact) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct OpenapiV3InfoLicense {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub identifier: Option<String>,
+        pub name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub url: Option<String>,
+    }
+    impl From<&OpenapiV3InfoLicense> for OpenapiV3InfoLicense {
+        fn from(value: &OpenapiV3InfoLicense) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct OperatorSettings(pub Option<OperatorSettingsInner>);
     impl std::ops::Deref for OperatorSettings {
         type Target = Option<OperatorSettingsInner>;
@@ -4407,6 +5602,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct OperatorSettingsInner {
+        ///Whether operators can view assets
+        pub assets: bool,
         ///Whether operators can view audit logs
         pub audit_logs: bool,
         ///Whether operators can view folders page
@@ -4689,10 +5886,16 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
         pub postgres_resource_path: String,
         pub publication_name: String,
         pub replication_slot_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
     }
@@ -4716,6 +5919,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub lock: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub script_hash: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tag: Option<String>,
     }
@@ -4799,6 +6004,17 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct PushConfig {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub audience: Option<String>,
+        pub authenticate: bool,
+    }
+    impl From<&PushConfig> for PushConfig {
+        fn from(value: &PushConfig) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct QueuedJob {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub aggregate_wait_time_ms: Option<f64>,
@@ -4860,6 +6076,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub visible_to_owner: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub worker: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workflow_as_code_status: Option<WorkflowStatus>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String>,
     }
@@ -4977,6 +6195,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct RawScript {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub assets: Vec<RawScriptAssetsItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub concurrency_time_window_s: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5000,6 +6220,209 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&RawScript> for RawScript {
         fn from(value: &RawScript) -> Self {
             value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct RawScriptAssetsItem {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub access_type: Option<RawScriptAssetsItemAccessType>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub alt_access_type: Option<RawScriptAssetsItemAltAccessType>,
+        pub kind: RawScriptAssetsItemKind,
+        pub path: String,
+    }
+    impl From<&RawScriptAssetsItem> for RawScriptAssetsItem {
+        fn from(value: &RawScriptAssetsItem) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum RawScriptAssetsItemAccessType {
+        #[serde(rename = "r")]
+        R,
+        #[serde(rename = "w")]
+        W,
+        #[serde(rename = "rw")]
+        Rw,
+    }
+    impl From<&RawScriptAssetsItemAccessType> for RawScriptAssetsItemAccessType {
+        fn from(value: &RawScriptAssetsItemAccessType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for RawScriptAssetsItemAccessType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::R => "r".to_string(),
+                Self::W => "w".to_string(),
+                Self::Rw => "rw".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for RawScriptAssetsItemAccessType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "r" => Ok(Self::R),
+                "w" => Ok(Self::W),
+                "rw" => Ok(Self::Rw),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for RawScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for RawScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for RawScriptAssetsItemAccessType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum RawScriptAssetsItemAltAccessType {
+        #[serde(rename = "r")]
+        R,
+        #[serde(rename = "w")]
+        W,
+        #[serde(rename = "rw")]
+        Rw,
+    }
+    impl From<&RawScriptAssetsItemAltAccessType> for RawScriptAssetsItemAltAccessType {
+        fn from(value: &RawScriptAssetsItemAltAccessType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for RawScriptAssetsItemAltAccessType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::R => "r".to_string(),
+                Self::W => "w".to_string(),
+                Self::Rw => "rw".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for RawScriptAssetsItemAltAccessType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "r" => Ok(Self::R),
+                "w" => Ok(Self::W),
+                "rw" => Ok(Self::Rw),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for RawScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for RawScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for RawScriptAssetsItemAltAccessType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum RawScriptAssetsItemKind {
+        #[serde(rename = "s3object")]
+        S3object,
+        #[serde(rename = "resource")]
+        Resource,
+        #[serde(rename = "ducklake")]
+        Ducklake,
+    }
+    impl From<&RawScriptAssetsItemKind> for RawScriptAssetsItemKind {
+        fn from(value: &RawScriptAssetsItemKind) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for RawScriptAssetsItemKind {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::S3object => "s3object".to_string(),
+                Self::Resource => "resource".to_string(),
+                Self::Ducklake => "ducklake".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for RawScriptAssetsItemKind {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "s3object" => Ok(Self::S3object),
+                "resource" => Ok(Self::Resource),
+                "ducklake" => Ok(Self::Ducklake),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for RawScriptAssetsItemKind {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for RawScriptAssetsItemKind {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for RawScriptAssetsItemKind {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -5299,6 +6722,65 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         PartialOrd,
         Serialize
     )]
+    pub enum RunnableKind {
+        #[serde(rename = "script")]
+        Script,
+        #[serde(rename = "flow")]
+        Flow,
+    }
+    impl From<&RunnableKind> for RunnableKind {
+        fn from(value: &RunnableKind) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for RunnableKind {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Script => "script".to_string(),
+                Self::Flow => "flow".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for RunnableKind {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "script" => Ok(Self::Script),
+                "flow" => Ok(Self::Flow),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for RunnableKind {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for RunnableKind {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for RunnableKind {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
     pub enum RunnableType {
         ScriptHash,
         ScriptPath,
@@ -5348,6 +6830,21 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct S3Object {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub filename: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub presigned: Option<String>,
+        pub s3: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub storage: Option<String>,
+    }
+    impl From<&S3Object> for S3Object {
+        fn from(value: &S3Object) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct S3Resource {
         #[serde(rename = "accessKey", default, skip_serializing_if = "Option::is_none")]
         pub access_key: Option<String>,
@@ -5384,6 +6881,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub args: Option<ScriptArgs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cron_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
         pub edited_at: chrono::DateTime<chrono::offset::Utc>,
         pub edited_by: String,
         pub email: String,
@@ -5422,8 +6921,6 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tag: Option<String>,
         pub timezone: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5454,6 +6951,31 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     impl From<&ScheduleWJobsJobsItem> for ScheduleWJobsJobsItem {
         fn from(value: &ScheduleWJobsJobsItem) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct ScopeDefinition {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        pub label: String,
+        pub requires_resource_path: bool,
+        pub value: String,
+    }
+    impl From<&ScopeDefinition> for ScopeDefinition {
+        fn from(value: &ScopeDefinition) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct ScopeDomain {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        pub name: String,
+        pub scopes: Vec<ScopeDefinition>,
+    }
+    impl From<&ScopeDomain> for ScopeDomain {
+        fn from(value: &ScopeDomain) -> Self {
             value.clone()
         }
     }
@@ -5687,6 +7209,12 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Csharp,
         #[serde(rename = "nu")]
         Nu,
+        #[serde(rename = "java")]
+        Java,
+        #[serde(rename = "ruby")]
+        Ruby,
+        #[serde(rename = "duckdb")]
+        Duckdb,
     }
     impl From<&ScriptLang> for ScriptLang {
         fn from(value: &ScriptLang) -> Self {
@@ -5715,6 +7243,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Ansible => "ansible".to_string(),
                 Self::Csharp => "csharp".to_string(),
                 Self::Nu => "nu".to_string(),
+                Self::Java => "java".to_string(),
+                Self::Ruby => "ruby".to_string(),
+                Self::Duckdb => "duckdb".to_string(),
             }
         }
     }
@@ -5741,6 +7272,9 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "ansible" => Ok(Self::Ansible),
                 "csharp" => Ok(Self::Csharp),
                 "nu" => Ok(Self::Nu),
+                "java" => Ok(Self::Java),
+                "ruby" => Ok(Self::Ruby),
+                "duckdb" => Ok(Self::Duckdb),
                 _ => Err("invalid value"),
             }
         }
@@ -5809,15 +7343,22 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct SqsTrigger {
+        pub aws_auth_resource_type: AwsAuthResourceType,
         pub aws_resource_path: String,
         pub enabled: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub message_attributes: Vec<String>,
         pub queue_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
     }
@@ -5830,8 +7371,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     pub struct StaticTransform {
         #[serde(rename = "type")]
         pub type_: StaticTransformType,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub value: Option<serde_json::Value>,
+        pub value: serde_json::Value,
     }
     impl From<&StaticTransform> for StaticTransform {
         fn from(value: &StaticTransform) -> Self {
@@ -5851,8 +7391,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Serialize
     )]
     pub enum StaticTransformType {
-        #[serde(rename = "javascript")]
-        Javascript,
+        #[serde(rename = "static")]
+        Static,
     }
     impl From<&StaticTransformType> for StaticTransformType {
         fn from(value: &StaticTransformType) -> Self {
@@ -5862,7 +7402,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl ToString for StaticTransformType {
         fn to_string(&self) -> String {
             match *self {
-                Self::Javascript => "javascript".to_string(),
+                Self::Static => "static".to_string(),
             }
         }
     }
@@ -5870,7 +7410,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         type Err = &'static str;
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
-                "javascript" => Ok(Self::Javascript),
+                "static" => Ok(Self::Static),
                 _ => Err("invalid value"),
             }
         }
@@ -5888,6 +7428,79 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     impl std::convert::TryFrom<String> for StaticTransformType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct StopAfterIf {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_message: Option<String>,
+        pub expr: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub skip_if_stopped: Option<bool>,
+    }
+    impl From<&StopAfterIf> for StopAfterIf {
+        fn from(value: &StopAfterIf) -> Self {
+            value.clone()
+        }
+    }
+    ///The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum SubscriptionMode {
+        #[serde(rename = "existing")]
+        Existing,
+        #[serde(rename = "create_update")]
+        CreateUpdate,
+    }
+    impl From<&SubscriptionMode> for SubscriptionMode {
+        fn from(value: &SubscriptionMode) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for SubscriptionMode {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Existing => "existing".to_string(),
+                Self::CreateUpdate => "create_update".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for SubscriptionMode {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "existing" => Ok(Self::Existing),
+                "create_update" => Ok(Self::CreateUpdate),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for SubscriptionMode {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for SubscriptionMode {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for SubscriptionMode {
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
@@ -5944,6 +7557,254 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct TeamsChannel {
+        ///Microsoft Teams channel ID
+        pub channel_id: TeamsChannelChannelId,
+        ///Microsoft Teams channel name
+        pub channel_name: TeamsChannelChannelName,
+        ///Microsoft Teams team ID
+        pub team_id: TeamsChannelTeamId,
+        ///Microsoft Teams team name
+        pub team_name: TeamsChannelTeamName,
+    }
+    impl From<&TeamsChannel> for TeamsChannel {
+        fn from(value: &TeamsChannel) -> Self {
+            value.clone()
+        }
+    }
+    ///Microsoft Teams channel ID
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+    pub struct TeamsChannelChannelId(String);
+    impl std::ops::Deref for TeamsChannelChannelId {
+        type Target = String;
+        fn deref(&self) -> &String {
+            &self.0
+        }
+    }
+    impl From<TeamsChannelChannelId> for String {
+        fn from(value: TeamsChannelChannelId) -> Self {
+            value.0
+        }
+    }
+    impl From<&TeamsChannelChannelId> for TeamsChannelChannelId {
+        fn from(value: &TeamsChannelChannelId) -> Self {
+            value.clone()
+        }
+    }
+    impl std::str::FromStr for TeamsChannelChannelId {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            if value.len() < 1usize {
+                return Err("shorter than 1 characters");
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl std::convert::TryFrom<&str> for TeamsChannelChannelId {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for TeamsChannelChannelId {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for TeamsChannelChannelId {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for TeamsChannelChannelId {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: &'static str| {
+                    <D::Error as serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Microsoft Teams channel name
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+    pub struct TeamsChannelChannelName(String);
+    impl std::ops::Deref for TeamsChannelChannelName {
+        type Target = String;
+        fn deref(&self) -> &String {
+            &self.0
+        }
+    }
+    impl From<TeamsChannelChannelName> for String {
+        fn from(value: TeamsChannelChannelName) -> Self {
+            value.0
+        }
+    }
+    impl From<&TeamsChannelChannelName> for TeamsChannelChannelName {
+        fn from(value: &TeamsChannelChannelName) -> Self {
+            value.clone()
+        }
+    }
+    impl std::str::FromStr for TeamsChannelChannelName {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            if value.len() < 1usize {
+                return Err("shorter than 1 characters");
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl std::convert::TryFrom<&str> for TeamsChannelChannelName {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for TeamsChannelChannelName {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for TeamsChannelChannelName {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for TeamsChannelChannelName {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: &'static str| {
+                    <D::Error as serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Microsoft Teams team ID
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+    pub struct TeamsChannelTeamId(String);
+    impl std::ops::Deref for TeamsChannelTeamId {
+        type Target = String;
+        fn deref(&self) -> &String {
+            &self.0
+        }
+    }
+    impl From<TeamsChannelTeamId> for String {
+        fn from(value: TeamsChannelTeamId) -> Self {
+            value.0
+        }
+    }
+    impl From<&TeamsChannelTeamId> for TeamsChannelTeamId {
+        fn from(value: &TeamsChannelTeamId) -> Self {
+            value.clone()
+        }
+    }
+    impl std::str::FromStr for TeamsChannelTeamId {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            if value.len() < 1usize {
+                return Err("shorter than 1 characters");
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl std::convert::TryFrom<&str> for TeamsChannelTeamId {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for TeamsChannelTeamId {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for TeamsChannelTeamId {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for TeamsChannelTeamId {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: &'static str| {
+                    <D::Error as serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Microsoft Teams team name
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+    pub struct TeamsChannelTeamName(String);
+    impl std::ops::Deref for TeamsChannelTeamName {
+        type Target = String;
+        fn deref(&self) -> &String {
+            &self.0
+        }
+    }
+    impl From<TeamsChannelTeamName> for String {
+        fn from(value: TeamsChannelTeamName) -> Self {
+            value.0
+        }
+    }
+    impl From<&TeamsChannelTeamName> for TeamsChannelTeamName {
+        fn from(value: &TeamsChannelTeamName) -> Self {
+            value.clone()
+        }
+    }
+    impl std::str::FromStr for TeamsChannelTeamName {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            if value.len() < 1usize {
+                return Err("shorter than 1 characters");
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl std::convert::TryFrom<&str> for TeamsChannelTeamName {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for TeamsChannelTeamName {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for TeamsChannelTeamName {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for TeamsChannelTeamName {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: &'static str| {
+                    <D::Error as serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct TemplateScript {
         pub language: Language,
         pub postgres_resource_path: String,
@@ -5970,6 +7831,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub access_token: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub expires_in: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub grant_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub refresh_token: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -6000,6 +7863,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     pub struct TriggersCount {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub email_count: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub gcp_count: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub http_routes_count: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6078,6 +7943,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct User {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub added_via: Option<UserSource>,
         pub created_at: chrono::DateTime<chrono::offset::Utc>,
         pub disabled: bool,
         pub email: String,
@@ -6095,6 +7962,86 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&User> for User {
         fn from(value: &User) -> Self {
             value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct UserSource {
+        ///The domain used for auto-invite (when source is 'domain')
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub domain: Option<String>,
+        ///The instance group name (when source is 'instance_group')
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub group: Option<String>,
+        ///How the user was added to the workspace
+        pub source: UserSourceSource,
+    }
+    impl From<&UserSource> for UserSource {
+        fn from(value: &UserSource) -> Self {
+            value.clone()
+        }
+    }
+    ///How the user was added to the workspace
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum UserSourceSource {
+        #[serde(rename = "domain")]
+        Domain,
+        #[serde(rename = "instance_group")]
+        InstanceGroup,
+        #[serde(rename = "manual")]
+        Manual,
+    }
+    impl From<&UserSourceSource> for UserSourceSource {
+        fn from(value: &UserSourceSource) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for UserSourceSource {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Domain => "domain".to_string(),
+                Self::InstanceGroup => "instance_group".to_string(),
+                Self::Manual => "manual".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for UserSourceSource {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "domain" => Ok(Self::Domain),
+                "instance_group" => Ok(Self::InstanceGroup),
+                "manual" => Ok(Self::Manual),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for UserSourceSource {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for UserSourceSource {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for UserSourceSource {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6134,16 +8081,97 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct WebhookFilters {
+        pub path: String,
+        pub runnable_kind: RunnableKind,
+        pub user_or_folder_regex: WebhookFiltersUserOrFolderRegex,
+        pub user_or_folder_regex_value: String,
+    }
+    impl From<&WebhookFilters> for WebhookFilters {
+        fn from(value: &WebhookFilters) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum WebhookFiltersUserOrFolderRegex {
+        #[serde(rename = "*")]
+        X,
+        #[serde(rename = "u")]
+        U,
+        #[serde(rename = "f")]
+        F,
+    }
+    impl From<&WebhookFiltersUserOrFolderRegex> for WebhookFiltersUserOrFolderRegex {
+        fn from(value: &WebhookFiltersUserOrFolderRegex) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for WebhookFiltersUserOrFolderRegex {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::X => "*".to_string(),
+                Self::U => "u".to_string(),
+                Self::F => "f".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for WebhookFiltersUserOrFolderRegex {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "*" => Ok(Self::X),
+                "u" => Ok(Self::U),
+                "f" => Ok(Self::F),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for WebhookFiltersUserOrFolderRegex {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for WebhookFiltersUserOrFolderRegex {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for WebhookFiltersUserOrFolderRegex {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct WebsocketTrigger {
         pub can_return_message: bool,
         pub enabled: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
         pub filters: Vec<WebsocketTriggerFiltersItem>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub initial_messages: Vec<WebsocketTriggerInitialMessage>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub last_server_ping: Option<chrono::DateTime<chrono::offset::Utc>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub server_id: Option<String>,
         pub url: String,
@@ -6206,8 +8234,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Serialize
     )]
     pub enum WhileloopFlowType {
-        #[serde(rename = "forloopflow")]
-        Forloopflow,
+        #[serde(rename = "whileloopflow")]
+        Whileloopflow,
     }
     impl From<&WhileloopFlowType> for WhileloopFlowType {
         fn from(value: &WhileloopFlowType) -> Self {
@@ -6217,7 +8245,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl ToString for WhileloopFlowType {
         fn to_string(&self) -> String {
             match *self {
-                Self::Forloopflow => "forloopflow".to_string(),
+                Self::Whileloopflow => "whileloopflow".to_string(),
             }
         }
     }
@@ -6225,7 +8253,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         type Err = &'static str;
         fn from_str(value: &str) -> Result<Self, &'static str> {
             match value {
-                "forloopflow" => Ok(Self::Forloopflow),
+                "whileloopflow" => Ok(Self::Whileloopflow),
                 _ => Err("invalid value"),
             }
         }
@@ -6476,99 +8504,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub include_path: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub include_type: Vec<WorkspaceDeployUiSettingsIncludeTypeItem>,
+        pub include_type: Vec<GitSyncObjectType>,
     }
     impl From<&WorkspaceDeployUiSettings> for WorkspaceDeployUiSettings {
         fn from(value: &WorkspaceDeployUiSettings) -> Self {
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
-    pub enum WorkspaceDeployUiSettingsIncludeTypeItem {
-        #[serde(rename = "script")]
-        Script,
-        #[serde(rename = "flow")]
-        Flow,
-        #[serde(rename = "app")]
-        App,
-        #[serde(rename = "resource")]
-        Resource,
-        #[serde(rename = "variable")]
-        Variable,
-        #[serde(rename = "secret")]
-        Secret,
-        #[serde(rename = "trigger")]
-        Trigger,
-    }
-    impl From<&WorkspaceDeployUiSettingsIncludeTypeItem>
-    for WorkspaceDeployUiSettingsIncludeTypeItem {
-        fn from(value: &WorkspaceDeployUiSettingsIncludeTypeItem) -> Self {
-            value.clone()
-        }
-    }
-    impl ToString for WorkspaceDeployUiSettingsIncludeTypeItem {
-        fn to_string(&self) -> String {
-            match *self {
-                Self::Script => "script".to_string(),
-                Self::Flow => "flow".to_string(),
-                Self::App => "app".to_string(),
-                Self::Resource => "resource".to_string(),
-                Self::Variable => "variable".to_string(),
-                Self::Secret => "secret".to_string(),
-                Self::Trigger => "trigger".to_string(),
-            }
-        }
-    }
-    impl std::str::FromStr for WorkspaceDeployUiSettingsIncludeTypeItem {
-        type Err = &'static str;
-        fn from_str(value: &str) -> Result<Self, &'static str> {
-            match value {
-                "script" => Ok(Self::Script),
-                "flow" => Ok(Self::Flow),
-                "app" => Ok(Self::App),
-                "resource" => Ok(Self::Resource),
-                "variable" => Ok(Self::Variable),
-                "secret" => Ok(Self::Secret),
-                "trigger" => Ok(Self::Trigger),
-                _ => Err("invalid value"),
-            }
-        }
-    }
-    impl std::convert::TryFrom<&str> for WorkspaceDeployUiSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: &str) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<&String> for WorkspaceDeployUiSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: &String) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<String> for WorkspaceDeployUiSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: String) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct WorkspaceGitSyncSettings {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub include_path: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub include_type: Vec<WorkspaceGitSyncSettingsIncludeTypeItem>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub repositories: Vec<GitRepositorySettings>,
     }
@@ -6577,100 +8521,28 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
             value.clone()
         }
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        Deserialize,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Serialize
-    )]
-    pub enum WorkspaceGitSyncSettingsIncludeTypeItem {
-        #[serde(rename = "script")]
-        Script,
-        #[serde(rename = "flow")]
-        Flow,
-        #[serde(rename = "app")]
-        App,
-        #[serde(rename = "folder")]
-        Folder,
-        #[serde(rename = "resource")]
-        Resource,
-        #[serde(rename = "variable")]
-        Variable,
-        #[serde(rename = "secret")]
-        Secret,
-        #[serde(rename = "resourcetype")]
-        Resourcetype,
-        #[serde(rename = "schedule")]
-        Schedule,
-        #[serde(rename = "user")]
-        User,
-        #[serde(rename = "group")]
-        Group,
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct WorkspaceGithubInstallation {
+        pub account_id: String,
+        pub installation_id: f64,
     }
-    impl From<&WorkspaceGitSyncSettingsIncludeTypeItem>
-    for WorkspaceGitSyncSettingsIncludeTypeItem {
-        fn from(value: &WorkspaceGitSyncSettingsIncludeTypeItem) -> Self {
+    impl From<&WorkspaceGithubInstallation> for WorkspaceGithubInstallation {
+        fn from(value: &WorkspaceGithubInstallation) -> Self {
             value.clone()
         }
     }
-    impl ToString for WorkspaceGitSyncSettingsIncludeTypeItem {
-        fn to_string(&self) -> String {
-            match *self {
-                Self::Script => "script".to_string(),
-                Self::Flow => "flow".to_string(),
-                Self::App => "app".to_string(),
-                Self::Folder => "folder".to_string(),
-                Self::Resource => "resource".to_string(),
-                Self::Variable => "variable".to_string(),
-                Self::Secret => "secret".to_string(),
-                Self::Resourcetype => "resourcetype".to_string(),
-                Self::Schedule => "schedule".to_string(),
-                Self::User => "user".to_string(),
-                Self::Group => "group".to_string(),
-            }
-        }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct WorkspaceInfo {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspace_name: Option<String>,
     }
-    impl std::str::FromStr for WorkspaceGitSyncSettingsIncludeTypeItem {
-        type Err = &'static str;
-        fn from_str(value: &str) -> Result<Self, &'static str> {
-            match value {
-                "script" => Ok(Self::Script),
-                "flow" => Ok(Self::Flow),
-                "app" => Ok(Self::App),
-                "folder" => Ok(Self::Folder),
-                "resource" => Ok(Self::Resource),
-                "variable" => Ok(Self::Variable),
-                "secret" => Ok(Self::Secret),
-                "resourcetype" => Ok(Self::Resourcetype),
-                "schedule" => Ok(Self::Schedule),
-                "user" => Ok(Self::User),
-                "group" => Ok(Self::Group),
-                _ => Err("invalid value"),
-            }
-        }
-    }
-    impl std::convert::TryFrom<&str> for WorkspaceGitSyncSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: &str) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<&String> for WorkspaceGitSyncSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: &String) -> Result<Self, &'static str> {
-            value.parse()
-        }
-    }
-    impl std::convert::TryFrom<String> for WorkspaceGitSyncSettingsIncludeTypeItem {
-        type Error = &'static str;
-        fn try_from(value: String) -> Result<Self, &'static str> {
-            value.parse()
+    impl From<&WorkspaceInfo> for WorkspaceInfo {
+        fn from(value: &WorkspaceInfo) -> Self {
+            value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6689,7 +8561,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
 #[derive(Clone, Debug)]
 /**Client for Windmill API
 
-Version: 1.478.1*/
+Version: 1.526.1*/
 pub struct Client {
     pub(crate) baseurl: String,
     pub(crate) client: reqwest::Client,
@@ -6735,7 +8607,7 @@ impl Client {
     /// This string is pulled directly from the source OpenAPI
     /// document and may be in any format the API selects.
     pub fn api_version(&self) -> &'static str {
-        "1.478.1"
+        "1.526.1"
     }
 }
 impl Client {

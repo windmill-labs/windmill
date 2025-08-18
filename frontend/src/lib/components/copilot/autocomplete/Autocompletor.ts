@@ -184,6 +184,8 @@ export class Autocompletor {
 						]
 					}
 				},
+				// @ts-ignore
+				disposeInlineCompletions: () => {},
 				freeInlineCompletions: () => {}
 			}
 		)

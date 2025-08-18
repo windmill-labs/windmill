@@ -487,6 +487,9 @@
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 												class="h-full"
+												showButtons={diffMode}
+												showHistoryButton={false}
+												on:hideDiffMode={hideDiffMode}
 											/>
 										{/key}
 									{/if}

@@ -1,16 +1,16 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { page } from '$app/state'
 
-	let client_name = $page.params.client_name
-	let error = $page.url.searchParams.get('error')
-	let code = $page.url.searchParams.get('code') ?? undefined
-	let state = $page.url.searchParams.get('state') ?? undefined
+	let client_name = page.params.client_name
+	let error = page.url.searchParams.get('error')
+	let code = page.url.searchParams.get('code') ?? undefined
+	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
 		if (error) {
@@ -29,12 +29,12 @@
 		} else if (code && state) {
 			try {
 				const extraParams = Object.fromEntries(
-					Array.from($page.url.searchParams.entries()).filter(
+					Array.from(page.url.searchParams.entries()).filter(
 						([key]) => key !== 'code' && key !== 'state' && key !== 'error'
 					)
 				)
 				const res = await OauthService.connectCallback({
-					clientName: client_name,
+					clientName: client_name ?? '',
 					requestBody: { code, state }
 				})
 				const message = { type: 'success', res, resource_type: client_name, extra: extraParams }

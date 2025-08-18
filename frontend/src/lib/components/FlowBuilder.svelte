@@ -78,7 +78,7 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
-	import type { DurationStatus, GraphModuleState } from './graph'
+	import type { GraphModuleState } from './graph'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -936,9 +936,6 @@
 	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
 		flowPreviewContent?.getLocalModuleStates() ?? writable({})
 	)
-	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
-		flowPreviewContent?.getLocalDurationStatuses() ?? writable({})
-	)
 	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
 		flowPreviewContent?.getSuspendStatus() ?? writable({})
 	)
@@ -1239,7 +1236,6 @@
 					onHideJobStatus={resetModulesStates}
 					{individualStepTests}
 					{job}
-					{localDurationStatuses}
 					{suspendStatus}
 					{showJobStatus}
 					onDelete={(id) => {

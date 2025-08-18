@@ -369,7 +369,7 @@ pub async fn uv_pip_compile(
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd).await?;
+        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -636,7 +636,7 @@ pub async fn handle_python_job(
             if v == '<function call>':
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
-        kwrags_json = res_to_json(kwargs)
+        kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w') as f:
             f.write(kwrags_json)"#
         )
@@ -830,7 +830,7 @@ mount {{
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut python_cmd = Command::new(&python_path);
 
@@ -859,7 +859,7 @@ mount {{
             );
         }
 
-        start_child_process(python_cmd, &python_path).await?
+        start_child_process(python_cmd, &python_path, false).await?
     };
 
     let handle_result = handle_child(
@@ -1362,7 +1362,7 @@ async fn spawn_uv_install(
             .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await
     } else {
         #[cfg(unix)]
         let req = req.to_owned();
@@ -1445,7 +1445,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, UV_PATH.as_str()).await
+            start_child_process(cmd, UV_PATH.as_str(), false).await
         }
 
         #[cfg(windows)]
@@ -1496,7 +1496,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, "uv").await
+            start_child_process(cmd, "uv", false).await
         }
     }
 }

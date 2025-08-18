@@ -17,6 +17,7 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -48,13 +49,13 @@
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
-	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -227,7 +228,7 @@
 		const nodes2 = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
-		for (const n of nodes.reverse()) {
+		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
 			if (nodeWidths[endId] != undefined) {
@@ -351,14 +352,7 @@
 		}
 	}
 
-	let lastModules = $state.snapshot(modules)
-	let moduleCounter = $state(0)
-	function onModulesChange2(modules) {
-		if (!deepEqual(modules, lastModules)) {
-			lastModules = $state.snapshot(modules)
-			moduleCounter++
-		}
-	}
+	let moduleTracker = new ChangeTracker($state.snapshot(modules))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -435,10 +429,10 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(modules)
-		untrack(() => onModulesChange2(modules))
+		untrack(() => moduleTracker.track($state.snapshot(modules)))
 	})
 	let graph = $derived.by(() => {
-		moduleCounter
+		moduleTracker.counter
 		return graphBuilder(
 			untrack(() => modules),
 			{

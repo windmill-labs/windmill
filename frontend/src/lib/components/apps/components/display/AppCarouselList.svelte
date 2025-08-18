@@ -135,7 +135,21 @@
 
 <InitializeComponent {id} />
 
-<RunnableWrapper {render} {outputs} autoRefresh {componentInput} {id} bind:initializing bind:result>
+{#snippet nonRenderedPlaceholder()}
+	<ListWrapper disabled value={undefined} index={0}>
+		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+	</ListWrapper>
+{/snippet}
+<RunnableWrapper
+	{render}
+	{outputs}
+	autoRefresh
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	{nonRenderedPlaceholder}
+>
 	{#if everRender}
 		<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
 			{#if $app.subgrids?.[`${id}-0`]}
@@ -245,9 +259,7 @@
 						</Carousel>
 					{/key}
 				{:else}
-					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-					</ListWrapper>
+					{@render nonRenderedPlaceholder?.()}
 					{#if !Array.isArray(result)}
 						<div class="text-center text-tertiary">Input data is not an array</div>
 					{/if}
@@ -255,8 +267,6 @@
 			{/if}
 		</div>
 	{:else if $app.subgrids}
-		<ListWrapper disabled value={undefined} index={0}>
-			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-		</ListWrapper>
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 </RunnableWrapper>

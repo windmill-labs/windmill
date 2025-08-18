@@ -21,8 +21,6 @@ use crate::smtp_server_oss::SmtpServer;
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
 #[cfg(feature = "mcp")]
-mod mcp_utils;
-#[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 
 use crate::tracing_init::MyOnFailure;
@@ -203,8 +201,6 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
-#[cfg(feature = "mcp")]
-mod mcp_tools;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -547,6 +543,18 @@ pub async fn run_server(
         (Router::new(), Option::<()>::None)
     };
 
+    let mcp_list_tools_service = {
+        #[cfg(feature = "mcp")]
+        {
+            mcp::list_tools_service()
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        {
+            Router::new()
+        }
+    };
+
     #[cfg(feature = "agent_worker_server")]
     let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
         if server_mode {
@@ -635,6 +643,8 @@ pub async fn run_server(
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -673,7 +683,6 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id/sse", mcp_router.layer(from_extractor::<ApiAuthed>()))
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]

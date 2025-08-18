@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
@@ -20,7 +18,7 @@
 	import { writable } from 'svelte/store'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
-	import { sleep } from '$lib/utils'
+	import { readFieldsRecursively, sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
 	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
@@ -28,7 +26,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
-	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
 	interface Props {
 		// props
@@ -39,7 +36,6 @@
 		inlineScript?: boolean
 		args: Record<string, any>
 		transformer?: boolean
-		openAiChat?: boolean
 	}
 
 	let {
@@ -49,11 +45,10 @@
 		diffEditor,
 		inlineScript = false,
 		args,
-		transformer = false,
-		openAiChat = false
+		transformer = false
 	}: Props = $props()
 
-	run(() => {
+	$effect.pre(() => {
 		if (lang == 'bunnative') {
 			lang = 'bun'
 		}
@@ -72,7 +67,7 @@
 
 	let button: HTMLButtonElement | undefined = $state()
 
-	run(() => {
+	$effect.pre(() => {
 		trimmedDesc = funcDesc.trim()
 	})
 	async function callCopilot() {
@@ -113,15 +108,9 @@
 			mode = 'edit'
 		}
 
-		if (openAiChat) {
-			// Open the AI chat in script mode
-			aiChatManager.openChat()
-			aiChatManager.changeMode(AIMode.SCRIPT)
-		} else {
-			setTimeout(() => {
-				autoResize()
-			}, 0)
-		}
+		setTimeout(() => {
+			autoResize()
+		}, 0)
 	}
 
 	async function onGenerate(closePopup: () => void) {
@@ -185,7 +174,7 @@
 		diffEditor?.hide()
 	}
 
-	run(() => {
+	$effect(() => {
 		input && setTimeout(() => input?.focus(), 100)
 	})
 
@@ -193,11 +182,11 @@
 		$generatedCode = ''
 	}
 
-	run(() => {
+	$effect(() => {
 		lang && clear()
 	})
 
-	run(() => {
+	$effect(() => {
 		!$generatedCode && hideDiff()
 	})
 
@@ -215,7 +204,12 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
+	$effect(() => {
+		readFieldsRecursively(args)
 		updateSchema(lang, args, $dbSchemas)
 	})
 
@@ -267,11 +261,11 @@
 		const storageKey = getPromptStorageKey()
 		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
-	run(() => {
+	$effect(() => {
 		lang && getPromptHistory()
 	})
 
-	run(() => {
+	$effect(() => {
 		$generatedCode && updateScroll()
 	})
 
@@ -296,12 +290,6 @@
 		if (!dbSchema) return
 		;(dbSchema as any).publicOnly = detail === 'true'
 	}
-
-	const aiChatScriptModeClasses = $derived(
-		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
-			? 'dark:bg-violet-900 bg-violet-100'
-			: ''
-	)
 
 	onDestroy(() => {
 		abortController?.abort()
@@ -380,8 +368,8 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
-					propagateEvent={!genLoading && !openAiChat}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
@@ -395,14 +383,13 @@
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400',
-						aiChatScriptModeClasses
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading && !openAiChat}
+					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}

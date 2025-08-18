@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.522.0"
+version = "1.527.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -24,6 +24,7 @@ members = [
     "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-java",
+    "./parsers/windmill-parser-ruby",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -32,7 +33,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.522.0"
+version = "1.527.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -48,7 +49,7 @@ incremental = true
 lto = "thin"
 
 [features]
-default = []
+default = ["ruby"]
 private = ["windmill-api/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
 agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
@@ -95,7 +96,8 @@ php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+ruby = ["windmill-worker/ruby"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
 # NOTE: DuckDB is ignored because of compilation problems
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
@@ -145,7 +147,6 @@ systemstat.workspace = true
 size.workspace = true
 strum.workspace = true
 
-
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
 tikv-jemalloc-sys = { optional = true, workspace = true }
@@ -180,6 +181,7 @@ windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-java = { path = "./parsers/windmill-parser-java" }
+windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -406,6 +408,7 @@ tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
+tree-sitter-ruby = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
