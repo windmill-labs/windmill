@@ -25,3 +25,5 @@ anyhow.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
+axum.workspace = true

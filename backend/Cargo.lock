@@ -15274,6 +15274,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "windmill-audit",
+ "windmill-autoscaling",
  "windmill-common",
  "windmill-git-sync",
  "windmill-indexer",
@@ -15318,11 +15319,13 @@ name = "windmill-autoscaling"
 version = "1.524.0"
 dependencies = [
  "anyhow",
+ "axum",
  "k8s-openapi",
  "kube",
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.14",
  "tokio",
  "tracing",
  "uuid",

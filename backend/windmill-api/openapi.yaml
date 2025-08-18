@@ -11538,6 +11538,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /configs/native_kubernetes_autoscaling_healthcheck:
+    get:
+      summary: Check Kubernetes autoscaling health for a worker group
+      operationId: nativeKubernetesAutoscalingHealthcheck
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Kubernetes autoscaling is healthy
+        "400":
+          description: Update a worker group
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /configs/list_available_python_versions:
     get:
       summary: Get currently available python versions provided by UV.

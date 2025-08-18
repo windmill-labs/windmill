@@ -35,6 +35,10 @@ pub fn global_service() -> Router {
             get(list_autoscaling_events),
         )
         .route(
+            "/native_kubernetes_autoscaling_healthcheck",
+            get(native_kubernetes_autoscaling_healthcheck),
+        )
+        .route(
             "/list_available_python_versions",
             get(list_available_python_versions),
         )
@@ -244,6 +248,27 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn native_kubernetes_autoscaling_healthcheck(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> Result<(), windmill_autoscaling::kubernetes_integration_ee::KubeError> {
+    require_devops_role(&db, &authed.email).await.map_err(|e| {
+        windmill_autoscaling::kubernetes_integration_ee::KubeError::Other(e.to_string())
+    })?;
+
+    windmill_autoscaling::kubernetes_integration_ee::kubernetes_healthcheck().await
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "private")))]
+async fn native_kubernetes_autoscaling_healthcheck(
+    Path(_worker_group): Path<String>,
+) -> Result<(), error::Error> {
+    Err(error::Error::BadRequest(
+        "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
+    ))
 }
 
 async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {

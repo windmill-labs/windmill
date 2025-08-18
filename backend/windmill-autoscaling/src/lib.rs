@@ -1,8 +1,8 @@
 #[cfg(feature = "private")]
 pub mod autoscaling_ee;
 mod autoscaling_oss;
-pub mod kubernetes_integration;
 pub use autoscaling_oss::*;
-pub use kubernetes_integration::{
-    apply_kubernetes_autoscaling, KubernetesConfig, KubernetesIntegration,
-};
+#[cfg(feature = "private")]
+pub mod kubernetes_integration_ee;
+#[cfg(feature = "private")]
+pub use kubernetes_integration_ee::{apply_kubernetes_autoscaling, KubernetesIntegration};

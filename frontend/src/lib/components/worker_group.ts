@@ -40,9 +40,6 @@ export type AutoscaleDryRun = {
 
 export type AutoscaleKubernetes = {
     type: 'kubernetes'
-    namespace?: string
-    worker_group?: string
-    kubeconfig_path?: string
 }
 
 export const defaultTags = [

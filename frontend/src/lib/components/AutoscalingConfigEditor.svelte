@@ -11,16 +11,39 @@
 	import Label from './Label.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import { ConfigService } from '$lib/gen'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
+		worker_group: string
 	}
 
-	let { config = $bindable(), worker_tags }: Props = $props()
+	let { config = $bindable(), worker_tags, worker_group }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	let test_input: number = $state(3)
+	let healthCheckLoading: boolean = $state(false)
+	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
+
+	async function checkKubernetesHealth() {
+		if (!config?.integration || config.integration.type !== 'kubernetes') return
+		
+		healthCheckLoading = true
+		healthCheckResult = null
+		
+		try {
+			await ConfigService.nativeKubernetesAutoscalingHealthcheck({ workerGroup: worker_group })
+			healthCheckResult = { success: true }
+		} catch (error: any) {
+			healthCheckResult = { 
+				success: false, 
+				error: error.body || error.message || 'Unknown error' 
+			}
+		} finally {
+			healthCheckLoading = false
+		}
+	}
 </script>
 
 <div class="flex flex-row gap-16 pt-2">
@@ -326,41 +349,53 @@
 			{/if}
 
 			{#if config.integration.type === 'kubernetes'}
-				<label>
-					Worker Group
-					<input
-						oninput={() => dispatch('dirty')}
-						type="text"
-						placeholder="default"
-						bind:value={config.integration.worker_group}
-					/>
-				</label>
+				<div class="text-sm text-secondary mb-3">
+					Kubernetes configuration is automatically inferred from the cluster environment. 
+					The worker group name and namespace will be detected automatically.
+				</div>
 
-				<label>
-					Namespace (optional)
-					<input
-						oninput={() => dispatch('dirty')}
-						type="text"
-						placeholder="windmill"
-						bind:value={config.integration.namespace}
-					/>
-				</label>
+				<div class="flex flex-col gap-3 mt-4">
+					<div class="flex items-center gap-2">
+						<Button 
+							color="blue" 
+							size="xs" 
+							variant="contained"
+							startIcon={{ icon: ExternalLink }}
+							href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes"
+							target="_blank"
+						>
+							Setup Guide (Roles & Bindings)
+						</Button>
+						<Button 
+							color="light" 
+							size="xs" 
+							variant="contained"
+							onclick={checkKubernetesHealth}
+							disabled={healthCheckLoading}
+						>
+							{healthCheckLoading ? 'Checking...' : 'Check Health'}
+						</Button>
+					</div>
+					
+					{#if healthCheckResult !== null}
+						<div class="p-2 rounded-md text-sm {healthCheckResult.success ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}">
+							{#if healthCheckResult.success}
+								Kubernetes autoscaling is healthy
+							{:else}
+								{healthCheckResult.error}
+								{#if healthCheckResult.error?.includes('permissions') || healthCheckResult.error?.includes('role')}
+									<br><small>Please follow the setup guide above to configure proper RBAC permissions.</small>
+								{/if}
+							{/if}
+						</div>
+					{/if}
 
-				<label>
-					Kubeconfig path (optional)
-					<input
-						oninput={() => dispatch('dirty')}
-						type="text"
-						placeholder="/etc/windmill/kubeconfig"
-						bind:value={config.integration.kubeconfig_path}
-					/>
-				</label>
-
-				<div class="flex flex-row gap-2 mt-4">
-					<Button color="light" size="xs" variant="contained">Test scaling</Button>
-					<div class="flex text-xs flex-row gap-2 items-center">
-						<input class="!w-16" type="number" bind:value={test_input} />
-						workers
+					<div class="flex flex-row gap-2">
+						<Button color="light" size="xs" variant="contained">Test scaling</Button>
+						<div class="flex text-xs flex-row gap-2 items-center">
+							<input class="!w-16" type="number" bind:value={test_input} />
+							workers
+						</div>
 					</div>
 				</div>
 			{/if}
