@@ -674,7 +674,6 @@ class AIChatManager {
 						oldInstructions,
 						this.flowAiChatHelpers!.getFlowAndSelectedId()
 					)
-					console.log('userMessage', userMessage)
 					break
 				case AIMode.NAVIGATOR:
 					userMessage = prepareNavigatorUserMessage(oldInstructions)
