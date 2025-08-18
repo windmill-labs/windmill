@@ -64,6 +64,8 @@
 	let lastJobId: string = jobId
 
 	let retryStatus = $state({ val: {} })
+	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
+
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,
@@ -84,6 +86,7 @@
 			lastJobId = jobId
 			retryStatus.val = {}
 			suspendStatus.val = {}
+			globalRefreshes = {}
 		}
 	}
 
@@ -95,6 +98,15 @@
 			jobId && updateJobId()
 		})
 	})
+
+	let refreshGlobal = async (moduleId: string, clear: boolean, root: string) => {
+		let allFns = globalRefreshes?.[moduleId]?.map((x) => x(clear, root)) ?? []
+		await Promise.all(allFns)
+	}
+
+	let updateGlobalRefresh = (moduleId: string, updateFn: (clear, root) => Promise<void>) => {
+		globalRefreshes[moduleId] = [...(globalRefreshes[moduleId] ?? []), updateFn]
+	}
 </script>
 
 <FlowStatusViewerInner
@@ -123,4 +135,6 @@
 	{customUi}
 	graphTabOpen={true}
 	isNodeSelected={true}
+	{refreshGlobal}
+	{updateGlobalRefresh}
 />

@@ -83,8 +83,8 @@
 		subflowParentsDurationStatuses?: Record<string, DurationStatus>[]
 		isForloopSelected?: boolean
 		updateRecursiveRefreshFn?: (jobId: string, updateFn: (clear, root) => Promise<void>) => void
-		refreshGlobal?: (moduleId: string, clear: boolean, root: string) => Promise<void>
-		updateGlobalRefresh?: (moduleId: string, updateFn: (clear, root) => Promise<void>) => void
+		refreshGlobal: (moduleId: string, clear: boolean, root: string) => Promise<void>
+		updateGlobalRefresh: (moduleId: string, updateFn: (clear, root) => Promise<void>) => void
 		job?: (Job & { result_stream?: string }) | undefined
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		localModuleStates?: Record<string, GraphModuleState>
@@ -127,8 +127,8 @@
 		hideFlowResult = false,
 		workspace = $workspaceStore,
 		prefix = undefined,
-		refreshGlobal = undefined,
-		updateGlobalRefresh = undefined,
+		refreshGlobal,
+		updateGlobalRefresh,
 		subflowParentsGlobalModuleStates = [],
 		subflowParentsDurationStatuses = [],
 		isForloopSelected = false,
@@ -145,23 +145,6 @@
 		onJobsLoaded = undefined,
 		onDone = undefined
 	}: Props = $props()
-
-	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
-
-	if (!refreshGlobal) {
-		refreshGlobal = async (moduleId: string, clear: boolean, root: string) => {
-			let allFns = globalRefreshes?.[moduleId]?.map((x) => x(clear, root)) ?? []
-			await Promise.all(allFns)
-		}
-	}
-
-	let updateGlobalRefreshInner = (moduleId: string, updateFn: (clear, root) => Promise<void>) => {
-		if (!updateGlobalRefresh) {
-			globalRefreshes[moduleId] = [...(globalRefreshes[moduleId] ?? []), updateFn]
-		} else {
-			updateGlobalRefresh(moduleId, updateFn)
-		}
-	}
 
 	let resultStreams: Record<string, string | undefined> = $state({})
 
@@ -229,7 +212,7 @@
 	function onFlowModuleId() {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
-			updateGlobalRefreshInner(buildSubflowKey(modId, prefix), async (clear, root) => {
+			updateGlobalRefresh(buildSubflowKey(modId, prefix), async (clear, root) => {
 				if (isSelectedBranch) {
 					console.log('updateGlobalRefreshInner refresh', modId, prefix, clear, root)
 					await refresh(clear, root) // refresh(true, loopJob)
@@ -602,7 +585,6 @@
 				})
 			} else {
 				recursiveRefresh = {}
-				globalRefreshes = {}
 				localDurationStatuses = {}
 				updateRecursiveRefresh(jobId)
 			}
@@ -1125,7 +1107,7 @@
 										? subflowParentsGlobalModuleStates
 										: []}
 									{subflowParentsDurationStatuses}
-									updateGlobalRefresh={updateGlobalRefreshInner}
+									{updateGlobalRefresh}
 									render={forloop_selected == loopJobId && selected == 'sequence' && render}
 									isForloopSelected={forloop_selected == loopJobId &&
 										(innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow')}
@@ -1205,7 +1187,7 @@
 										<FlowStatusViewerInner
 											{refreshGlobal}
 											isSelectedBranch={isSelectedBranch && retry_selected == failedRetry}
-											updateGlobalRefresh={updateGlobalRefreshInner}
+											{updateGlobalRefresh}
 											updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
@@ -1231,7 +1213,7 @@
 										{refreshGlobal}
 										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 										globalModuleStates={[]}
-										updateGlobalRefresh={updateGlobalRefreshInner}
+										{updateGlobalRefresh}
 										globalDurationStatuses={[]}
 										prefix={buildPrefix(prefix, mod.id ?? '')}
 										subflowParentsGlobalModuleStates={[
@@ -1269,7 +1251,7 @@
 										render={selected == 'sequence' && render}
 										{workspaceId}
 										{prefix}
-										updateGlobalRefresh={updateGlobalRefreshInner}
+										{updateGlobalRefresh}
 										{subflowParentsGlobalModuleStates}
 										{subflowParentsDurationStatuses}
 										{isSelectedBranch}
