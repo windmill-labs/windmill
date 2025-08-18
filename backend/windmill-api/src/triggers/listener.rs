@@ -1,6 +1,7 @@
 use crate::triggers::{crud::TriggerCrud, Trigger};
 use async_trait::async_trait;
 use itertools::Itertools;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Row};
@@ -8,7 +9,7 @@ use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
     triggers::TriggerKind,
-    DB,
+    DB, INSTANCE_NAME,
 };
 
 #[async_trait]
@@ -116,14 +117,144 @@ pub trait Listener: TriggerCrud {
     }
 }
 
-async fn listen_to_unlistened_events<T: Listener + 'static>(
+async fn listening<T: Listener + 'static>(
     trigger: &T,
+    listener: ListeningTrigger<T::TriggerConfig>,
+) {
+}
+
+async fn listen_to_unlistened_events<T: Listener + 'static>(
+    listener: &T,
     db: DB,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
-    let unlistend_enabled_triggers = trigger.fetch_enabled_unlistened_triggers(&db).await;
-    
-    let unlisted_captures = trigger.fetch_unlistened_captures(&db).await;
+    let unlistend_enabled_triggers = listener.fetch_enabled_unlistened_triggers(&db).await;
+
+    match unlistend_enabled_triggers {
+        Ok(mut unlistend_enabled_triggers) => {
+            unlistend_enabled_triggers.shuffle(&mut rand::rng());
+            for trigger in unlistend_enabled_triggers {
+                let has_lock = sqlx::query_scalar(&format!(
+                    r#"
+                    UPDATE {} 
+                    SET 
+                        server_id = $1, 
+                        last_server_ping = now(),
+                        error = 'Connecting...'
+                    WHERE 
+                        enabled IS TRUE 
+                        AND workspace_id = $2 
+                        AND path = $3 
+                        AND (last_server_ping IS NULL 
+                            OR last_server_ping < now() - INTERVAL '15 seconds'
+                        ) 
+                    RETURNING true
+                "#,
+                    T::TABLE_NAME,
+                ))
+                .bind(&*INSTANCE_NAME)
+                .bind(&trigger.workspace_id)
+                .bind(&trigger.path)
+                .fetch_optional(&db)
+                .await;
+
+                match has_lock {
+                    Ok(has_lock) => {
+                        if has_lock.flatten().unwrap_or(false) {
+                            tracing::info!(
+                                "Spawning new task to listen for {} event",
+                                T::TABLE_NAME
+                            );
+                            //tokio::spawn(async move { listening(listener, trigger) });
+                        } else {
+                            tracing::info!(
+                                "{} trigger {} already being listened to",
+                                T::TRIGGER_KIND,
+                                trigger.path
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            "Error acquiring lock for {} trigger {}: {:?}",
+                            T::TRIGGER_KIND,
+                            trigger.path,
+                            err
+                        );
+                    }
+                };
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                "Error fetching captures {} triggers: {:?}",
+                err,
+                T::TRIGGER_KIND
+            );
+        }
+    }
+
+    let unlisted_captures = listener.fetch_unlistened_captures(&db).await;
+
+    match unlisted_captures {
+        Ok(unlistened_captures) => {
+            for capture in unlistened_captures {
+                let has_lock = sqlx::query_scalar!(
+                    r#"
+                        UPDATE 
+                            capture_config 
+                        SET 
+                            server_id = $1,
+                            last_server_ping = now(), 
+                            error = 'Connecting...' 
+                        WHERE 
+                            last_client_ping > NOW() - INTERVAL '10 seconds' AND 
+                            workspace_id = $2 AND 
+                            path = $3 AND 
+                            is_flow = $4 AND 
+                            trigger_kind = $5 AND 
+                            (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds') 
+                        RETURNING true
+                    "#,
+                    *INSTANCE_NAME,
+                    &capture.workspace_id,
+                    &capture.path,
+                    &capture.is_flow,
+                    T::TRIGGER_KIND as TriggerKind
+                )
+                .fetch_optional(&db)
+                .await;
+                match has_lock {
+                    Ok(has_lock) => {
+                        if has_lock.flatten().unwrap_or(false) {
+                            tokio::spawn(async move {});
+                        } else {
+                            tracing::info!(
+                                "{} capture {} already being listened to",
+                                T::TRIGGER_KIND.to_string(),
+                                capture.path
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            "Error acquiring lock for capture {} {}: {:?}",
+                            T::TRIGGER_KIND,
+                            capture.path,
+                            err
+                        );
+                    }
+                };
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                "Error fetching captures {} triggers: {:?}",
+                T::TRIGGER_KIND,
+                err
+            );
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
