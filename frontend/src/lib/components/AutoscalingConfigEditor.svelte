@@ -16,10 +16,9 @@
 	interface Props {
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
-		worker_group: string
 	}
 
-	let { config = $bindable(), worker_tags, worker_group }: Props = $props()
+	let { config = $bindable(), worker_tags }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	let test_input: number = $state(3)
@@ -33,7 +32,7 @@
 		healthCheckResult = null
 		
 		try {
-			await ConfigService.nativeKubernetesAutoscalingHealthcheck({ workerGroup: worker_group })
+			await ConfigService.nativeKubernetesAutoscalingHealthcheck()
 			healthCheckResult = { success: true }
 		} catch (error: any) {
 			healthCheckResult = { 

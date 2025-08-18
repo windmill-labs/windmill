@@ -11621,17 +11621,11 @@ paths:
       operationId: nativeKubernetesAutoscalingHealthcheck
       tags:
         - config
-      parameters:
-        - name: worker_group
-          in: path
-          required: true
-          schema:
-            type: string
       responses:
         "200":
           description: Kubernetes autoscaling is healthy
         "400":
-          description: Update a worker group
+          description: Error
           content:
             text/plain:
               schema:
