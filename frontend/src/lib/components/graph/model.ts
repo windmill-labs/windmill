@@ -29,6 +29,10 @@ export type DurationStatus = {
 	byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
 }
 
+export type GlobalModuleState = {
+
+}
+
 export type FlowStatusViewerContext = {
 	flowStateStore?: FlowState
 	retryStatus: StateStore<Record<string, number | undefined>>
