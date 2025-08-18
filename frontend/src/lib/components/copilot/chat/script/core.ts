@@ -13,7 +13,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool, executeTestRun, buildSchemaForTool } from '../shared'
+import { createSearchHubScriptsTool, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import { inferArgs } from '$lib/infer'
@@ -855,7 +855,7 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 
 export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	def: TEST_RUN_SCRIPT_TOOL,
-	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+	fn: async function({ args, workspace, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 		
 		if (!scriptOptions) {
@@ -880,13 +880,15 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
 		}
 
+		const parsedArgs = await buildTestRunArgs(args, this.def)
+
 		return executeTestRun({
 			jobStarter: () => JobService.runScriptPreview({
 				workspace: workspace,
 				requestBody: {
 					path: scriptOptions.path,
 					content: codeToTest,
-					args,
+					args: parsedArgs,
 					language: scriptOptions.lang as ScriptLang,
 				}
 			}),

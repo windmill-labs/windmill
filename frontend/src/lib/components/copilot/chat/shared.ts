@@ -190,6 +190,9 @@ export function createToolDef(
 		name,
 		target: 'openAi'
 	})
+	if (name === 'test_run_step') {
+		console.log('schema', schema)
+	}
 	let parameters = schema.definitions![name] as FunctionParameters
 	parameters = {
 		...parameters,
@@ -253,19 +256,29 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
-export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<void> {
+export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<boolean> {
 	try {
 		const schema = await schemaBuilder()
+
+		// if schema properties contains values different from '^[a-zA-Z0-9_.-]{1,64}$'
+		const invalidProperties = Object.keys(schema.properties ?? {}).filter((key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key))
+		if (invalidProperties.length > 0) {
+			console.warn(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
+			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
+		}
+
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = get(copilotSessionModel)?.provider
 		if (model === 'openai' || model === 'azure_openai') {
 			toolDef.function.strict = false
 		}
+		return true
 	} catch (error) {
 		console.error('Error building schema for tool', error)
 		// fallback to schema with any properties
-		toolDef.function.parameters = { type: 'object', properties: {}, additionalProperties: true, strict: false }
+		toolDef.function.parameters = { type: 'object', properties: { args: { type: 'string', description: 'JSON string containing the arguments for the tool' } }, additionalProperties: false, strict: false, required: ['args'] }
+		return false
 	}
 }
 
@@ -376,6 +389,20 @@ function getErrorMessage(result: unknown): string {
 		return result
 	}
 	return 'Unknown error'
+}
+
+// Build test run args based on the tool definition, if it contains a fallback schema
+export async function buildTestRunArgs(args: any, toolDef: ChatCompletionTool): Promise<any> {
+	let parsedArgs = args
+	// if the schema is the fallback schema, parse the args as a JSON string
+	if ((toolDef.function.parameters as any).properties?.args?.description === 'JSON string containing the arguments for the tool') {
+		try {
+			parsedArgs = JSON.parse(args.args)
+		} catch (error) {
+			console.error('Error parsing arguments for tool', error)
+		}
+	}
+	return parsedArgs
 }
 
 // Main execution function for test runs

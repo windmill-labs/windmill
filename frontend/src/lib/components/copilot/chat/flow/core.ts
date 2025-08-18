@@ -12,7 +12,7 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -562,7 +562,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: testRunFlowToolDef,
-		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		fn: async function({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
@@ -575,11 +575,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				)
 			}
 
+			const parsedArgs = await buildTestRunArgs(args, this.def)
 			return executeTestRun({
 				jobStarter: () => JobService.runFlowPreview({
 					workspace: workspace,
 					requestBody: {
-						args: args,
+						args: parsedArgs,
 						value: flow.value,
 					}
 				}),
