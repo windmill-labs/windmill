@@ -1,4 +1,4 @@
-use crate::error::{self, Result};
+use crate::error::{self};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
@@ -1083,7 +1083,7 @@ pub fn duckdb_connection_settings_internal(
 }
 
 impl ObjectStoreResource {
-    pub fn get_endpoint_url(&self) -> Result<String> {
+    pub fn get_endpoint_url(&self) -> error::Result<String> {
         match self {
             ObjectStoreResource::S3(s3_resource) => Ok(render_endpoint(
                 s3_resource.endpoint.clone(),
