@@ -80,6 +80,9 @@ export function buildPrefix(prefix: string | undefined, id: string): string {
 export type NodeLayout = {
 	id: string
 	parentIds?: string[]
+	data: {
+		offset?: number
+	}
 } & FlowNode
 
 export type FlowNode =
@@ -292,9 +295,9 @@ export type AssetsOverflowedN = {
 	}
 }
 
-export function topologicalSort(nodes: NodeLayout[]): NodeLayout[] {
+export function topologicalSort(nodes: { id: string; parentIds?: string[] }[]): { id: string; parentIds?: string[] }[] {
 	const nodeMap = new Map(nodes.map((n) => [n.id, n]))
-	const result: NodeLayout[] = []
+	const result: { id: string; parentIds?: string[] }[] = []
 	const visited = new Set<string>()
 
 	function visit(id: string): void {
@@ -362,17 +365,19 @@ export function graphBuilder(
 	// 	flowIsSimplifiable?: boolean
 	// }
 ): {
-	nodes: NodeLayout[]
+	nodes: { [key: string]: NodeLayout }
 	edges: Edge[]
 	error?: string | undefined
 } {
 	console.debug('Building graph')
-	const nodes: NodeLayout[] = []
-	const edges: Edge[] = []
+
 	try {
 		if (!modules) {
-			return { nodes, edges }
+			return { nodes: {}, edges: [] }
 		}
+
+		const nodes: NodeLayout[] = []
+		const edges: Edge[] = []
 
 		function addNode(module: FlowModule, offset: number) {
 			const duplicated = nodes.find((n) => n.id === module.id)
@@ -1062,10 +1067,10 @@ export function graphBuilder(
 			}
 		}
 
-		return { nodes, edges }
+		return { nodes: Object.fromEntries(nodes.map((n) => [n.id, n])), edges }
 	} catch (e) {
 		return {
-			nodes: [],
+			nodes: {},
 			edges: [],
 			error: e
 		}

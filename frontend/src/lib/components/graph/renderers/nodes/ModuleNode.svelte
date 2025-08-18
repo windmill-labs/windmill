@@ -14,11 +14,11 @@
 
 	let { data }: Props = $props()
 
-	let state = $derived(
-		data.testModuleState
+	let state = $derived.by(() => {
+		return data.testModuleState
 			? (jobToGraphModuleState(data.testModuleState) ?? data.flowModuleState)
 			: data.flowModuleState
-	)
+	})
 
 	let flowJobs = $derived(
 		state?.flow_jobs
@@ -40,9 +40,6 @@
 	})
 </script>
 
-<pre class="text-2xs absolute -top-9 -left-10">
-{JSON.stringify(flowJobs)}
-</pre>
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		{#if data.module.value.type == 'flow'}

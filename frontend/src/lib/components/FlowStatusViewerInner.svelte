@@ -236,55 +236,57 @@
 		newValue: GraphModuleState,
 		keepType: boolean | undefined
 	) {
-		const state = moduleState
 		if (
 			newValue.selectedForloop != undefined &&
-			state[key]?.selectedForloop != undefined &&
-			newValue.selectedForloop != state[key].selectedForloop
+			moduleState[key]?.selectedForloop != undefined &&
+			newValue.selectedForloop != moduleState[key].selectedForloop
 		) {
-			let newState = { ...state[key] }
+			let newState = { ...moduleState[key] }
 			if (
 				newValue.type == 'InProgress' &&
-				state[key]?.type != 'InProgress' &&
-				!(keepType && (state[key]?.type === 'Success' || state[key]?.type === 'Failure'))
+				moduleState[key]?.type != 'InProgress' &&
+				!(
+					keepType &&
+					(moduleState[key]?.type === 'Success' || moduleState[key]?.type === 'Failure')
+				)
 			) {
 				newState.type = 'InProgress'
 			}
 
 			if (
-				state[key]?.job_id != newValue.job_id ||
-				!deepEqual(state[key]?.args, newValue.args) ||
-				!deepEqual(state[key]?.result, newValue.result)
+				moduleState[key]?.job_id != newValue.job_id ||
+				!deepEqual(moduleState[key]?.args, newValue.args) ||
+				!deepEqual(moduleState[key]?.result, newValue.result)
 			) {
 				newState.args = newValue.args
 				newState.result = newValue.result
 				newState.job_id = newValue.job_id
 			}
-			state[key] = newState
+			moduleState[key] = newState
 			return
 		}
 
-		if (state[key]?.selectedForLoopSetManually) {
+		if (moduleState[key]?.selectedForLoopSetManually) {
 			if (
 				newValue.selectedForloop != undefined &&
-				state[key]?.selectedForloop != newValue.selectedForloop
+				moduleState[key]?.selectedForloop != newValue.selectedForloop
 			) {
-				return state
+				return moduleState
 			} else {
 				newValue.selectedForLoopSetManually = true
-				newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
-				newValue.selectedForloop = state[key]?.selectedForloop
+				newValue.selectedForloopIndex = moduleState[key]?.selectedForloopIndex
+				newValue.selectedForloop = moduleState[key]?.selectedForloop
 			}
-		} else if (state[key]?.selectedForloopIndex != undefined) {
-			newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
-			newValue.selectedForloop = state[key]?.selectedForloop
+		} else if (moduleState[key]?.selectedForloopIndex != undefined) {
+			newValue.selectedForloopIndex = moduleState[key]?.selectedForloopIndex
+			newValue.selectedForloop = moduleState[key]?.selectedForloop
 		}
 
-		if (keepType && (state[key]?.type == 'Success' || state[key]?.type == 'Failure')) {
-			newValue.type = state[key].type
+		if (keepType && (moduleState[key]?.type == 'Success' || moduleState[key]?.type == 'Failure')) {
+			newValue.type = moduleState[key].type
 		}
-		if (!deepEqual(state[key], newValue)) {
-			state[key] = newValue
+		if (!deepEqual(moduleState[key], newValue)) {
+			moduleState[key] = newValue
 		}
 	}
 
@@ -712,9 +714,9 @@
 		isForloop: boolean
 	) {
 		if (modId) {
+			let globalState = getTopModuleStates()
+			let state = globalState?.[modId]
 			let prefixedId = buildSubflowKey(modId, prefix)
-			let globalState = globalModuleStates?.[globalModuleStates?.length - 1]
-			let state = globalState?.[prefixedId]
 
 			if (clicked && state?.selectedForloop) {
 				await refreshGlobal?.(prefixedId, true, state.selectedForloop)
@@ -739,7 +741,7 @@
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
 				if (selectedNotEqual) {
-					globalState[prefixedId] = {
+					globalState[modId] = {
 						type: 'WaitingForPriorSteps',
 						args: {},
 						...newState
@@ -807,8 +809,8 @@
 				duration_ms: undefined
 			}
 
-			let prefixedId = buildSubflowKey(modId, prefix)
-			let currentIndex = getTopModuleStates()?.[prefixedId]?.selectedForloopIndex == j
+			let currentIndex = getTopModuleStates()?.[modId]?.selectedForloopIndex == j
+
 			if (currentIndex) {
 				v.logs = jobLoaded.logs
 				v.args = jobLoaded.args
