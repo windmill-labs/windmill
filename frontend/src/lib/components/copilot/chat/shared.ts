@@ -190,9 +190,6 @@ export function createToolDef(
 		name,
 		target: 'openAi'
 	})
-	if (name === 'test_run_step') {
-		console.log('schema', schema)
-	}
 	let parameters = schema.definitions![name] as FunctionParameters
 	parameters = {
 		...parameters,
@@ -276,7 +273,7 @@ export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuil
 		return true
 	} catch (error) {
 		console.error('Error building schema for tool', error)
-		// fallback to schema with any properties
+		// fallback to schema with args as a JSON string
 		toolDef.function.parameters = { type: 'object', properties: { args: { type: 'string', description: 'JSON string containing the arguments for the tool' } }, additionalProperties: false, strict: false, required: ['args'] }
 		return false
 	}
