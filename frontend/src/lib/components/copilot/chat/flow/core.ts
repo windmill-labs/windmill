@@ -14,8 +14,6 @@ import {
 } from '../script/core'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { copilotSessionModel } from '$lib/stores'
-import { get } from 'svelte/store'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
 
@@ -617,9 +615,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				)
 			}
 
-			const parsedArgs = testRunStepSchema.parse(args)
-			const stepId = parsedArgs.stepId
-			const stepArgs = parsedArgs.args || {}
+			const stepId = args.stepId
+			const stepArgs = args.args || {}
 
 			// Find the step in the flow
 			const modules = helpers.getModules()
@@ -640,6 +637,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			if (moduleValue.type === 'rawscript') {
 				// Test raw script step
+
 				return executeTestRun({
 					jobStarter: () =>
 						JobService.runScriptPreview({
