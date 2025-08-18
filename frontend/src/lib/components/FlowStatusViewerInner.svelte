@@ -929,22 +929,30 @@
 				await refreshGlobal?.(detail.moduleId, true, previousId)
 			}
 
-			localModuleStates[detail.moduleId] = {
-				...localModuleStates[detail.moduleId],
-				selectedForloop: detail.id,
-				selectedForloopIndex: detail.index,
-				selectedForLoopSetManually: true
-			}
+			;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
+				if (stateMap[detail.moduleId]) {
+					stateMap[detail.moduleId] = {
+						...stateMap[detail.moduleId],
+						selectedForloop: detail.id,
+						selectedForloopIndex: detail.index,
+						selectedForLoopSetManually: true
+					}
+				}
+			})
 
 			await tick()
 
 			console.log('onSelectedIteration', detail.moduleId, rootJobId)
 			await refreshGlobal?.(detail.moduleId, false, rootJobId)
 		} else {
-			localModuleStates[detail.moduleId] = {
-				...localModuleStates[detail.moduleId],
-				selectedForLoopSetManually: false
-			}
+			;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
+				if (stateMap[detail.moduleId]) {
+					stateMap[detail.moduleId] = {
+						...stateMap[detail.moduleId],
+						selectedForLoopSetManually: false
+					}
+				}
+			})
 		}
 	}
 
