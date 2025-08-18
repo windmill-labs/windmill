@@ -20,6 +20,7 @@ use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::triggers::start_all_listeners;
 #[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 
@@ -97,8 +98,6 @@ mod inkeep_ee;
 mod inkeep_oss;
 mod inputs;
 mod integration;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
 
 pub mod openapi;
 
@@ -383,6 +382,9 @@ pub async fn run_server(
     let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
+        
+        start_all_listeners(db.clone(), &killpill_rx);
+
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = killpill_rx.resubscribe();
@@ -399,12 +401,6 @@ pub async fn run_server(
         {
             let nats_killpill_rx = killpill_rx.resubscribe();
             nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(feature = "postgres_trigger")]
-        {
-            let db_killpill_rx = killpill_rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
 
         #[cfg(feature = "mqtt_trigger")]

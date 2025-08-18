@@ -1,3 +1,10 @@
+use std::collections::HashMap;
+
+use crate::{
+    db::{ApiAuthed, DB},
+    resources::try_get_resource_from_db_as,
+    trigger_helpers::TriggerJobArgs,
+};
 use chrono::Utc;
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
@@ -6,23 +13,46 @@ use rand::Rng;
 use rust_postgres::{config::SslMode, Client, Config, NoTls};
 use rust_postgres_native_tls::MakeTlsConnector;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::value::RawValue;
 use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
+    triggers::TriggerKind,
     utils::empty_as_none,
 };
 
-use crate::{
-    db::{ApiAuthed, DB},
-    resources::try_get_resource_from_db_as,
-};
+mod bool;
+mod converter;
+pub mod handler;
+mod hex;
+pub mod listener;
+mod mapper;
+mod relation;
+mod replication_message;
+
+#[derive(Clone, Copy)]
+pub struct PostgresTriggerHandler;
+
+impl TriggerJobArgs for PostgresTriggerHandler {
+    type Payload = HashMap<String, Box<RawValue>>;
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Postgres;
+    fn v1_payload_fn(payload: &HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload.to_owned()
+    }
+
+    fn v2_payload_fn(payload: &HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload.to_owned()
+    }
+}
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct PostgresConfig {
     pub postgres_resource_path: String,
     pub replication_slot_name: String,
     pub publication_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basic_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -531,6 +561,3 @@ pub fn generate_random_string() -> String {
 
     format!("{}_{}", timestamp, random_part)
 }
-
-pub mod handler;
-mod mapper;

@@ -21,7 +21,7 @@ use windmill_git_sync::DeployedObject;
 
 use crate::{
     db::{ApiAuthed, DB},
-    triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+    triggers::{postgres::PostgresTriggerHandler, CreateTrigger, EditTrigger, Trigger, TriggerCrud},
 };
 
 use super::{
@@ -37,8 +37,6 @@ use super::{
 lazy_static! {
     pub static ref TEMPLATE: Cache<String, String> = Cache::new(50);
 }
-
-pub struct PostgresTriggerHandler;
 
 #[async_trait]
 impl TriggerCrud for PostgresTriggerHandler {
@@ -65,6 +63,7 @@ impl TriggerCrud for PostgresTriggerHandler {
             "postgres_resource_path",
             "replication_slot_name",
             "publication_name",
+            "NULL::text AS basic_mode"
         ]
     }
 

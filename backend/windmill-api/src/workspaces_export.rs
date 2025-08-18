@@ -657,7 +657,7 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(feature = "postgres_trigger")]
         {
-            use crate::triggers::postgres::handler::PostgresTriggerHandler;
+            use crate::triggers::postgres::PostgresTriggerHandler;
             let handler = PostgresTriggerHandler;
             let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 

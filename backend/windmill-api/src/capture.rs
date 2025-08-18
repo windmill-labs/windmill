@@ -55,7 +55,7 @@ use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, Subscr
 use crate::nats_triggers_oss::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
+use crate::triggers::postgres::{
     create_logical_replication_slot, create_pg_publication, generate_random_string,
     get_default_pg_connection, PublicationData,
 };

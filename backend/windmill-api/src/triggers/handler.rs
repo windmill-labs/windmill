@@ -43,7 +43,7 @@ use crate::triggers::mqtt::handler::MqttTriggerHandler;
 #[cfg(all(feature = "nats", feature = "enterprise"))]
 use crate::triggers::nats::handler_oss::NatsTriggerHandler;
 #[cfg(feature = "postgres_trigger")]
-use crate::triggers::postgres::handler::PostgresTriggerHandler;
+use crate::triggers::postgres::PostgresTriggerHandler;
 #[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
 use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
 #[cfg(feature = "websocket")]

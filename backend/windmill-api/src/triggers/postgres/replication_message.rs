@@ -12,7 +12,7 @@ use bytes::Bytes;
 use rust_postgres::types::{Oid, Type};
 use thiserror::Error;
 
-use super::trigger::LogicalReplicationSettings;
+use super::listener::LogicalReplicationSettings;
 const PRIMARY_KEEPALIVE_BYTE: u8 = b'k';
 const X_LOG_DATA_BYTE: u8 = b'w';
 

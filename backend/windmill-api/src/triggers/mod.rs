@@ -23,11 +23,12 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
-mod crud;
+mod handler;
 mod listener;
 
-pub use crud::generate_trigger_routers;
-pub(crate) use crud::TriggerCrud;
+pub use handler::generate_trigger_routers;
+pub(crate) use handler::TriggerCrud;
+pub use listener::start_all_listeners;
 pub(crate) use listener::Listener;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -90,7 +91,7 @@ pub struct TriggerErrorHandling {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -262,7 +263,7 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(feature = "postgres_trigger")]
     let postgres_count = {
-        use crate::triggers::postgres::handler::PostgresTriggerHandler;
+        use crate::triggers::postgres::PostgresTriggerHandler;
         let mut tx = db.begin().await?;
         let count = PostgresTriggerHandler
             .trigger_count(&mut tx, w_id, is_flow, path)

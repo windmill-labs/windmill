@@ -4,6 +4,7 @@ use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use std::future::Future;
 use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
@@ -366,22 +367,27 @@ pub async fn get_runnable_format(
 }
 
 #[allow(dead_code)]
-pub trait TriggerJobArgs<T: Clone> {
-    fn v1_payload_fn(payload: T) -> HashMap<String, Box<RawValue>>;
-    fn v2_payload_fn(payload: T) -> HashMap<String, Box<RawValue>> {
+
+pub trait TriggerJobArgs {
+    type Payload: Send + Sync + 'static;
+    const TRIGGER_KIND: TriggerKind;
+
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>>;
+    fn v2_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
         Self::v1_payload_fn(payload)
     }
-    fn trigger_kind() -> TriggerKind;
 
     fn build_job_args_v2(
         has_preprocessor: bool,
-        payload: T,
+        payload: &Self::Payload,
         info: HashMap<String, Box<RawValue>>,
     ) -> PushArgsOwned {
-        let trigger_kind = Self::trigger_kind();
         let mut args = Self::v2_payload_fn(payload);
         if has_preprocessor {
-            args.insert("kind".to_string(), to_raw_value(&trigger_kind.to_key()));
+            args.insert(
+                "kind".to_string(),
+                to_raw_value(&Self::TRIGGER_KIND.to_key()),
+            );
             args.extend(info);
             let args = HashMap::from([("event".to_string(), to_raw_value(&args))]);
             PushArgsOwned { args, extra: None }
@@ -392,11 +398,10 @@ pub trait TriggerJobArgs<T: Clone> {
 
     fn build_job_args_v1(
         has_preprocessor: bool,
-        payload: T,
+        payload: &Self::Payload,
         info: HashMap<String, Box<RawValue>>,
     ) -> PushArgsOwned {
-        let trigger_kind = Self::trigger_kind();
-        let trigger_key = trigger_kind.to_key();
+        let trigger_key = Self::TRIGGER_KIND.to_key();
         let args = Self::v1_payload_fn(payload);
         let extra = if has_preprocessor {
             Some(HashMap::from([(
@@ -409,51 +414,54 @@ pub trait TriggerJobArgs<T: Clone> {
         } else {
             None
         };
-
         PushArgsOwned { args, extra }
     }
 
-    async fn build_job_args(
+    fn build_job_args(
         runnable_path: &str,
         is_flow: bool,
         w_id: &str,
         db: &DB,
-        payload: T,
+        payload: &Self::Payload,
         info: HashMap<String, Box<RawValue>>,
-    ) -> Result<PushArgsOwned> {
-        let runnable_id = if is_flow {
-            RunnableId::from_flow_path(runnable_path)
-        } else {
-            RunnableId::from_script_path(runnable_path)
-        };
-        Self::build_job_args_from_runnable_id(runnable_id, w_id, db, payload, info).await
+    ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
+        async move {
+            let runnable_id = if is_flow {
+                RunnableId::from_flow_path(runnable_path)
+            } else {
+                RunnableId::from_script_path(runnable_path)
+            };
+            Self::build_job_args_from_runnable_id(runnable_id, w_id, db, payload, info).await
+        }
     }
 
-    async fn build_job_args_from_runnable_id(
+    fn build_job_args_from_runnable_id(
         runnable_id: RunnableId,
         w_id: &str,
         db: &DB,
-        payload: T,
+        payload: &Self::Payload,
         info: HashMap<String, Box<RawValue>>,
-    ) -> Result<PushArgsOwned> {
-        let runnable_format =
-            get_runnable_format(runnable_id, w_id, db, &Self::trigger_kind()).await?;
-
-        match runnable_format {
-            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor } => {
-                Ok(Self::build_job_args_v1(has_preprocessor, payload, info))
-            }
-            RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor } => {
-                Ok(Self::build_job_args_v2(has_preprocessor, payload, info))
-            }
+    ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
+        async move {
+            let runnable_format =
+                get_runnable_format(runnable_id, w_id, db, &Self::TRIGGER_KIND).await?;
+            let job_args = match runnable_format {
+                RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor } => {
+                    Self::build_job_args_v1(has_preprocessor, payload, info)
+                }
+                RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor } => {
+                    Self::build_job_args_v2(has_preprocessor, payload, info)
+                }
+            };
+            Ok(job_args)
         }
     }
 
     fn build_capture_payloads(
-        payload: T,
+        payload: &Self::Payload,
         info: HashMap<String, Box<RawValue>>,
     ) -> (PushArgsOwned, PushArgsOwned) {
-        let main_args = Self::build_job_args_v2(false, payload.clone(), info.clone());
+        let main_args = Self::build_job_args_v2(false, payload, info.clone());
         let preprocessor_args = Self::build_job_args_v2(true, payload, info);
         (main_args, preprocessor_args)
     }
