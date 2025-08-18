@@ -9,14 +9,10 @@ use axum::{
     routing::{delete, get, post, put},
     Extension, Router,
 };
-use base64::{engine::general_purpose, Engine};
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
-use hmac::{Hmac, Mac};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use futures::StreamExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use object_store::PutMultipartOpts;
-use reqwest::multipart;
-use serde_json::json;
-use sha2::Sha256;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -110,8 +106,6 @@ async fn post_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    tracing::info!("POST S3 object: {}/{}", w_id, object_key);
-    tracing::info!("{:?}", req.headers());
     let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
@@ -127,11 +121,17 @@ async fn post_object(
             storage_str
         ))
     })?;
+    let header_map = req.headers();
+    let authorization = get_header(&header_map, "Authorization").map_err(to_anyhow)?;
+    let mut header_map = header_map.clone();
+    let mut authorization = AuthorizationHeader::parse(authorization)
+        .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
 
     // Object Store does not support POST :(
     // But DuckDB uses POST when uploading and won't work unless
     // it receives the expected response
 
+    let rendered_endpoint = s3_resource.get_endpoint_url()?;
     let s3_resource = match s3_resource {
         ObjectStoreResource::S3(s3_resource) => s3_resource,
         _ => {
@@ -140,34 +140,47 @@ async fn post_object(
             ));
         }
     };
-
-    let (presigned_url, fields) = generate_presigned_post(
-        &s3_resource.access_key.as_deref().unwrap_or(""),
-        &s3_resource.secret_key.as_deref().unwrap_or(""),
-        &s3_resource.bucket,
-        &s3_resource.region,
-        &object_key,
-        3600, // 1 hour expiration
+    let remote_uri = format!(
+        "{}/{}{}",
+        rendered_endpoint,
+        object_key,
+        req.uri()
+            .query()
+            .map(|q| format!("?{q}"))
+            .as_deref()
+            .unwrap_or("")
     );
-
-    let mut form = multipart::Form::new();
-    for (key, value) in fields {
-        form = form.text(key, value);
-    }
-
-    form = form.part(
-        "file",
-        multipart::Part::bytes("Hello, S3!".as_bytes().to_vec()),
+    let host = format!(
+        "{}.s3.{}.amazonaws.com",
+        s3_resource.bucket, s3_resource.region
+    );
+    header_map.insert("host", HeaderValue::from_str(&host).map_err(to_anyhow)?);
+    authorization.credential.region = &s3_resource.region;
+    authorization.credential.access_key = s3_resource.access_key.as_deref().unwrap_or("");
+    let signature = generate_s3_signature(
+        s3_resource.secret_key.as_deref().unwrap_or(""),
+        &header_map,
+        "POST",
+        &remote_uri,
+        &authorization,
+    )?;
+    authorization.signature = &signature;
+    let authorization = authorization.to_string();
+    header_map.insert(
+        "Authorization",
+        HeaderValue::from_str(&authorization).map_err(to_anyhow)?,
     );
 
     // Send POST request
     let client = reqwest::Client::new();
     let response = client
-        .post(&presigned_url)
-        .multipart(form)
+        .post(&remote_uri)
+        .headers(header_map)
+        .body(axum_body_to_reqwest_stream(req.into_body()))
         .send()
         .await
         .map_err(to_anyhow)?;
+
     Ok(convert_reqwest_to_axum_response(response).await?)
 }
 
@@ -211,7 +224,7 @@ async fn get_token(
     // it corresponds to the received (authorization.signature)
 
     let authorization = get_header(header_map, "Authorization").map_err(to_anyhow)?;
-    let authorization = parse_authorization_header(authorization)
+    let authorization = AuthorizationHeader::parse(authorization)
         .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
 
     let access_key = authorization.credential.access_key;
@@ -238,6 +251,20 @@ fn check_s3_signature(
     uri: &str,
     authorization: &AuthorizationHeader<'_>,
 ) -> Result<()> {
+    let signature = generate_s3_signature(secret_key, header_map, http_method, uri, authorization)?;
+    if signature != authorization.signature {
+        return Err(Error::NotAuthorized("Signature mismatch".to_string()));
+    }
+    Ok(())
+}
+
+fn generate_s3_signature(
+    secret_key: &str,
+    header_map: &HeaderMap<HeaderValue>,
+    http_method: &str,
+    uri: &str,
+    authorization: &AuthorizationHeader<'_>,
+) -> Result<String> {
     if authorization.sign_method != "AWS4-HMAC-SHA256" {
         return Err(Error::InternalErr("Unsupported sign method".to_string()));
     }
@@ -286,10 +313,8 @@ fn check_s3_signature(
     let signing_output =
         aws_sigv4::http_request::sign(signable_request, &params).map_err(to_anyhow)?;
     let signature = signing_output.signature();
-    if signature != authorization.signature {
-        return Err(Error::NotAuthorized("Signature mismatch".to_string()));
-    }
-    Ok(())
+
+    Ok(signature.to_string())
 }
 
 struct AuthorizationHeader<'a> {
@@ -307,83 +332,43 @@ struct AuthorizationHeaderCredential<'a> {
     service: &'a str,    // Service name (e.g., "s3")
 }
 
-fn parse_authorization_header(value: &str) -> Option<AuthorizationHeader> {
-    let mut split = value.split_whitespace();
-    let sign_method = split.next()?;
-    let credential = split
-        .next()?
-        .trim_end_matches(',')
-        .trim_start_matches("Credential=");
-    let signed_headers = split
-        .next()?
-        .trim_end_matches(',')
-        .trim_start_matches("SignedHeaders=");
-    let signature = split.next()?.trim_start_matches("Signature=");
+impl AuthorizationHeader<'_> {
+    fn parse(value: &str) -> Option<AuthorizationHeader> {
+        let mut split = value.split_whitespace();
+        let sign_method = split.next()?;
+        let credential = split
+            .next()?
+            .trim_end_matches(',')
+            .trim_start_matches("Credential=");
+        let signed_headers = split
+            .next()?
+            .trim_end_matches(',')
+            .trim_start_matches("SignedHeaders=");
+        let signature = split.next()?.trim_start_matches("Signature=");
 
-    let mut credential_split = credential.split('/');
-    let credential = AuthorizationHeaderCredential {
-        // order matters
-        access_key: credential_split.next()?,
-        date: credential_split.next()?,
-        region: credential_split.next()?,
-        service: credential_split.next()?,
-    };
+        let mut credential_split = credential.split('/');
+        let credential = AuthorizationHeaderCredential {
+            // order matters
+            access_key: credential_split.next()?,
+            date: credential_split.next()?,
+            region: credential_split.next()?,
+            service: credential_split.next()?,
+        };
 
-    Some(AuthorizationHeader { sign_method, credential, signed_headers, signature })
-}
-
-type HmacSha256 = Hmac<Sha256>;
-
-fn generate_presigned_post(
-    access_key: &str,
-    secret_key: &str,
-    bucket: &str,
-    region: &str,
-    object_key: &str,
-    expiration_secs: i64,
-) -> (String, [(String, String); 5]) {
-    let expiration = (Utc::now() + Duration::seconds(expiration_secs))
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-
-    // Build the policy JSON
-    let policy = json!({
-        "expiration": expiration,
-        "conditions": [
-            {"bucket": bucket},
-            ["starts-with", "$key", object_key],
-            ["content-length-range", 0, 10485760], // max 10MB example
-        ]
-    });
-
-    let policy_str = serde_json::to_string(&policy).unwrap();
-    let policy_base64 = general_purpose::STANDARD.encode(policy_str.as_bytes());
-
-    // Signature is HMAC-SHA256 of base64(policy)
-    let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes()).unwrap();
-    mac.update(policy_base64.as_bytes());
-    let signature = mac.finalize().into_bytes();
-    let signature_base64 = general_purpose::STANDARD.encode(signature);
-
-    // URL to POST to
-    let url = format!("https://{}.s3.{}.amazonaws.com/", bucket, region);
-
-    // Fields to send in the multipart/form POST
-    let fields = [
-        ("key".to_string(), object_key.to_string()),
-        ("policy".to_string(), policy_base64),
-        ("x-amz-signature".to_string(), signature_base64),
-        (
-            "x-amz-credential".to_string(),
-            format!("{}/{}", access_key, region),
-        ),
-        (
-            "x-amz-algorithm".to_string(),
-            "AWS4-HMAC-SHA256".to_string(),
-        ),
-        // You might need x-amz-date and x-amz-security-token (if using temp creds)
-    ];
-
-    (url, fields)
+        Some(AuthorizationHeader { sign_method, credential, signed_headers, signature })
+    }
+    fn to_string(&self) -> String {
+        format!(
+            "{} Credential={}/{}/{}/{}/aws4_request, SignedHeaders={}, Signature={}",
+            self.sign_method,
+            self.credential.access_key,
+            self.credential.date,
+            self.credential.region,
+            self.credential.service,
+            self.signed_headers,
+            self.signature
+        )
+    }
 }
 
 pub async fn convert_reqwest_to_axum_response(res: reqwest::Response) -> Result<Response<Body>> {
@@ -398,4 +383,11 @@ pub async fn convert_reqwest_to_axum_response(res: reqwest::Response) -> Result<
     }
     let response = builder.body(Body::from_stream(bytes)).map_err(to_anyhow)?;
     Ok(response)
+}
+fn axum_body_to_reqwest_stream(axum_body: Body) -> reqwest::Body {
+    let stream = axum_body
+        .into_data_stream()
+        .map(|chunk| chunk.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err)));
+
+    reqwest::Body::wrap_stream(stream)
 }
