@@ -10,6 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use itertools::Itertools;
 use rand::seq::SliceRandom;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Row};
@@ -691,7 +692,7 @@ async fn listen_to_unlistened_events<T: Copy + Listener>(
                             tokio::spawn({
                                 let db = db.clone();
                                 let killpill_rx = killpill_rx.resubscribe();
-                                async move { listening(db, listener, capture, killpill_rx) }
+                                async move { listening(db, listener, capture, killpill_rx).await }
                             });
                         } else {
                             tracing::info!(
@@ -738,16 +739,19 @@ where
 
 impl<T> FromRow<'_, sqlx::postgres::PgRow> for Capture<T>
 where
-    T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
+    T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + DeserializeOwned,
 {
     fn from_row(row: &sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        let trigger_config_value = row.try_get("trigger_config")?;
+        let trigger_config: T = serde_json::from_value(trigger_config_value)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         Ok(Capture {
             path: row.try_get("path")?,
             is_flow: row.try_get("is_flow")?,
             workspace_id: row.try_get("workspace_id")?,
             username: row.try_get("username")?,
             email: row.try_get("email")?,
-            trigger_config: T::from_row(row)?,
+            trigger_config,
         })
     }
 }
