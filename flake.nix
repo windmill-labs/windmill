@@ -143,6 +143,7 @@
             dotnet-sdk_9
             oracle-instantclient
             ansible
+            ruby_3_4
 
             # LSP/Local dev
             svelte-language-server
@@ -221,7 +222,10 @@
           GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
-          DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          # DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          DATABASE_URL =
+            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
+
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
@@ -235,7 +239,10 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for related places search: ADD_NEW_LANG
+          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
+          RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";
+          # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";

@@ -11,13 +11,12 @@
 		OpenAPI
 	} from '$lib/gen'
 
-	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobPreview from '$lib/components/runs/JobPreview.svelte'
+	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
@@ -46,6 +45,7 @@
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/state'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -56,108 +56,108 @@
 
 	// All Filters
 	// Filter by
-	let path: string | null = $state($page.params.path)
-	let worker: string | null = $state($page.url.searchParams.get('worker'))
-	let user: string | null = $state($page.url.searchParams.get('user'))
-	let folder: string | null = $state($page.url.searchParams.get('folder'))
-	let label: string | null = $state($page.url.searchParams.get('label'))
-	let allowWildcards: boolean = $state($page.url.searchParams.get('allow_wildcards') == 'true')
-	let concurrencyKey: string | null = $state($page.url.searchParams.get('concurrency_key'))
-	let tag: string | null = $state($page.url.searchParams.get('tag'))
+	let path: string | null = $state(page.params.path ?? null)
+	let worker: string | null = $state(page.url.searchParams.get('worker'))
+	let user: string | null = $state(page.url.searchParams.get('user'))
+	let folder: string | null = $state(page.url.searchParams.get('folder'))
+	let label: string | null = $state(page.url.searchParams.get('label'))
+	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
+	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
+	let tag: string | null = $state(page.url.searchParams.get('tag'))
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
-		($page.url.searchParams.get('success') ?? undefined) as
+		(page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
 	)
 	let isSkipped: boolean | undefined = $state(
-		$page.url.searchParams.get('is_skipped') != undefined
-			? $page.url.searchParams.get('is_skipped') == 'true'
+		page.url.searchParams.get('is_skipped') != undefined
+			? page.url.searchParams.get('is_skipped') == 'true'
 			: false
 	)
 
 	let showSchedules: boolean = $state(
-		$page.url.searchParams.get('show_schedules') != undefined
-			? $page.url.searchParams.get('show_schedules') == 'true'
+		page.url.searchParams.get('show_schedules') != undefined
+			? page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
 				? false
 				: true
 	)
 	let showFutureJobs: boolean = $state(
-		$page.url.searchParams.get('show_future_jobs') != undefined
-			? $page.url.searchParams.get('show_future_jobs') == 'true'
+		page.url.searchParams.get('show_future_jobs') != undefined
+			? page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
 				? false
 				: true
 	)
 
 	let argFilter: any = $state(
-		$page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
 			: undefined
 	)
 	let resultFilter: any = $state(
-		$page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 	)
 
 	// Handled on the main page
-	let minTs = $state($page.url.searchParams.get('min_ts') ?? undefined)
-	let maxTs = $state($page.url.searchParams.get('max_ts') ?? undefined)
-	let schedulePath = $state($page.url.searchParams.get('schedule_path') ?? undefined)
-	let jobKindsCat = $state($page.url.searchParams.get('job_kinds') ?? 'runs')
-	let allWorkspaces = $state($page.url.searchParams.get('all_workspaces') == 'true')
+	let minTs = $state(page.url.searchParams.get('min_ts') ?? undefined)
+	let maxTs = $state(page.url.searchParams.get('max_ts') ?? undefined)
+	let schedulePath = $state(page.url.searchParams.get('schedule_path') ?? undefined)
+	let jobKindsCat = $state(page.url.searchParams.get('job_kinds') ?? 'runs')
+	let allWorkspaces = $state(page.url.searchParams.get('all_workspaces') == 'true')
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
-		path = $page.params.path
-		user = $page.url.searchParams.get('user')
-		folder = $page.url.searchParams.get('folder')
-		label = $page.url.searchParams.get('label')
-		concurrencyKey = $page.url.searchParams.get('concurrency_key')
-		tag = $page.url.searchParams.get('tag')
-		worker = $page.url.searchParams.get('worker')
-		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
+		path = page.params.path ?? null
+		user = page.url.searchParams.get('user')
+		folder = page.url.searchParams.get('folder')
+		label = page.url.searchParams.get('label')
+		concurrencyKey = page.url.searchParams.get('concurrency_key')
+		tag = page.url.searchParams.get('tag')
+		worker = page.url.searchParams.get('worker')
+		allowWildcards = page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
-		success = ($page.url.searchParams.get('success') ?? undefined) as
+		success = (page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
 		isSkipped =
-			$page.url.searchParams.get('is_skipped') != undefined
-				? $page.url.searchParams.get('is_skipped') == 'true'
+			page.url.searchParams.get('is_skipped') != undefined
+				? page.url.searchParams.get('is_skipped') == 'true'
 				: false
 
 		showSchedules =
-			$page.url.searchParams.get('show_schedules') != undefined
-				? $page.url.searchParams.get('show_schedules') == 'true'
+			page.url.searchParams.get('show_schedules') != undefined
+				? page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
 					? false
 					: true
 		showFutureJobs =
-			$page.url.searchParams.get('show_future_jobs') != undefined
-				? $page.url.searchParams.get('show_future_jobs') == 'true'
+			page.url.searchParams.get('show_future_jobs') != undefined
+				? page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
 					? false
 					: true
 
-		argFilter = $page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		argFilter = page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
 			: undefined
-		resultFilter = $page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		resultFilter = page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 
 		// Handled on the main page
-		minTs = $page.url.searchParams.get('min_ts') ?? undefined
-		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
+		minTs = page.url.searchParams.get('min_ts') ?? undefined
+		maxTs = page.url.searchParams.get('max_ts') ?? undefined
+		schedulePath = page.url.searchParams.get('schedule_path') ?? undefined
+		jobKindsCat = page.url.searchParams.get('job_kinds') ?? 'runs'
+		allWorkspaces = page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = $state(undefined)
@@ -202,7 +202,7 @@
 	let externalJobs: Job[] | undefined = $state(undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart($page.url.searchParams.get('graph'))
+		typeOfChart(page.url.searchParams.get('graph'))
 	)
 	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 
@@ -330,8 +330,8 @@
 
 		let newUrl = `${base}/runs${newPath}?${searchParams.toString()}`
 		if (
-			$page.url.searchParams.toString() != searchParams.toString() ||
-			$page.url.pathname != newUrl.split('?')[0]
+			page.url.searchParams.toString() != searchParams.toString() ||
+			page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
 			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
@@ -834,7 +834,7 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
+				<JobRunsPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -1179,7 +1179,7 @@
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
-							<JobPreview
+							<JobRunsPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
 								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}

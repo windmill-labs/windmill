@@ -1,4 +1,4 @@
-import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
+import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -12,8 +12,10 @@ import {
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
+import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { copilotSessionModel } from '$lib/stores'
+import { get } from 'svelte/store'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
 
@@ -337,6 +339,18 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+// Will be overridden by setSchema
+const testRunFlowSchema = z.object({
+	args: z.object({}).nullable().optional()
+	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+})
+
+const testRunFlowToolDef = createToolDef(
+	testRunFlowSchema,
+	'test_run_flow',
+	'Execute a test run of the current flow'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
@@ -524,6 +538,59 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + parsedArgs.query + '"' })
 			return formattedResourceTypes
 		}
+	},
+	{
+		def: testRunFlowToolDef,
+		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			if (!flow || !flow.value) {
+				toolCallbacks.setToolStatus(toolId, { 
+					content: 'No flow available to test',
+					error: 'No flow found in current context'
+				})
+				throw new Error('No flow available to test. Please ensure you have a flow open in the editor.')
+			}
+
+			return executeTestRun({
+				jobStarter: () => JobService.runFlowPreview({
+					workspace: workspace,
+					requestBody: {
+						args: args,
+						value: flow.value,
+					}
+				}),
+				workspace,
+				toolCallbacks,
+				toolId,
+				startMessage: 'Starting flow test run...',
+				contextName: 'flow'
+			})
+		},
+		setSchema: async function(helpers: FlowAIChatHelpers) {
+			try {
+				if (this.def?.function?.parameters) {
+					const flowInputsSchema = await helpers.getFlowInputsSchema()
+					this.def.function.parameters = { ...flowInputsSchema, additionalProperties: false }
+					// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+					const model = get(copilotSessionModel)?.provider
+					if (model === 'openai' || model === 'azure_openai') {
+						this.def.function.strict = false
+					}
+				}
+			} catch (e) {
+				console.error('Error setting schema for test_run_flow tool', e)
+				// fallback to schema with any properties
+				this.def.function.parameters = {
+					type: 'object',
+					properties: {},
+					additionalProperties: true,
+					strict: false
+				}
+			}
+		},
+		requiresConfirmation: true,
+		showDetails: true
 	}
 ]
 
@@ -532,6 +599,7 @@ export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
+ALWAYS use the \`test_run_flow\` tool to test the flow, and iterate on the flow until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
 
 ## Understanding User Requests
 
