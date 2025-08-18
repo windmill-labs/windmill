@@ -58,12 +58,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		const schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties: {
-				system_prompt: {
-					type: 'string'
-				},
-				user_message: {
-					type: 'string'
-				},
 				provider: {
 					type: 'object',
 					oneOf: [
@@ -94,6 +88,12 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					]
 				},
 				model: {
+					type: 'string'
+				},
+				system_prompt: {
+					type: 'string'
+				},
+				user_message: {
 					type: 'string'
 				},
 				max_completion_tokens: {
