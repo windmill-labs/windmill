@@ -221,10 +221,10 @@
 		if (modId) {
 			updateGlobalRefresh(buildSubflowKey(modId, prefix), async (clear, root) => {
 				if (isSelectedBranch) {
-					console.log('updateGlobalRefreshInner refresh', modId, prefix, clear, root)
+					console.debug('updateGlobalRefreshInner refresh', modId, prefix, clear, root)
 					await refresh(clear, root) // refresh(true, loopJob)
 				} else {
-					console.log('updateGlobalRefreshInner no refresh', modId, prefix, clear, root)
+					console.debug('updateGlobalRefreshInner no refresh', modId, prefix, clear, root)
 				}
 			})
 		}
@@ -355,12 +355,14 @@
 	) {
 		let newValue = { ...(localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual(localModuleStates[key], value) || force) {
+			console.debug('setModuleState', key, value, force, keepType)
 			;[localModuleStates, ...globalModuleStates].forEach((s) => {
 				updateModuleStates(s, key, newValue, keepType)
 			})
 			if (prefix) {
+				let prefixedId = buildSubflowKey(key, prefix)
 				subflowParentsGlobalModuleStates.forEach((s) => {
-					updateModuleStates(s, buildSubflowKey(key, prefix), newValue, keepType)
+					updateModuleStates(s, prefixedId, newValue, keepType)
 				})
 			}
 		}
@@ -478,9 +480,10 @@
 					setModuleState(mod.id ?? '', {}, true)
 				}
 
-				if (mod.flow_jobs_success) {
+				if (mod.flow_jobs_success || mod.flow_jobs) {
 					setModuleState(mod.id ?? '', {
-						flow_jobs_success: mod.flow_jobs_success
+						flow_jobs_success: mod.flow_jobs_success,
+						flow_jobs: mod.flow_jobs
 					})
 				}
 			})
@@ -709,11 +712,12 @@
 		isForloop: boolean
 	) {
 		if (modId) {
+			let prefixedId = buildSubflowKey(modId, prefix)
 			let globalState = globalModuleStates?.[globalModuleStates?.length - 1]
-			let state = globalState?.[modId]
+			let state = globalState?.[prefixedId]
 
 			if (clicked && state?.selectedForloop) {
-				await refreshGlobal?.(modId, true, state.selectedForloop)
+				await refreshGlobal?.(prefixedId, true, state.selectedForloop)
 			}
 			let manualOnce = state?.selectedForLoopSetManually
 			if (
@@ -735,7 +739,7 @@
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
 				if (selectedNotEqual) {
-					globalState[modId] = {
+					globalState[prefixedId] = {
 						type: 'WaitingForPriorSteps',
 						args: {},
 						...newState
@@ -744,7 +748,7 @@
 			}
 
 			if (clicked) {
-				await refreshGlobal?.(modId, false, id)
+				await refreshGlobal?.(prefixedId, false, id)
 			}
 		}
 	}
@@ -803,7 +807,8 @@
 				duration_ms: undefined
 			}
 
-			let currentIndex = getTopModuleStates()?.[modId]?.selectedForloopIndex == j
+			let prefixedId = buildSubflowKey(modId, prefix)
+			let currentIndex = getTopModuleStates()?.[prefixedId]?.selectedForloopIndex == j
 			if (currentIndex) {
 				v.logs = jobLoaded.logs
 				v.args = jobLoaded.args
@@ -910,43 +915,49 @@
 
 	let subflowsSize = $state(500)
 
+	function setParentModuleState(modId: string, state: Partial<GraphModuleState>) {
+		;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
+			if (stateMap[modId]) {
+				stateMap[modId] = { ...stateMap[modId], ...state }
+			}
+		})
+		if (prefix) {
+			let prefixedId = buildSubflowKey(modId, prefix)
+			subflowParentsGlobalModuleStates.forEach((stateMap) => {
+				if (stateMap[prefixedId]) {
+					stateMap[prefixedId] = { ...stateMap[prefixedId], ...state }
+				}
+			})
+		}
+	}
 	async function onSelectedIteration(
 		detail:
 			| { id: string; index: number; manuallySet: true; moduleId: string }
 			| { manuallySet: false; moduleId: string }
 	) {
+		let prefixedId = buildSubflowKey(detail.moduleId, prefix)
 		if (detail.manuallySet) {
 			let rootJobId = detail.id
 			await tick()
 
 			let previousId = localModuleStates[detail.moduleId]?.selectedForloop
 			if (previousId) {
-				await refreshGlobal?.(detail.moduleId, true, previousId)
+				await refreshGlobal?.(prefixedId, true, previousId)
 			}
 
-			;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
-				if (stateMap[detail.moduleId]) {
-					stateMap[detail.moduleId] = {
-						...stateMap[detail.moduleId],
-						selectedForloop: detail.id,
-						selectedForloopIndex: detail.index,
-						selectedForLoopSetManually: true
-					}
-				}
+			setParentModuleState(detail.moduleId, {
+				selectedForloop: detail.id,
+				selectedForloopIndex: detail.index,
+				selectedForLoopSetManually: true
 			})
 
 			await tick()
 
 			console.log('onSelectedIteration', detail.moduleId, rootJobId)
-			await refreshGlobal?.(detail.moduleId, false, rootJobId)
+			await refreshGlobal?.(prefixedId, false, rootJobId)
 		} else {
-			;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
-				if (stateMap[detail.moduleId]) {
-					stateMap[detail.moduleId] = {
-						...stateMap[detail.moduleId],
-						selectedForLoopSetManually: false
-					}
-				}
+			setParentModuleState(detail.moduleId, {
+				selectedForLoopSetManually: false
 			})
 		}
 	}
