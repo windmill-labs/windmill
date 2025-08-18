@@ -138,7 +138,8 @@
                 "oracledb",
                 "nu",
                 "java",
-                "duckdb"
+                "duckdb",
+                "ruby"
               ]
             }
           }
@@ -223,7 +224,8 @@
                 "ui",
                 "postgres",
                 "sqs",
-                "gcp"
+                "gcp",
+                "mqtt"
               ]
             }
           }

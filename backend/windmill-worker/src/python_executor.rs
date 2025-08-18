@@ -369,7 +369,7 @@ pub async fn uv_pip_compile(
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd).await?;
+        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -636,7 +636,7 @@ pub async fn handle_python_job(
             if v == '<function call>':
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
-        kwrags_json = res_to_json(kwargs)
+        kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w') as f:
             f.write(kwrags_json)"#
         )
@@ -679,8 +679,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-def res_to_json(res):
-    typ = type(res)
+def res_to_json(res, typ):
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
             res = res.values.tolist()
@@ -704,7 +703,12 @@ try:
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
     res = inner_script.{main_override}(**args)
-    res_json = res_to_json(res)
+    typ = type(res)
+    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+        for chunk in res:
+            print("WM_STREAM: " + chunk.replace('\n', '\\n'))
+        res = None
+    res_json = res_to_json(res, typ)
     with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
@@ -826,7 +830,7 @@ mount {{
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut python_cmd = Command::new(&python_path);
 
@@ -855,10 +859,10 @@ mount {{
             );
         }
 
-        start_child_process(python_cmd, &python_path).await?
+        start_child_process(python_cmd, &python_path, false).await?
     };
 
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -892,7 +896,7 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn prepare_wrapper(
@@ -1358,7 +1362,7 @@ async fn spawn_uv_install(
             .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await
     } else {
         #[cfg(unix)]
         let req = req.to_owned();
@@ -1441,7 +1445,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, UV_PATH.as_str()).await
+            start_child_process(cmd, UV_PATH.as_str(), false).await
         }
 
         #[cfg(windows)]
@@ -1492,7 +1496,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, "uv").await
+            start_child_process(cmd, "uv", false).await
         }
     }
 }

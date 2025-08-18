@@ -1,3 +1,9 @@
+<script context="module" lang="ts">
+	import pLimit from 'p-limit'
+
+	const plimit = pLimit(5)
+</script>
+
 <script lang="ts">
 	import {
 		type Job,
@@ -23,11 +29,13 @@
 		cancel?: ({ id }: { id: string }) => void
 		started?: ({ id }: { id: string }) => void
 		running?: ({ id }: { id: string }) => void
+		resultStreamUpdate?: ({ id, result_stream }: { id: string; result_stream?: string }) => void
+		loadExtraLogs?: ({ id, logs }: { id: string; logs: string }) => void
 	}
 
 	interface Props {
 		isLoading?: boolean
-		job?: Job | undefined
+		job?: (Job & { result_stream?: string }) | undefined
 		noCode?: boolean
 		noLogs?: boolean
 		workspaceOverride?: string | undefined
@@ -35,7 +43,6 @@
 		allowConcurentRequests?: boolean
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
-		lazyLogs?: boolean
 		onlyResult?: boolean
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
@@ -52,7 +59,6 @@
 		notfound = $bindable(false),
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
-		lazyLogs = false,
 		onlyResult = false,
 		scriptProgress = $bindable(undefined),
 		noLogs = false,
@@ -74,6 +80,7 @@
 	let errorIteration = 0
 
 	let logOffset = 0
+	let resultStreamOffset = 0
 	let lastCallbacks: Callbacks | undefined = undefined
 
 	let finished: string[] = []
@@ -83,6 +90,8 @@
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
 	let noPingTimeout: NodeJS.Timeout | undefined = undefined
+	let lastNoLogs = $state(noLogs)
+	let lastCompletedJobId = $state<string | undefined>(undefined)
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -91,6 +100,32 @@
 				isLoading = newIsLoading
 			}
 		})
+	})
+
+	const noLogsChangeRestartEvent = 'SSE restart after no logs change'
+	$effect(() => {
+		if (noLogs != lastNoLogs) {
+			lastNoLogs = noLogs
+			if (!noLogs) {
+				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
+				const lastJobId = lastCompletedJobId
+				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
+					plimit(() =>
+						JobService.getCompletedJobLogsTail({
+							workspace: $workspaceStore!,
+							id: lastJobId
+						})
+					).then((res) => {
+						if (res && job) {
+							job.logs = res
+						}
+						if (res && lastCallbacks?.loadExtraLogs) {
+							lastCallbacks.loadExtraLogs({ id: lastJobId, logs: res })
+						}
+					})
+				}
+			}
+		}
 	})
 
 	function clearCurrentId() {
@@ -106,6 +141,7 @@
 	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
+			lastCompletedJobId = undefined
 			clearCurrentJob()
 			lastCallbacks = callbacks
 			noPingTimeout = undefined
@@ -194,6 +230,9 @@
 		if (logOffset == 0) {
 			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
 		}
+		if (resultStreamOffset == 0) {
+			resultStreamOffset = job?.result_stream?.length ? job.result_stream?.length + 1 : 0
+		}
 	}
 	export async function getLogs() {
 		if (job) {
@@ -248,7 +287,6 @@
 		const id = currentId
 		if (id) {
 			lastCallbacks?.cancel?.({ id })
-			lastCallbacks = undefined
 			clearCurrentId()
 			// Clean up SSE connection
 			currentEventSource?.close()
@@ -269,7 +307,6 @@
 		if (currentId && !allowConcurentRequests) {
 			job = undefined
 			lastCallbacks?.cancel?.({ id: currentId })
-			lastCallbacks = undefined
 			await cancelJob()
 		}
 	}
@@ -285,6 +322,7 @@
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
+		resultStreamOffset = 0
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
@@ -294,7 +332,7 @@
 		// Clean up any existing SSE connection
 		currentEventSource?.close()
 		currentEventSource = undefined
-
+		lastCallbacks = callbacks
 		// Try SSE first, fall back to polling if needed
 		if (supportsSSE()) {
 			await loadTestJobWithSSE(testId, 0, callbacks)
@@ -334,7 +372,7 @@
 
 	function updateJobFromProgress(
 		previewJobUpdates: GetJobUpdatesResponse,
-		job: Job,
+		job: Job & { result_stream?: string },
 		callbacks: Callbacks | undefined
 	) {
 		// Clamp number between two values with the following line:
@@ -357,8 +395,24 @@
 			}
 		}
 
+		if (previewJobUpdates.new_result_stream) {
+			if (!job.result_stream) {
+				job.result_stream = previewJobUpdates.new_result_stream
+			} else {
+				job.result_stream = job.result_stream.concat(previewJobUpdates.new_result_stream)
+			}
+			callbacks?.resultStreamUpdate?.({
+				id: job.id,
+				result_stream: job.result_stream
+			})
+		}
+
 		if (previewJobUpdates.log_offset) {
 			logOffset = previewJobUpdates.log_offset ?? 0
+		}
+
+		if (previewJobUpdates.stream_offset) {
+			resultStreamOffset = previewJobUpdates.stream_offset ?? 0
 		}
 
 		if (previewJobUpdates.flow_status) {
@@ -375,9 +429,10 @@
 			job &&
 			(previewJobUpdates.running ||
 				previewJobUpdates.progress ||
-				previewJobUpdates.new_logs ||
+				previewJobUpdates.log_offset ||
 				previewJobUpdates.flow_status ||
-				previewJobUpdates.mem_peak)
+				previewJobUpdates.mem_peak ||
+				previewJobUpdates.stream_offset)
 		) {
 			callbacks?.change?.(job)
 		}
@@ -415,7 +470,7 @@
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
-						noLogs: lazyLogs || onlyResult || noLogs,
+						noLogs: onlyResult || noLogs,
 						noCode
 					})
 				}
@@ -476,6 +531,7 @@
 			callbacks?.change?.(job)
 
 			clearCurrentId()
+			lastCompletedJobId = id
 		}
 	}
 
@@ -504,6 +560,7 @@
 		callbacks?: Callbacks
 	): Promise<boolean> {
 		let isCompleted = false
+		let resultOnlyResultStream: string = ''
 		if (isCurrentJob(id)) {
 			try {
 				// First load the job to get initial state
@@ -511,8 +568,15 @@
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
-						noLogs: lazyLogs || noLogs,
+						noLogs: noLogs,
 						noCode
+					})
+				}
+
+				if (!onlyResult) {
+					callbacks?.resultStreamUpdate?.({
+						id,
+						result_stream: undefined
 					})
 				}
 
@@ -554,6 +618,12 @@
 
 					if (startedWatchingJob && startedWatchingJob > Date.now() - 5000) {
 						params.set('fast', 'true')
+					}
+					if (noLogs) {
+						params.set('no_logs', 'true')
+					}
+					if (resultStreamOffset) {
+						params.set('stream_offset', resultStreamOffset.toString())
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
@@ -598,6 +668,17 @@
 								callbacks?.running?.({ id })
 							}
 
+							if (onlyResult && previewJobUpdates.new_result_stream) {
+								resultOnlyResultStream = resultOnlyResultStream.concat(
+									previewJobUpdates.new_result_stream
+								)
+								// console.log('resultOnlyResultStream', resultOnlyResultStream)
+								callbacks?.resultStreamUpdate?.({
+									id,
+									result_stream: resultOnlyResultStream
+								})
+							}
+
 							// Check if job is completed
 							if (previewJobUpdates.completed) {
 								currentEventSource?.close()
@@ -611,8 +692,9 @@
 									})
 									clearCurrentId()
 								} else {
-									const njob = previewJobUpdates.job as Job
+									const njob = previewJobUpdates.job as Job & { result_stream?: string }
 									njob.logs = job?.logs ?? ''
+									njob.result_stream = job?.result_stream ?? ''
 									job = njob
 									onJobCompleted(id, job, callbacks)
 								}
@@ -626,9 +708,16 @@
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
 						currentEventSource = undefined
-						if (attempt < 3) {
-							console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
-							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), 1000)
+						let delay = 1000
+						let isNoLogsChange = error.type == noLogsChangeRestartEvent
+						if (isNoLogsChange) {
+							delay = 0
+						}
+						if (attempt < 3 || isNoLogsChange) {
+							if (!isNoLogsChange) {
+								console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
+							}
+							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), delay)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id, callbacks), 1000)

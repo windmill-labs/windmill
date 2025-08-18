@@ -2,7 +2,7 @@
 	import { stopPropagation } from 'svelte/legacy'
 
 	import type { AppViewerContext, ContextPanelContext } from '$lib/components/apps/types'
-	import { allItems } from '$lib/components/apps/utils'
+	import { allItems, processSubcomponents } from '$lib/components/apps/utils'
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronUp, Pointer } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -104,35 +104,11 @@
 			})
 		}
 		propagateRename(oldId, newId)
-		if (item?.data.type == 'tablecomponent') {
-			for (let c of item.data.actionButtons) {
-				let old = c.id
-				c.id = c.id.replace(oldId + '_', newId + '_')
-				propagateRename(old, c.id)
-			}
-		}
-
-		if (
-			item?.data.type == 'aggridcomponent' ||
-			item?.data.type == 'aggridcomponentee' ||
-			item?.data.type == 'dbexplorercomponent' ||
-			item?.data.type == 'aggridinfinitecomponent' ||
-			item?.data.type == 'aggridinfinitecomponentee'
-		) {
-			for (let c of item.data.actions ?? []) {
-				let old = c.id
-				c.id = c.id.replace(oldId + '_', newId + '_')
-				propagateRename(old, c.id)
-			}
-		}
-
-		if (item?.data.type === 'menucomponent') {
-			for (let c of item.data.menuItems) {
-				let old = c.id
-				c.id = c.id.replace(oldId + '_', newId + '_')
-				propagateRename(old, c.id)
-			}
-		}
+		processSubcomponents(item.data, (c) => {
+			let old = c.id
+			c.id = c.id.replace(oldId + '_', newId + '_')
+			propagateRename(old, c.id)
+		})
 
 		$app = $app
 		$selectedComponent = [newId]
@@ -141,30 +117,9 @@
 	}
 
 	function renameComponent(from: string, to: string, data: AppComponent) {
-		if (data.type == 'tablecomponent') {
-			for (let c of data.actionButtons) {
-				renameComponent(from, to, c)
-			}
-		}
-
-		if (
-			(data.type == 'aggridcomponent' ||
-				data.type == 'aggridcomponentee' ||
-				data.type == 'dbexplorercomponent' ||
-				data.type == 'aggridinfinitecomponent' ||
-				data.type == 'aggridinfinitecomponentee') &&
-			Array.isArray(data.actions)
-		) {
-			for (let c of data.actions) {
-				renameComponent(from, to, c)
-			}
-		}
-
-		if (data.type === 'menucomponent') {
-			for (let c of data.menuItems) {
-				renameComponent(from, to, c)
-			}
-		}
+		processSubcomponents(data, (c) => {
+			renameComponent(from, to, c)
+		})
 
 		let componentInput = data.componentInput
 		if (componentInput?.type == 'connected') {

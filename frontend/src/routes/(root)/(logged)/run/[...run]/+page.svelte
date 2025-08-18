@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -68,7 +67,7 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -96,8 +95,8 @@
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
-
-	let job: Job | undefined = $state()
+	import { page } from '$app/state'
+	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
 	let scriptProgress: number | undefined = $state(undefined)
@@ -122,6 +121,8 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	let manuallySetLogs: boolean = $state(false)
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -173,7 +174,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result != undefined) {
+		if (job && (job.result || job.result_stream)) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -181,7 +182,12 @@
 	}
 
 	async function getJob() {
-		await jobLoader?.watchJob($page.params.run, {
+		await jobLoader?.watchJob(page.params.run ?? '', {
+			change(job: Job & { result_stream?: string }) {
+				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
+					viewTab = 'result'
+				}
+			},
 			done(job) {
 				if (job?.['result'] != undefined) {
 					viewTab = 'result'
@@ -366,21 +372,15 @@
 			runImmediatelyLoading = false
 		}
 	}
-	$effect(() => {
-		job?.logs == undefined &&
-			job &&
-			viewTab == 'logs' &&
-			isNotFlow(job?.job_kind) &&
-			jobLoader?.getLogs()
-	})
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
 	$effect(() => {
-		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
+		$workspaceStore && page.params.run && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
-		$workspaceStore && $page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
+		$workspaceStore && page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
 	})
 	$effect(() => {
 		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
@@ -427,7 +427,6 @@
 {/if}
 {#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
 	<JobLoader
-		lazyLogs
 		bind:scriptProgress
 		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
@@ -445,7 +444,7 @@
 {#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
+			<h1 class="text-red-400 mt-6">Job {page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
@@ -453,7 +452,7 @@
 						<Button
 							variant="border"
 							on:click={() => {
-								goto(`/run/${$page.params.run}?workspace=${workspace.id}`)
+								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
 							}}
 						>
 							See in {workspace.name}
@@ -792,7 +791,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency', 'ruby'].includes(job.tag)}
 							<!-- for related places search: ADD_NEW_LANG -->
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
@@ -933,7 +932,12 @@
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
-					<Tabs bind:selected={viewTab}>
+					<Tabs
+						bind:selected={viewTab}
+						onTabClick={(value) => {
+							manuallySetLogs = value == 'logs'
+						}}
+					>
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
@@ -975,9 +979,10 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							{:else if job !== undefined && (job.result || job.result_stream)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
+									result_stream={job.result_stream}
 									jobId={job?.id}
 									result={job.result}
 									language={job?.language}

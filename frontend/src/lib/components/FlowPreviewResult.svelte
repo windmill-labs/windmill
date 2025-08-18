@@ -5,7 +5,6 @@
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
-	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 	import Badge from './common/badge/Badge.svelte'
 
@@ -15,11 +14,11 @@
 		isOwner: boolean
 		hideFlowResult: boolean
 		hideDownloadLogs: boolean
-		localDurationStatuses: Writable<Record<string, DurationStatus>>
 		innerModules: FlowStatusModule[]
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		hideJobId?: boolean
 		extra?: import('svelte').Snippet
+		result_streams?: Record<string, string | undefined>
 	}
 
 	let {
@@ -28,11 +27,11 @@
 		isOwner,
 		hideFlowResult,
 		hideDownloadLogs,
-		localDurationStatuses,
 		innerModules,
 		suspendStatus,
 		hideJobId,
-		extra
+		extra,
+		result_streams
 	}: Props = $props()
 </script>
 
@@ -52,7 +51,6 @@
 				loading={job['running'] == true}
 				result={job.result}
 				logs={job.logs}
-				durationStates={localDurationStatuses}
 				downloadLogs={!hideDownloadLogs}
 			/>
 		</div>
@@ -105,6 +103,9 @@
 						<Loader2 class="animate-spin mt-0.5" /></span
 					></div
 				>
+				{#if mod.job && result_streams?.[mod.job]}
+					<pre class="text-xs text-primary">{result_streams?.[mod.job]}</pre>
+				{/if}
 			{/if}
 		{/each}
 	</div>

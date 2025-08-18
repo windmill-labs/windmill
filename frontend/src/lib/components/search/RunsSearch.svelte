@@ -9,7 +9,7 @@
 	import QuickMenuItem from './QuickMenuItem.svelte'
 	import { goto } from '$app/navigation'
 	import { displayDateOnly } from '$lib/utils'
-	import JobPreview from '../runs/JobPreview.svelte'
+	import JobPreview from '../runs/JobRunsPreview.svelte'
 
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000

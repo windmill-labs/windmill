@@ -10,7 +10,7 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_no_default_maven_setting, reload_nuget_config_setting,
+    reload_no_default_maven_setting, reload_nuget_config_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store, WORKERS_NAMES,
 };
@@ -36,18 +36,18 @@ use windmill_common::{
     agent_workers::build_agent_http_client,
     get_database_url,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
+        RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
@@ -83,17 +83,18 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR,
+    UV_CACHE_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    reload_app_workspaced_route_setting, reload_base_url_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
     reload_worker_config, MonitorIteration,
 };
@@ -1014,6 +1015,9 @@ Windmill Community Edition {GIT_VERSION}
                                                         NO_DEFAULT_MAVEN_SETTING => {
                                                             reload_no_default_maven_setting(&conn).await
                                                         },
+                                                        RUBY_REPOS_SETTING => {
+                                                            reload_ruby_repos_setting(&conn).await
+                                                        },
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;
                                                         },
@@ -1033,6 +1037,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         EXPOSE_DEBUG_METRICS_SETTING => {
                                                             if let Err(e) = load_metrics_debug_enabled(&conn).await {
                                                                 tracing::error!(error = %e, "Could not reload debug metrics setting");
+                                                            }
+                                                        },
+                                                         APP_WORKSPACED_ROUTE_SETTING => {
+                                                             if let Err(e) = reload_app_workspaced_route_setting(&db).await {
+                                                                tracing::error!(error = %e, "Could not reload app workspaced route setting");
                                                             }
                                                         },
                                                         OTEL_SETTING => {
@@ -1363,6 +1372,7 @@ pub async fn run_workers(
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
         JAVA_CACHE_DIR,
+        RUBY_CACHE_DIR,
         TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()

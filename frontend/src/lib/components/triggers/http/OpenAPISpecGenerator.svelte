@@ -186,8 +186,8 @@
 					API. Only share it with trusted parties.
 				</Alert>
 				<CreateToken
-					on:tokenCreated={(e) => {
-						token = e.detail
+					onTokenCreated={(newToken) => {
+						token = newToken
 					}}
 					newTokenLabel={`openapi-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 					scopes={['openapi:write']}

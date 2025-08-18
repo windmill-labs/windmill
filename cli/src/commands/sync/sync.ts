@@ -37,7 +37,12 @@ import {
 
 import { handleFile } from "../script/script.ts";
 import { deepEqual, isFileResource } from "../../utils/utils.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings } from "../../core/conf.ts";
+import {
+  SyncOptions,
+  readConfigFile,
+  getEffectiveSettings,
+  validateBranchConfiguration,
+} from "../../core/conf.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
@@ -59,98 +64,13 @@ function mergeCliWithEffectiveOptions<
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options with smart repository detection
+// Resolve effective sync options using branch-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
-  repositoryPath?: string
+  promotion?: string
 ): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
-
-  // If repository path is already specified, use it directly
-  if (repositoryPath) {
-    return getEffectiveSettings(
-      localConfig,
-      workspace.remote,
-      workspace.workspaceId,
-      repositoryPath
-    );
-  }
-
-  // Auto-detect repository from overrides if not specified
-  if (localConfig.overrides) {
-    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
-    const applicableRepos: string[] = [];
-
-    // Find all repository-specific overrides for this workspace
-    for (const key of Object.keys(localConfig.overrides)) {
-      if (key.startsWith(prefix) && !key.endsWith(":*")) {
-        const repo = key.substring(prefix.length);
-        if (repo) {
-          applicableRepos.push(repo);
-        }
-      }
-    }
-
-    if (applicableRepos.length === 1) {
-      // Single repository found - auto-select it
-      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
-      return getEffectiveSettings(
-        localConfig,
-        workspace.remote,
-        workspace.workspaceId,
-        applicableRepos[0]
-      );
-    } else if (applicableRepos.length > 1) {
-      // Multiple repositories found - prompt for selection
-      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-
-      if (isInteractive) {
-        const choices = [
-          {
-            name: "Use top-level settings (no repository-specific override)",
-            value: "",
-          },
-          ...applicableRepos.map((repo) => ({ name: repo, value: repo })),
-        ];
-
-        const selectedRepo = await Select.prompt({
-          message: "Multiple repository overrides found. Select which to use:",
-          options: choices,
-        });
-
-        if (selectedRepo) {
-          log.info(`Selected repository: ${selectedRepo}`);
-        }
-
-        return getEffectiveSettings(
-          localConfig,
-          workspace.remote,
-          workspace.workspaceId,
-          selectedRepo
-        );
-      } else {
-        // Non-interactive mode - list options and use top-level
-        log.warn(
-          `Multiple repository overrides found: ${applicableRepos.join(", ")}`
-        );
-        log.warn(
-          `Running in non-interactive mode. Use --repository flag to specify which one to use.`
-        );
-        log.info(
-          `Falling back to top-level settings (no repository-specific overrides applied)`
-        );
-      }
-    }
-  }
-
-  // No repository overrides found or selected - use top-level settings
-  log.info(`No repository overrides found, using top-level settings`);
-  return getEffectiveSettings(
-    localConfig,
-    workspace.remote,
-    workspace.workspaceId,
-    ""
-  );
+  return await getEffectiveSettings(localConfig, promotion);
 }
 
 type DynFSElement = {
@@ -222,7 +142,13 @@ async function addCodebaseDigestIfRelevant(
   if (isTs) {
     const c = findCodebase(replacedPath, codebases);
     if (c) {
-      const parsed: any = yamlParseContent(path, content);
+      let parsed: any;
+      try {
+        parsed = yamlParseContent(path, content);
+      } catch (error) {
+        log.error(`Failed to parse YAML content for codebase digest at path: ${path}`);
+        throw error;
+      }
       if (parsed && typeof parsed == "object") {
         if (ignoreCodebaseChanges) {
           parsed["codebase"] = undefined;
@@ -398,13 +324,25 @@ function ZipFSElement(
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
-            const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules,
-              {},
-              SEP,
-              defaultTs,
-            );
+            let flow: OpenFlow;
+            try {
+              flow = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse flow.yaml at path: ${p}`);
+              throw error;
+            }
+            let inlineScripts;
+            try {
+              inlineScripts = extractInlineScriptsForFlows(
+                flow.value.modules,
+                {},
+                SEP,
+                defaultTs,
+              );
+            } catch (error) {
+              log.error(`Failed to extract inline scripts for flow at path: ${p}`);
+              throw error;
+            }
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -427,8 +365,20 @@ function ZipFSElement(
               },
             };
           } else if (kind == "app") {
-            const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(app?.["value"], newPathAssigner(defaultTs));
+            let app;
+            try {
+              app = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse app.yaml at path: ${p}`);
+              throw error;
+            }
+            let inlineScripts;
+            try {
+              inlineScripts = extractInlineScriptsForApps(app?.["value"], newPathAssigner(defaultTs));
+            } catch (error) {
+              log.error(`Failed to extract inline scripts for app at path: ${p}`);
+              throw error;
+            }
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -457,7 +407,13 @@ function ZipFSElement(
           const content = await f.async("text");
 
           if (kind == "script") {
-            const parsed = JSON.parse(content);
+            let parsed;
+            try {
+              parsed = JSON.parse(content);
+            } catch (error) {
+              log.error(`Failed to parse script.yaml at path: ${p}`);
+              throw error;
+            }
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
@@ -482,7 +438,13 @@ function ZipFSElement(
 
           if (kind == "resource") {
             const content = await f.async("text");
-            const parsed = JSON.parse(content);
+            let parsed;
+            try {
+              parsed = JSON.parse(content);
+            } catch (error) {
+              log.error(`Failed to parse resource.yaml at path: ${p}`);
+              throw error;
+            }
             const formatExtension =
               resourceTypeToFormatExtension[parsed["resource_type"]];
 
@@ -499,14 +461,27 @@ function ZipFSElement(
           }
 
           return useYaml && isJson
-            ? yamlStringify(JSON.parse(content), yamlOptions)
+            ? (() => {
+                try {
+                  return yamlStringify(JSON.parse(content), yamlOptions);
+                } catch (error) {
+                  log.error(`Failed to parse JSON content at path: ${p}`);
+                  throw error;
+                }
+              })()
             : content;
         },
       },
     ];
     if (kind == "script") {
       const content = await f.async("text");
-      const parsed = JSON.parse(content);
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        log.error(`Failed to parse script lock content at path: ${p}`);
+        throw error;
+      }
       const lock = parsed["lock"];
       if (lock && lock != "") {
         r.push({
@@ -522,7 +497,13 @@ function ZipFSElement(
     }
     if (kind == "resource") {
       const content = await f.async("text");
-      const parsed = JSON.parse(content);
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        log.error(`Failed to parse resource file content at path: ${p}`);
+        throw error;
+      }
       const formatExtension =
         resourceTypeToFormatExtension[parsed["resource_type"]];
 
@@ -713,7 +694,8 @@ export async function elementsToMap(
         "yml",
         "nu",
         "java",
-        // for related places search: ADD_NEW_LANG
+        "rb",
+        // for related places search: ADD_NEW_LANG 
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )
@@ -724,9 +706,19 @@ export async function elementsToMap(
       try {
         let o;
         if (json) {
-          o = JSON.parse(content);
+          try {
+            o = JSON.parse(content);
+          } catch (error) {
+            log.error(`Failed to parse JSON variable content at path: ${path}`);
+            throw error;
+          }
         } else {
-          o = yamlParseContent(path, content);
+          try {
+            o = yamlParseContent(path, content);
+          } catch (error) {
+            log.error(`Failed to parse YAML variable content at path: ${path}`);
+            throw error;
+          }
         }
         if (o["is_secret"]) {
           continue;
@@ -779,7 +771,13 @@ async function compareDynFSElement(
 
   function parseYaml(k: string, v: string) {
     if (k.endsWith(".script.yaml")) {
-      const o: any = yamlParseContent(k, v);
+      let o: any;
+      try {
+        o = yamlParseContent(k, v);
+      } catch (error) {
+        log.error(`Failed to parse script YAML content at path: ${k}`);
+        throw error;
+      }
       if (typeof o == "object") {
         if (Array.isArray(o?.["lock"])) {
           o["lock"] = o["lock"].join("\n");
@@ -790,7 +788,13 @@ async function compareDynFSElement(
       }
       return o;
     } else if (k.endsWith(".app.yaml")) {
-      const o: any = yamlParseContent(k, v);
+      let o: any;
+      try {
+        o = yamlParseContent(k, v);
+      } catch (error) {
+        log.error(`Failed to parse app YAML content at path: ${k}`);
+        throw error;
+      }
       const o2 = o["policy"];
 
       if (typeof o2 == "object") {
@@ -803,7 +807,12 @@ async function compareDynFSElement(
       }
       return o;
     } else {
-      return yamlParseContent(k, v);
+      try {
+        return yamlParseContent(k, v);
+      } catch (error) {
+        log.error(`Failed to parse YAML content at path: ${k}`);
+        throw error;
+      }
     }
   }
 
@@ -823,7 +832,20 @@ async function compareDynFSElement(
       if (m2[k] == v) {
         continue;
       } else if (k.endsWith(".json")) {
-        if (deepEqual(JSON.parse(v), JSON.parse(m2[k]))) {
+        let parsedV, parsedM2;
+        try {
+          parsedV = JSON.parse(v);
+        } catch (error) {
+          log.error(`Failed to parse new JSON content for comparison at path: ${k}`);
+          throw error;
+        }
+        try {
+          parsedM2 = JSON.parse(m2[k]);
+        } catch (error) {
+          log.error(`Failed to parse existing JSON content for comparison at path: ${k}`);
+          throw error;
+        }
+        if (deepEqual(parsedV, parsedM2)) {
           continue;
         }
       } else if (k.endsWith(".yaml")) {
@@ -1138,8 +1160,20 @@ async function buildTracker(changes: Change[]) {
 }
 
 export async function pull(
-  opts: GlobalOptions & SyncOptions & { repository?: string }
+  opts: GlobalOptions &
+    SyncOptions & { repository?: string; promotion?: string }
 ) {
+  // Validate branch configuration early
+  try {
+    await validateBranchConfiguration(false, opts.yes);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1147,10 +1181,10 @@ export async function pull(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
+  // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
-    opts.repository
+    opts.promotion
   );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -1465,13 +1499,24 @@ function removeSuffix(str: string, suffix: string) {
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string }
 ) {
+  // Validate branch configuration early
+  try {
+    await validateBranchConfiguration(false, opts.yes);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("overrides")) {
+      log.error(error.message);
+      Deno.exit(1);
+    }
+    throw error;
+  }
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Resolve effective sync options with repository awareness
+  // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
-    opts.repository
+    opts.promotion
   );
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -2073,6 +2118,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+  )
+  .option(
+    "--promotion <branch:string>",
+    "Use promotionOverrides from the specified branch instead of regular overrides"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)

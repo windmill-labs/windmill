@@ -134,6 +134,9 @@ use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
 #[cfg(feature = "java")]
 use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
 
+#[cfg(feature = "ruby")]
+use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRuby};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -191,10 +194,14 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 
-// JAVA
+// Java
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+
+// Ruby
+pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
+
 // for related places search: ADD_NEW_LANG
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
@@ -328,12 +335,17 @@ lazy_static::lazy_static! {
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref BUN_NO_CACHE: bool = std::env::var("BUN_NO_CACHE")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
+    pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -2401,7 +2413,7 @@ pub async fn handle_queued_job(
             let flow_data = match preview_data {
                 Some(RawData::Flow(data)) => data,
                 // Not a preview: fetch from the cache or the database.
-                _ => cache::job::fetch_flow(db, job.kind, job.runnable_id).await?,
+                _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
             handle_flow(
                 job,
@@ -3435,6 +3447,33 @@ mount {{
             })
             .await
         }
+        Some(ScriptLang::Ruby) => {
+            #[cfg(not(feature = "ruby"))]
+            return Err(anyhow::anyhow!(
+                "Ruby is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "ruby")]
+            handle_ruby_job(JobHandlerInputRuby {
+                mem_peak,
+                canceled_by,
+                job,
+                conn,
+                client,
+                parent_runnable_path,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
+        // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
@@ -3507,6 +3546,10 @@ fn parse_sig_of_lang(
             ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code)?),
             #[cfg(not(feature = "java"))]
             ScriptLang::Java => None,
+            #[cfg(feature = "ruby")]
+            ScriptLang::Ruby => Some(windmill_parser_ruby::parse_ruby_signature(code)?),
+            #[cfg(not(feature = "ruby"))]
+            ScriptLang::Ruby => None,
             // for related places search: ADD_NEW_LANG
         }
     } else {

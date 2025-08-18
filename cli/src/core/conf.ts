@@ -1,4 +1,5 @@
-import { log, yamlParseFile } from "../../deps.ts";
+import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
+import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -36,7 +37,15 @@ export interface SyncOptions {
   codebases?: Codebase[];
   parallel?: number;
   jsonOutput?: boolean;
-  overrides?: { [key: string]: Partial<SyncOptions> };
+  git_branches?: {
+    [branchName: string]: SyncOptions & {
+      overrides?: Partial<SyncOptions>;
+      promotionOverrides?: Partial<SyncOptions>;
+      baseUrl?: string;
+      workspaceId?: string;
+    }
+  };
+  promotion?: string;
 }
 
 export interface Codebase {
@@ -56,6 +65,31 @@ export interface Codebase {
 export async function readConfigFile(): Promise<SyncOptions> {
   try {
     const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
+
+    // Handle obsolete overrides format
+    if (conf && 'overrides' in conf) {
+      const overrides = conf.overrides as any;
+      const hasSettings = overrides && typeof overrides === 'object' && Object.keys(overrides).length > 0;
+
+      if (hasSettings) {
+        throw new Error(
+          "❌ The 'overrides' field is no longer supported.\n" +
+          "   The configuration system now uses Git branch-based configuration only.\n" +
+          "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
+        );
+      } else {
+        // Remove empty overrides with a note
+        log.info("ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to git_branches format)");
+        delete conf.overrides;
+        // Write the updated config back to file
+        try {
+          await Deno.writeTextFile("wmill.yaml", yamlStringify(conf));
+        } catch (error) {
+          log.warn(`Could not update wmill.yaml to remove empty overrides: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+    }
+
     if (conf?.defaultTs == undefined) {
       log.warn(
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
@@ -63,6 +97,9 @@ export async function readConfigFile(): Promise<SyncOptions> {
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
+    if (e instanceof Error && (e.message.includes("overrides") || e.message.includes("Obsolete configuration format"))) {
+      throw e; // Re-throw the specific obsolete format error
+    }
     log.warn(
       "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
     );
@@ -104,53 +141,107 @@ export async function mergeConfigWithConfigFile<T>(
   return Object.assign(configFile ?? {}, opts);
 }
 
-// Get effective settings by merging top-level settings and overrides
-export function getEffectiveSettings(
-  config: SyncOptions,
-  baseUrl: string,
-  workspaceId: string,
-  repo: string
-): SyncOptions {
-  // Start with empty object - no defaults
-  let effective = {} as SyncOptions;
+// Validate branch configuration early in the process
+export async function validateBranchConfiguration(skipValidation?: boolean, autoAccept?: boolean): Promise<void> {
+  if (skipValidation || !isGitRepository()) {
+    return;
+  }
 
-  // Merge top-level settings from config (which contains user's chosen defaults)
-  Object.keys(config).forEach(key => {
-    if (key !== 'overrides' && config[key as keyof SyncOptions] !== undefined) {
-      (effective as any)[key] = config[key as keyof SyncOptions];
+  const config = await readConfigFile();
+  const { git_branches } = config;
+  const currentBranch = getCurrentGitBranch();
+
+  // In a git repository, git_branches section is recommended
+  if (!git_branches || Object.keys(git_branches).length === 0) {
+    log.warn(
+      "⚠️  WARNING: In a Git repository, the 'git_branches' section is recommended in wmill.yaml.\n" +
+      "   Consider adding a git_branches section with configuration for your Git branches.\n" +
+      "   Run 'wmill init' to recreate the configuration file with proper branch setup."
+    );
+    return;
+  }
+
+  // Current branch must be defined in git_branches config
+  if (currentBranch && !git_branches[currentBranch]) {
+    // In interactive mode, offer to create the branch
+    if (Deno.stdin.isTerminal()) {
+      const availableBranches = Object.keys(git_branches).join(', ');
+      log.info(
+        `Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
+        `Available branches: ${availableBranches}`
+      );
+
+      const shouldCreate = autoAccept || await Confirm.prompt({
+        message: `Create empty branch configuration for '${currentBranch}'?`,
+        default: true,
+      });
+
+      if (shouldCreate) {
+        // Read current config, add branch, and write it back
+        const currentConfig = await readConfigFile();
+
+        if (!currentConfig.git_branches) {
+          currentConfig.git_branches = {};
+        }
+        currentConfig.git_branches[currentBranch] = { overrides: {} };
+
+        await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+
+        log.info(`✅ Created empty branch configuration for '${currentBranch}'`);
+      } else {
+        log.warn("⚠️  WARNING: Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration.");
+        return;
+      }
+    } else {
+      log.warn(
+        `⚠️  WARNING: Current Git branch '${currentBranch}' is not defined in the git_branches configuration.\n` +
+        `   Consider adding configuration for branch '${currentBranch}' in the git_branches section of wmill.yaml.\n` +
+        `   Available branches: ${Object.keys(git_branches).join(', ')}`
+      );
+      return;
     }
-  });
+  }
+}
 
-  if (!config.overrides) {
-    if (repo) {
-      log.info(`No overrides found in wmill.yaml, using top-level settings (repository flag ignored)`);
+// Get effective settings by merging top-level settings with branch-specific overrides
+export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean, suppressLogs?: boolean): Promise<SyncOptions> {
+  // Start with top-level settings from config
+  const { git_branches, ...topLevelSettings } = config;
+  let effective = { ...topLevelSettings };
+
+  if (isGitRepository()) {
+    const currentBranch = getCurrentGitBranch();
+
+    // If promotion is specified, use that branch's promotionOverrides or overrides
+    if (promotion && git_branches && git_branches[promotion]) {
+      const targetBranch = git_branches[promotion];
+
+      // First try promotionOverrides, then fall back to overrides
+      if (targetBranch.promotionOverrides) {
+        Object.assign(effective, targetBranch.promotionOverrides);
+        if (!suppressLogs) {
+          log.info(`Applied promotion settings from branch: ${promotion}`);
+        }
+      } else if (targetBranch.overrides) {
+        Object.assign(effective, targetBranch.overrides);
+        if (!suppressLogs) {
+          log.info(`Applied settings from branch: ${promotion} (no promotionOverrides found)`);
+        }
+      } else {
+        log.debug(`No promotion or regular overrides found for branch '${promotion}', using top-level settings`);
+      }
     }
-    return effective;
-  }
-
-  // Construct override keys using the single format
-  const workspaceKey = `${baseUrl}:${workspaceId}:*`;
-  const repoKey = `${baseUrl}:${workspaceId}:${repo}`;
-
-  let appliedOverrides: string[] = [];
-
-  // Apply workspace-level overrides
-  if (config.overrides[workspaceKey]) {
-    Object.assign(effective, config.overrides[workspaceKey]);
-    appliedOverrides.push("workspace-level");
-  }
-
-  // Apply repository-specific overrides (overrides workspace-level)
-  if (config.overrides[repoKey]) {
-    Object.assign(effective, config.overrides[repoKey]);
-    appliedOverrides.push("repository-specific");
-  } else if (repo) {
-    // Repository was specified but no override found
-    log.info(`Repository override not found for "${repo}", using ${appliedOverrides.length > 0 ? appliedOverrides.join(" + ") : "top-level"} settings`);
-  }
-
-  if (appliedOverrides.length > 0) {
-    log.info(`Applied ${appliedOverrides.join(" + ")} overrides${repo ? ` for repository "${repo}"` : ""}`);
+    // Otherwise use current branch overrides (existing behavior)
+    else if (currentBranch && git_branches && git_branches[currentBranch] && git_branches[currentBranch].overrides) {
+      Object.assign(effective, git_branches[currentBranch].overrides);
+      if (!suppressLogs) {
+        log.info(`Applied settings for Git branch: ${currentBranch}`);
+      }
+    } else if (currentBranch) {
+      log.debug(`No branch-specific overrides found for '${currentBranch}', using top-level settings`);
+    }
+  } else {
+    log.debug("Not in a Git repository, using top-level settings");
   }
 
   return effective;

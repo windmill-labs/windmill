@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Button, Alert, Badge } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save, Edit3 } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -49,6 +49,7 @@
 	let showCliInstructions = $state(false)
 	let previewResult = $state<SyncResponse | SettingsResponse | null>(null)
 	let settingsApplied = $state(false)
+	let previewAttempted = $state(false)
 
 	// Helper functions to reduce type casting repetition
 	const getSettingsChanges = (result: SyncResponse | SettingsResponse | null) => {
@@ -108,8 +109,9 @@
 			showCliInstructions = false
 			previewResult = null
 			settingsApplied = false
-		} else if (settingsOnly && !previewResult && !isPreviewLoading) {
-			// Auto-trigger settings preview when modal opens in settings-only mode
+			previewAttempted = false
+		} else if (settingsOnly && !previewResult && !isPreviewLoading && !previewAttempted) {
+			// Auto-trigger settings preview when modal opens in settings-only mode (only once)
 			executeJob(true, true)
 		}
 	})
@@ -124,6 +126,7 @@
 			previewResult = null
 			previewJobId = null
 			previewJobStatus = undefined
+			previewAttempted = true
 		} else {
 			isApplying = true
 			applyError = ''
@@ -141,7 +144,8 @@
 				dry_run: isDryRun,
 				pull: true,
 				only_wmill_yaml: settingsOnly,
-				settings_json: JSON.stringify(uiState)
+				settings_json: JSON.stringify(uiState),
+				use_promotion_overrides: currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
 			}
 
 			const jobId = await JobService.runScriptByPath({
@@ -295,7 +299,10 @@
 				<Button
 					size="md"
 					color="dark"
-					onclick={() => executeJob(true, settingsOnly)}
+					onclick={() => {
+						previewAttempted = false // Allow manual retry
+						executeJob(true, settingsOnly)
+					}}
 					disabled={isPreviewLoading}
 					startIcon={{
 						icon: isPreviewLoading ? Loader2 : undefined,
@@ -380,7 +387,26 @@
 					<div class="bg-surface-secondary rounded-lg p-3">
 						<div class="text-sm text-tertiary">
 							No settings changes detected. Your local sync filter settings are already up to date with the repository.
+							See the CLI instructions below on how to edit wmill.yaml
 						</div>
+					</div>
+					<div class="flex justify-start">
+						<Button
+							size="sm"
+							color="dark"
+							onclick={() => {
+								previewAttempted = false
+								previewResult = null
+								executeJob(true, settingsOnly)
+							}}
+							disabled={isPreviewLoading}
+							startIcon={{
+								icon: isPreviewLoading ? Loader2 : undefined,
+								classes: isPreviewLoading ? 'animate-spin' : ''
+							}}
+						>
+							{isPreviewLoading ? 'Previewing...' : 'Preview again'}
+						</Button>
 					</div>
 				{/if}
 
@@ -466,7 +492,23 @@
 					{:else}
 						<!-- No changes to pull -->
 						<div class="bg-surface-secondary rounded-lg p-3">
-							<div class="text-sm text-tertiary">No changes to pull from the repository.</div>
+							<div class="text-sm text-tertiary mb-3">No changes to pull from the repository.</div>
+							<Button
+								size="sm"
+								color="dark"
+								onclick={() => {
+									previewAttempted = false
+									previewResult = null
+									executeJob(true, settingsOnly)
+								}}
+								disabled={isPreviewLoading}
+								startIcon={{
+									icon: isPreviewLoading ? Loader2 : undefined,
+									classes: isPreviewLoading ? 'animate-spin' : ''
+								}}
+							>
+								{isPreviewLoading ? 'Previewing...' : 'Preview again'}
+							</Button>
 						</div>
 					{/if}
 				</div>
@@ -508,7 +550,12 @@
 				onclick={() => showCliInstructions = !showCliInstructions}
 			>
 				<Terminal size={16} />
-				<span>CLI Instructions</span>
+				{#if settingsOnly}
+				<span>Update settings with CLI</span>
+				{:else}
+				<span>Update workspace with CLI</span>
+				{/if}
+				<Edit3 size={14} class="text-tertiary" />
 				{#if showCliInstructions}
 					<ChevronUp size={16} />
 				{:else}
@@ -518,19 +565,43 @@
 
 			{#if showCliInstructions}
 				<div class="mt-3 bg-surface-secondary rounded-lg p-3">
+				    {#if settingsOnly}
+					<div class="text-xs text-tertiary mb-2">
+						Filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
+						To modify them, edit the file in your repository, commit the changes, and sync using the commands below. Learn more about <a href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml" target="_blank" rel="noopener noreferrer">the wmill.yaml format</a>.
+					</div>
+					{/if}
 					<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
-# Setup (only needed if local folder not initialized yet)
-npm install -g windmill-cli
-wmill workspace add {$workspaceStore} {$workspaceStore} {window.location.origin}
-wmill init --workspace {$workspaceStore} --repository {gitRepoResourcePath}
+# Make sure your repo is up to date
+git pull
 
-{#if !settingsOnly}
-# Push from git repository to workspace
+{#if !settingsOnly}# Push from git repository to workspace
 wmill sync push --workspace {$workspaceStore} --repository {gitRepoResourcePath}
 
-{/if}
-# Push settings only from git repository
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}</pre>
+{:else}
+# Edit wmill.yaml file
+vim wmill.yaml
+git add wmill.yaml
+{/if}# Commit changes
+git commit
+git push
+{#if settingsOnly}
+# Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre>
+					{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch && settingsOnly}
+						<div class="text-xs text-tertiary mt-3">
+							<div class="font-medium mb-1">Promotion Mode Configuration:</div>
+							<div class="flex items-center gap-2">
+								<span>You can add promotion-specific overrides in your <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file:</span>
+							</div>
+							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto">git_branches:
+  main:
+    promotionOverrides:
+      # Add your promotion-specific settings here
+							</pre>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

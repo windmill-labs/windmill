@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Retry } from '$lib/gen'
+	import type { ErrorHandler, Retry } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
@@ -19,7 +19,7 @@
 		optionTabSelected: 'error_handler' | 'retries' | string
 		itemKind: 'script' | 'flow'
 		can_write: boolean
-		errorHandlerSelected: 'custom' | 'slack' | 'teams'
+		errorHandlerSelected: ErrorHandler
 		error_handler_path: string | undefined
 		error_handler_args: Record<string, any>
 		retry: Retry | undefined

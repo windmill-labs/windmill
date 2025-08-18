@@ -638,7 +638,7 @@ impl PyV {
                 );
         }
 
-        let child_process = start_child_process(child_cmd, "uv").await?;
+        let child_process = start_child_process(child_cmd, "uv", false).await?;
 
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
@@ -656,7 +656,8 @@ impl PyV {
             occupancy_metrics,
             None,
         )
-        .await
+        .await?;
+        Ok(())
     }
     async fn find_python(&self) -> error::Result<Option<String>> {
         #[cfg(windows)]

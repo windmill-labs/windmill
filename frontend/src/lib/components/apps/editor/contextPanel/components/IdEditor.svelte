@@ -44,6 +44,7 @@
 				onChange(e)
 				onClose?.()
 			}}
+			reservedPrefixes={['bg_', 'unused-']}
 			{reservedIds}
 		/>
 	{/snippet}

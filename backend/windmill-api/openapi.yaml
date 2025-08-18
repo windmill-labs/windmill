@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.518.2
+  version: 1.527.1
   title: Windmill API
 
   contact:
@@ -1944,6 +1944,14 @@ paths:
                     type: boolean
                   auto_add:
                     type: boolean
+                  auto_add_instance_groups:
+                    type: array
+                    items:
+                      type: string
+                  auto_add_instance_groups_roles:
+                    type: object
+                    additionalProperties:
+                      type: string
                   plan:
                     type: string
                   customer_id:
@@ -2351,6 +2359,39 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/edit_instance_groups:
+    post:
+      summary: edit instance groups
+      operationId: editInstanceGroups
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Instance Groups Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groups:
+                  type: array
+                  items:
+                    type: string
+                roles:
+                  type: object
+                  additionalProperties:
+                    type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/edit_webhook:
     post:
       summary: edit webhook
@@ -2440,7 +2481,6 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
-
       responses:
         "200":
           description: status
@@ -2473,7 +2513,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/workspaces/list_ducklakes:
     get:
@@ -3069,11 +3108,13 @@ paths:
     post:
       summary: create variable
       operationId: createVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3119,6 +3160,7 @@ paths:
     delete:
       summary: delete variable
       operationId: deleteVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3136,12 +3178,14 @@ paths:
     post:
       summary: update variable
       operationId: updateVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
         - name: already_encrypted
+          description: whether the variable is already encrypted (default false)
           in: query
           schema:
             type: boolean
@@ -3164,6 +3208,7 @@ paths:
     get:
       summary: get variable
       operationId: getVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
@@ -3228,11 +3273,13 @@ paths:
     get:
       summary: list variables
       operationId: listVariable
+      x-mcp-tool: true
       tags:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: path_start
+          description: filter variables by path prefix
           in: query
           schema:
             type: string
@@ -3833,11 +3880,13 @@ paths:
     post:
       summary: create resource
       operationId: createResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: update_if_exists
+          description: update the resource if it already exists (default false)
           in: query
           schema:
             type: boolean
@@ -3860,6 +3909,7 @@ paths:
     delete:
       summary: delete resource
       operationId: deleteResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3877,6 +3927,7 @@ paths:
     post:
       summary: update resource
       operationId: updateResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3927,6 +3978,7 @@ paths:
     get:
       summary: get resource
       operationId: getResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -3999,6 +4051,7 @@ paths:
     get:
       summary: list resources
       operationId: listResource
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4016,6 +4069,7 @@ paths:
           schema:
             type: string
         - name: path_start
+          description: filter resources by path prefix
           in: query
           schema:
             type: string
@@ -4198,6 +4252,7 @@ paths:
     get:
       summary: list resource_types
       operationId: listResourceType
+      x-mcp-tool: true
       tags:
         - resource
       parameters:
@@ -4651,6 +4706,7 @@ paths:
     get:
       summary: list all scripts
       operationId: listScripts
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5026,6 +5082,7 @@ paths:
     get:
       summary: get script by path
       operationId: getScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -5616,6 +5673,7 @@ paths:
     get:
       summary: list all flows
       operationId: listFlows
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -5797,6 +5855,7 @@ paths:
     get:
       summary: get flow by path
       operationId: getFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7247,6 +7306,7 @@ paths:
     get:
       summary: list all queued jobs
       operationId: listQueue
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -7586,6 +7646,7 @@ paths:
     get:
       summary: list all jobs
       operationId: listJobs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -7757,9 +7818,30 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: remove_ansi_warnings
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: job details
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
+    get:
+      summary: get completed job logs tail
+      operationId: getCompletedJobLogsTail
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: completed job logs tail
           content:
             text/plain:
               schema:
@@ -7798,7 +7880,15 @@ paths:
           in: query
           schema:
             type: integer
+        - name: stream_offset
+          in: query
+          schema:
+            type: integer
         - name: get_progress
+          in: query
+          schema:
+            type: boolean
+        - name: no_logs
           in: query
           schema:
             type: boolean
@@ -7823,6 +7913,10 @@ paths:
                     type: integer
                   progress:
                     type: integer
+                  stream_offset:
+                    type: integer
+                  new_result_stream:
+                    type: string
                   flow_status:
                     $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
                   workflow_as_code_status:
@@ -7845,11 +7939,19 @@ paths:
           in: query
           schema:
             type: integer
+        - name: stream_offset
+          in: query
+          schema:
+            type: integer
         - name: get_progress
           in: query
           schema:
             type: boolean
         - name: only_result
+          in: query
+          schema:
+            type: boolean
+        - name: no_logs
           in: query
           schema:
             type: boolean
@@ -8526,6 +8628,11 @@ paths:
     post:
       summary: create schedule
       operationId: createSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: |
+        Creates a new schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before creating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -8549,6 +8656,11 @@ paths:
     post:
       summary: update schedule
       operationId: updateSchedule
+      x-mcp-tool: true
+      x-mcp-instructions: |
+        Updates a schedule.
+        The schedule should include seconds.
+        You should get the schema of the script or flow before updating the schedule to correctly specify the arguments needed.
       tags:
         - schedule
       parameters:
@@ -8603,6 +8715,7 @@ paths:
     delete:
       summary: delete schedule
       operationId: deleteSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8620,6 +8733,7 @@ paths:
     get:
       summary: get schedule
       operationId: getSchedule
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8654,6 +8768,7 @@ paths:
     get:
       summary: list schedules
       operationId: listSchedules
+      x-mcp-tool: true
       tags:
         - schedule
       parameters:
@@ -8667,10 +8782,12 @@ paths:
           schema:
             type: string
         - name: is_flow
+          description: filter schedules by whether they target a flow
           in: query
           schema:
             type: boolean
         - name: path_start
+          description: filter schedules by path prefix
           in: query
           schema:
             type: string
@@ -10637,6 +10754,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/InstanceGroup"
+  /groups/list_with_workspaces:
+    get:
+      summary: list instance groups with workspace information
+      operationId: listInstanceGroupsWithWorkspaces
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list with workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/get/{name}:
     get:
@@ -11275,6 +11407,7 @@ paths:
     get:
       summary: list workers
       operationId: listWorkers
+      x-mcp-tool: true
       tags:
         - worker
       parameters:
@@ -11296,25 +11429,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /workers/exists_worker_with_tag:
+  /workers/exists_workers_with_tags:
     get:
-      summary: exists worker with tag
-      operationId: existsWorkerWithTag
+      summary: exists workers with tags
+      operationId: existsWorkersWithTags
       tags:
         - worker
       parameters:
-        - name: tag
+        - name: tags
           in: query
           required: true
+          description: comma separated list of tags
           schema:
             type: string
       responses:
         "200":
-          description: whether a worker with the tag exists
+          description: map of tags to whether at least one worker with the tag exists
           content:
             application/json:
               schema:
-                type: boolean
+                type: object
+                additionalProperties:
+                  type: boolean
 
   /workers/queue_metrics:
     get:
@@ -13323,6 +13459,24 @@ paths:
                       access_type:
                         $ref: "#/components/schemas/AssetUsageAccessType"
 
+  /mcp/w/{workspace}/list_tools:
+    get:
+      summary: list available MCP tools
+      operationId: listMcpTools
+      tags:
+        - mcp
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of MCP tools available for the workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EndpointTool"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -13356,6 +13510,7 @@ components:
       name: publication
       in: path
       required: true
+      description: The name of the publication
       schema:
         type: string
     VersionId:
@@ -13783,6 +13938,38 @@ components:
     # -- INLINE END --
     # Do not change line above
 
+    EndpointTool:
+      type: object
+      required: [name, description, instructions, path, method]
+      properties:
+        name:
+          type: string
+          description: The tool name/operation ID
+        description:
+          type: string
+          description: Short description of the tool
+        instructions:
+          type: string
+          description: Detailed instructions for using the tool
+        path:
+          type: string
+          description: API endpoint path
+        method:
+          type: string
+          description: HTTP method (GET, POST, etc.)
+        path_params_schema:
+          type: object
+          description: JSON schema for path parameters
+          nullable: true
+        query_params_schema:
+          type: object
+          description: JSON schema for query parameters
+          nullable: true
+        body_schema:
+          type: object
+          description: JSON schema for request body
+          nullable: true
+
     AIProvider:
       type: string
       enum:
@@ -14106,6 +14293,7 @@ components:
 
     ScriptArgs:
       type: object
+      description: The arguments to pass to the script or flow
       additionalProperties: {}
 
     Input:
@@ -14451,6 +14639,10 @@ components:
           type: array
           items:
             type: string
+        added_via:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/UserSource"
       required:
         - email
         - username
@@ -14461,6 +14653,22 @@ components:
         - disabled
         - folders
         - folders_owners
+
+    UserSource:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [domain, instance_group, manual]
+          description: "How the user was added to the workspace"
+        domain:
+          type: string
+          description: "The domain used for auto-invite (when source is 'domain')"
+        group:
+          type: string
+          description: "The instance group name (when source is 'instance_group')"
+      required:
+        - source
 
     UserUsage:
       type: object
@@ -14608,18 +14816,25 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The description of the variable
         account:
           type: integer
+          description: The account identifier
         is_oauth:
           type: boolean
+          description: Whether the variable is an OAuth variable
         expires_at:
           type: string
+          description: The expiration date of the variable
           format: date-time
       required:
         - path
@@ -14632,12 +14847,16 @@ components:
       properties:
         path:
           type: string
+          description: The path to the variable
         value:
           type: string
+          description: The new value of the variable
         is_secret:
           type: boolean
+          description: Whether the variable is a secret
         description:
           type: string
+          description: The new description of the variable
 
     AuditLog:
       type: object
@@ -14840,7 +15059,7 @@ components:
                                 - key
                                 - typ
                     required:
-                      - object 
+                      - object
                   - type: object
                     properties:
                       list:
@@ -14909,7 +15128,8 @@ components:
           csharp,
           nu,
           java,
-          duckdb,
+          ruby,
+          duckdb
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -14970,11 +15190,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         value: {}
         description:
           type: string
+          description: The description of the resource
         resource_type:
           type: string
+          description: The resource_type associated with the resource
       required:
         - path
         - value
@@ -14985,9 +15208,14 @@ components:
       properties:
         path:
           type: string
+          description: The path to the resource
         description:
           type: string
+          description: The new description of the resource
         value: {}
+        resource_type:
+          type: string
+          description: The new resource_type to be associated with the resource
 
     Resource:
       type: object
@@ -15183,59 +15411,91 @@ components:
                   - success
                   - duration_ms
 
+    ErrorHandler:
+      type: string
+      enum:
+        - custom
+        - slack
+        - teams
+        - email
+
     NewSchedule:
       type: object
       properties:
         path:
           type: string
+          description: The path where the schedule will be created
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         script_path:
           type: string
+          description: The path to the script or flow to trigger
         is_flow:
           type: boolean
+          description: Whether the schedule is for a flow
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         enabled:
           type: boolean
+          description: Whether the schedule is enabled
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - path
         - schedule
@@ -15249,51 +15509,69 @@ components:
       properties:
         schedule:
           type: string
+          description: The cron schedule to trigger the script or flow. Should include seconds.
         timezone:
           type: string
+          description: The timezone to use for the cron schedule
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: The path to the script or flow to trigger on failure
         on_failure_times:
           type: number
+          description: The number of times to retry on failure
         on_failure_exact:
           type: boolean
+          description: Whether the schedule should only run on the exact time
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
+          description: The path to the script or flow to trigger on recovery
         on_recovery_times:
           type: number
+          description: The number of times to retry on recovery
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
+          description: The path to the script or flow to trigger on success
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
+          description: Whether the WebSocket error handler is muted
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
+          description: Whether the schedule should not run if a flow is already running
         summary:
           type: string
+          description: The summary of the schedule
         description:
           type: string
+          description: The description of the schedule
         tag:
           type: string
+          description: The tag of the schedule
         paused_until:
           type: string
+          description: The date and time the schedule will be paused until
           format: date-time
         cron_version:
           type: string
+          description: The version of the cron schedule to use (last is v2)
       required:
         - schedule
         - timezone
-        - script_path
-        - is_flow
         - args
 
     TriggerExtraProperty:
@@ -16056,6 +16334,8 @@ components:
           type: boolean
         enabled:
           type: boolean
+        auto_acknowledge_msg:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16608,6 +16888,8 @@ components:
 
     InstanceGroup:
       type: object
+      required:
+        - name
       properties:
         name:
           type: string
@@ -16617,6 +16899,34 @@ components:
           type: array
           items:
             type: string
+
+    InstanceGroupWithWorkspaces:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceInfo"
+
+    WorkspaceInfo:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        workspace_name:
+          type: string
+        role:
+          type: string
       required:
         - name
 
@@ -16819,7 +17129,6 @@ components:
       type: object
       additionalProperties:
         type: boolean
-
 
     FlowMetadata:
       type: object

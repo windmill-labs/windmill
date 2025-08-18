@@ -39,6 +39,8 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -83,15 +85,18 @@
 		noControls?: boolean
 		drawerOpen?: boolean
 		nodeId?: string | undefined
+		loading?: boolean | undefined
 		language?: string | undefined
 		appPath?: string | undefined
 		customUi?: DisplayResultUi | undefined
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		result_stream?: string | undefined
 		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		growVertical?: boolean
 	}
 
 	let {
@@ -111,9 +116,12 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		result_stream = undefined,
 		fixTableSizingToParent = false,
 		copilot_fix,
-		children
+		children,
+		loading = false,
+		growVertical = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -487,7 +495,15 @@
 </script>
 
 <HighlightTheme />
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex flex-col w-full gap-2">
+		<div class="flex items-center gap-2 text-tertiary">
+			<Loader2 class="animate-spin" size={16} /> Streaming result
+		</div>
+		<ResultStreamDisplay {result_stream} />
+	</div>
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
@@ -527,11 +543,11 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow flex flex-col h-full {['plain', 'markdown'].includes(
-			resultKind ?? ''
-		)
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow flex flex-col',
+			['plain', 'markdown'].includes(resultKind ?? '') ? 'min-h-0' : 'min-h-[160px]',
+			growVertical ? '' : 'h-full'
+		)}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -586,7 +602,8 @@
 			</div>
 			<div class="grow relative">
 				{#if !forceJson && resultKind === 'table-col'}
-					{@const data = 'table-col' in result ? result['table-col'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-col' in result ? result['table-col'] : result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
@@ -594,7 +611,8 @@
 						objects={objectOfArraysToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row'}
-					{@const data = 'table-row' in result ? result['table-row'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-row' in result ? result['table-row'] : result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
@@ -602,7 +620,10 @@
 						objects={arrayOfRowsToObjects(data)}
 					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
-					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
+					{@const data =
+						typeof result === 'object' && 'table-row-object' in result
+							? result['table-row-object']
+							: result}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
@@ -690,7 +711,7 @@
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
 							>{typeof result === 'string' ? result : result?.['result']}</pre
-						>{#if !noControls}
+						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
 									on:click={() =>

@@ -20,8 +20,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH,
-    PHP_PATH,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -91,7 +90,7 @@ pub async fn composer_install(
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, &*COMPOSER_PATH).await?;
+    let child_process = start_child_process(child_cmd, &*COMPOSER_PATH, false).await?;
 
     handle_child(
         job_id,
@@ -307,7 +306,7 @@ try {{
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let cmd = {
             let script_path = format!("{job_dir}/wrapper.php");
@@ -326,7 +325,7 @@ try {{
                 .stderr(Stdio::piped());
             php_cmd
         };
-        start_child_process(cmd, &*PHP_PATH).await?
+        start_child_process(cmd, &*PHP_PATH, false).await?
     };
 
     handle_child(
@@ -345,5 +344,5 @@ try {{
         None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }
