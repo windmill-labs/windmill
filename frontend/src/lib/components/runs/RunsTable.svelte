@@ -13,6 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { isJobSelectable } from '$lib/utils'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
+	import RunsBatchActionsDropdown from './RunsBatchActionsDropdown.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -26,6 +27,12 @@
 		activeLabel?: string | null
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
+		loadingSelectedIds?: boolean
+		onSetSelectionMode: (mode: RunsSelectionMode | false) => void
+		onCancelSelectedJobs: () => void
+		onCancelFilteredJobs: () => void
+		onReRunSelectedJobs: () => void
+		onReRunFilteredJobs: () => void
 	}
 
 	let {
@@ -37,7 +44,13 @@
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
-		lastFetchWentToEnd = $bindable(false)
+		lastFetchWentToEnd = $bindable(false),
+		loadingSelectedIds = false,
+		onSetSelectionMode,
+		onCancelFilteredJobs,
+		onCancelSelectedJobs,
+		onReRunFilteredJobs,
+		onReRunSelectedJobs
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
@@ -241,7 +254,7 @@
 			</div>
 		{/if}
 		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2 pr-4">
-			<div class="w-[25%] text-2xs pl-2">
+			<div class="w-[25%] text-2xs pl-2 flex flex-row items-center gap-2 -my-2">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -262,6 +275,16 @@
 				{:else}
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 				{/if}
+				<RunsBatchActionsDropdown
+					isLoading={loadingSelectedIds}
+					{selectionMode}
+					selectionCount={selectedIds.length}
+					{onSetSelectionMode}
+					{onCancelFilteredJobs}
+					{onCancelSelectedJobs}
+					{onReRunFilteredJobs}
+					{onReRunSelectedJobs}
+				/>
 			</div>
 			<div class="w-[35%] text-xs font-semibold">Path</div>
 			{#if containsLabel}

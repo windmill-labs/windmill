@@ -27,7 +27,7 @@
 		<Loader2 class="animate-spin" size={20} />
 	</Button>
 {:else if selectionMode}
-	<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+	<div class="p-2 h-8 flex flex-row items-center gap-1">
 		<Button
 			startIcon={{ icon: X }}
 			size="xs"
@@ -62,7 +62,7 @@
 	</div>
 {:else}
 	<DropdownV2
-		class="w-fit mx-auto"
+		class="w-fit"
 		items={[
 			{
 				displayName: 'Select jobs to cancel',
