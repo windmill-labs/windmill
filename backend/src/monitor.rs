@@ -1704,17 +1704,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 running_tags_to_watch.push(tag.to_string());
             }
 
-            // save queue_running_count metrics per tag
-            if save_metrics {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
-                    format!("queue_running_count_{}", tag),
-                    serde_json::json!(count)
-                )
-                .execute(db)
-                .await
-                .ok();
-            }
         }
         if metrics_enabled {
             let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
