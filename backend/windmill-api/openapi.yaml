@@ -7197,17 +7197,12 @@ paths:
     post:
       summary: run script preview and wait for result
       operationId: runScriptPreviewAndWaitResult
+      x-mcp-tool: true
+      x-mcp-instructions: Allows testing a script before deploying it. Only content, lang and args are required. Content is the code to run, lang is the language of the code, and args are the arguments to pass to the script. For typescript files, the language to send is either bun or deno. By default, send bun if no deno specific code is detected.
       tags:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
-          in: query
-          schema:
-            type: boolean
-        - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
         description: preview
@@ -7341,13 +7336,6 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
-          in: query
-          schema:
-            type: boolean
-        - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
         description: preview
@@ -7356,13 +7344,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/FlowPreview"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
 
   /w/{workspace}/jobs/queue/list:
     get:
@@ -15216,10 +15197,13 @@ components:
       properties:
         content:
           type: string
+          description: The code to run
         path:
           type: string
+          description: The path to the script
         script_hash:
           type: string
+          description: The hash of the script
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:
