@@ -114,6 +114,12 @@ lazy_static::lazy_static! {
         &["tag"]
     ).unwrap();
 
+    static ref QUEUE_RUNNING_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
+        "queue_running_count",
+        "Number of running jobs in the queue",
+        &["tag"]
+    ).unwrap();
+
 }
 lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
@@ -140,6 +146,7 @@ lazy_static::lazy_static! {
     pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
     static ref STALE_JOB_TRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_TRESHOLD_MINUTES")
@@ -1670,6 +1677,48 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         if metrics_enabled {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
+        }
+
+        // Handle queue running count metrics
+        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
+
+        #[allow(unused_mut)]
+        let mut running_tags_to_watch = vec![];
+        for q in queue_running_counts {
+            let count = q.1;
+            let tag = q.0;
+
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
+                metric.set(count as i64);
+                running_tags_to_watch.push(tag.to_string());
+            }
+
+            // save queue_running_count metrics per tag
+            if save_metrics {
+                sqlx::query!(
+                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
+                    format!("queue_running_count_{}", tag),
+                    serde_json::json!(count)
+                )
+                .execute(db)
+                .await
+                .ok();
+            }
+        }
+        if metrics_enabled {
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
         }
     }
 
