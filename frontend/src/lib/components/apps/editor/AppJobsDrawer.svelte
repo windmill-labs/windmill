@@ -264,8 +264,8 @@
 												{#if job?.id}
 													<FlowStatusViewer
 														jobId={job?.id}
-														on:jobsLoaded={({ detail }) => {
-															job = detail
+														onJobsLoaded={({ job: newJob }) => {
+															job = newJob
 														}}
 													/>
 												{:else}

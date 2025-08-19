@@ -9,7 +9,7 @@ import {
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
-import { get, type Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
@@ -206,7 +206,7 @@ export function checkIfParentLoop(
 export function updateDerivedModuleStatesFromTestJobs(
 	moduleId: string | undefined,
 	moduleTestStates: ModulesTestStates | undefined,
-	moduleStates: Writable<Record<string, GraphModuleState>> | undefined
+	moduleStates: Record<string, GraphModuleState> | undefined
 ) {
 	if (!moduleId || !moduleTestStates || !moduleStates) {
 		return
@@ -238,9 +238,8 @@ export function updateDerivedModuleStatesFromTestJobs(
 		}
 	}
 
-	// Update the store with test job states
-	moduleStates.update((currentStates) => ({
-		...currentStates,
+	return {
+		...moduleStates,
 		...newStates
-	}))
+	}
 }

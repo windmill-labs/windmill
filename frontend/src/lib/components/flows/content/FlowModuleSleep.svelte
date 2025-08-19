@@ -28,7 +28,7 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 
-	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
+	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>

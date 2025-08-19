@@ -1006,11 +1006,11 @@
 				{#if job?.id}
 					<FlowStatusViewer
 						jobId={job?.id ?? ''}
-						on:jobsLoaded={({ detail }) => {
-							job = detail
+						onJobsLoaded={({ job: newJob }) => {
+							job = newJob
 						}}
-						on:done={(e) => {
-							job = e.detail
+						onDone={({ job: newJob }) => {
+							job = newJob
 						}}
 						initialJob={job}
 						workspaceId={$workspaceStore}
