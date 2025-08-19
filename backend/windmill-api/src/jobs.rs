@@ -177,6 +177,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run_wait_result/preview", post(run_wait_result_preview_script))
         .route(
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
@@ -5205,6 +5206,28 @@ async fn run_preview_script(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(preview): Json<Preview>,
+) -> error::Result<Response> {
+
+    let (_status_code, uuid) = run_preview_script(
+        authed.clone(), 
+        Extension(db.clone()), 
+        Extension(user_db.clone()), 
+        Path(w_id.clone()), 
+        Query(run_query.clone()), 
+        Json(preview)
+    ).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 async fn run_bundle_preview_script(
