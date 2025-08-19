@@ -1331,7 +1331,10 @@ pub async fn reload_url_list_setting(
             match url::Url::parse(url_str) {
                 Ok(url) => urls.push(url),
                 Err(e) => {
-                    return Err(error::Error::BadRequest(format!("Invalid URL in FORCE_{}: '{}': {}", std_env_var, url_str, e)));
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid URL in FORCE_{}: '{}': {}",
+                        std_env_var, url_str, e
+                    )));
                 }
             }
         }
@@ -1354,7 +1357,11 @@ pub async fn reload_url_list_setting(
                 }
             }
         }
-        if urls.is_empty() { None } else { Some(urls) }
+        if urls.is_empty() {
+            None
+        } else {
+            Some(urls)
+        }
     } else {
         None
     };
@@ -1372,7 +1379,11 @@ pub async fn reload_url_list_setting(
                     }
                 }
             }
-            tracing::info!("Loaded setting {} from db config: {} URLs", setting_name, urls.len());
+            tracing::info!(
+                "Loaded setting {} from db config: {} URLs",
+                setting_name,
+                urls.len()
+            );
             value = if urls.is_empty() { None } else { Some(urls) };
         } else {
             tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
@@ -1679,33 +1690,26 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             *w = tags_to_watch;
         }
 
-        // Handle queue running count metrics
-        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
-
         #[cfg(feature = "prometheus")]
         if metrics_enabled {
+            // Handle queue running count metrics
+            let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
             for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
                 if queue_running_counts.get(q).is_none() {
                     (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
                 }
             }
-        }
 
-        #[allow(unused_mut)]
-        let mut running_tags_to_watch = vec![];
-        for q in queue_running_counts {
-            let count = q.1;
-            let tag = q.0;
+            let mut running_tags_to_watch = vec![];
+            for q in queue_running_counts {
+                let count = q.1;
+                let tag = q.0;
 
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
                 let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
                 running_tags_to_watch.push(tag.to_string());
             }
-
-        }
-        if metrics_enabled {
             let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
             *w = running_tags_to_watch;
         }
