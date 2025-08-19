@@ -356,9 +356,7 @@
 		}
 	}
 
-	let moduleTracker = new ChangeTracker(
-		$state.snapshot([modules, failureModule, preprocessorModule])
-	)
+	let moduleTracker = new ChangeTracker($state.snapshot(modules))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -397,7 +395,6 @@
 			}
 		})
 		;[nodes, edges] = computeAssetNodes(newNodes, graph.edges)
-		console.log('nodes', nodes)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -442,9 +439,7 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(modules)
-		untrack(() =>
-			moduleTracker.track($state.snapshot([modules, failureModule, preprocessorModule]))
-		)
+		untrack(() => moduleTracker.track($state.snapshot(modules)))
 	})
 
 	let graph = $derived.by(() => {
