@@ -89,7 +89,7 @@ export async function processToolCall<T>({
 
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage } : {}),
+			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage ?? "Waiting for confirmation..." } : {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,

@@ -24,7 +24,10 @@
 >
 	<!-- Collapsible Header -->
 	<button
-		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
+		class={twMerge(
+			"w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700",
+			message.needsConfirmation ? "opacity-80" : ""
+		)}
 		onclick={() => (isExpanded = !isExpanded)}
 		disabled={!message.showDetails}
 	>
@@ -54,7 +57,9 @@
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
 			<!-- Parameters Section -->
-			<ToolContentDisplay title="Parameters" content={message.parameters} />
+			<div class={message.needsConfirmation ? "opacity-80" : ""}>
+				<ToolContentDisplay title="Parameters" content={message.parameters} />
+			</div>
 
 			<!-- Confirmation Footer -->
 			{#if message.needsConfirmation}

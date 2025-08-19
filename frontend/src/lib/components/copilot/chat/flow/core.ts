@@ -598,7 +598,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Test flow',
+		confirmationMessage: 'Run flow test',
 		showDetails: true
 	},
 	{
@@ -710,7 +710,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Test flow step',
+		confirmationMessage: 'Run flow step test',
 		showDetails: true
 	}
 ]
