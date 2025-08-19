@@ -10,6 +10,7 @@ use windmill_common::{
     cache::FlowData,
     client::AuthedClient,
     error::{self, to_anyhow, Error},
+    flow_status::AgentAction,
     flows::{FlowModule, FlowModuleValue},
     jobs::DB,
     scripts::ScriptLang,
@@ -18,6 +19,7 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 use windmill_queue::{
+    flow_status::{get_step_of_flow_status, Step},
     get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
     PushIsolationLevel,
 };
@@ -146,13 +148,6 @@ struct AIAgentResult {
     messages: Vec<OpenAIMessage>,
 }
 
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AgentAction {
-    ToolCall { job_id: uuid::Uuid, function_name: String },
-    Content { content: String },
-}
-
 #[derive(Serialize, Default, Clone, Debug)]
 struct OpenAPISchema {
     r#type: String,
@@ -268,21 +263,33 @@ impl OpenAPISchema {
     }
 }
 
-async fn update_flow_status_with_actions(
+async fn update_flow_status_module_with_actions(
     db: &DB,
-    job_id: &uuid::Uuid,
+    parent_job: &uuid::Uuid,
     actions: &[AgentAction],
 ) -> Result<(), Error> {
-    sqlx::query!(r#"
-        INSERT INTO v2_job_status (id, flow_status) 
-        VALUES ($1, jsonb_set('{}'::jsonb, array['actions'], $2))
-        ON CONFLICT (id) DO UPDATE SET flow_status = jsonb_set(COALESCE(v2_job_status.flow_status, '{}'::jsonb), array['actions'], $2)
-        "#,
-        job_id,
-        sqlx::types::Json(actions) as _,
-    )
-    .execute(db)
-    .await?;
+    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
+    match step {
+        Step::Step(step) => {
+            sqlx::query!(
+                r#"
+                UPDATE v2_job_status SET
+                    flow_status = jsonb_set(
+                        flow_status,
+                        array['modules', $3::INTEGER::TEXT, 'agent_actions'],
+                        $2
+                    )
+                WHERE id = $1
+                "#,
+                parent_job,
+                sqlx::types::Json(actions) as _,
+                step as i32
+            )
+            .execute(db)
+            .await?;
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -524,6 +531,7 @@ async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
+    parent_job: &uuid::Uuid,
     args: AIAgentArgs,
     tools: Vec<Tool>,
 
@@ -628,8 +636,8 @@ async fn run_agent(
                 content: Some(content.clone()),
                 ..Default::default()
             });
-            actions.push(AgentAction::Content { content: content.clone() });
-            update_flow_status_with_actions(db, &job.id, &actions).await?;
+            actions.push(AgentAction::Message { content: content.clone() });
+            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
         }
 
         if tool_calls.is_empty() {
@@ -657,7 +665,7 @@ async fn run_agent(
                     function_name: tool_call.function.name.clone(),
                 });
 
-                update_flow_status_with_actions(db, &job.id, &actions).await?;
+                update_flow_status_module_with_actions(db, parent_job, &actions).await?;
 
                 match call_tool(
                     db,
@@ -740,6 +748,12 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
+    let Some(parent_job) = &job.parent_job else {
+        return Err(Error::internal_err(
+            "AI agent job has no parent job".to_string(),
+        ));
+    };
+
     let value = flow_data.value();
 
     let module = value.modules.iter().find(|m| m.id == *flow_step_id);
@@ -806,6 +820,7 @@ pub async fn handle_ai_agent_job(
     let agent_fut = run_agent(
         conn,
         job,
+        parent_job,
         args,
         tools,
         client,

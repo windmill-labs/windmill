@@ -1,4 +1,4 @@
-import type { FlowStatus, FlowStatusModule, Job } from '$lib/gen'
+import type { FlowStatusModule, Job } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import type { FlowState } from '../flows/flowState'
 
@@ -63,7 +63,7 @@ export type GraphModuleState = {
 	suspend_count?: number
 	isListJob?: boolean
 	skipped?: boolean
-	actions?: FlowStatus['actions']
+	actions?: FlowStatusModule['agent_actions']
 }
 
 export type NestedNodes = GraphItem[]

@@ -10,6 +10,7 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
+	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
 	interface Props {
 		lang: Script['language']
@@ -101,6 +102,14 @@
 				tag={undefined}
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
+			/>
+		{:else if mod.value.type === 'aiagent' && logJob?.flow_status?.modules[0]?.job && logJob?.flow_status?.modules[0]?.agent_actions}
+			<AiAgentLogViewer
+				aiAgentStatus={{
+					jobId: logJob.flow_status.modules[0].job,
+					actions: logJob.flow_status.modules[0].agent_actions,
+					tools: mod.value.tools
+				}}
 			/>
 		{:else}
 			<LogViewer

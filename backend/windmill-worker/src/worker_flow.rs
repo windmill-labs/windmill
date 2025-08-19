@@ -627,6 +627,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              approvers: vec![],
                              failed_retries: vec![],
                              skipped: false,
+                             agent_actions: None,
                          }
                      } else {
                          success = false;
@@ -637,6 +638,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              flow_jobs_success: flow_jobs_success.clone(),
                              branch_chosen: None,
                              failed_retries: vec![],
+                             agent_actions: None,
                          }
                      };
                     let r = sqlx::query_scalar!(
@@ -807,6 +809,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             skipped: is_skipped,
+                            agent_actions: module_status.agent_actions(),
                         }),
                     )
                 } else {
@@ -830,6 +833,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow_jobs_success,
                             branch_chosen,
                             failed_retries: old_status.retry.failed_jobs.clone(),
+                            agent_actions: module_status.agent_actions(),
                         }),
                     )
                 }
@@ -2607,6 +2611,7 @@ async fn push_next_flow_job(
                     approvers: vec![],
                     failed_retries: vec![],
                     skipped: false,
+                    agent_actions: None,
                 }),
                 flow_job.id
             )
@@ -2997,6 +3002,7 @@ async fn push_next_flow_job(
                 parallel: false,
                 while_loop,
                 progress: None,
+                agent_actions: None,
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
@@ -3010,6 +3016,7 @@ async fn push_next_flow_job(
             parallel: true,
             while_loop: false,
             progress: None,
+            agent_actions: None,
         },
         NextStatus::NextBranchStep(NextBranch {
             mut flow_jobs,
@@ -3033,6 +3040,7 @@ async fn push_next_flow_job(
                 parallel: false,
                 while_loop: false,
                 progress: None,
+                agent_actions: None,
             }
         }
 
@@ -3047,6 +3055,7 @@ async fn push_next_flow_job(
             parallel: false,
             while_loop: false,
             progress: None,
+            agent_actions: None,
         },
         NextStatus::NextStep => {
             FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: one_uuid? }

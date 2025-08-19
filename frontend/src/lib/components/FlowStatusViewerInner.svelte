@@ -706,8 +706,7 @@
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
-						actions:
-							job.job_kind === 'aiagent' && job.flow_status ? job.flow_status.actions : undefined
+						actions: job.job_kind === 'aiagent' && mod.agent_actions ? mod.agent_actions : undefined
 						// retries: $flowStateStore?.raw_flow
 					},
 					force

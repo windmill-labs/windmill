@@ -2,7 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { FlowModule, FlowStatus } from '$lib/gen'
+	import type { FlowModule, FlowStatusModule } from '$lib/gen'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
 	interface Props {
@@ -22,7 +22,7 @@
 		tagLabel?: string | undefined
 		aiAgentStatus?: {
 			jobId: string
-			actions: NonNullable<FlowStatus['actions']>
+			actions: NonNullable<FlowStatusModule['agent_actions']>
 			tools: FlowModule[]
 		}
 	}

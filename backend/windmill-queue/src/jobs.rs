@@ -5004,6 +5004,7 @@ async fn restarted_flows_resolution(
                             parallel,
                             while_loop: false,
                             progress: None,
+                            agent_actions: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -5042,6 +5043,7 @@ async fn restarted_flows_resolution(
                             parallel,
                             while_loop: false,
                             progress: None,
+                            agent_actions: None,
                         });
                     }
                     _ => {

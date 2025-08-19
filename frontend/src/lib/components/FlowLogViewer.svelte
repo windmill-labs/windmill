@@ -458,7 +458,7 @@
 																{mode === 'aiagent'
 																	? module.summary
 																		? 'Tool call'
-																		: 'Output'
+																		: 'Message'
 																	: module.id}
 															</b>
 															{#if mode === 'flow'}
