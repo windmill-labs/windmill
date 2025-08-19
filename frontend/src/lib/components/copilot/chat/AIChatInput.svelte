@@ -45,23 +45,25 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		if (!isFirstMessage) {
+			return 'Ask followup'
+		}
+
 		if (placeholder) {
-			// If a custom placeholder is provided, use it
 			return placeholder
 		}
 		
-		// Generate placeholder based on current AI mode
 		switch (aiChatManager.mode) {
 			case AIMode.SCRIPT:
-				return 'Modify this script, fix errors, or generate new code...'
+				return 'Modify this script...'
 			case AIMode.FLOW:
-				return 'Edit this flow, add steps, or modify workflow logic...'
+				return 'Modify this flow...'
 			case AIMode.NAVIGATOR:
-				return 'Help me navigate Windmill or find features...'
+				return 'Navigate the app...'
 			case AIMode.API:
-				return 'Make API calls to fetch data or manage resources...'
+				return 'Make API calls...'
 			case AIMode.ASK:
-				return 'Ask questions about Windmill features and documentation...'
+				return 'Ask questions about Windmill...'
 			default:
 				return 'Ask anything'
 		}
