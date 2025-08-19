@@ -7,7 +7,8 @@
 		truncateHash,
 		truncateRev,
 		isScriptPreview,
-		isJobSelectable
+		isJobSelectable,
+		msToReadableTime
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -19,7 +20,7 @@
 		ExternalLink,
 		FastForward,
 		Hourglass,
-		ListFilter,
+		ListFilterPlus,
 		Play,
 		ShieldQuestion,
 		X
@@ -79,7 +80,7 @@
 	}}
 >
 	<!-- Flow status-->
-	<div class="w-1/12 flex justify-center">
+	<div class="w-[5%] flex justify-center">
 		{#if selectionMode && isJobSelectable(selectionMode)(job)}
 			<div class="px-2">
 				<input type="checkbox" checked={selected} />
@@ -127,11 +128,14 @@
 	</div>
 
 	<!-- Job time-->
-	<div class="w-2/12 flex justify-start">
-		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
+	<div class="w-[20%] flex justify-start pr-4">
+		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
 					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
+					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+						(Ran in {msToReadableTime(job.duration_ms)})
+					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}
@@ -160,7 +164,7 @@
 	</div>
 
 	<!-- Job path-->
-	<div class="w-4/12 flex justify-start flex-col pr-4">
+	<div class="w-[35%] flex justify-start flex-col pr-4">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -207,7 +211,7 @@
 											<div
 												class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
 											>
-												<ListFilter size={10} />
+												<ListFilterPlus size={14} />
 											</div>
 										{/snippet}
 									</DropdownV2>
@@ -265,7 +269,7 @@
 								on:click={() => {
 									dispatch('filterByLabel', label)
 								}}
-								endIcon={{ icon: ListFilter }}
+								endIcon={{ icon: ListFilterPlus }}
 							>
 								{label}
 							</Button>
@@ -276,20 +280,20 @@
 		</div>
 	{/if}
 	<!-- Author and schedule-->
-	<div class="w-2/12 flex justify-start pr-4">
+	<div class="w-[20%] flex justify-start pr-4 text-secondary">
 		{#if job && job.schedule_path}
-			<div class="flex flex-row items-center gap-1">
-				<Calendar size={14} />
+			<div class="flex flex-row items-center gap-1 w-full -ml-2">
 				<Button
 					size="xs2"
 					color="light"
-					btnClasses="font-normal"
+					btnClasses="font-normal bg-transparent hover:bg-surface hover:text-primary"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
-					<div class="truncate text-ellipsis text-left" title={job.schedule_path}>
-						{truncateRev(job.schedule_path, 20)}
-					</div>
+					<Calendar size={14} />
 				</Button>
+				<div class="text-xs truncate text-ellipsis text-lef" dir="rtl" title={job.schedule_path}>
+					{job.schedule_path}
+				</div>
 				<DropdownV2
 					items={[
 						{
@@ -297,20 +301,21 @@
 							action: () => dispatch('filterBySchedule', job.schedule_path)
 						}
 					]}
+					class="w-fit"
 				>
 					{#snippet buttonReplacement()}
 						<div
 							class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
 						>
-							<ListFilter size={10} />
+							<ListFilterPlus size={14} />
 						</div>
 					{/snippet}
 				</DropdownV2>
 			</div>
 		{:else}
-			<div class="flex flex-row gap-1 items-center">
-				<div class="text-xs truncate text-ellipsis text-left" title={job.created_by}>
-					{truncateRev(job.created_by ?? '', 20)}
+			<div class="flex flex-row gap-1 items-center w-full">
+				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.created_by}>
+					{job.created_by ?? ''}
 				</div>
 				{#if !isExternal}
 					<DropdownV2
@@ -327,7 +332,7 @@
 							<div
 								class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
 							>
-								<ListFilter size={10} />
+								<ListFilterPlus size={14} />
 							</div>
 						{/snippet}
 					</DropdownV2>
@@ -336,13 +341,13 @@
 		{/if}
 	</div>
 
-	<div class="w-2/12 flex justify-start gap-1">
+	<div class="w-[15%] flex justify-start gap-1">
 		<RunBadges {job} showScriptHash={false} verySmall />
 	</div>
 
 	<!-- Job link-->
 	{#if !isExternal}
-		<div class="w-1/12 flex justify-end">
+		<div class="w-[5%] flex justify-end">
 			<a
 				target="_blank"
 				href="{base}/run/{job.id}?workspace={job.workspace_id}"

@@ -78,5 +78,5 @@
 {#if computedTimeAgo && (!agoOnlyIfRecent || isRecent)}
 	{computedTimeAgo}
 {:else}
-	{displayDate(date, false, false)}
+	{displayDate(date)}
 {/if}

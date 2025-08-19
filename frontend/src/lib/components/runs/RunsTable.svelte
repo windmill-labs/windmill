@@ -240,38 +240,36 @@
 				Select all
 			</div>
 		{/if}
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4">
-			{#if showExternalJobs && externalJobs.length > 0}
-				<div class="w-1/12 text-2xs">
+		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2 pr-4">
+			<div class="w-[25%] text-2xs pl-2">
+				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
 							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
 							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
 					</div>
-				</div>
-			{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
-				<div class="w-1/12 text-2xs flex flex-row">
+				{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
+					<div class="flex flex-row">
+						{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
+						<Popover>
+							<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
+							{#snippet text()}
+								Too specific filtering may have caused the omission of obscured jobs. This is done
+								for security reasons. To see obscured jobs, try removing some filters.
+							{/snippet}
+						</Popover>
+					</div>
+				{:else}
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
-					<Popover>
-						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
-						{#snippet text()}
-							Too specific filtering may have caused the omission of obscured jobs. This is done for
-							security reasons. To see obscured jobs, try removing some filters.
-						{/snippet}
-					</Popover>
-				</div>
-			{:else}
-				<div class="w-1/12 text-2xs"
-					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
-				>
-			{/if}
-			<div class="w-2/12 text-xs font-semibold"></div>
-			<div class="w-4/12 text-xs font-semibold">Path</div>
+				{/if}
+			</div>
+			<div class="w-[35%] text-xs font-semibold">Path</div>
 			{#if containsLabel}
-				<div class="w-3/12 text-xs font-semibold">Label</div>
+				<div class="w-[30%] text-xs font-semibold">Label</div>
 			{/if}
-			<div class="w-2/12 text-xs font-semibold">Triggered by</div>
-			<div class="w-2/12 text-xs font-semibold">Tags</div>
+			<div class="w-[20%] text-xs font-semibold">Triggered by</div>
+			<div class="w-[15%] text-xs font-semibold">Tags</div>
+			<div class="w-[5%]"></div>
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
