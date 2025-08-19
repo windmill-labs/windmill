@@ -11,7 +11,7 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::StreamExt;
-use http::{HeaderMap, HeaderValue, StatusCode};
+use http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use object_store::PutMultipartOpts;
 use windmill_common::{
     db::UserDB,
@@ -23,9 +23,10 @@ use windmill_common::{
 use crate::{
     auth::AuthCache,
     db::DB,
+    job_helpers_ee::upload_file_from_req,
     job_helpers_oss::{
         delete_s3_file_internal, get_workspace_s3_resource, read_object_streamable,
-        upload_file_from_req, DeleteS3FileQuery,
+        DeleteS3FileQuery,
     },
 };
 
@@ -89,76 +90,34 @@ async fn put_object(
             storage_str
         ))
     })?;
-    // let s3_client = build_object_store_client(&s3_resource).await?;
-    // upload_file_from_req(
-    //     s3_client,
-    //     &object_key,
-    //     req,
-    //     PutMultipartOpts { ..Default::default() },
-    // )
 
-    let header_map = req.headers();
-    let authorization = get_header(&header_map, "Authorization").map_err(to_anyhow)?;
-    let mut header_map = header_map.clone();
-    let mut authorization = AuthorizationHeader::parse(authorization)
-        .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
-
-    let rendered_endpoint = s3_resource.get_endpoint_url()?;
-    let s3_resource = match s3_resource {
-        ObjectStoreResource::S3(s3_resource) => s3_resource,
-        _ => {
-            return Err(Error::InternalErr(
-                "PUT operation is only supported for S3 storage".to_string(),
-            ));
-        }
-    };
-    let remote_uri = format!(
-        "{}/{}{}",
-        rendered_endpoint,
-        object_key,
-        req.uri()
-            .query()
-            .map(|q| format!("?{q}"))
-            .as_deref()
-            .unwrap_or("")
-    );
-    let host = format!(
-        "{}.s3.{}.amazonaws.com",
-        s3_resource.bucket, s3_resource.region
-    );
-    header_map.insert("host", HeaderValue::from_str(&host).map_err(to_anyhow)?);
-    authorization.credential.region = &s3_resource.region;
-    authorization.credential.access_key = s3_resource.access_key.as_deref().unwrap_or("");
-    let signature = generate_s3_signature(
-        s3_resource.secret_key.as_deref().unwrap_or(""),
-        &header_map,
-        "PUT",
-        &remote_uri,
-        &authorization,
-    )?;
-    authorization.signature = &signature;
-    let authorization = authorization.to_string();
-    header_map.insert(
-        "Authorization",
-        HeaderValue::from_str(&authorization).map_err(to_anyhow)?,
-    );
-
-    tracing::info!("Uploading file to S3: {:?}", req);
-
-    // Send PUT request
-    let client = reqwest::Client::new();
-    let response = client
-        .put(&remote_uri)
-        .headers(header_map)
-        .body(axum_body_to_reqwest_stream(req.into_body()))
-        .send()
+    if matches!(s3_resource, ObjectStoreResource::S3(_)) {
+        direct_s3_proxy(
+            http::Method::PUT,
+            req.headers().clone(),
+            s3_resource,
+            &object_key,
+            req.uri().clone(),
+            req.into_body(),
+        )
         .await
-        .map_err(to_anyhow)?;
-    tracing::info!("Uploading file to S3 RESPONSE: {:?}", response);
-
-    Ok(convert_reqwest_to_axum_response(response).await?)
+    } else {
+        let s3_client = build_object_store_client(&s3_resource).await?;
+        upload_file_from_req(
+            s3_client,
+            &object_key,
+            req,
+            PutMultipartOpts { ..Default::default() },
+        )
+        .await?;
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .map_err(to_anyhow)?)
+    }
 }
 
+// Only for DuckDB to work with S3
 async fn post_object(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -181,67 +140,15 @@ async fn post_object(
             storage_str
         ))
     })?;
-    let header_map = req.headers();
-    let authorization = get_header(&header_map, "Authorization").map_err(to_anyhow)?;
-    let mut header_map = header_map.clone();
-    let mut authorization = AuthorizationHeader::parse(authorization)
-        .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
-
-    // Object Store does not support POST :(
-    // But DuckDB uses POST when uploading and won't work unless
-    // it receives the expected response
-
-    let rendered_endpoint = s3_resource.get_endpoint_url()?;
-    let s3_resource = match s3_resource {
-        ObjectStoreResource::S3(s3_resource) => s3_resource,
-        _ => {
-            return Err(Error::InternalErr(
-                "POST operation is only supported for S3 storage".to_string(),
-            ));
-        }
-    };
-    let remote_uri = format!(
-        "{}/{}{}",
-        rendered_endpoint,
-        object_key,
-        req.uri()
-            .query()
-            .map(|q| format!("?{q}"))
-            .as_deref()
-            .unwrap_or("")
-    );
-    let host = format!(
-        "{}.s3.{}.amazonaws.com",
-        s3_resource.bucket, s3_resource.region
-    );
-    header_map.insert("host", HeaderValue::from_str(&host).map_err(to_anyhow)?);
-    authorization.credential.region = &s3_resource.region;
-    authorization.credential.access_key = s3_resource.access_key.as_deref().unwrap_or("");
-    let signature = generate_s3_signature(
-        s3_resource.secret_key.as_deref().unwrap_or(""),
-        &header_map,
-        "POST",
-        &remote_uri,
-        &authorization,
-    )?;
-    authorization.signature = &signature;
-    let authorization = authorization.to_string();
-    header_map.insert(
-        "Authorization",
-        HeaderValue::from_str(&authorization).map_err(to_anyhow)?,
-    );
-
-    // Send POST request
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&remote_uri)
-        .headers(header_map)
-        .body(axum_body_to_reqwest_stream(req.into_body()))
-        .send()
-        .await
-        .map_err(to_anyhow)?;
-
-    Ok(convert_reqwest_to_axum_response(response).await?)
+    direct_s3_proxy(
+        http::Method::POST,
+        req.headers().clone(),
+        s3_resource,
+        &object_key,
+        req.uri().clone(),
+        req.into_body(),
+    )
+    .await
 }
 
 async fn delete_object(
@@ -267,6 +174,81 @@ async fn delete_object(
         DeleteS3FileQuery { file_key: object_key, storage },
     )
     .await
+}
+
+async fn direct_s3_proxy(
+    method: http::Method,
+    header_map: HeaderMap,
+    s3_resource: ObjectStoreResource,
+    object_key: &str,
+    uri: Uri,
+    body: axum::body::Body,
+) -> Result<Response> {
+    let authorization = get_header(&header_map, "Authorization").map_err(to_anyhow)?;
+    let mut header_map = header_map.clone();
+    let mut authorization = AuthorizationHeader::parse(authorization)
+        .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
+
+    let rendered_endpoint = s3_resource.get_endpoint_url()?;
+    let s3_resource = match s3_resource {
+        ObjectStoreResource::S3(s3_resource) => s3_resource,
+        _ => {
+            return Err(Error::InternalErr(
+                "Direct proxy is only supported for S3".to_string(),
+            ));
+        }
+    };
+    let remote_uri = format!(
+        "{}/{}{}",
+        rendered_endpoint,
+        object_key,
+        uri.query()
+            .map(|q| format!("?{q}"))
+            .as_deref()
+            .unwrap_or("")
+    );
+    let host = format!(
+        "{}.s3.{}.amazonaws.com",
+        s3_resource.bucket, s3_resource.region
+    );
+    header_map.insert("host", HeaderValue::from_str(&host).map_err(to_anyhow)?);
+    authorization.credential.region = &s3_resource.region;
+    authorization.credential.access_key = s3_resource.access_key.as_deref().unwrap_or("");
+    let signature = generate_s3_signature(
+        s3_resource.secret_key.as_deref().unwrap_or(""),
+        &header_map,
+        method.as_str(),
+        &remote_uri,
+        &authorization,
+    )?;
+    authorization.signature = &signature;
+    let authorization = authorization.to_string();
+    header_map.insert(
+        "Authorization",
+        HeaderValue::from_str(&authorization).map_err(to_anyhow)?,
+    );
+
+    // Send request
+    let client = reqwest::Client::new();
+    let response = match method {
+        http::Method::POST => client.post(remote_uri),
+        http::Method::PUT => client.put(remote_uri),
+        http::Method::DELETE => client.delete(remote_uri),
+        http::Method::GET => client.get(remote_uri),
+        _ => {
+            return Err(Error::InternalErr(format!(
+                "Unsupported HTTP method: {}",
+                method
+            )));
+        }
+    }
+    .headers(header_map)
+    .body(axum_body_to_reqwest_stream(body))
+    .send()
+    .await
+    .map_err(to_anyhow)?;
+
+    Ok(convert_reqwest_to_axum_response(response).await?)
 }
 
 async fn get_token(
