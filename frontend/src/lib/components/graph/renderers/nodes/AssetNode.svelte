@@ -20,7 +20,8 @@
 	export function computeAssetNodes(nodes: NodeDep[]): {
 		newAssetNodes: (Node & NodeLayout)[]
 		newAssetEdges: Edge[]
-		modifiedNodes: Record<string, NodeDep> // Nodes need to be offset on the y axis to make space for the asset nodes
+		// Nodes need to be offset on the y axis to make space for the asset nodes
+		newNodePositions: Record<string, { x: number; y: number }>
 	} {
 		if (computeAssetNodesCache && deepEqual(nodes, computeAssetNodesCache[0])) {
 			return computeAssetNodesCache[1]
@@ -186,7 +187,10 @@
 		}
 
 		// Shift all nodes to make space for the new asset nodes
-		const sortedNewNodes = clone(nodes.sort((a, b) => a.position.y - b.position.y))
+		const sortedNewNodes = nodes
+			.map((n) => ({ position: { ...n.position }, id: n.id }))
+			.sort((a, b) => a.position.y - b.position.y)
+
 		let currentYOffset = 0
 		let prevYPos = NaN
 		for (const node of sortedNewNodes) {
@@ -201,7 +205,7 @@
 		let ret: ReturnType<typeof computeAssetNodes> = {
 			newAssetNodes: allAssetNodes,
 			newAssetEdges: allAssetEdges,
-			modifiedNodes: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n]))
+			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
 		}
 		computeAssetNodesCache = [nodes, ret]
 		return ret
@@ -223,7 +227,7 @@
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { clone, pluralize } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 

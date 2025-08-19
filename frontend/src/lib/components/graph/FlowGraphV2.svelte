@@ -399,14 +399,12 @@
 				type: n.type
 			}))
 		)
-		nodes = [
-			...newNodes.map((n) => ({
-				...n,
-				...assetNodesResult.modifiedNodes[n.id],
-				data: { ...n.data, assets: n.data?.assets }
-			})),
+		newNodes = [
+			...newNodes.map((n) => ({ ...n, position: assetNodesResult.newNodePositions[n.id] })),
 			...assetNodesResult.newAssetNodes
 		]
+
+		nodes = newNodes
 		edges = [...assetNodesResult.newAssetEdges, ...graph.edges]
 
 		await tick()
