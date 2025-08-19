@@ -115,9 +115,7 @@
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
 		() => aiChatManager.contextManager.getSelectedContext(),
-		(sc) => {
-			aiChatManager.scriptEditorOptions && aiChatManager.contextManager.setSelectedContext(sc)
-		}
+		(sc) => aiChatManager.contextManager.setSelectedContext(sc)
 	}
 	availableContext={aiChatManager.contextManager.getAvailableContext()}
 	messages={aiChatManager.currentReply

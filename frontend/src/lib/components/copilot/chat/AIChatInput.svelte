@@ -74,7 +74,7 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		if (aiChatManager.mode === AIMode.SCRIPT) {
+		if (aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -132,7 +132,7 @@
 </script>
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === AIMode.SCRIPT}
+	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>

@@ -10,9 +10,12 @@ import { emptySchema, emptyString } from '$lib/utils'
 import {
 	getFormattedResourceTypes,
 	getLangContext,
-	SUPPORTED_CHAT_SCRIPT_LANGUAGES
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
+	createDbSchemaTool,
+	CHAT_USER_DB_CONTEXT
 } from '../script/core'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
+import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -368,6 +371,7 @@ const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
+	createDbSchemaTool<FlowAIChatHelpers>(),
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -816,21 +820,41 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string }
+	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
+	selectedContext?: ContextElement[]
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
 
-	if (!flow || !selectedId) {
-		return {
-			role: 'user',
-			content: `## INSTRUCTIONS:
-${instructions}`
+	// Handle context elements
+	let dbContext = 'DATABASES:\n'
+	let hasDb = false
+	
+	if (selectedContext) {
+		for (const context of selectedContext) {
+			if (context.type === 'db') {
+				hasDb = true
+				dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
+					'{schema}',
+					context.schema?.stringified ?? 'to fetch with get_db_schema'
+				)
+			}
 		}
 	}
-	return {
-		role: 'user',
-		content: `## FLOW:
+
+	if (!flow || !selectedId) {
+		let userMessage = `## INSTRUCTIONS:
+${instructions}`
+		if (hasDb) {
+			userMessage += '\n\n' + dbContext
+		}
+		return {
+			role: 'user',
+			content: userMessage
+		}
+	}
+	
+	let flowContent = `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
@@ -848,5 +872,13 @@ ${selectedId}
 
 ## INSTRUCTIONS:
 ${instructions}`
+
+	if (hasDb) {
+		flowContent += '\n\n' + dbContext
+	}
+
+	return {
+		role: 'user',
+		content: flowContent
 	}
 }

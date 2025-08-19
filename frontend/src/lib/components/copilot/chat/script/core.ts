@@ -646,38 +646,43 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
-export const dbSchemaTool: Tool<ScriptChatHelpers> = {
-	def: DB_SCHEMA_FUNCTION_DEF,
-	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
-		if (!args.resourcePath) {
-			throw new Error('Database path not provided')
-		}
-		toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
-		const resource = await ResourceService.getResource({
-			workspace: workspace,
-			path: args.resourcePath
-		})
-		const newDbSchemas = {}
-		await getDbSchemas(
-			resource.resource_type,
-			args.resourcePath,
-			workspace,
-			newDbSchemas,
-			(error) => {
-				console.error(error)
+// Generic DB schema tool factory that can be used by both script and flow modes
+export function createDbSchemaTool<T>(): Tool<T> {
+	return {
+		def: DB_SCHEMA_FUNCTION_DEF,
+		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+			if (!args.resourcePath) {
+				throw new Error('Database path not provided')
 			}
-		)
-		dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-		const dbs = get(dbSchemas)
-		const db = dbs[args.resourcePath]
-		if (!db) {
-			throw new Error('Database not found')
+			toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
+			const resource = await ResourceService.getResource({
+				workspace: workspace,
+				path: args.resourcePath
+			})
+			const newDbSchemas = {}
+			await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				newDbSchemas,
+				(error) => {
+					console.error(error)
+				}
+			)
+			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
+			const dbs = get(dbSchemas)
+			const db = dbs[args.resourcePath]
+			if (!db) {
+				throw new Error('Database not found')
+			}
+			const stringSchema = await formatDBSchema(db)
+			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
+			return stringSchema
 		}
-		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
-		return stringSchema
 	}
 }
+
+export const dbSchemaTool: Tool<ScriptChatHelpers> = createDbSchemaTool<ScriptChatHelpers>()
 
 type PackageSearchQuery = {
 	package: {

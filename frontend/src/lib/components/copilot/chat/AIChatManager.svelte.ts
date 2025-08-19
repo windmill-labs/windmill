@@ -672,7 +672,8 @@ class AIChatManager {
 				case AIMode.FLOW:
 					userMessage = prepareFlowUserMessage(
 						oldInstructions,
-						this.flowAiChatHelpers!.getFlowAndSelectedId()
+						this.flowAiChatHelpers!.getFlowAndSelectedId(),
+						oldSelectedContext
 					)
 					break
 				case AIMode.NAVIGATOR:
@@ -877,6 +878,13 @@ class AIChatManager {
 		if (this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
+				dbSchemas,
+				workspaceStore ?? '',
+				!copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => this.contextManager.getSelectedContext())
+			)
+		} else {
+			this.contextManager.updateAvailableContextForFlow(
 				dbSchemas,
 				workspaceStore ?? '',
 				!copilotSessionModel?.model.endsWith('/thinking'),

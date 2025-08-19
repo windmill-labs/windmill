@@ -55,6 +55,53 @@ export default class ContextManager {
 		)
 	}
 
+	async updateAvailableContextForFlow(
+		dbSchemas: DBSchemas,
+		workspace: string,
+		toolSupport: boolean,
+		currentlySelectedContext: ContextElement[]
+	) {
+		try {
+			if (this.workspace !== workspace) {
+				await this.refreshDbResources(workspace)
+				this.workspace = workspace
+			}
+
+			let newAvailableContext: ContextElement[] = []
+
+			if (toolSupport) {
+				for (const d of this.dbResources) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
+
+			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
+
+			// Filter selected context to only include available items
+			newSelectedContext = newSelectedContext.filter(
+				(c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
+			).map((c) =>
+				c.type === 'db' && dbSchemas[c.title]
+					? {
+						...c,
+						schema: dbSchemas[c.title]
+					}
+					: c
+			)
+
+			this.availableContext = newAvailableContext
+			this.selectedContext = newSelectedContext
+		} catch (err) {
+			console.error('Could not update available context for flow', err)
+		}
+	}
+
 	async updateAvailableContext(
 		scriptOptions: ScriptOptions,
 		dbSchemas: DBSchemas,
