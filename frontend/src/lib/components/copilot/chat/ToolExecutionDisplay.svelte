@@ -37,16 +37,13 @@
 				{/if}
 			{/if}
 
-			{#if message.isLoading}
+			{#if message.isLoading && !message.needsConfirmation}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 			{:else if message.error}
 				<span class="text-red-500">✗</span>
 			{:else if !message.isLoading && !message.error}
 				<span class="text-green-500">✓</span>
-			{:else}
-				<span class="text-tertiary">○</span>
 			{/if}
-
 			<span class="text-primary font-medium text-2xs">
 				{message.content}
 			</span>
@@ -69,7 +66,7 @@
 				>
 					<Button
 						variant="border"
-						color="red"
+						color="gray"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {
@@ -80,7 +77,7 @@
 					></Button>
 					<Button
 						variant="border"
-						color="blue"
+						color="green"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {
