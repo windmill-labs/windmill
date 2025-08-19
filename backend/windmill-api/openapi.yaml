@@ -7345,6 +7345,13 @@ paths:
             schema:
               $ref: "#/components/schemas/FlowPreview"
 
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/queue/list:
     get:
       summary: list all queued jobs
