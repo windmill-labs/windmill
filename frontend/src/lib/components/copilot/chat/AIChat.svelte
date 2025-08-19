@@ -77,7 +77,7 @@
 	})
 
 	$effect(() => {
-		aiChatManager.listenForScriptEditorContextChange(
+		aiChatManager.listenForContextChange(
 			$dbSchemas,
 			$workspaceStore,
 			$copilotSessionModel

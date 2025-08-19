@@ -18,6 +18,13 @@ export interface ScriptOptions {
 	diffMode: boolean
 }
 
+export interface FlowOptions {
+	currentFlow: any // ExtendedOpenFlow
+	lastDeployedFlow?: any // Flow without draft
+	path: string | undefined
+	diffMode: boolean
+}
+
 export default class ContextManager {
 	private selectedContext: ContextElement[] = $state([])
 	private availableContext: ContextElement[] = $state([])
@@ -56,6 +63,7 @@ export default class ContextManager {
 	}
 
 	async updateAvailableContextForFlow(
+		flowOptions: FlowOptions | undefined,
 		dbSchemas: DBSchemas,
 		workspace: string,
 		toolSupport: boolean,
@@ -77,6 +85,22 @@ export default class ContextManager {
 						title: d.path,
 						// If the db is already fetched, add the schema to the context
 						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
+
+			// Add diff context if we have a deployed flow version
+			if (flowOptions?.lastDeployedFlow && flowOptions?.currentFlow) {
+				const deployedFlowString = JSON.stringify(flowOptions.lastDeployedFlow, null, 2)
+				const currentFlowString = JSON.stringify(flowOptions.currentFlow, null, 2)
+				
+				if (deployedFlowString !== currentFlowString) {
+					newAvailableContext.push({
+						type: 'diff',
+						title: 'diff_with_last_deployed_version',
+						content: deployedFlowString,
+						diff: diffLines(deployedFlowString, currentFlowString),
+						lang: 'bunnative' // Use a generic lang for flow diffs
 					})
 				}
 			}

@@ -14,6 +14,7 @@ import {
 	createDbSchemaTool,
 	CHAT_USER_DB_CONTEXT
 } from '../script/core'
+import { diffLines } from 'diff'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -23,6 +24,7 @@ export type AIModuleAction = 'added' | 'modified' | 'removed'
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
+	getFlowOptions: () => { currentFlow: ExtendedOpenFlow; lastDeployedFlow?: any; path?: string; diffMode: boolean }
 	// flow apply/reject
 	getPreviewFlow: () => ExtendedOpenFlow
 	hasDiff: () => boolean
@@ -828,7 +830,9 @@ export function prepareFlowUserMessage(
 
 	// Handle context elements
 	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
 	let hasDb = false
+	let hasDiff = false
 	
 	if (selectedContext) {
 		for (const context of selectedContext) {
@@ -838,6 +842,10 @@ export function prepareFlowUserMessage(
 					'{schema}',
 					context.schema?.stringified ?? 'to fetch with get_db_schema'
 				)
+			} else if (context.type === 'diff') {
+				hasDiff = true
+				const diff = JSON.stringify(context.diff)
+				diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
 			}
 		}
 	}
@@ -847,6 +855,9 @@ export function prepareFlowUserMessage(
 ${instructions}`
 		if (hasDb) {
 			userMessage += '\n\n' + dbContext
+		}
+		if (hasDiff) {
+			userMessage += '\n\n' + diffContext
 		}
 		return {
 			role: 'user',
@@ -875,6 +886,9 @@ ${instructions}`
 
 	if (hasDb) {
 		flowContent += '\n\n' + dbContext
+	}
+	if (hasDiff) {
+		flowContent += '\n\n' + diffContext
 	}
 
 	return {

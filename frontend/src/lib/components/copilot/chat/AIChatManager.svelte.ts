@@ -870,12 +870,12 @@ class AIChatManager {
 		})
 	}
 
-	listenForScriptEditorContextChange = (
+	listenForContextChange = (
 		dbSchemas: DBSchemas,
 		workspaceStore: string | undefined,
 		copilotSessionModel: AIProviderModel | undefined
 	) => {
-		if (this.scriptEditorOptions) {
+		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
 				dbSchemas,
@@ -883,8 +883,10 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
-		} else {
+		} else if (this.mode === AIMode.FLOW && this.flowAiChatHelpers) {
+			const flowOptions = this.flowAiChatHelpers.getFlowOptions()
 			this.contextManager.updateAvailableContextForFlow(
+				flowOptions,
 				dbSchemas,
 				workspaceStore ?? '',
 				!copilotSessionModel?.model.endsWith('/thinking'),

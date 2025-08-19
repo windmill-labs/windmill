@@ -19,9 +19,11 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
+		deployedFlow
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+		deployedFlow?: any // Flow without draft
 	} = $props()
 
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
@@ -84,6 +86,15 @@
 			return {
 				flow,
 				selectedId: $selectedId
+			}
+		},
+		getFlowOptions: () => {
+			const currentFlow = $state.snapshot(flowStore).val
+			return {
+				currentFlow,
+				lastDeployedFlow: deployedFlow,
+				path: currentFlow?.path,
+				diffMode: false // Could be extended later
 			}
 		},
 		// flow apply/reject
