@@ -456,7 +456,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets, false),
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',

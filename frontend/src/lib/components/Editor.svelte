@@ -100,7 +100,8 @@
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
-		vimMode
+		vimMode,
+		relativeLineNumbers
 	} from '$lib/stores'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
@@ -1234,7 +1235,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, $relativeLineNumbers),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1651,6 +1652,11 @@
 	})
 	$effect(() => {
 		files && model && untrack(() => onFileChanges())
+	})
+	$effect(() => {
+		editor?.updateOptions({ 
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
 	})
 </script>
 
