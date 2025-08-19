@@ -247,7 +247,6 @@
 				{availableContext}
 				{disabled}
 				isFirstMessage={messages.length === 0}
-				placeholder={messages.length === 0 ? 'Ask anything' : 'Ask followup'}
 			/>
 			<div
 				class={`flex flex-row ${
