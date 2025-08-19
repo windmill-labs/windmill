@@ -39,6 +39,8 @@
 				<div>
 					<VimMode />
 				</div>
+			{/if}
+			{#if customUi?.relativeLineNumbers != false}
 				<div>
 					<RelativeLineNumbers />
 				</div>

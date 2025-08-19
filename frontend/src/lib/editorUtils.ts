@@ -17,7 +17,7 @@ export function editorConfig(
 		fixedOverflowWidgets,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
-		lineNumbers: relativeLineNumbers ? 'relative' as const : 'on' as const,
+		lineNumbers: (relativeLineNumbers ?? false) ? 'relative' as const : 'on' as const,
 		scrollbar: { alwaysConsumeMouseWheel: false },
 		folding: false,
 		scrollBeyondLastLine: false,
