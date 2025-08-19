@@ -103,13 +103,11 @@
 	})
 
 	let refreshGlobal = async (moduleId: string, clear: boolean, root: string) => {
-		console.debug('refreshGlobal', moduleId, clear, root)
 		let allFns = globalRefreshes?.[moduleId]?.map((x) => x(clear, root)) ?? []
 		await Promise.all(allFns)
 	}
 
 	let updateGlobalRefresh = (moduleId: string, updateFn: (clear, root) => Promise<void>) => {
-		console.debug('updateGlobalRefresh', moduleId, updateFn)
 		globalRefreshes[moduleId] = [...(globalRefreshes[moduleId] ?? []), updateFn]
 	}
 </script>

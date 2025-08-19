@@ -78,7 +78,6 @@
 		globalDurationStatuses?: Record<string, DurationStatus>[]
 		globalIterationBounds: Record<string, GlobalIterationBounds>
 		isSelectedBranch?: boolean
-		childFlow?: boolean
 		isSubflow?: boolean
 		reducedPolling?: boolean
 		wideResults?: boolean
@@ -128,7 +127,6 @@
 		globalIterationBounds,
 		updateRecursiveRefreshFn = undefined,
 		isSelectedBranch = true,
-		childFlow = false,
 		isSubflow = false,
 		reducedPolling = false,
 		wideResults = false,
@@ -252,6 +250,8 @@
 				)
 			) {
 				newState.type = 'InProgress'
+			} else if (newValue.type != undefined) {
+				newState.type = newValue.type
 			}
 
 			if (
@@ -264,7 +264,7 @@
 				newState.job_id = newValue.job_id
 			}
 			moduleState[key] = newState
-			console.debug('updateModuleStates 1', key)
+			console.debug('updateModuleStates 1', key, $state.snapshot(moduleState[key]))
 			return
 		}
 
@@ -288,7 +288,7 @@
 			newValue.type = moduleState[key].type
 		}
 		if (!deepEqual(moduleState[key], newValue)) {
-			console.debug('updateModuleStates 2', key)
+			// console.debug('updateModuleStates 2', key, $state.snapshot(moduleState))
 			moduleState[key] = newValue
 		}
 	}
@@ -345,14 +345,14 @@
 			let rec = recursiveRefresh[rootJob]
 			if (rec) {
 				await callRec(rec)
-				console.debug('refresh recursive 1', rec)
+				// console.debug('refresh recursive 1', rec)
 			} else {
-				console.debug('refresh recursive no rec', rootJob)
+				// console.debug('refresh recursive no rec', rootJob)
 			}
 		} else {
 			for (let rec of Object.values(recursiveRefresh)) {
 				await callRec(rec)
-				console.debug('refresh recursive 2', rec)
+				// console.debug('refresh recursive 2', rec)
 			}
 		}
 	}
@@ -488,6 +488,7 @@
 									mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
 							}
 						: {}
+					console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
 					setModuleState(
 						mod.id ?? '',
 						{
@@ -644,23 +645,24 @@
 	}
 
 	function onJobsLoadedInner(mod: FlowStatusModule, job: Job, force?: boolean): void {
-		if (mod.id && ((mod.flow_jobs ?? []).length == 0 || force)) {
-			if (!childFlow) {
-				if (flowStateStore) {
-					flowStateStore[mod.id] = {
-						...(flowStateStore?.[mod.id] ?? {}),
-						previewResult: job['result'],
-						previewArgs: job.args,
-						previewJobId: job.id,
-						previewSuccess: job['success']
-					}
+		let id = mod.id
+		if (id && ((mod.flow_jobs ?? []).length == 0 || force)) {
+			console.debug('onJobsLoadedInner', id, job.id, force)
+			if (flowStateStore) {
+				flowStateStore[buildSubflowKey(id, prefix)] = {
+					...(flowStateStore?.[buildSubflowKey(id, prefix)] ?? {}),
+					previewResult: job['result'],
+					previewArgs: job.args,
+					previewJobId: job.id,
+					previewSuccess: job['success']
 				}
 			}
-			initializeByJob(mod.id)
+
+			initializeByJob(id)
 			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
 				setModuleState(
-					mod.id,
+					id,
 					{
 						type: 'InProgress',
 						job_id: job.id,
@@ -672,7 +674,7 @@
 					},
 					force
 				)
-				setDurationStatusByJob(mod.id, job.id, {
+				setDurationStatusByJob(id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at
 				})
@@ -680,10 +682,10 @@
 				const parent_module = mod['parent_module']
 
 				// Delete existing failure node attached to the same parent module
-				removeFailureNode(mod.id, parent_module)
+				removeFailureNode(id, parent_module)
 
 				setModuleState(
-					mod.id,
+					id,
 					{
 						args: job.args,
 						type: job['success'] ? 'Success' : 'Failure',
@@ -704,7 +706,7 @@
 					force
 				)
 
-				setDurationStatusByJob(mod.id, job.id, {
+				setDurationStatusByJob(id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
 					duration_ms: job['duration_ms']
@@ -778,29 +780,31 @@
 				innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow'
 			)
 
+			let prefixedId = buildSubflowKey(modId, prefix)
+
 			// if (flowStateStore) {
 			// 	flowStateStore[modId] = {
 			// 		...((flowStateStore[modId] as object) ?? {}),
 			// 		previewResult: jobLoaded.args
 			// 	}
 			// }
-			if (flowStateStore && flowStateStore[modId] == undefined) {
-				flowStateStore[modId] = {}
+			if (flowStateStore && flowStateStore[prefixedId] == undefined) {
+				flowStateStore[prefixedId] = {}
 			}
 			if (flowStateStore) {
 				if (
-					!flowStateStore?.[modId]?.previewResult ||
-					!Array.isArray(flowStateStore[modId]?.previewResult)
+					!flowStateStore?.[prefixedId]?.previewResult ||
+					!Array.isArray(flowStateStore[prefixedId]?.previewResult)
 				) {
-					flowStateStore[modId].previewResult = []
+					flowStateStore[prefixedId].previewResult = []
 				}
-				flowStateStore[modId].previewArgs = jobLoaded.args
+				flowStateStore[prefixedId].previewArgs = jobLoaded.args
 			}
 			if (jobLoaded.type == 'QueuedJob') {
 				jobResults[j] = 'Job in progress ...'
 			} else if (jobLoaded.type == 'CompletedJob') {
-				if (flowStateStore?.[modId]) {
-					flowStateStore[modId].previewResult[j] = jobLoaded.result
+				if (flowStateStore?.[prefixedId]) {
+					flowStateStore[prefixedId].previewResult[j] = jobLoaded.result
 				}
 				jobResults[j] = jobLoaded.result
 			}
@@ -820,8 +824,7 @@
 				duration_ms: undefined
 			}
 
-			let currentIndex =
-				getTopModuleStates?.[buildSubflowKey(modId, prefix)]?.selectedForloopIndex == j
+			let currentIndex = getTopModuleStates?.[prefixedId]?.selectedForloopIndex == j
 
 			if (currentIndex) {
 				v.logs = jobLoaded.logs
@@ -955,7 +958,7 @@
 			let rootJobId = detail.id
 			await tick()
 
-			let previousId = localModuleStates[detail.moduleId]?.selectedForloop
+			let previousId = getTopModuleStates?.[prefixedId]?.selectedForloop
 			if (previousId) {
 				await refreshGlobal?.(prefixedId, true, previousId)
 			}
@@ -1146,7 +1149,6 @@
 									{refreshGlobal}
 									isSelectedBranch={isSelectedBranch && forloopIsSelected}
 									updateRecursiveRefreshFn={updateRecursiveRefreshInner}
-									{childFlow}
 									job={storedListJobs[j]}
 									initialJob={storedListJobs[j]}
 									globalModuleStates={forloopIsSelected
@@ -1242,7 +1244,6 @@
 											isSelectedBranch={isSelectedBranch && retry_selected == failedRetry}
 											{updateGlobalRefresh}
 											updateRecursiveRefreshFn={updateRecursiveRefreshInner}
-											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 											{prefix}
@@ -1287,7 +1288,6 @@
 										jobId={mod.job ?? ''}
 										{reducedPolling}
 										isSubflow
-										childFlow
 										onJobsLoaded={({ job, force }) => {
 											onJobsLoadedInner(mod, job, force)
 										}}
@@ -1302,7 +1302,6 @@
 										topModuleStates={getTopModuleStates}
 										{refreshGlobal}
 										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
-										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 										render={selected == 'sequence' && render}
