@@ -56,6 +56,7 @@
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
+	import type { AssetWithAltAccessType } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -390,10 +391,23 @@
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
-		let assetNodesResult = computeAssetNodes(newNodes)
-		nodes = assetNodesResult.modifiedNodes.map((n) => ({ ...graph.nodes[n.id], ...n }))
-		nodes.push(...assetNodesResult.newAssetNodes)
-		edges.push(...assetNodesResult.newAssetEdges)
+		let assetNodesResult = computeAssetNodes(
+			newNodes.map((n) => ({
+				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
+				id: n.id,
+				position: n.position,
+				type: n.type
+			}))
+		)
+		nodes = [
+			...newNodes.map((n) => ({
+				...n,
+				...assetNodesResult.modifiedNodes[n.id],
+				data: { ...n.data, assets: n.data?.assets }
+			})),
+			...assetNodesResult.newAssetNodes
+		]
+		edges = [...assetNodesResult.newAssetEdges, ...graph.edges]
 
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)

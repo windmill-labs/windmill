@@ -20,7 +20,7 @@
 	export function computeAssetNodes(nodes: NodeDep[]): {
 		newAssetNodes: (Node & NodeLayout)[]
 		newAssetEdges: Edge[]
-		modifiedNodes: NodeDep[] // Nodes need to be offset on the y axis to make space for the asset nodes
+		modifiedNodes: Record<string, NodeDep> // Nodes need to be offset on the y axis to make space for the asset nodes
 	} {
 		if (computeAssetNodesCache && deepEqual(nodes, computeAssetNodesCache[0])) {
 			return computeAssetNodesCache[1]
@@ -201,7 +201,7 @@
 		let ret: ReturnType<typeof computeAssetNodes> = {
 			newAssetNodes: allAssetNodes,
 			newAssetEdges: allAssetEdges,
-			modifiedNodes: sortedNewNodes
+			modifiedNodes: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n]))
 		}
 		computeAssetNodesCache = [nodes, ret]
 		return ret
