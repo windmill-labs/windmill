@@ -73,7 +73,7 @@ async fn put_object(
     Path((w_id, storage_str, object_key)): Path<(String, String, String)>,
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
-) -> Result<()> {
+) -> Result<Response> {
     let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
@@ -89,14 +89,74 @@ async fn put_object(
             storage_str
         ))
     })?;
-    let s3_client = build_object_store_client(&s3_resource).await?;
-    upload_file_from_req(
-        s3_client,
-        &object_key,
-        req,
-        PutMultipartOpts { ..Default::default() },
-    )
-    .await
+    // let s3_client = build_object_store_client(&s3_resource).await?;
+    // upload_file_from_req(
+    //     s3_client,
+    //     &object_key,
+    //     req,
+    //     PutMultipartOpts { ..Default::default() },
+    // )
+
+    let header_map = req.headers();
+    let authorization = get_header(&header_map, "Authorization").map_err(to_anyhow)?;
+    let mut header_map = header_map.clone();
+    let mut authorization = AuthorizationHeader::parse(authorization)
+        .ok_or_else(|| Error::InternalErr("Invalid Authorization header format".to_string()))?;
+
+    let rendered_endpoint = s3_resource.get_endpoint_url()?;
+    let s3_resource = match s3_resource {
+        ObjectStoreResource::S3(s3_resource) => s3_resource,
+        _ => {
+            return Err(Error::InternalErr(
+                "PUT operation is only supported for S3 storage".to_string(),
+            ));
+        }
+    };
+    let remote_uri = format!(
+        "{}/{}{}",
+        rendered_endpoint,
+        object_key,
+        req.uri()
+            .query()
+            .map(|q| format!("?{q}"))
+            .as_deref()
+            .unwrap_or("")
+    );
+    let host = format!(
+        "{}.s3.{}.amazonaws.com",
+        s3_resource.bucket, s3_resource.region
+    );
+    header_map.insert("host", HeaderValue::from_str(&host).map_err(to_anyhow)?);
+    authorization.credential.region = &s3_resource.region;
+    authorization.credential.access_key = s3_resource.access_key.as_deref().unwrap_or("");
+    let signature = generate_s3_signature(
+        s3_resource.secret_key.as_deref().unwrap_or(""),
+        &header_map,
+        "PUT",
+        &remote_uri,
+        &authorization,
+    )?;
+    authorization.signature = &signature;
+    let authorization = authorization.to_string();
+    header_map.insert(
+        "Authorization",
+        HeaderValue::from_str(&authorization).map_err(to_anyhow)?,
+    );
+
+    tracing::info!("Uploading file to S3: {:?}", req);
+
+    // Send PUT request
+    let client = reqwest::Client::new();
+    let response = client
+        .put(&remote_uri)
+        .headers(header_map)
+        .body(axum_body_to_reqwest_stream(req.into_body()))
+        .send()
+        .await
+        .map_err(to_anyhow)?;
+    tracing::info!("Uploading file to S3 RESPONSE: {:?}", response);
+
+    Ok(convert_reqwest_to_axum_response(response).await?)
 }
 
 async fn post_object(
