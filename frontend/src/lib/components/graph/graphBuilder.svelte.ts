@@ -306,7 +306,7 @@ export type AiToolN = {
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
-		stateType?: GraphModuleState['type']
+		flowModuleStates: Record<string, GraphModuleState> | undefined
 	}
 }
 
@@ -1091,7 +1091,6 @@ export function graphBuilder(
 				})
 			}
 		}
-		console.log('updating graph')
 
 		return { nodes: Object.fromEntries(nodes.map((n) => [n.id, n])), edges }
 	} catch (e) {

@@ -454,19 +454,25 @@
 	function loadAIAgentToolJobs(agentActions: NonNullable<FlowStatusModule['agent_actions']>) {
 		agentActions.forEach((action, idx) => {
 			if (action.type === 'tool_call') {
+				const toolCallId = getToolCallId(idx, action.module_id)
 				JobService.getJob({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: action.job_id
 				})
 					.then((job) => {
-						setModuleState(getToolCallId(idx, action.module_id), {
-							job_id: job.id,
-							logs: job.logs,
-							args: job.args,
-							tag: job.tag,
-							result: job['result'],
-							type: 'success' in job ? (job['success'] ? 'Success' : 'Failure') : undefined
-						})
+						setModuleState(
+							toolCallId,
+							{
+								job_id: job.id,
+								logs: job.logs,
+								args: job.args,
+								tag: job.tag,
+								result: job.type === 'CompletedJob' ? job.result : undefined,
+								type:
+									job.type === 'CompletedJob' ? (job.success ? 'Success' : 'Failure') : 'InProgress'
+							},
+							true
+						)
 					})
 					.catch((e) => {
 						console.error(

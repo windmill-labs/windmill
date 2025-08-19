@@ -70,8 +70,7 @@
 						const id = getToolCallId(idx, a.module_id)
 						return {
 							id,
-							name: a.function_name,
-							stateType: flowModuleStates?.[id]?.type
+							name: a.function_name
 						}
 					} else {
 						return {
@@ -110,7 +109,7 @@
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
-						stateType: tool.stateType
+						flowModuleStates
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -219,12 +218,14 @@
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
+
+	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
 </script>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
-		{@const bgColor = getStateColor(data.stateType, darkMode, true, false)}
-		{@const bgHoverColor = getStateHoverColor(data.stateType, darkMode, true, false)}
+		{@const bgColor = getStateColor(flowModuleState?.type, darkMode, true, false)}
+		{@const bgHoverColor = getStateHoverColor(flowModuleState?.type, darkMode, true, false)}
 
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
