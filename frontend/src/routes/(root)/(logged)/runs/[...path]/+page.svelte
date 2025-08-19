@@ -30,7 +30,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobsLoader from '$lib/components/runs/JobsLoader.svelte'
-	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
+	import { Calendar, ChevronDown, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -45,6 +45,8 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import RunOption from '$lib/components/runs/RunOption.svelte'
+	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
+	import DropownSelect from '$lib/components/DropownSelect.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -1033,65 +1035,79 @@
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 pt-12 w-full border-b">
+		<div class="p-2 px-4 pt-12 w-full border-b">
 			<div class="relative z-10">
-				<div class="absolute left-0 -top-10">
-					<div class="flex flex-row justify-between items-center">
-						<ToggleButtonGroup
-							selected={graph}
-							on:selected={({ detail }) => {
-								graph = detail
-								graphIsRunsChart = graph === 'RunChart'
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="RunChart" label="Duration (ms)" {item} small />
-								<ToggleButton
-									{item}
-									value="ConcurrencyChart"
-									label="Concurrency"
-									icon={warnJobLimit ? AlertTriangle : undefined}
-									tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-									small
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
+				<div class="absolute left-0 -top-10 flex flex-row gap-2 items-center">
+					<DropownSelect
+						items={[
+							{
+								displayName: 'Duration (ms)',
+								action: () => {
+									graph = 'RunChart'
+									graphIsRunsChart = true
+								},
+								id: 'duration'
+							},
+							{
+								displayName: 'Concurrency',
+								action: () => {
+									graph = 'ConcurrencyChart'
+									graphIsRunsChart = false
+								},
+								id: 'concurrency'
+							}
+						]}
+						selected={graphIsRunsChart ? 'duration' : 'concurrency'}
+					>
+						{#snippet extraLabel()}
+							{#if warnJobLimit && !graphIsRunsChart}
+								<TooltipV2>
+									<TriangleAlert size={12} />
+									{#snippet text()}
+										{warnJobLimitMsg}
+									{/snippet}
+								</TooltipV2>
+							{/if}
+						{/snippet}
+					</DropownSelect>
+
 					{#if !graphIsRunsChart}
-						<DropdownV2
+						<DropownSelect
 							items={[
 								{
 									displayName: 'None',
-									action: () => setLookback(0)
+									action: () => setLookback(0),
+									id: '0'
 								},
 								{
 									displayName: '1 day',
-									action: () => setLookback(1)
+									action: () => setLookback(1),
+									id: '1'
 								},
 								{
 									displayName: '3 days',
-									action: () => setLookback(3)
+									action: () => setLookback(3),
+									id: '3'
 								},
 								{
 									displayName: '7 days',
-									action: () => setLookback(7)
+									action: () => setLookback(7),
+									id: '7'
 								}
 							]}
+							selected={lookback.toString()}
+							selectedDisplayName={`${lookback} days lookback`}
 						>
-							{#snippet buttonReplacement()}
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<ChevronDown class="w-5 h-5" />
-									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
-									<Tooltip>
+							{#snippet extraLabel()}
+								<TooltipV2>
+									{#snippet text()}
 										How far behind the min datetime to start considering jobs for the concurrency
 										graph. Change this value to include jobs started before the set time window for
 										the computation of the graph
-									</Tooltip>
-								</div>
+									{/snippet}
+								</TooltipV2>
 							{/snippet}
-						</DropdownV2>
+						</DropownSelect>
 					{/if}
 				</div>
 			</div>
@@ -1248,7 +1264,6 @@
 						selected={graph}
 						on:selected={({ detail }) => {
 							graph = detail
-							graphIsRunsChart = graph == 'RunChart'
 						}}
 					>
 						{#snippet children({ item })}
