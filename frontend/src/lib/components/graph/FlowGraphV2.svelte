@@ -388,13 +388,13 @@
 				offset: n.data.offset ?? 0
 			}))
 		)
-		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
-			return {
-				...n,
-				...graph.nodes[n.id]
-			}
-		})
-		;[nodes, edges] = computeAssetNodes(newNodes, graph.edges)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
+
+		let assetNodesResult = computeAssetNodes(newNodes)
+		nodes = assetNodesResult.modifiedNodes.map((n) => ({ ...graph.nodes[n.id], ...n }))
+		nodes.push(...assetNodesResult.newAssetNodes)
+		edges.push(...assetNodesResult.newAssetEdges)
+
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
