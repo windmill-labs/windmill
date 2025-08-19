@@ -11,6 +11,7 @@
 	import Label from './Label.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import { ConfigService } from '$lib/gen'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
@@ -21,6 +22,27 @@
 
 	const dispatch = createEventDispatcher()
 	let test_input: number = $state(3)
+	let healthCheckLoading: boolean = $state(false)
+	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
+
+	async function checkKubernetesHealth() {
+		if (!config?.integration || config.integration.type !== 'kubernetes') return
+		
+		healthCheckLoading = true
+		healthCheckResult = null
+		
+		try {
+			await ConfigService.nativeKubernetesAutoscalingHealthcheck()
+			healthCheckResult = { success: true }
+		} catch (error: any) {
+			healthCheckResult = { 
+				success: false, 
+				error: error.body || error.message || 'Unknown error' 
+			}
+		} finally {
+			healthCheckLoading = false
+		}
+	}
 </script>
 
 <div class="flex flex-row gap-16 pt-2">
@@ -262,7 +284,7 @@
 					/>
 					<ToggleButton disabled value="ecs" label="ECS (soon)" {item} />
 					<ToggleButton disabled value="nomad" label="Nomad (soon)" {item} />
-					<ToggleButton disabled value="kubernetes" label="Kubernetes (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 
@@ -324,6 +346,58 @@
 					</div>
 				</div>
 			{/if}
+
+			{#if config.integration.type === 'kubernetes'}
+				<div class="text-sm text-secondary mb-3">
+					Kubernetes configuration is automatically inferred from the cluster environment. 
+					The worker group name and namespace will be detected automatically.
+				</div>
+
+				<div class="flex flex-col gap-3 mt-4">
+					<div class="flex items-center gap-2">
+						<Button 
+							color="blue" 
+							size="xs" 
+							variant="contained"
+							startIcon={{ icon: ExternalLink }}
+							href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes"
+							target="_blank"
+						>
+							Setup Guide (Roles & Bindings)
+						</Button>
+						<Button 
+							color="light" 
+							size="xs" 
+							variant="contained"
+							onclick={checkKubernetesHealth}
+							disabled={healthCheckLoading}
+						>
+							{healthCheckLoading ? 'Checking...' : 'Check Health'}
+						</Button>
+					</div>
+					
+					{#if healthCheckResult !== null}
+						<div class="p-2 rounded-md text-sm {healthCheckResult.success ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}">
+							{#if healthCheckResult.success}
+								Kubernetes autoscaling is healthy
+							{:else}
+								{healthCheckResult.error}
+								{#if healthCheckResult.error?.includes('permissions') || healthCheckResult.error?.includes('role')}
+									<br><small>Please follow the setup guide above to configure proper RBAC permissions.</small>
+								{/if}
+							{/if}
+						</div>
+					{/if}
+
+					<div class="flex flex-row gap-2">
+						<Button color="light" size="xs" variant="contained">Test scaling</Button>
+						<div class="flex text-xs flex-row gap-2 items-center">
+							<input class="!w-16" type="number" bind:value={test_input} />
+							workers
+						</div>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2">
 				{#snippet children({ item })}
@@ -331,7 +405,7 @@
 					<ToggleButton value="script" label="Custom script" {item} />
 					<ToggleButton value="ecs" label="ECS (soon)" {item} />
 					<ToggleButton value="nomad" label="Nomad (soon)" {item} />
-					<ToggleButton value="kubernetes" label="Kubernetes (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 

@@ -50,6 +50,7 @@ windmill-parser-py.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
+windmill-autoscaling.workspace = true
 windmill-worker.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
