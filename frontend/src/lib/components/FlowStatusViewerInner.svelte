@@ -264,7 +264,6 @@
 				newState.job_id = newValue.job_id
 			}
 			moduleState[key] = newState
-			console.debug('updateModuleStates 1', key, $state.snapshot(moduleState[key]))
 			return
 		}
 
@@ -375,7 +374,7 @@
 	) {
 		let newValue = { ...(localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual(localModuleStates[key], value) || force) {
-			console.debug('setModuleState', key, force, keepType, $state.snapshot(value))
+			// console.debug('setModuleState', key, force, keepType, $state.snapshot(value))
 			;[localModuleStates, ...globalModuleStates].forEach((s) => {
 				updateModuleStates(s, key, newValue, keepType)
 			})
@@ -647,7 +646,7 @@
 	function onJobsLoadedInner(mod: FlowStatusModule, job: Job, force?: boolean): void {
 		let id = mod.id
 		if (id && ((mod.flow_jobs ?? []).length == 0 || force)) {
-			console.debug('onJobsLoadedInner', id, job.id, force)
+			// console.debug('onJobsLoadedInner', id, job.id, force)
 			if (flowStateStore) {
 				flowStateStore[buildSubflowKey(id, prefix)] = {
 					...(flowStateStore?.[buildSubflowKey(id, prefix)] ?? {}),
@@ -750,7 +749,7 @@
 					id != state?.selectedForloop ||
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
-				console.debug('setIteration', selectedNotEqual, state, topModuleStates)
+				// console.debug('setIteration', selectedNotEqual, state, topModuleStates)
 				if (selectedNotEqual) {
 					if (topModuleStates) {
 						topModuleStates[prefixedId] = {
@@ -933,7 +932,6 @@
 	let subflowsSize = $state(500)
 
 	function setParentModuleState(modId: string, state: Partial<GraphModuleState>) {
-		console.debug('setParentModuleState', modId, state)
 		;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
 			if (stateMap[modId]) {
 				stateMap[modId] = { ...stateMap[modId], ...state }
@@ -971,7 +969,6 @@
 
 			await tick()
 
-			console.log('onSelectedIteration', detail.moduleId, rootJobId)
 			await refreshGlobal?.(prefixedId, false, rootJobId)
 		} else {
 			setParentModuleState(detail.moduleId, {
