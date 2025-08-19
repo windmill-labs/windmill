@@ -56,6 +56,7 @@
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
+	import type { AssetWithAltAccessType } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -356,9 +357,7 @@
 		}
 	}
 
-	let moduleTracker = new ChangeTracker(
-		$state.snapshot([modules, failureModule, preprocessorModule])
-	)
+	let moduleTracker = new ChangeTracker($state.snapshot(modules))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -390,14 +389,23 @@
 				offset: n.data.offset ?? 0
 			}))
 		)
-		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
-			return {
-				...n,
-				...graph.nodes[n.id]
-			}
-		})
-		;[nodes, edges] = computeAssetNodes(newNodes, graph.edges)
-		console.log('nodes', nodes)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
+
+		let assetNodesResult = computeAssetNodes(
+			newNodes.map((n) => ({
+				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
+				id: n.id,
+				position: n.position
+			}))
+		)
+		newNodes = [
+			...newNodes.map((n) => ({ ...n, position: assetNodesResult.newNodePositions[n.id] })),
+			...assetNodesResult.newAssetNodes
+		]
+
+		nodes = newNodes
+		edges = [...assetNodesResult.newAssetEdges, ...graph.edges]
+
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -442,9 +450,7 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(modules)
-		untrack(() =>
-			moduleTracker.track($state.snapshot([modules, failureModule, preprocessorModule]))
-		)
+		untrack(() => moduleTracker.track($state.snapshot(modules)))
 	})
 
 	let graph = $derived.by(() => {
