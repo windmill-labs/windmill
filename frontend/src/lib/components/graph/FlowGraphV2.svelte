@@ -395,8 +395,7 @@
 			newNodes.map((n) => ({
 				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
 				id: n.id,
-				position: n.position,
-				type: n.type
+				position: n.position
 			}))
 		)
 		newNodes = [

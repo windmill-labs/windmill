@@ -11,7 +11,6 @@
 	let computeAssetNodesCache: [NodeDep[], ReturnType<typeof computeAssetNodes>] | undefined
 
 	type NodeDep = {
-		type: NodeLayout['type']
 		data: object & { assets?: AssetWithAltAccessType[] | undefined }
 		id: string
 		position: { x: number; y: number }
@@ -34,8 +33,8 @@
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			if (node.type !== 'module' && node.type !== 'input2') continue
 			const assets = node.data.assets ?? []
+			if (!assets.length) continue
 
 			// Each asset can be displayed at the top and bottom
 			// i.e once (R or W) or twice (RW)
