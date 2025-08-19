@@ -21,7 +21,7 @@ import {
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
 import { FSFSElement, findCodebase, yamlOptions } from "../commands/sync/sync.ts";
-import { generateHash, readInlinePathSync } from "./utils.ts";
+import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "../commands/flow/flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
@@ -384,6 +384,7 @@ async function updateScriptLock(
   }
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
+  const extraHeaders = getHeaders();
   const rawResponse = await fetch(
     `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
     {
@@ -391,6 +392,7 @@ async function updateScriptLock(
       headers: {
         Cookie: `token=${workspace.token}`,
         "Content-Type": "application/json",
+        ...extraHeaders,
       },
       body: JSON.stringify({
         raw_scripts: [
@@ -455,6 +457,7 @@ export async function updateFlow(
     log.info(colors.blue("Using raw requirements for flow dependencies"));
 
     // generate the script lock running a dependency job in Windmill and update it inplace
+    const extraHeaders = getHeaders();
     rawResponse = await fetch(
       `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
       {
@@ -462,6 +465,7 @@ export async function updateFlow(
         headers: {
           Cookie: `token=${workspace.token}`,
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify({
           flow_value,
@@ -473,6 +477,7 @@ export async function updateFlow(
     );
   } else {
     // Standard dependency resolution on the server
+    const extraHeaders = getHeaders();
     rawResponse = await fetch(
       `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
       {
@@ -480,6 +485,7 @@ export async function updateFlow(
         headers: {
           Cookie: `token=${workspace.token}`,
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify({
           flow_value,
