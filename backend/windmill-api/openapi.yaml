@@ -7333,6 +7333,37 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run_wait_result/preview_flow:
+    post:
+      summary: run flow preview and wait for result
+      operationId: runFlowPreviewAndWaitResult
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - name: invisible_to_owner
+          description: make the run invisible to the the script owner (default false)
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/NewJobId"
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowPreview"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/queue/list:
     get:
       summary: list all queued jobs

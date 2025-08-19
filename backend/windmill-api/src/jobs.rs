@@ -184,6 +184,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run_wait_result/preview_flow", post(run_wait_result_preview_flow))
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -5886,6 +5887,20 @@ async fn run_preview_flow_job(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_flow(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(raw_flow): Json<PreviewFlow>,
+) -> error::Result<Response> {
+    let (_status_code, uuid) = run_preview_flow_job(authed.clone(), Extension(db.clone()), Extension(user_db.clone()), Path(w_id.clone()), Query(run_query.clone()), Json(raw_flow)).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 pub async fn run_job_by_hash(
