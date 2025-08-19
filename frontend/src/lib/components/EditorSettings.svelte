@@ -2,6 +2,7 @@
 	import { Settings } from 'lucide-svelte'
 	import FormatOnSave from './FormatOnSave.svelte'
 	import VimMode from './VimMode.svelte'
+	import RelativeLineNumbers from './RelativeLineNumbers.svelte'
 	import { Button } from './common'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import type { EditorBarUi } from './custom_ui'
@@ -37,6 +38,9 @@
 			{#if customUi?.vimMode != false}
 				<div>
 					<VimMode />
+				</div>
+				<div>
+					<RelativeLineNumbers />
 				</div>
 			{/if}
 			{#if customUi?.aiCompletion != false}
