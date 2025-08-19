@@ -11502,6 +11502,22 @@ paths:
                 additionalProperties:
                   type: integer
 
+  /workers/queue_running_counts:
+    get:
+      summary: get counts of currently running jobs per tag
+      operationId: getCountsOfRunningJobsPerTag
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue running counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
