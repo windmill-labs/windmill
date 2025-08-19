@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.528.0](https://github.com/windmill-labs/windmill/compare/v1.527.1...v1.528.0) (2025-08-19)
+
+
+### Features
+
+* native k8s autoscaling integration (EE) ([#6405](https://github.com/windmill-labs/windmill/issues/6405)) ([eaf4054](https://github.com/windmill-labs/windmill/commit/eaf4054bd380101856c02a0d07430ff3a0180880))
+
+
+### Bug Fixes
+
+* flow status reactivity improvement ([#6402](https://github.com/windmill-labs/windmill/issues/6402)) ([5e73c49](https://github.com/windmill-labs/windmill/commit/5e73c49ab670be0f55794f5d0cb182de9efd500a))
+
 ## [1.527.1](https://github.com/windmill-labs/windmill/compare/v1.527.0...v1.527.1) (2025-08-16)
 
 
