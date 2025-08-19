@@ -108,7 +108,7 @@
 		}
 
 		flowModule = module
-		$flowStateStore[module.id] = state
+		flowStateStore.val[module.id] = state
 	}
 </script>
 
@@ -147,7 +147,7 @@
 					const [module, state] = await pickFlow(path, summary, flowModule.id)
 
 					flowModule = module
-					$flowStateStore[module.id] = state
+					flowStateStore.val[module.id] = state
 				}}
 			/>
 		{:else}
@@ -184,7 +184,7 @@
 					}
 
 					flowModule = module
-					$flowStateStore[module.id] = state
+					flowStateStore.val[module.id] = state
 				}}
 				failureModule={$selectedId === 'failure'}
 				preprocessorModule={$selectedId === 'preprocessor'}

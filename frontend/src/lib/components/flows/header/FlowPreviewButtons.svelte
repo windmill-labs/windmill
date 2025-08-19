@@ -9,14 +9,21 @@
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from '$lib/components/graph'
 
 	interface Props {
 		loading?: boolean
 		onRunPreview?: () => void
 		onJobDone?: () => void
+		localModuleStates?: Record<string, GraphModuleState>
 	}
 
-	let { loading = false, onRunPreview, onJobDone }: Props = $props()
+	let {
+		loading = false,
+		onRunPreview,
+		onJobDone,
+		localModuleStates = $bindable({})
+	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -157,6 +164,7 @@
 			bind:selectedJobStepType
 			bind:branchOrIterationN
 			bind:rightColumnSelect
+			bind:localModuleStates
 			on:close={() => {
 				// keep the data in the preview content
 				deferContent = true

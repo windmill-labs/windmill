@@ -11,7 +11,7 @@ import {
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
-import { get, type Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 import { emptyFlowModuleState } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
@@ -273,11 +273,8 @@ export async function createScriptFromInlineScript(
 	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
-export function deleteFlowStateById(id: string, flowStateStore: Writable<FlowState>) {
-	flowStateStore.update((fss) => {
-		delete fss[id]
-		return fss
-	})
+export function deleteFlowStateById(id: string, flowStateStore: FlowState) {
+	delete flowStateStore.val[id]
 }
 
 export function sliceModules(
@@ -311,7 +308,7 @@ export function sliceModules(
 
 export async function insertNewPreprocessorModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: Writable<FlowState>,
+	flowStateStore: FlowState,
 	inlineScript?: {
 		language: RawScript['language']
 	},
@@ -336,15 +333,12 @@ export async function insertNewPreprocessorModule(
 
 	flowStore.val.value.preprocessor_module = module
 
-	flowStateStore.update((fss) => {
-		fss[module.id] = state
-		return fss
-	})
+	flowStateStore.val[module.id] = state
 }
 
 export async function insertNewFailureModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: Writable<FlowState>,
+	flowStateStore: FlowState,
 	inlineScript?: {
 		language: RawScript['language']
 		subkind: 'pgsql' | 'flow'
@@ -374,8 +368,5 @@ export async function insertNewFailureModule(
 
 	flowStore.val.value.failure_module = module
 
-	flowStateStore.update((fss) => {
-		fss[module.id] = state
-		return fss
-	})
+	flowStateStore.val[module.id] = state
 }

@@ -6,6 +6,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { ModuleN } from '../../graphBuilder.svelte'
+	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -13,20 +14,25 @@
 
 	let { data }: Props = $props()
 
-	let moduleState = $derived(data.flowModuleStates?.[data.id])
+	let state = $derived.by(() => {
+		return data.testModuleState
+			? (jobToGraphModuleState(data.testModuleState) ?? data.flowModuleState)
+			: data.flowModuleState
+	})
+
 	let flowJobs = $derived(
-		moduleState?.flow_jobs
+		state?.flow_jobs
 			? {
-					flowJobs: moduleState?.flow_jobs,
-					selected: moduleState?.selectedForloopIndex ?? 0,
-					selectedManually: moduleState?.selectedForLoopSetManually,
-					flowJobsSuccess: moduleState?.flow_jobs_success
+					flowJobs: state?.flow_jobs,
+					selected: state?.selectedForloopIndex ?? 0,
+					selectedManually: state?.selectedForLoopSetManually,
+					flowJobsSuccess: state?.flow_jobs_success
 				}
 			: (undefined as any)
 	)
 
 	let type = $derived.by(() => {
-		let typ = data.flowModuleStates?.[data.id]?.type
+		let typ = state?.type
 		if (!typ && flowJobs) {
 			return 'InProgress'
 		}
@@ -59,27 +65,22 @@
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
-					((moduleState?.selectedForloopIndex ?? 0) >= 0
-						? (moduleState?.selectedForloopIndex ?? 0) + 1
-						: moduleState?.flow_jobs?.length) +
+					((state?.selectedForloopIndex ?? 0) >= 0
+						? (state?.selectedForloopIndex ?? 0) + 1
+						: state?.flow_jobs?.length) +
 					'/' +
-					(moduleState?.iteration_total ?? '?')
+					(state?.iteration_total ?? '?')
 				: ''}
-			bgColor={getStateColor(
-				data.editMode ? undefined : type,
-				darkMode,
-				true,
-				moduleState?.skipped
-			)}
+			bgColor={getStateColor(data.editMode ? undefined : type, darkMode, true, state?.skipped)}
 			bgHoverColor={getStateHoverColor(
 				data.editMode ? undefined : type,
 				darkMode,
 				true,
-				moduleState?.skipped
+				state?.skipped
 			)}
 			moving={data.moving}
-			duration_ms={moduleState?.duration_ms}
-			retries={moduleState?.retries}
+			duration_ms={state?.duration_ms}
+			retries={state?.retries}
 			{flowJobs}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
@@ -108,7 +109,7 @@
 			isOwner={data.isOwner}
 			{type}
 			{darkMode}
-			skipped={moduleState?.skipped}
+			skipped={state?.skipped}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
