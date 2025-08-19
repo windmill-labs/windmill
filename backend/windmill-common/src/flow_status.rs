@@ -135,8 +135,8 @@ struct UntaggedFlowStatusModule {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentAction {
-    ToolCall { job_id: uuid::Uuid, function_name: String },
-    Message { content: String },
+    ToolCall { job_id: uuid::Uuid, function_name: String, module_id: String },
+    Message {},
 }
 
 #[derive(Serialize, Debug, Clone)]

@@ -7,7 +7,7 @@
 	import { readFieldsRecursively } from '$lib/utils'
 
 	interface Props {
-		job: Job
+		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
 		workspaceId: string | undefined
 		render: boolean

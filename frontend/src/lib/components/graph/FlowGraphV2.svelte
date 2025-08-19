@@ -400,7 +400,8 @@
 		;[nodes, edges] = computeAIToolNodes(
 			computeAssetNodes(newNodes, graph.edges),
 			eventHandler,
-			editMode
+			insertable,
+			flowModuleStates
 		)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)

@@ -63,6 +63,17 @@ struct OpenAIMessage {
     tool_calls: Option<Vec<OpenAIToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
+    #[serde(skip_serializing)]
+    agent_action: Option<AgentAction>,
+}
+
+/// same as OpenAIMessage but with agent_action field included in the serialization
+#[derive(Serialize)]
+struct Message<'a> {
+    #[serde(flatten)]
+    message: &'a OpenAIMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_action: Option<&'a AgentAction>,
 }
 
 #[derive(Deserialize)]
@@ -77,8 +88,8 @@ struct OpenAIResponse {
 
 #[derive(Serialize)]
 struct OpenAIRequest<'a> {
-    model: String,
-    messages: Vec<OpenAIMessage>,
+    model: &'a str,
+    messages: &'a Vec<OpenAIMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a Vec<&'a ToolDef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,7 +117,6 @@ struct Tool {
 
 #[derive(Deserialize, Debug)]
 struct AIAgentArgs {
-    model: String,
     provider: Provider,
     system_prompt: String,
     user_message: String,
@@ -123,15 +133,22 @@ struct ProviderResource {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "kind")]
 enum Provider {
-    OpenAI { resource: ProviderResource },
-    Anthropic { resource: ProviderResource },
+    OpenAI { resource: ProviderResource, model: String },
+    Anthropic { resource: ProviderResource, model: String },
 }
 
 impl Provider {
     fn get_api_key(&self) -> &str {
         match self {
-            Provider::OpenAI { resource } => &resource.api_key,
-            Provider::Anthropic { resource } => &resource.api_key,
+            Provider::OpenAI { resource, .. } => &resource.api_key,
+            Provider::Anthropic { resource, .. } => &resource.api_key,
+        }
+    }
+
+    fn get_model(&self) -> &str {
+        match self {
+            Provider::OpenAI { model, .. } => model,
+            Provider::Anthropic { model, .. } => model,
         }
     }
 
@@ -144,9 +161,9 @@ impl Provider {
 }
 
 #[derive(Serialize)]
-struct AIAgentResult {
+struct AIAgentResult<'a> {
     output: String,
-    messages: Vec<OpenAIMessage>,
+    messages: Vec<Message<'a>>,
 }
 
 #[derive(Serialize, Default, Clone, Debug)]
@@ -579,8 +596,8 @@ async fn run_agent(
                 .post(format!("{}/chat/completions", base_url))
                 .bearer_auth(api_key)
                 .json(&OpenAIRequest {
-                    model: args.model.clone(),
-                    messages: messages.clone(),
+                    model: args.provider.get_model(),
+                    messages: &messages,
                     tools: tool_defs.as_ref(),
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
@@ -624,12 +641,14 @@ async fn run_agent(
         let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
 
         if let Some(ref content) = content {
+            actions.push(AgentAction::Message {});
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
                 content: Some(content.clone()),
+                agent_action: Some(AgentAction::Message {}),
                 ..Default::default()
             });
-            actions.push(AgentAction::Message { content: content.clone() });
+
             update_flow_status_module_with_actions(db, parent_job, &actions).await?;
         }
 
@@ -656,6 +675,7 @@ async fn run_agent(
                 actions.push(AgentAction::ToolCall {
                     job_id,
                     function_name: tool_call.function.name.clone(),
+                    module_id: tool.module.id.clone(),
                 });
 
                 update_flow_status_module_with_actions(db, parent_job, &actions).await?;
@@ -683,6 +703,11 @@ async fn run_agent(
                             role: "tool".to_string(),
                             content: Some(result.get().to_string()),
                             tool_call_id: Some(tool_call.id.clone()),
+                            agent_action: Some(AgentAction::ToolCall {
+                                job_id,
+                                function_name: tool_call.function.name.clone(),
+                                module_id: tool.module.id.clone(),
+                            }),
                             ..Default::default()
                         });
                     }
@@ -692,6 +717,11 @@ async fn run_agent(
                             role: "tool".to_string(),
                             content: Some(format!("Error running tool: {}", err_string)),
                             tool_call_id: Some(tool_call.id.clone()),
+                            agent_action: Some(AgentAction::ToolCall {
+                                job_id,
+                                function_name: tool_call.function.name.clone(),
+                                module_id: tool.module.id.clone(),
+                            }),
                             ..Default::default()
                         });
                     }
@@ -705,9 +735,14 @@ async fn run_agent(
         }
     }
 
+    let final_messages: Vec<Message> = messages
+        .iter()
+        .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+        .collect();
+
     Ok(to_raw_value(&AIAgentResult {
         output: content.unwrap_or_default().clone(),
-        messages: messages,
+        messages: final_messages,
     }))
 }
 

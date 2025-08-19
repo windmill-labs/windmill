@@ -69,9 +69,14 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 								resource: {
 									type: 'object',
 									format: 'resource-openai'
+								},
+
+								model: {
+									type: 'string',
+									enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
 								}
 							},
-							required: ['kind', 'resource']
+							required: ['kind', 'resource', 'model']
 						},
 						{
 							type: 'object',
@@ -81,17 +86,19 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 								resource: {
 									type: 'object',
 									format: 'resource-anthropic'
+								},
+								model: {
+									type: 'string',
+									enum: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest']
 								}
 							},
-							required: ['kind', 'resource']
+							required: ['kind', 'resource', 'model']
 						}
 					]
 				},
-				model: {
-					type: 'string'
-				},
 				system_prompt: {
-					type: 'string'
+					type: 'string',
+					default: 'You are a helpful assistant'
 				},
 				user_message: {
 					type: 'string'

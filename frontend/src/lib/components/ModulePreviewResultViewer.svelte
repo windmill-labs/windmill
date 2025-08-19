@@ -103,13 +103,12 @@
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
 			/>
-		{:else if mod.value.type === 'aiagent' && logJob?.flow_status?.modules[0]?.job && logJob?.flow_status?.modules[0]?.agent_actions}
+		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
 			<AiAgentLogViewer
-				aiAgentStatus={{
-					jobId: logJob.flow_status.modules[0].job,
-					actions: logJob.flow_status.modules[0].agent_actions,
-					tools: mod.value.tools
-				}}
+				result={logJob.result}
+				tools={mod.value.tools}
+				agentJob={logJob}
+				workspaceId={logJob.workspace_id}
 			/>
 		{:else}
 			<LogViewer

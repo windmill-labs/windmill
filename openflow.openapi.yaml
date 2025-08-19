@@ -613,14 +613,15 @@ components:
                   type:
                     type: string
                     enum: [tool_call]
+                  module_id:
+                    type: string
                 required:
                   - job_id
                   - function_name
                   - type
+                  - module_id
               - type: object
                 properties:
-                  content:
-                    type: string
                   type:
                     type: string
                     enum: [message]

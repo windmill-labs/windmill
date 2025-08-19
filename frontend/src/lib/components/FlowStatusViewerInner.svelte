@@ -44,6 +44,11 @@
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
 	import { writable } from 'svelte/store'
+	import {
+		AI_TOOL_CALL_PREFIX,
+		AI_TOOL_MESSAGE_PREFIX,
+		getToolCallId
+	} from './graph/renderers/nodes/AIToolNode.svelte'
 
 	let {
 		flowStateStore,
@@ -446,6 +451,33 @@
 		}
 	}
 
+	function loadAIAgentToolJobs(agentActions: NonNullable<FlowStatusModule['agent_actions']>) {
+		agentActions.forEach((action, idx) => {
+			if (action.type === 'tool_call') {
+				JobService.getJob({
+					workspace: workspaceId ?? $workspaceStore ?? '',
+					id: action.job_id
+				})
+					.then((job) => {
+						setModuleState(getToolCallId(idx, action.module_id), {
+							job_id: job.id,
+							logs: job.logs,
+							args: job.args,
+							tag: job.tag,
+							result: job['result'],
+							type: 'success' in job ? (job['success'] ? 'Success' : 'Failure') : undefined
+						})
+					})
+					.catch((e) => {
+						console.error(
+							`Could not load tool jobs for tool call ${action.job_id} in flow job ${jobId}`,
+							e
+						)
+					})
+			}
+		})
+	}
+
 	function updateInnerModules() {
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -506,6 +538,14 @@
 						flow_jobs: mod.flow_jobs,
 						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
 					})
+				}
+
+				if (mod.agent_actions) {
+					setModuleState(mod.id ?? '', {
+						agent_actions: mod.agent_actions
+					})
+
+					loadAIAgentToolJobs(mod.agent_actions)
 				}
 			})
 		}
@@ -700,11 +740,15 @@
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
-						actions: job.job_kind === 'aiagent' && mod.agent_actions ? mod.agent_actions : undefined
+						agent_actions: mod.agent_actions
 						// retries: flowStateStore?.raw_flow
 					},
 					force
 				)
+
+				if (mod.agent_actions) {
+					loadAIAgentToolJobs(mod.agent_actions)
+				}
 
 				setDurationStatusByJob(id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
@@ -1401,7 +1445,10 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === e)
+										const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('_').pop() : e
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
+											(m) => m?.id === id
+										)
 										stepDetail = mod
 										selectedNode = e
 									}
@@ -1455,9 +1502,12 @@
 							/>
 						{:else if rightColumnSelect == 'node_status'}
 							<div class="pt-2 grow flex flex-col">
-								{#if selectedNode}
+								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
+									<div class="pt-2 px-4 pb-4">
+										<Alert type="info" title="Message output is available on the AI agent node" />
+									</div>
+								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
-
 									{#if selectedNode == 'end'}
 										<FlowJobResult
 											tagLabel={customUi?.tagLabel}
@@ -1552,11 +1602,20 @@
 											tag={node.tag}
 											logs={node.logs}
 											downloadLogs={!hideDownloadLogs}
-											aiAgentStatus={node.actions && agentTools && node.job_id
+											aiAgentStatus={agentTools &&
+											(node?.type === 'Success' || node?.type === 'Failure')
 												? {
-														jobId: node.job_id,
-														actions: node.actions,
-														tools: agentTools
+														result: node.result,
+														tools: agentTools,
+														agentJob: {
+															id: node.job_id,
+															result: node.result,
+															logs: node.logs,
+															args: node.args,
+															success: node.type === 'Success',
+															type: node.duration_ms ? 'CompletedJob' : undefined
+														},
+														localModuleStates
 													}
 												: undefined}
 										/>

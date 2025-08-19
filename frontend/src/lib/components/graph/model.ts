@@ -66,7 +66,7 @@ export type GraphModuleState = {
 	suspend_count?: number
 	isListJob?: boolean
 	skipped?: boolean
-	actions?: FlowStatusModule['agent_actions']
+	agent_actions?: FlowStatusModule['agent_actions']
 }
 
 export type NestedNodes = GraphItem[]

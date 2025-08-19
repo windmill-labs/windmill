@@ -2,8 +2,9 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { FlowModule, FlowStatusModule } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
+	import type { GraphModuleState } from './graph'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -21,9 +22,10 @@
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
 		aiAgentStatus?: {
-			jobId: string
-			actions: NonNullable<FlowStatusModule['agent_actions']>
+			result: unknown
 			tools: FlowModule[]
+			agentJob: Partial<Job>
+			localModuleStates?: Record<string, GraphModuleState>
 		}
 	}
 
@@ -63,7 +65,7 @@
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
 		{#if aiAgentStatus}
-			<AiAgentLogViewer {aiAgentStatus} />
+			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} />
 		{:else}
 			<LogViewer
 				{tagLabel}
