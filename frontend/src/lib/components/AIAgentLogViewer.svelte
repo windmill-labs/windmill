@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { GraphModuleState } from './graph'
 	import { JobService, type FlowModule, type FlowStatusModule, type Job } from '$lib/gen'
-	import { writable, type Writable } from 'svelte/store'
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 
@@ -16,9 +15,10 @@
 
 	let { aiAgentStatus, workspaceId }: Props = $props()
 
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
 	let job: Job | undefined = $state(undefined)
 	async function loadToolJobs() {
+		console.log('loadToolJobs', aiAgentStatus)
 		job = await JobService.getJob({
 			id: aiAgentStatus.jobId,
 			workspace: workspaceId ?? $workspaceStore!
@@ -55,7 +55,7 @@
 					workspace: workspaceId ?? $workspaceStore!
 				})
 				let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
-				$localModuleStates[idx.toString()] = {
+				localModuleStates[idx.toString()] = {
 					args: job.args,
 					type: job['success'] ? 'Success' : 'Failure',
 					logs: job.logs,
@@ -66,7 +66,7 @@
 					started_at: started_at
 				}
 			} else {
-				$localModuleStates[idx.toString()] = {
+				localModuleStates[idx.toString()] = {
 					type: 'Success',
 					args: {},
 					logs: '',
