@@ -7,14 +7,15 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
     auth::get_job_perms,
-    cache::FlowData,
+    cache::{self, FlowData},
     client::AuthedClient,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
     flows::{FlowModule, FlowModuleValue},
+    get_latest_hash_for_path,
     jobs::DB,
-    scripts::ScriptLang,
-    utils::HTTP_CLIENT,
+    scripts::{get_full_hub_script_by_path, ScriptLang},
+    utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
 use windmill_parser::Typ;
@@ -89,7 +90,7 @@ struct OpenAIRequest<'a> {
 #[derive(Serialize, Clone)]
 struct ToolDefFunction {
     name: String,
-    parameters: OpenAPISchema,
+    parameters: Box<RawValue>,
 }
 
 #[derive(Serialize, Clone)]
@@ -293,7 +294,7 @@ async fn update_flow_status_module_with_actions(
     Ok(())
 }
 
-fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<OpenAPISchema, Error> {
+fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<RawValue>, Error> {
     let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
 
     let schema = OpenAPISchema {
@@ -319,10 +320,10 @@ fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<OpenA
         ..Default::default()
     };
 
-    Ok(schema)
+    Ok(to_raw_value(&schema))
 }
 
-#[async_recursion] // we only need it because handle_queued_job could call this function again but in practice it won't because we only access raw script flow modules
+#[async_recursion] // we only need it because handle_queued_job could call this function again but in practice it won't because we only accept workspace/raw script flow modules
 async fn call_tool(
     // connection
     db: &DB,
@@ -388,7 +389,7 @@ async fn call_tool(
                 concurrency_time_window_s,
                 tool_module,
                 tag,
-                false,
+                tool_module.delete_after_use.unwrap_or(false),
             );
             payload
         }
@@ -527,6 +528,7 @@ async fn call_tool(
 
 async fn run_agent(
     // connection
+    db: &DB,
     conn: &Connection,
 
     // agent job and flow data
@@ -545,15 +547,6 @@ async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<Box<RawValue>> {
-    let db = match conn {
-        Connection::Sql(db) => db,
-        Connection::Http(_) => {
-            return Err(Error::internal_err(
-                "AI agent job is not supported on agent workers".to_string(),
-            ));
-        }
-    };
-
     let mut messages = vec![
         OpenAIMessage {
             role: "system".to_string(),
@@ -738,6 +731,15 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
+    let db = match conn {
+        Connection::Sql(db) => db,
+        Connection::Http(_) => {
+            return Err(Error::internal_err(
+                "AI agent job is not supported on agent workers".to_string(),
+            ));
+        }
+    };
+
     let args = build_args_map(job, client, conn).await?;
 
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
@@ -770,9 +772,11 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let tools = tools
-        .into_iter()
-        .map(|t| {
+    let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
+        let conn = conn;
+        let db = db;
+        let job = job;
+        async move {
             let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
                 return Err(Error::internal_err(format!(
                     "Invalid tool name: {:?}",
@@ -781,14 +785,55 @@ pub async fn handle_ai_agent_job(
             };
 
             let schema = match &t.get_value() {
-                Ok(FlowModuleValue::Script { .. }) => {
-                    return Err(Error::internal_err(format!(
-                        "Unsupported tool: {}",
-                        summary
-                    )));
-                }
+                Ok(FlowModuleValue::Script {
+                    hash,
+                    path,
+                    tag_override,
+                    input_transforms,
+                    is_trigger,
+                }) => match hash {
+                    Some(hash) => {
+                        let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                        Ok::<_, Error>(
+                            metadata
+                                .schema
+                                .clone()
+                                .map(|s| RawValue::from_string(s).ok())
+                                .flatten(),
+                        )
+                    }
+                    None => {
+                        if path.starts_with("hub/") {
+                            let hub_script = get_full_hub_script_by_path(
+                                StripPath(path.to_string()),
+                                &HTTP_CLIENT,
+                                None,
+                            )
+                            .await?;
+                            Ok(Some(hub_script.schema))
+                        } else {
+                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path)
+                                .await?
+                                .0;
+                            // update module definition to use a fixed hash so all tool calls match the same schema
+                            t.value = to_raw_value(&FlowModuleValue::Script {
+                                hash: Some(hash),
+                                path: path.clone(),
+                                tag_override: tag_override.clone(),
+                                input_transforms: input_transforms.clone(),
+                                is_trigger: *is_trigger,
+                            });
+                            let (_, metadata) = cache::script::fetch(conn, hash).await?;
+                            Ok(metadata
+                                .schema
+                                .clone()
+                                .map(|s| RawValue::from_string(s).ok())
+                                .flatten())
+                        }
+                    }
+                },
                 Ok(FlowModuleValue::RawScript { content, language, .. }) => {
-                    parse_raw_script_schema(&content, &language)?
+                    Ok(Some(parse_raw_script_schema(&content, &language)?))
                 }
                 Err(e) => {
                     return Err(Error::internal_err(format!(
@@ -803,21 +848,32 @@ pub async fn handle_ai_agent_job(
                         summary
                     )));
                 }
-            };
+            }?;
 
             Ok(Tool {
                 def: ToolDef {
                     r#type: "function".to_string(),
-                    function: ToolDefFunction { name: summary.clone(), parameters: schema },
+                    function: ToolDefFunction {
+                        name: summary.clone(),
+                        parameters: schema.unwrap_or_else(|| {
+                            to_raw_value(&serde_json::json!({
+                                "type": "object",
+                                "properties": {},
+                                "required": [],
+                            }))
+                        }),
+                    },
                 },
                 module: t,
             })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+        }
+    }))
+    .await?;
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
     let agent_fut = run_agent(
+        db,
         conn,
         job,
         parent_job,

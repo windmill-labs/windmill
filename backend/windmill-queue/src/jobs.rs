@@ -3624,7 +3624,7 @@ pub async fn push<'c, 'd>(
     root_job: Option<Uuid>,
     job_id: Option<Uuid>,
     _is_flow_step: bool,
-    mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running and override the running arg
+    mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running but started_at will not be set.
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
     mut tag: Option<String>,
@@ -3632,7 +3632,7 @@ pub async fn push<'c, 'd>(
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
-    running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue
+    running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {

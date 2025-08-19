@@ -423,7 +423,6 @@
 				}
 			}}
 			onInsert={async (detail) => {
-				console.log('oninsert', detail)
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -542,7 +541,6 @@
 				}
 			}}
 			onSelect={(id) => {
-				console.log('select', id)
 				flowPropPickerConfig.set(undefined)
 			}}
 			onChangeId={(detail) => {

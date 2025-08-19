@@ -1,12 +1,13 @@
 <script module lang="ts">
+	export function validateToolName(name: string) {
+		return /^[a-zA-Z0-9_]+$/.test(name)
+	}
+
 	export const NODE_WITH_AI_TOOL_BASE_OFFSET = 5
 	export const NODE_WITH_AI_TOOL_ROW_OFFSET = 30
-	// export const AI_TOOL_BEFORE_Y_OFFSET = -45
 
 	export const AI_TOOL_BASE_OFFSET = -5
 	export const AI_TOOL_ROW_OFFSET = -30
-
-	// export const AI_TOOL_AFTER_Y_OFFSET = 64
 
 	let computeAIToolNodesCache:
 		| [(Node & NodeLayout)[], ReturnType<typeof computeAIToolNodes>]
@@ -139,7 +140,6 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import type { Writable } from 'svelte/store'
-	import { validateToolName } from '$lib/components/flows/content/FlowAIAgent.svelte'
 
 	interface Props {
 		data: AiToolN['data']

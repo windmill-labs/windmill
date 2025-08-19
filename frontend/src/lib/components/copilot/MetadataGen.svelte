@@ -12,7 +12,7 @@
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { validateToolName } from '../flows/content/FlowAIAgent.svelte'
+	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 
 	type PromptConfig = {
 		system: string

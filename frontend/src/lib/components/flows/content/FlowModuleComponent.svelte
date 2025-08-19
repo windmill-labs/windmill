@@ -200,7 +200,6 @@
 	let lastJobId: string | undefined = undefined
 
 	function onSelectedIdChange() {
-		console.log('onSelectedIdChange', $selectedId, $flowStateStore?.[$selectedId], flowModule)
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}

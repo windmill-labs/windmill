@@ -2812,7 +2812,7 @@ async fn try_validate_schema(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn handle_code_execution_job(
+async fn handle_code_execution_job(
     job: &MiniPulledJob,
     preview: Option<Arc<ScriptData>>,
     conn: &Connection,

@@ -18,7 +18,7 @@
 	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { validateToolName } from '../content/FlowAIAgent.svelte'
+	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined

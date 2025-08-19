@@ -1,5 +1,3 @@
-<!-- Displays as +n node instead of AssetNode when there are too many of themOverflowedAssetsNode -->
-
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
