@@ -37,7 +37,7 @@
 	let jobId: string | undefined = $state(undefined)
 	let job: Job | undefined = $state(undefined)
 
-	let previewIterationArgs = $derived($flowStateStore[mod.id]?.previewArgs ?? {})
+	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">

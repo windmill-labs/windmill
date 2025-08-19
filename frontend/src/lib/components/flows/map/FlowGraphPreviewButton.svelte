@@ -59,7 +59,7 @@
 			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
 		{/if}
 	</Button>
-	{#if wide && (flowPreviewJob || individualStepTests)}
+	{#if wide && flowPreviewJob}
 		<div
 			class="flex flex-row items-center shadow-sm rounded-md mt-1"
 			in:fade={{ duration: 100, delay: 200 }}

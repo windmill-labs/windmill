@@ -70,6 +70,7 @@
 	let isOpen = $state(false)
 
 	$effect(() => {
+		filter
 		isOpen && flowJobs && untrack(() => updateItems())
 	})
 </script>
@@ -150,7 +151,8 @@
 											class={twMerge(
 												'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
 												items[idx].success == false ? 'text-red-400' : '',
-												'data-[highlighted]:bg-surface-hover'
+												'data-[highlighted]:bg-surface-hover',
+												items[idx].index == selected ? 'bg-surface-selected' : ''
 											)}
 											onClick={() => {
 												onSelectedIteration({

@@ -25,6 +25,7 @@
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
+		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -33,7 +34,7 @@
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
@@ -42,7 +43,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs, updateDerivedModuleStatesFromTestJobs } from './flows/utils'
+	import { cleanInputs } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -577,13 +578,7 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
-	let testModuleId: string | undefined = $state(undefined)
-	let modulesTestStates = new ModulesTestStates((moduleId) => {
-		// Update the derived store with test job states
-		delete $derivedModuleStates[moduleId]
-		testModuleId = moduleId
-		showJobStatus = false
-	})
+	let modulesTestStates = new ModulesTestStates()
 	let outputPickerOpenFns: Record<string, () => void> = $state({})
 	let flowEditor: FlowEditor | undefined = $state(undefined)
 
@@ -933,33 +928,8 @@
 		}
 	}
 
-	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
-		flowPreviewContent?.getLocalModuleStates() ?? writable({})
-	)
-	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
-		flowPreviewContent?.getSuspendStatus() ?? writable({})
-	)
-
-	// Create a derived store that only shows the module states when showModuleStatus is true
-	// this store can also be updated
-	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
-	$effect(() => {
-		derivedModuleStates.update((currentStates) => {
-			return showJobStatus ? $localModuleStates : currentStates
-		})
-	})
-	$effect(() => {
-		updateDerivedModuleStatesFromTestJobs(testModuleId, modulesTestStates, derivedModuleStates)
-	})
-
-	function resetModulesStates() {
-		derivedModuleStates.set({})
-		showJobStatus = false
-	}
-
-	const individualStepTests = $derived(
-		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
-	)
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
@@ -1025,7 +995,7 @@
 							for (const mod of restoredModules) {
 								if (mod) {
 									try {
-										loadFlowModuleState(mod).then((state) => ($flowStateStore[mod.id] = state))
+										loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
 									} catch (e) {
 										console.error('Error loading state for restored node', e)
 									}
@@ -1155,10 +1125,12 @@
 							showCaptureHint.set(true)
 						}}
 						{onJobDone}
+						bind:localModuleStates
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
-							localModuleStates.set({})
+							modulesTestStates.hideJobsInGraph()
+							localModuleStates = {}
 							showJobStatus = true
 						}}
 					/>
@@ -1185,7 +1157,7 @@
 				</div>
 			</div>
 			<!-- metadata -->
-			{#if $flowStateStore}
+			{#if flowStateStore}
 				<FlowEditor
 					bind:this={flowEditor}
 					{disabledFlowInputs}
@@ -1228,18 +1200,22 @@
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					onOpenPreview={flowPreviewButtons?.openPreview}
-					localModuleStates={derivedModuleStates}
+					localModuleStates={showJobStatus ? localModuleStates : {}}
+					{showJobStatus}
+					testModuleStates={modulesTestStates}
 					isOwner={flowPreviewContent?.getIsOwner()}
 					onTestFlow={flowPreviewButtons?.runPreview}
 					isRunning={flowPreviewContent?.getIsRunning()}
 					onCancelTestFlow={flowPreviewContent?.cancelTest}
-					onHideJobStatus={resetModulesStates}
-					{individualStepTests}
+					onHideJobStatus={() => {
+						modulesTestStates.hideJobsInGraph()
+						showJobStatus = false
+					}}
 					{job}
 					{suspendStatus}
-					{showJobStatus}
 					onDelete={(id) => {
-						delete $derivedModuleStates[id]
+						delete localModuleStates[id]
+						delete modulesTestStates.states[id]
 					}}
 					{flowHasChanged}
 				/>

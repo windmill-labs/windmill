@@ -7,7 +7,7 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow, Job } from '$lib/gen'
@@ -16,6 +16,8 @@
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -27,6 +29,7 @@
 		disabledFlowInputs?: boolean
 		smallErrorHandler?: boolean
 		newFlow?: boolean
+		showJobStatus?: boolean
 		savedFlow?:
 			| (Flow & {
 					draft?: Flow | undefined
@@ -40,7 +43,8 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -49,8 +53,7 @@
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
 		job?: Job
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
-		showJobStatus?: boolean
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 	}
@@ -63,6 +66,7 @@
 		disableSettings = false,
 		disabledFlowInputs = false,
 		smallErrorHandler = false,
+		showJobStatus = false,
 		newFlow = false,
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
@@ -70,7 +74,8 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		localModuleStates = writable({}),
+		localModuleStates = {},
+		testModuleStates = undefined,
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -83,7 +88,6 @@
 		individualStepTests = false,
 		job,
 		suspendStatus,
-		showJobStatus,
 		onDelete,
 		flowHasChanged
 	}: Props = $props()
@@ -134,6 +138,7 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
+						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {
@@ -144,6 +149,7 @@
 						{onTestUpTo}
 						{onEditInput}
 						{localModuleStates}
+						{testModuleStates}
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
@@ -155,7 +161,6 @@
 						{onHideJobStatus}
 						{individualStepTests}
 						flowJob={job}
-						{showJobStatus}
 						{suspendStatus}
 						{onDelete}
 						{flowHasChanged}

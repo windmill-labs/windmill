@@ -1,27 +1,26 @@
 <script lang="ts">
-	import { debounce, displayDate, msToSec } from '$lib/utils'
+	import { debounce, displayDate, msToSec, readFieldsRecursively } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
-	import type { Writable } from 'svelte/store'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
+	import type { GlobalIterationBounds } from './graph'
 
 	interface Props {
 		selfWaitTime?: number | undefined
 		aggregateWaitTime?: number | undefined
 		flowModules: string[]
-		durationStatuses: Writable<
-			Record<
-				string,
-				{
-					byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-					iteration_from?: number
-					iteration_total?: number
-				}
-			>
+		durationStatuses: Record<
+			string,
+			{
+				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+			}
 		>
 		flowDone?: boolean
+		decreaseIterationFrom?: (key: string, amount: number) => void
+		buildSubflowKey: (key: string) => string
+		globalIterationBounds: Record<string, GlobalIterationBounds>
 	}
 
 	let {
@@ -29,7 +28,10 @@
 		aggregateWaitTime = undefined,
 		flowModules,
 		durationStatuses,
-		flowDone = false
+		flowDone = false,
+		decreaseIterationFrom,
+		buildSubflowKey,
+		globalIterationBounds
 	}: Props = $props()
 
 	let min: undefined | number = $state(undefined)
@@ -43,15 +45,16 @@
 		  >
 		| undefined = $state(undefined)
 
-	let { debounced, clearDebounce } = debounce(() => computeItems($durationStatuses), 30)
+	let { debounced, clearDebounce } = debounce(() => computeItems(durationStatuses), 30)
 	$effect(() => {
-		flowDone != undefined && $durationStatuses && untrack(() => debounced())
+		readFieldsRecursively(durationStatuses)
+		flowDone != undefined && durationStatuses && untrack(() => debounced())
 	})
 
 	export function reset() {
 		min = undefined
 		max = undefined
-		items = computeItems($durationStatuses)
+		items = computeItems(durationStatuses)
 	}
 
 	function computeItems(
@@ -172,20 +175,17 @@
 			</div>
 		{/if}
 		{#each Object.values(flowModules) as k (k)}
+			{@const iterationFrom = globalIterationBounds[buildSubflowKey(k)]?.iteration_from ?? 0}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
-				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
+				{#if iterationFrom > 0}
 					<div class="w-full flex flex-row-reverse sticky top-0">
 						<button
 							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
 							onclick={() => {
-								let r = $durationStatuses[k]
-								if (r.iteration_from) {
-									r.iteration_from -= 20
-									$durationStatuses = $durationStatuses
-								}
+								decreaseIterationFrom?.(k, 20)
 							}}
-							>Viewing iterations {$durationStatuses[k].iteration_from} to {$durationStatuses[k]
-								.iteration_total}. Load more
+							>Viewing iterations {iterationFrom} to {globalIterationBounds[buildSubflowKey(k)]
+								?.iteration_total}. Load more
 						</button>
 					</div>
 				{/if}

@@ -3,7 +3,6 @@
 	import FlowWrapper from '$lib/components/FlowWrapper.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
-	import { writable } from 'svelte/store'
 
 	loadUser()
 
@@ -31,10 +30,10 @@
 		}
 	})
 
-	let flowStateStore = writable({})
+	let flowStateStore = $state({ val: {} })
 
 	let customUi: FlowBuilderWhitelabelCustomUi = {
-		tagLabel: 'agent',
+		tagLabel: 'agent'
 		// disableAi: true
 	}
 </script>

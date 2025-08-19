@@ -20,7 +20,7 @@
 			selected={false}
 			bgColor={getStateColor(undefined, darkMode)}
 			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
+			borderColor={getStateColor(data?.flowModuleState?.type, darkMode)}
 			on:select={(e) => {
 				data?.eventHandlers?.select(e.detail)
 			}}

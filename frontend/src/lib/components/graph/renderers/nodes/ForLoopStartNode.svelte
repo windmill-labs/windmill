@@ -75,7 +75,7 @@
 			hideId
 			bgColor={getStateColor(undefined, darkMode)}
 			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
+			borderColor={getStateColor(computeStatus(data.flowModuleState), darkMode)}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}

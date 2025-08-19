@@ -21,7 +21,7 @@
 				id={data.id}
 				hideId
 				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
+				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}
@@ -33,7 +33,7 @@
 				selected={false}
 				id={data.id}
 				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
+				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}

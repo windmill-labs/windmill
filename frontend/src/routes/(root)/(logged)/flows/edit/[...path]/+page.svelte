@@ -13,8 +13,7 @@
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
-	import { writable } from 'svelte/store'
-	import type { FlowState } from '$lib/components/flows/flowState'
+
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -60,7 +59,7 @@
 			schema: emptySchema()
 		}
 	})
-	const flowStateStore = writable<FlowState>({})
+	const flowStateStore = $state({ val: {} })
 
 	let loading = $state(false)
 

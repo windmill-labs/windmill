@@ -35,7 +35,7 @@
 					m.id,
 					Object.entries(v.input_transforms)
 						.map((x) => {
-							let schema = flowStateStore[m.id]?.schema
+							let schema = flowStateStore.val[m.id]?.schema
 							let val: { argName: string; type: string } | undefined = undefined
 
 							const [k, inputTransform] = x
@@ -75,7 +75,7 @@
 						Object.entries(v.input_transforms)
 							.filter((x) => {
 								const shouldDisplay = hideOptional
-									? $flowStateStore[m.id]?.schema?.required?.includes(x[0])
+									? flowStateStore.val[m.id]?.schema?.required?.includes(x[0])
 									: true
 								return x[1].type == 'static' && shouldDisplay
 							})
@@ -146,7 +146,7 @@
 							noDynamicToggle
 							{filter}
 							class="mt-2"
-							schema={$flowStateStore[m.id]?.schema ?? {}}
+							schema={flowStateStore.val[m.id]?.schema ?? {}}
 							bind:args={steps[index][0]}
 						/>
 					</div>

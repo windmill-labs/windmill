@@ -54,6 +54,8 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -73,6 +75,7 @@
 		maxHeight?: number | undefined
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		testModuleStates?: ModulesTestStates
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -95,7 +98,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: Record<string, { job: Job; nb: number }>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -144,6 +147,7 @@
 		maxHeight = undefined,
 		notSelectable = false,
 		flowModuleStates = undefined,
+		testModuleStates = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -171,7 +175,7 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = writable({}),
+		suspendStatus = {},
 		flowHasChanged = false
 	}: Props = $props()
 
@@ -207,12 +211,16 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], (Node & NodeLayout)[]] | undefined = undefined
-	function layoutNodes(nodes: NodeLayout[]): (Node & NodeLayout)[] {
+	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
+	type NodePos = { position: { x: number; y: number } }
+	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && nodes === lastNodes?.[0]) {
+		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
+		console.debug('layoutNodes', nodes.length)
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -222,7 +230,7 @@
 		}
 
 		let nodeWidths: Record<string, number> = {}
-		const nodes2 = nodes.map((n) => {
+		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
 		for (const n of topologicalSort(nodes)) {
@@ -238,7 +246,7 @@
 			}
 		}
 
-		const dag = dagStratify().id(({ id }: Node) => id)(nodes2)
+		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
 
 		let boxSize: any
 		try {
@@ -262,12 +270,11 @@
 
 		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
-			...des.data,
 			id: des.data.id,
 			position: {
 				x: des.x
 					? // @ts-ignore
-						(des.data.data.offset ?? 0) +
+						(des.data.offset ?? 0) +
 						// @ts-ignore
 						des.x +
 						(fullSize ? fullWidth : width) / 2 -
@@ -349,7 +356,9 @@
 		}
 	}
 
-	let moduleTracker = new ChangeTracker($state.snapshot(modules))
+	let moduleTracker = new ChangeTracker(
+		$state.snapshot([modules, failureModule, preprocessorModule])
+	)
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -372,10 +381,23 @@
 		if (graph.error) {
 			return
 		}
-		let newGraph = graph
-		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
 		// console.log('compute')
-		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
+
+		let layoutedNodes = layoutNodes(
+			Object.values(graph.nodes).map((n) => ({
+				id: n.id,
+				parentIds: n.parentIds,
+				offset: n.data.offset ?? 0
+			}))
+		)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
+			return {
+				...n,
+				...graph.nodes[n.id]
+			}
+		})
+		;[nodes, edges] = computeAssetNodes(newNodes, graph.edges)
+		console.log('nodes', nodes)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -420,8 +442,11 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(modules)
-		untrack(() => moduleTracker.track($state.snapshot(modules)))
+		untrack(() =>
+			moduleTracker.track($state.snapshot([modules, failureModule, preprocessorModule]))
+		)
 	})
+
 	let graph = $derived.by(() => {
 		moduleTracker.counter
 		return graphBuilder(
@@ -429,8 +454,9 @@
 			{
 				disableAi,
 				insertable,
-				flowModuleStates,
-				selectedId: $selectedId,
+				flowModuleStates: untrack(() => flowModuleStates),
+				testModuleStates: untrack(() => testModuleStates),
+				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,
 				cache,
@@ -445,18 +471,19 @@
 				flowHasChanged,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
-			failureModule,
-			preprocessorModule,
+			untrack(() => failureModule),
+			untrack(() => preprocessorModule),
 			eventHandler,
 			success,
 			$useDataflow,
-			$selectedId,
+			untrack(() => $selectedId),
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows
 		)
 	})
+
 	$effect(() => {
 		;[graph, allowSimplifiedPoll]
 		untrack(() => updateStores())

@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	import pLimit from 'p-limit'
 
 	const plimit = pLimit(5)
