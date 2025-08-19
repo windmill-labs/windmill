@@ -1,16 +1,32 @@
 use std::collections::HashMap;
 
-use crate::{db::ApiAuthed, trigger_helpers::trigger_runnable_and_wait_for_raw_result};
+use crate::{
+    db::ApiAuthed,
+    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow};
 use windmill_common::{
     error::{Error, Result},
+    triggers::TriggerKind,
+    worker::to_raw_value,
     DB,
 };
 use windmill_queue::PushArgsOwned;
 
-pub mod handler;
+mod handler;
+mod listener;
+
+pub struct WebsocketTrigger;
+
+impl TriggerJobArgs for WebsocketTrigger {
+    type Payload = String;
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Websocket;
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("msg".to_string(), to_raw_value(&payload))])
+    }
+}
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct WebsocketConfig {

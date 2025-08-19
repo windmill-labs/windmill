@@ -15,11 +15,11 @@ use {
 };
 
 #[cfg(not(feature = "private"))]
-pub struct GcpTriggerHandler;
+pub struct GcpTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
-impl TriggerCrud for GcpTriggerHandler {
+impl TriggerCrud for GcpTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = GcpConfig;
     type EditTriggerConfig = EditGcpConfig;

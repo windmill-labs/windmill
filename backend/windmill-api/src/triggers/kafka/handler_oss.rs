@@ -10,18 +10,16 @@ use {
     },
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::{
-        error::{Error, Result},
-    },
+    windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
 
 #[cfg(not(feature = "private"))]
-pub struct KafkaTriggerHandler;
+pub struct KafkaTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
-impl TriggerCrud for KafkaTriggerHandler {
+impl TriggerCrud for KafkaTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = KafkaConfig;
     type EditTriggerConfig = EditKafkaConfig;

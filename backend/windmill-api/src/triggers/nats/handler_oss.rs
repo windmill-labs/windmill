@@ -15,11 +15,11 @@ use {
 };
 
 #[cfg(not(feature = "private"))]
-pub struct NatsTriggerHandler;
+pub struct NatsTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
-impl TriggerCrud for NatsTriggerHandler {
+impl TriggerCrud for NatsTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = NatsConfig;
     type EditTriggerConfig = EditNatsConfig;

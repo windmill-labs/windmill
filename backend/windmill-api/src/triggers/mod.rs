@@ -25,6 +25,7 @@ pub mod websocket;
 
 mod handler;
 mod listener;
+pub mod trigger_helpers;
 
 pub use handler::generate_trigger_routers;
 pub(crate) use handler::TriggerCrud;
@@ -211,9 +212,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(feature = "http_trigger")]
     let http_routes_count = {
-        use crate::triggers::http::handler::HttpTriggerHandler;
+        use crate::triggers::http::handler::HttpTrigger;
         let mut tx = db.begin().await?;
-        let count = HttpTriggerHandler
+        let count = HttpTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -224,9 +225,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(feature = "websocket")]
     let websocket_count = {
-        use crate::triggers::websocket::handler::WebsocketTriggerHandler;
+        use crate::triggers::websocket::WebsocketTrigger;
         let mut tx = db.begin().await?;
-        let count = WebsocketTriggerHandler
+        let count = WebsocketTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -237,9 +238,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "kafka", feature = "enterprise"))]
     let kafka_count = {
-        use crate::triggers::kafka::handler_oss::KafkaTriggerHandler;
+        use crate::triggers::kafka::handler_oss::KafkaTrigger;
         let mut tx = db.begin().await?;
-        let count = KafkaTriggerHandler
+        let count = KafkaTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -250,9 +251,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "nats", feature = "enterprise"))]
     let nats_count = {
-        use crate::triggers::nats::handler_oss::NatsTriggerHandler;
+        use crate::triggers::nats::handler_oss::NatsTrigger;
         let mut tx = db.begin().await?;
-        let count = NatsTriggerHandler
+        let count = NatsTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -263,9 +264,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(feature = "postgres_trigger")]
     let postgres_count = {
-        use crate::triggers::postgres::PostgresTriggerHandler;
+        use crate::triggers::postgres::PostgresTrigger;
         let mut tx = db.begin().await?;
-        let count = PostgresTriggerHandler
+        let count = PostgresTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -276,9 +277,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(feature = "mqtt_trigger")]
     let mqtt_count = {
-        use crate::triggers::mqtt::handler::MqttTriggerHandler;
+        use crate::triggers::mqtt::MqttTrigger;
         let mut tx = db.begin().await?;
-        let count = MqttTriggerHandler
+        let count = MqttTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;
         tx.rollback().await.ok();
@@ -289,11 +290,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
     let sqs_count = {
-        use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
+        use crate::triggers::sqs::handler_oss::SqsTrigger;
         let mut tx = db.begin().await?;
-        let count = SqsTriggerHandler
-            .trigger_count(&mut tx, w_id, is_flow, path)
-            .await;
+        let count = SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
         tx.rollback().await.ok();
         count
     };
@@ -302,11 +301,9 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
     let gcp_count = {
-        use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
+        use crate::triggers::gcp::handler_oss::GcpTrigger;
         let mut tx = db.begin().await?;
-        let count = GcpTriggerHandler
-            .trigger_count(&mut tx, w_id, is_flow, path)
-            .await;
+        let count = GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
         tx.rollback().await.ok();
         count
     };

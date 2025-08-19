@@ -124,8 +124,6 @@ pub mod jobs;
 pub mod kafka_triggers_ee;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_oss;
-#[cfg(feature = "mqtt_trigger")]
-mod mqtt_triggers;
 #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 pub mod nats_triggers_ee;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -162,7 +160,6 @@ mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
-mod trigger_helpers;
 
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
@@ -182,8 +179,6 @@ mod users_oss;
 mod utils;
 mod variables;
 pub mod webhook_util;
-#[cfg(feature = "websocket")]
-mod websocket_triggers;
 mod workers;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -194,6 +189,8 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
+
+mod websocket_triggers;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -382,14 +379,7 @@ pub async fn run_server(
     let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
-        
         start_all_listeners(db.clone(), &killpill_rx);
-
-        #[cfg(feature = "websocket")]
-        {
-            let ws_killpill_rx = killpill_rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
-        }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
@@ -401,12 +391,6 @@ pub async fn run_server(
         {
             let nats_killpill_rx = killpill_rx.resubscribe();
             nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(feature = "mqtt_trigger")]
-        {
-            let mqtt_killpill_rx = killpill_rx.resubscribe();
-            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]

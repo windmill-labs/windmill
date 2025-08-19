@@ -33,21 +33,21 @@ use windmill_git_sync::handle_deployment_metadata;
 use crate::utils::check_scopes;
 
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
-use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
+use crate::triggers::gcp::handler_oss::GcpTrigger;
 #[cfg(feature = "http_trigger")]
-use crate::triggers::http::handler::HttpTriggerHandler;
+use crate::triggers::http::handler::HttpTrigger;
 #[cfg(all(feature = "kafka", feature = "enterprise"))]
-use crate::triggers::kafka::handler_oss::KafkaTriggerHandler;
+use crate::triggers::kafka::handler_oss::KafkaTrigger;
 #[cfg(feature = "mqtt_trigger")]
-use crate::triggers::mqtt::handler::MqttTriggerHandler;
+use crate::triggers::mqtt::MqttTrigger;
 #[cfg(all(feature = "nats", feature = "enterprise"))]
-use crate::triggers::nats::handler_oss::NatsTriggerHandler;
+use crate::triggers::nats::handler_oss::NatsTrigger;
 #[cfg(feature = "postgres_trigger")]
-use crate::triggers::postgres::PostgresTriggerHandler;
+use crate::triggers::postgres::PostgresTrigger;
 #[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
-use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
+use crate::triggers::sqs::handler_oss::SqsTrigger;
 #[cfg(feature = "websocket")]
-use crate::triggers::websocket::handler::WebsocketTriggerHandler;
+use crate::triggers::websocket::WebsocketTrigger;
 
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
@@ -72,7 +72,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
-    const SCOPE_NAME: &'static str = Self::TRIGGER_TYPE;
     const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = false;
@@ -643,64 +642,64 @@ pub fn generate_trigger_routers() -> Router {
     #[cfg(feature = "http_trigger")]
     {
         router = router.nest(
-            HttpTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(HttpTriggerHandler),
+            HttpTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(HttpTrigger),
         );
     }
 
     #[cfg(feature = "websocket")]
     {
         router = router.nest(
-            WebsocketTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(WebsocketTriggerHandler),
+            WebsocketTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(WebsocketTrigger),
         );
     }
 
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     {
         router = router.nest(
-            KafkaTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(KafkaTriggerHandler),
+            KafkaTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(KafkaTrigger),
         );
     }
 
     #[cfg(all(feature = "enterprise", feature = "nats"))]
     {
         router = router.nest(
-            NatsTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(NatsTriggerHandler),
+            NatsTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(NatsTrigger),
         );
     }
 
     #[cfg(feature = "mqtt_trigger")]
     {
         router = router.nest(
-            MqttTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(MqttTriggerHandler),
+            MqttTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(MqttTrigger),
         );
     }
 
     #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
     {
         router = router.nest(
-            SqsTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(SqsTriggerHandler),
+            SqsTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(SqsTrigger),
         );
     }
 
     #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
     {
         router = router.nest(
-            GcpTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(GcpTriggerHandler),
+            GcpTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(GcpTrigger),
         );
     }
 
     #[cfg(feature = "postgres_trigger")]
     {
         router = router.nest(
-            PostgresTriggerHandler::ROUTE_PREFIX,
-            complete_trigger_routes(PostgresTriggerHandler),
+            PostgresTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(PostgresTrigger),
         );
     }
 

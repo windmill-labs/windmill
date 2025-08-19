@@ -3,8 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     capture::insert_capture_payload,
     db::ApiAuthed,
-    trigger_helpers::{trigger_runnable, TriggerJobArgs},
-    triggers::{handler::TriggerCrud, Trigger, TriggerErrorHandling},
+    triggers::{
+        handler::TriggerCrud,
+        trigger_helpers::{trigger_runnable, TriggerJobArgs},
+        Trigger, TriggerErrorHandling,
+    },
     users::fetch_api_authed,
 };
 use async_trait::async_trait;
@@ -12,6 +15,7 @@ use itertools::Itertools;
 use rand::seq::SliceRandom;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Row};
 use tokio::sync::RwLock;
@@ -27,6 +31,8 @@ use windmill_common::{
 pub trait Listener: TriggerCrud + TriggerJobArgs {
     type Consumer: Send;
 
+    //to use in next PR to add job trigger kind to eow
+    #[allow(unused)]
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_WHERE_CLAUSE: &[&'static str] = &[];
@@ -35,13 +41,16 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         &self,
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
-    ) -> Result<Self::Consumer>;
+        err_message: Arc<RwLock<Option<String>>>,
+        killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    ) -> Result<Option<Self::Consumer>>;
     async fn consume(
         &self,
         db: &DB,
         consumer: Self::Consumer,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
+        killpill_rx: tokio::sync::broadcast::Receiver<()>,
     );
     async fn fetch_enabled_unlistened_triggers(
         &self,
@@ -212,16 +221,16 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     ) -> Option<()> {
         let updated = sqlx::query_scalar::<_, i32>(&format!(
             r#"
-            UPDATE 
-                {}
-            SET 
-                last_server_ping = now(), error = $1
-            WHERE 
-                workspace_id = $2 AND 
-                path = $3 AND 
-                server_id = $4 AND 
-                enabled IS TRUE
-            RETURNING 1
+                UPDATE 
+                    {}
+                SET 
+                    last_server_ping = now(), error = $1
+                WHERE 
+                    workspace_id = $2 AND 
+                    path = $3 AND 
+                    server_id = $4 AND 
+                    enabled IS TRUE
+                RETURNING 1
             "#,
             Self::TABLE_NAME
         ))
@@ -244,18 +253,18 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     ) -> Option<()> {
         let updated = sqlx::query_scalar!(
             r#"
-            UPDATE 
-                capture_config
-            SET 
-                last_server_ping = now(), error = $1
-            WHERE 
-                workspace_id = $2 AND 
-                path = $3 AND 
-                is_flow = $4 AND 
-                trigger_kind = $5 AND 
-                server_id = $6 AND 
-                last_client_ping > NOW() - INTERVAL '10 seconds'
-            RETURNING 1
+                UPDATE 
+                    capture_config
+                SET 
+                    last_server_ping = now(), error = $1
+                WHERE 
+                    workspace_id = $2 AND 
+                    path = $3 AND 
+                    is_flow = $4 AND 
+                    trigger_kind = $5 AND 
+                    server_id = $6 AND 
+                    last_client_ping > NOW() - INTERVAL '10 seconds'
+                RETURNING 1
             "#,
             error,
             &listening_trigger.workspace_id,
@@ -314,16 +323,16 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         if listening_trigger.capture_mode {
             let _ = sqlx::query!(
                 r#"
-                UPDATE 
-                    capture_config
-                SET 
-                    last_server_ping = NULL
-                WHERE 
-                    workspace_id = $1 AND 
-                    path = $2 AND 
-                    is_flow = $3 AND 
-                    trigger_kind = $4 AND 
-                    server_id IS NULL
+                    UPDATE 
+                        capture_config
+                    SET 
+                        last_server_ping = NULL
+                    WHERE 
+                        workspace_id = $1 AND 
+                        path = $2 AND 
+                        is_flow = $3 AND 
+                        trigger_kind = $4 AND 
+                        server_id IS NULL
                 "#,
                 &listening_trigger.workspace_id,
                 &listening_trigger.path,
@@ -335,14 +344,14 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         } else {
             let _ = sqlx::query(&format!(
                 r#"
-                UPDATE 
-                    {}
-                SET 
-                    last_server_ping = NULL
-                WHERE 
-                    workspace_id = $1 AND 
-                    path = $2 AND 
-                    server_id IS NULL
+                    UPDATE 
+                        {}
+                    SET 
+                        last_server_ping = NULL
+                    WHERE 
+                        workspace_id = $1 AND 
+                        path = $2 AND 
+                        server_id IS NULL
                 "#,
                 Self::TABLE_NAME
             ))
@@ -362,17 +371,17 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         if !listening_trigger.capture_mode {
             let report_status = sqlx::query(&format!(
                 r#"
-                UPDATE 
-                    {} 
-                SET 
-                    enabled = FALSE, 
-                    error = $1, 
-                    server_id = NULL, 
-                    last_server_ping = NULL 
-                WHERE 
-                    workspace_id = $2 AND 
-                    path = $3
-            "#,
+                    UPDATE 
+                        {} 
+                    SET 
+                        enabled = FALSE, 
+                        error = $1, 
+                        server_id = NULL, 
+                        last_server_ping = NULL 
+                    WHERE 
+                        workspace_id = $2 AND 
+                        path = $3
+                "#,
                 Self::TABLE_NAME
             ))
             .bind(&error)
@@ -410,17 +419,17 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 
         let report_status = sqlx::query!(
             r#"
-            UPDATE 
-                capture_config 
-            SET 
-                error = $1, 
-                server_id = NULL, 
-                last_server_ping = NULL 
-            WHERE 
-                workspace_id = $2 AND 
-                path = $3 AND 
-                is_flow = $4 AND 
-                trigger_kind = $5
+                UPDATE 
+                    capture_config 
+                SET 
+                    error = $1, 
+                    server_id = NULL, 
+                    last_server_ping = NULL 
+                WHERE 
+                    workspace_id = $2 AND 
+                    path = $3 AND 
+                    is_flow = $4 AND 
+                    trigger_kind = $5
             "#,
             error,
             listening_trigger.workspace_id,
@@ -447,7 +456,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         &self,
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
-        payload: &Self::Payload,
+        payload: Self::Payload,
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) -> Result<()> {
         let args = Self::build_job_args(
             &listening_trigger.script_path,
@@ -455,7 +465,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             &listening_trigger.workspace_id,
             db,
             payload,
-            HashMap::new(),
+            trigger_info,
         )
         .await?;
 
@@ -501,16 +511,17 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         payload: Self::Payload,
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) {
         if listening_trigger.capture_mode {
-            let main_args = Self::build_job_args_v2(false, &payload, HashMap::new());
-            let preprocessor_args = Self::build_job_args_v2(true, &payload, HashMap::new());
+            let (main_args, preprocessor_args) =
+                Self::build_capture_payloads(&payload, trigger_info);
             if let Err(err) = insert_capture_payload(
                 db,
                 &listening_trigger.workspace_id,
                 &listening_trigger.path,
                 listening_trigger.is_flow,
-                &TriggerKind::Postgres,
+                &Self::TRIGGER_KIND,
                 main_args,
                 preprocessor_args,
                 &listening_trigger.username,
@@ -522,7 +533,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             return;
         }
 
-        if let Err(err) = self.handle_trigger(db, listening_trigger, &payload).await {
+        if let Err(err) = self
+            .handle_trigger(db, listening_trigger, payload, trigger_info)
+            .await
+        {
             report_critical_error(
                 format!(
                     "Failed to trigger job from {} event {}: {:?}",
@@ -545,6 +559,9 @@ async fn listening<T: Listener>(
     listening_trigger: ListeningTrigger<T::TriggerConfig>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    let killpill_rx_consumer = killpill_rx.resubscribe();
+    let killpill_rx_get_consumer = killpill_rx.resubscribe();
+
     let loop_ping_status = Arc::new(RwLock::new(Some("Connecting...".to_string())));
 
     tokio::select! {
@@ -555,7 +572,9 @@ async fn listening<T: Listener>(
         _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone()) => {
             let _ = listener.cleanup(&db, &listening_trigger).await;
         }
-        consumer = listener.get_consumer(&db, &listening_trigger) => {
+        consumer = {
+            listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
+        } => {
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
@@ -568,13 +587,14 @@ async fn listening<T: Listener>(
                 }
                 _ = async {
                     match consumer {
-                        Ok(consumer) => {
+                        Ok(Some(consumer)) => {
                             listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone()).await;
+                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer).await;
                         }
                         Err(error) => {
                             listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
                         }
+                        _ => {}
                     }
                 } => {
                     let _ = listener.cleanup(&db, &listening_trigger).await;
@@ -597,21 +617,21 @@ async fn listen_to_unlistened_events<T: Copy + Listener>(
             for trigger in unlistend_enabled_triggers {
                 let has_lock = sqlx::query_scalar(&format!(
                     r#"
-                    UPDATE 
-                        {} 
-                    SET 
-                        server_id = $1, 
-                        last_server_ping = now(),
-                        error = 'Connecting...'
-                    WHERE 
-                        enabled IS TRUE 
-                        AND workspace_id = $2 
-                        AND path = $3 
-                        AND (last_server_ping IS NULL 
-                            OR last_server_ping < now() - INTERVAL '15 seconds'
-                        ) 
-                    RETURNING true
-                "#,
+                        UPDATE 
+                            {} 
+                        SET 
+                            server_id = $1, 
+                            last_server_ping = now(),
+                            error = 'Connecting...'
+                        WHERE 
+                            enabled IS TRUE 
+                            AND workspace_id = $2 
+                            AND path = $3 
+                            AND (last_server_ping IS NULL 
+                                OR last_server_ping < now() - INTERVAL '15 seconds'
+                            ) 
+                        RETURNING true
+                    "#,
                     T::TABLE_NAME,
                 ))
                 .bind(&*INSTANCE_NAME)
@@ -814,9 +834,17 @@ pub fn start_all_listeners(db: DB, killpill_rx: &tokio::sync::broadcast::Receive
     #[cfg(feature = "postgres_trigger")]
     {
         let postgres_killpill_rx = killpill_rx.resubscribe();
-        use crate::triggers::postgres::PostgresTriggerHandler;
+        use crate::triggers::postgres::PostgresTrigger;
 
-        listen_to(PostgresTriggerHandler, db.clone(), postgres_killpill_rx)
+        listen_to(PostgresTrigger, db.clone(), postgres_killpill_rx)
+    }
+
+    #[cfg(feature = "mqtt_trigger")]
+    {
+        let mqtt_killpill_rx = killpill_rx.resubscribe();
+        use crate::triggers::mqtt::MqttTrigger;
+
+        listen_to(MqttTrigger, db.clone(), mqtt_killpill_rx)
     }
 
     tracing::info!("All available trigger listeners have been started");

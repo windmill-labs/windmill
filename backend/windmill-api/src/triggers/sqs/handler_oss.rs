@@ -15,12 +15,12 @@ use {
 };
 
 #[cfg(not(feature = "private"))]
-pub struct SqsTriggerHandler;
+pub struct SqsTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
 #[cfg(not(feature = "private"))]
-impl TriggerCrud for SqsTriggerHandler {
+impl TriggerCrud for SqsTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = SqsConfig;
     type EditTriggerConfig = EditSqsConfig;

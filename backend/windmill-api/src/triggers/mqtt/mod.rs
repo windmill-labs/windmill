@@ -1,25 +1,47 @@
-use base64::prelude::*;
-use bytes::Bytes;
+use base64::{engine, prelude::*};
 use itertools::Itertools;
 use rumqttc::{
     v5::{
         mqttbytes::{
-            v5::{ConnectProperties, PublishProperties},
+            v5::{ConnectProperties, Filter},
             QoS as V5QoS,
         },
-        AsyncClient as V5AsyncClient, Event as V5Event, EventLoop as V5EventLoop,
-        Incoming as V5Incoming, MqttOptions as V5MqttOptions,
+        AsyncClient as V5AsyncClient, EventLoop as V5EventLoop, MqttOptions as V5MqttOptions,
     },
-    AsyncClient as V3AsyncClient, Event as V3Event, EventLoop as V3EventLoop,
-    Incoming as V3Incoming, MqttOptions as V3MqttOptions, QoS as V3QoS, SubscribeFilter,
-    TlsConfiguration, Transport,
+    AsyncClient as V3AsyncClient, EventLoop as V3EventLoop, MqttOptions as V3MqttOptions,
+    QoS as V3QoS, SubscribeFilter, TlsConfiguration, Transport,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow, Type};
-use std::time::Duration;
-use windmill_common::error::Error;
+use std::{collections::HashMap, time::Duration};
+use windmill_common::{
+    error::{to_anyhow, Error},
+    triggers::TriggerKind,
+    worker::to_raw_value,
+};
+
+use crate::triggers::{mqtt::listener::EventLoop, trigger_helpers::TriggerJobArgs};
 
 pub mod handler;
+pub mod listener;
+
+#[derive(Clone, Copy)]
+pub struct MqttTrigger;
+
+impl TriggerJobArgs for MqttTrigger {
+    type Payload = Vec<u8>;
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Mqtt;
+
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+    }
+
+    fn v2_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        let base64_payload = engine::general_purpose::STANDARD.encode(payload);
+        HashMap::from([("payload".to_string(), to_raw_value(&base64_payload))])
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "lowercase")]
@@ -143,129 +165,8 @@ pub const TOPIC_ALIAS_MAXIMUM: u16 = 65535;
 pub const TIMEOUT_DURATION: u64 = 10;
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(TIMEOUT_DURATION);
 
-
-#[derive(Clone)]
-#[allow(unused)]
-pub struct PublishData {
-    topic: String,
-    retain: bool,
-    pkid: u16,
-    v5: Option<PublishProperties>,
-    qos: u8,
-}
-
-impl PublishData {
-    pub fn new(
-        topic: String,
-        retain: bool,
-        pkid: u16,
-        v5: Option<PublishProperties>,
-        qos: u8,
-    ) -> PublishData {
-        PublishData { topic, retain, pkid, v5, qos }
-    }
-}
-
-pub trait MqttEvent {
-    type IncomingPacket;
-    type PublishPacket;
-    type Event;
-
-    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData;
-    fn handle_event(
-        &self,
-        event: Self::Event,
-    ) -> std::result::Result<Option<(Bytes, PublishData)>, String>;
-}
-
-pub struct V5MqttHandler;
-
-impl MqttEvent for V5MqttHandler {
-    type IncomingPacket = V5Incoming;
-    type PublishPacket = rumqttc::v5::mqttbytes::v5::Publish;
-    type Event = V5Event;
-
-    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData {
-        PublishData::new(
-            String::from_utf8(publish_packet.topic.as_ref().to_vec()).unwrap_or("".to_string()),
-            publish_packet.retain,
-            publish_packet.pkid,
-            publish_packet.properties,
-            publish_packet.qos as u8,
-        )
-    }
-
-    fn handle_event(
-        &self,
-        event: Self::Event,
-    ) -> std::result::Result<Option<(Bytes, PublishData)>, String> {
-        tracing::debug!("Inside V5 event");
-        match event {
-            Self::Event::Incoming(packet) => match packet {
-                Self::IncomingPacket::Publish(publish_packet) => {
-                    return Ok(Some((
-                        publish_packet.payload.clone(),
-                        Self::handle_publish_packet(publish_packet),
-                    )))
-                }
-                Self::IncomingPacket::Disconnect(disconnect) => {
-                    return Err(convert_disconnect_packet_into_string(disconnect));
-                }
-                packet => {
-                    tracing::debug!("Received = {:#?}", packet);
-                }
-            },
-            Self::Event::Outgoing(packet) => {
-                tracing::debug!("Outgoing Received = {:#?}", packet);
-            }
-        }
-
-        Ok(None)
-    }
-}
-
 pub struct V3MqttHandler;
-
-impl MqttEvent for V3MqttHandler {
-    type IncomingPacket = V3Incoming;
-    type PublishPacket = rumqttc::mqttbytes::v4::Publish;
-    type Event = V3Event;
-
-    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData {
-        PublishData::new(
-            publish_packet.topic,
-            publish_packet.retain,
-            publish_packet.pkid,
-            None,
-            publish_packet.qos as u8,
-        )
-    }
-
-    fn handle_event(
-        &self,
-        event: Self::Event,
-    ) -> std::result::Result<Option<(Bytes, PublishData)>, String> {
-        tracing::debug!("Inside V3 event");
-        match event {
-            Self::Event::Incoming(packet) => match packet {
-                Self::IncomingPacket::Publish(publish_packet) => {
-                    return Ok(Some((
-                        publish_packet.payload.clone(),
-                        Self::handle_publish_packet(publish_packet),
-                    )))
-                }
-                packet => {
-                    tracing::debug!("Received = {:?}", packet);
-                }
-            },
-            Self::Event::Outgoing(packet) => {
-                tracing::debug!("Outgoing Received = {:?}", packet);
-            }
-        }
-
-        Ok(None)
-    }
-}
+pub struct V5MqttHandler;
 
 pub enum MqttClientResult {
     V3((V3MqttHandler, V3EventLoop)),
@@ -298,7 +199,7 @@ pub struct MqttClientBuilder<'client> {
 }
 
 impl<'client> MqttClientBuilder<'client> {
-    pub fn new(
+    fn new(
         mqtt_resource: MqttResource,
         client_id: Option<&'client str>,
         subscribe_topics: Vec<SubscribeTopic>,
@@ -316,14 +217,14 @@ impl<'client> MqttClientBuilder<'client> {
         }
     }
 
-    pub async fn build_client(&self) -> std::result::Result<MqttClientResult, MqttError> {
+    async fn build_client(&self) -> Result<MqttClientResult, Error> {
         match self.mqtt_client_version {
             Some(MqttClientVersion::V5) | None => self.build_v5_client().await,
             Some(MqttClientVersion::V3) => self.build_v3_client().await,
         }
     }
 
-    pub fn get_tls_configuration(&self) -> std::result::Result<Option<Transport>, MqttError> {
+    fn get_tls_configuration(&self) -> Result<Option<Transport>, Error> {
         let transport = match self.mqtt_resource.tls {
             Some(ref tls) if tls.enabled => {
                 let transport = match tls.ca_certificate.trim().is_empty() {
@@ -337,9 +238,11 @@ impl<'client> MqttClientBuilder<'client> {
                                 {
                                     let client_certificate = BASE64_STANDARD
                                         .decode(client_certificate)
-                                        .map_err(MqttError::Base64Decode)?;
-                                    let password =
-                                        tls.pkcs12_certificate_password.clone().unwrap_or_default();
+                                        .map_err(to_anyhow)?;
+                                    let password = tls
+                                        .pkcs12_certificate_password
+                                        .clone()
+                                        .unwrap_or("".to_string());
                                     Some((client_certificate, password))
                                 }
                                 _ => None,
@@ -356,7 +259,7 @@ impl<'client> MqttClientBuilder<'client> {
         Ok(transport)
     }
 
-    pub async fn build_v5_client(&self) -> std::result::Result<MqttClientResult, MqttError> {
+    async fn build_v5_client(&self) -> Result<MqttClientResult, Error> {
         let mut mqtt_options = V5MqttOptions::new(
             self.client_id,
             &self.mqtt_resource.broker,
@@ -374,6 +277,7 @@ impl<'client> MqttClientBuilder<'client> {
         }
 
         mqtt_options.set_connection_timeout(CLIENT_CONNECTION_TIMEOUT);
+
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
         if let Some(v5_config) = self.v5_config {
@@ -391,31 +295,26 @@ impl<'client> MqttClientBuilder<'client> {
             });
         }
 
-        let (async_client, event_loop) =
+        let (async_client, mut event_loop) =
             V5AsyncClient::new(mqtt_options, self.subscribe_topics.len());
-        // Connection will be verified when the event loop starts
+        event_loop.verify_connection().await?;
 
         if !self.subscribe_topics.is_empty() {
             let subscribe_filters = self
                 .subscribe_topics
                 .iter()
-                .map(|topic| {
-                    rumqttc::v5::mqttbytes::v5::Filter::new(
-                        topic.topic.clone(),
-                        topic.qos.clone().into(),
-                    )
-                })
+                .map(|topic| Filter::new(topic.topic.clone(), topic.qos.clone().into()))
                 .collect_vec();
 
             async_client
                 .subscribe_many(subscribe_filters)
                 .await
-                .map_err(MqttError::V5RumqttClient)?;
+                .map_err(to_anyhow)?;
         }
         Ok(MqttClientResult::V5((V5MqttHandler, event_loop)))
     }
 
-    pub async fn build_v3_client(&self) -> std::result::Result<MqttClientResult, MqttError> {
+    async fn build_v3_client(&self) -> Result<MqttClientResult, Error> {
         let mut mqtt_options = V3MqttOptions::new(
             self.client_id,
             &self.mqtt_resource.broker,
@@ -436,9 +335,9 @@ impl<'client> MqttClientBuilder<'client> {
             mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
         }
 
-        let (async_client, event_loop) =
+        let (async_client, mut event_loop) =
             V3AsyncClient::new(mqtt_options, self.subscribe_topics.len());
-        // Connection will be verified when the event loop starts
+        event_loop.verify_connection().await?;
 
         if !self.subscribe_topics.is_empty() {
             let subscribe_filters = self
@@ -450,126 +349,8 @@ impl<'client> MqttClientBuilder<'client> {
             async_client
                 .subscribe_many(subscribe_filters)
                 .await
-                .map_err(MqttError::V3RumqttClient)?;
+                .map_err(to_anyhow)?;
         }
         Ok(MqttClientResult::V3((V3MqttHandler, event_loop)))
     }
-
-    pub async fn test_v5_connection(&self) -> std::result::Result<(), MqttError> {
-        let mut mqtt_options = V5MqttOptions::new(
-            self.client_id,
-            &self.mqtt_resource.broker,
-            self.mqtt_resource.port,
-        );
-
-        if let Some(credentials) = &self.mqtt_resource.credentials {
-            let username = credentials.username.as_deref().unwrap_or("");
-            let password = credentials.password.as_deref().unwrap_or("");
-            mqtt_options.set_credentials(username, password);
-        }
-
-        if let Some(transport) = self.get_tls_configuration()? {
-            mqtt_options.set_transport(transport);
-        }
-
-        mqtt_options.set_connection_timeout(CLIENT_CONNECTION_TIMEOUT);
-        mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
-
-        if let Some(v5_config) = self.v5_config {
-            mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
-            mqtt_options.set_connect_properties(ConnectProperties {
-                session_expiry_interval: v5_config.session_expiry_interval,
-                receive_maximum: None,
-                max_packet_size: None,
-                topic_alias_max: v5_config.topic_alias_maximum.or(Some(TOPIC_ALIAS_MAXIMUM)),
-                request_response_info: None,
-                request_problem_info: None,
-                user_properties: vec![],
-                authentication_method: None,
-                authentication_data: None,
-            });
-        }
-
-        let (_async_client, mut event_loop) =
-            V5AsyncClient::new(mqtt_options, self.subscribe_topics.len());
-
-        let start = std::time::Instant::now();
-        while start.elapsed() < CONNECTION_TIMEOUT {
-            match event_loop.poll().await? {
-                rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::ConnAck(_)) => {
-                    return Ok(())
-                }
-                rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::Disconnect(
-                    disconnect,
-                )) => {
-                    return Err(MqttError::Common(Error::BadConfig(format!(
-                        "Disconnected by the broker, reason code: {}",
-                        disconnect.reason_code as u8
-                    ))));
-                }
-                _ => continue,
-            }
-        }
-
-        Err(MqttError::Common(Error::BadConfig(format!(
-            "Timeout occurred while trying to connect to mqtt broker after {} seconds",
-            TIMEOUT_DURATION
-        ))))
-    }
-
-    pub async fn test_v3_connection(&self) -> std::result::Result<(), MqttError> {
-        let mut mqtt_options = V3MqttOptions::new(
-            self.client_id,
-            &self.mqtt_resource.broker,
-            self.mqtt_resource.port,
-        );
-
-        if let Some(credentials) = &self.mqtt_resource.credentials {
-            let username = credentials.username.as_deref().unwrap_or("");
-            let password = credentials.password.as_deref().unwrap_or("");
-            mqtt_options.set_credentials(username, password);
-        }
-
-        if let Some(transport) = self.get_tls_configuration()? {
-            mqtt_options.set_transport(transport);
-        }
-
-        mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
-        if let Some(v3_config) = self.v3_config {
-            mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
-        }
-
-        let (_async_client, mut event_loop) =
-            V3AsyncClient::new(mqtt_options, self.subscribe_topics.len());
-
-        let start = std::time::Instant::now();
-        while start.elapsed() < CONNECTION_TIMEOUT {
-            match event_loop.poll().await? {
-                rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_)) => return Ok(()),
-                _ => continue,
-            }
-        }
-
-        Err(MqttError::Common(Error::BadConfig(format!(
-            "Timeout occurred while trying to connect to mqtt broker after {} seconds",
-            TIMEOUT_DURATION
-        ))))
-    }
-
-    pub async fn test_connection(&self) -> std::result::Result<(), MqttError> {
-        match self.mqtt_client_version {
-            Some(MqttClientVersion::V5) | None => self.test_v5_connection().await,
-            Some(MqttClientVersion::V3) => self.test_v3_connection().await,
-        }
-    }
-}
-
-// Utility function for disconnect packet conversion
-pub fn convert_disconnect_packet_into_string(
-    disconnect: rumqttc::v5::mqttbytes::v5::Disconnect,
-) -> String {
-    format!(
-        "Disconnected by the broker, reason code: {}",
-        disconnect.reason_code as u8
-    )
 }

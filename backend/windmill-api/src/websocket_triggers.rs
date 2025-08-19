@@ -9,7 +9,6 @@ use serde::{
 use serde_json::{value::RawValue, Value};
 use sqlx::prelude::FromRow;
 use sqlx::types::Json as SqlxJson;
-use windmill_queue::PushArgsOwned;
 use std::{collections::HashMap, fmt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -20,11 +19,14 @@ use windmill_common::{
     worker::to_raw_value,
     INSTANCE_NAME,
 };
+use windmill_queue::PushArgsOwned;
 
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
-    trigger_helpers::{trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
+    triggers::trigger_helpers::{
+        trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs,
+    },
     users::fetch_api_authed,
 };
 

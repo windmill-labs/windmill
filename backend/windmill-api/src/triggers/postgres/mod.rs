@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     resources::try_get_resource_from_db_as,
-    trigger_helpers::TriggerJobArgs,
+    triggers::trigger_helpers::TriggerJobArgs,
 };
 use chrono::Utc;
 use itertools::Itertools;
@@ -32,9 +32,9 @@ mod relation;
 mod replication_message;
 
 #[derive(Clone, Copy)]
-pub struct PostgresTriggerHandler;
+pub struct PostgresTrigger;
 
-impl TriggerJobArgs for PostgresTriggerHandler {
+impl TriggerJobArgs for PostgresTrigger {
     type Payload = HashMap<String, Box<RawValue>>;
     const TRIGGER_KIND: TriggerKind = TriggerKind::Postgres;
     fn v1_payload_fn(payload: &HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {

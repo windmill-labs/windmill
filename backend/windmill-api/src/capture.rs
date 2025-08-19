@@ -49,7 +49,7 @@ use windmill_common::error::Error;
 use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
-use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
+use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_oss::NatsTriggerConfigConnection;

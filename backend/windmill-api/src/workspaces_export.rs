@@ -554,8 +554,8 @@ pub(crate) async fn tarball_workspace(
     if include_triggers.unwrap_or(false) {
         #[cfg(feature = "http_trigger")]
         {
-            use crate::triggers::http::handler::HttpTriggerHandler;
-            let handler = HttpTriggerHandler;
+            use crate::triggers::http::handler::HttpTrigger;
+            let handler = HttpTrigger;
             let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in http_triggers {
@@ -571,8 +571,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(feature = "websocket")]
         {
-            use crate::triggers::websocket::handler::WebsocketTriggerHandler;
-            let handler = WebsocketTriggerHandler;
+            use crate::triggers::websocket::WebsocketTrigger;
+            let handler = WebsocketTrigger;
             let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in websocket_triggers {
@@ -588,8 +588,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
-            use crate::triggers::kafka::handler_oss::KafkaTriggerHandler;
-            let handler = KafkaTriggerHandler;
+            use crate::triggers::kafka::handler_oss::KafkaTrigger;
+            let handler = KafkaTrigger;
             let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in kafka_triggers {
@@ -605,8 +605,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
-            use crate::triggers::sqs::handler_oss::SqsTriggerHandler;
-            let handler = SqsTriggerHandler;
+            use crate::triggers::sqs::handler_oss::SqsTrigger;
+            let handler = SqsTrigger;
             let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in sqs_triggers {
@@ -622,8 +622,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
-            use crate::triggers::gcp::handler_oss::GcpTriggerHandler;
-            let handler = GcpTriggerHandler;
+            use crate::triggers::gcp::handler_oss::GcpTrigger;
+            let handler = GcpTrigger;
             let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in gcp_triggers {
@@ -639,8 +639,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
-            use crate::triggers::nats::handler_oss::NatsTriggerHandler;
-            let handler = NatsTriggerHandler;
+            use crate::triggers::nats::handler_oss::NatsTrigger;
+            let handler = NatsTrigger;
             let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in nats_triggers {
@@ -657,8 +657,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(feature = "postgres_trigger")]
         {
-            use crate::triggers::postgres::PostgresTriggerHandler;
-            let handler = PostgresTriggerHandler;
+            use crate::triggers::postgres::PostgresTrigger;
+            let handler = PostgresTrigger;
             let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in postgres_triggers {
@@ -674,8 +674,8 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(feature = "mqtt_trigger")]
         {
-            use crate::triggers::mqtt::handler::MqttTriggerHandler;
-            let handler = MqttTriggerHandler;
+            use crate::triggers::mqtt::MqttTrigger;
+            let handler = MqttTrigger;
             let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in mqtt_triggers {

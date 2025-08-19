@@ -14,15 +14,12 @@ use windmill_common::{
 use windmill_git_sync::DeployedObject;
 
 use super::{
-    EditMqttConfig, MqttClientBuilder, MqttClientVersion, MqttConfig, MqttResource, MqttV3Config,
-    MqttV5Config, NewMqttConfig, SubscribeTopic, TestMqttConfig,
+    EditMqttConfig, MqttClientBuilder, MqttClientVersion, MqttConfig, MqttResource, MqttTrigger,
+    MqttV3Config, MqttV5Config, NewMqttConfig, SubscribeTopic, TestMqttConfig,
 };
 
-#[derive(Clone)]
-pub struct MqttTriggerHandler;
-
 #[async_trait]
-impl TriggerCrud for MqttTriggerHandler {
+impl TriggerCrud for MqttTrigger {
     type TriggerConfig = MqttConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
     type EditTriggerConfig = EditMqttConfig;

@@ -1,6 +1,5 @@
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
-use crate::trigger_helpers::TriggerJobArgs;
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt};
@@ -30,8 +29,9 @@ use crate::{
                 },
                 PrimaryKeepAliveBody, ReplicationMessage,
             },
-            Postgres, PostgresConfig, PostgresTriggerHandler, ERROR_PUBLICATION_NAME_NOT_EXISTS,
+            Postgres, PostgresConfig, PostgresTrigger, ERROR_PUBLICATION_NAME_NOT_EXISTS,
         },
+        trigger_helpers::TriggerJobArgs,
         Listener,
     },
 };
@@ -130,7 +130,7 @@ impl PostgresSimpleClient {
 }
 
 #[async_trait::async_trait]
-impl Listener for PostgresTriggerHandler {
+impl Listener for PostgresTrigger {
     type Consumer = (CopyBothDuplex<Bytes>, LogicalReplicationSettings);
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Postgres;
 
@@ -138,7 +138,9 @@ impl Listener for PostgresTriggerHandler {
         &self,
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
-    ) -> Result<Self::Consumer> {
+        _err_message: Arc<RwLock<Option<String>>>,
+        _killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    ) -> Result<Option<Self::Consumer>> {
         let ListeningTrigger::<Self::TriggerConfig> { workspace_id, trigger_config, .. } =
             listening_trigger;
 
@@ -194,7 +196,10 @@ impl Listener for PostgresTriggerHandler {
             .await
             .map_err(to_anyhow)?;
 
-        Ok((logical_replication_stream, logical_replication_settings))
+        Ok(Some((
+            logical_replication_stream,
+            logical_replication_settings,
+        )))
     }
     async fn consume(
         &self,
@@ -202,6 +207,7 @@ impl Listener for PostgresTriggerHandler {
         consumer: Self::Consumer,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
+        _killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) {
         let (logical_replication_stream, logical_replication_settings) = consumer;
         pin_mut!(logical_replication_stream);
@@ -337,7 +343,7 @@ impl Listener for PostgresTriggerHandler {
                                 ("row".to_string(), to_raw_value(&row)),
                             ]);
                             let _ = self
-                                .handle_event(db, listening_trigger, database_info)
+                                .handle_event(db, listening_trigger, database_info, HashMap::new())
                                 .await;
                         }
                         Some((o_id, old_row, row, transaction_type)) => {

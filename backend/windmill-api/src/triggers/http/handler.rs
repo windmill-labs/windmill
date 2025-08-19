@@ -32,7 +32,11 @@ use std::{
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB, error::{Error, Result}, triggers::TriggerKind, utils::{not_found_if_none, require_admin, StripPath}, worker::CLOUD_HOSTED
+    db::UserDB,
+    error::{Error, Result},
+    triggers::TriggerKind,
+    utils::{not_found_if_none, require_admin, StripPath},
+    worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::handle_deployment_metadata;
 
@@ -101,7 +105,7 @@ pub async fn create_many_http_triggers(
 ) -> Result<(StatusCode, String)> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let handler = HttpTriggerHandler;
+    let handler = HttpTrigger;
 
     let error_wrapper = |route_path: &str, error: Error| -> Error {
         anyhow::anyhow!(
@@ -189,10 +193,10 @@ pub async fn create_many_http_triggers(
     Ok((StatusCode::CREATED, "Created all HTTP routes".to_string()))
 }
 
-pub struct HttpTriggerHandler;
+pub struct HttpTrigger;
 
 #[async_trait]
-impl TriggerCrud for HttpTriggerHandler {
+impl TriggerCrud for HttpTrigger {
     type TriggerConfig = HttpConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
     type EditTriggerConfig = EditHttpConfig;

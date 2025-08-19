@@ -422,7 +422,7 @@ pub trait TriggerJobArgs {
         is_flow: bool,
         w_id: &str,
         db: &DB,
-        payload: &Self::Payload,
+        payload: Self::Payload,
         info: HashMap<String, Box<RawValue>>,
     ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
         async move {
@@ -439,18 +439,18 @@ pub trait TriggerJobArgs {
         runnable_id: RunnableId,
         w_id: &str,
         db: &DB,
-        payload: &Self::Payload,
-        info: HashMap<String, Box<RawValue>>,
+        payload: Self::Payload,
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
         async move {
             let runnable_format =
                 get_runnable_format(runnable_id, w_id, db, &Self::TRIGGER_KIND).await?;
             let job_args = match runnable_format {
                 RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor } => {
-                    Self::build_job_args_v1(has_preprocessor, payload, info)
+                    Self::build_job_args_v1(has_preprocessor, &payload, trigger_info)
                 }
                 RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor } => {
-                    Self::build_job_args_v2(has_preprocessor, payload, info)
+                    Self::build_job_args_v2(has_preprocessor, &payload, trigger_info)
                 }
             };
             Ok(job_args)

@@ -17,13 +17,11 @@ use windmill_git_sync::DeployedObject;
 
 use super::{
     get_url_from_runnable_value, EditWebsocketConfig, NewWebsocketConfig, TestWebsocketConfig,
-    WebsocketConfig,
+    WebsocketConfig, WebsocketTrigger,
 };
 
-pub struct WebsocketTriggerHandler;
-
 #[async_trait]
-impl TriggerCrud for WebsocketTriggerHandler {
+impl TriggerCrud for WebsocketTrigger {
     type TriggerConfig = WebsocketConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
     type EditTriggerConfig = EditWebsocketConfig;
