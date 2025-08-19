@@ -83,6 +83,7 @@
 		reducedPolling?: boolean
 		wideResults?: boolean
 		hideFlowResult?: boolean
+		topModuleStates?: Record<string, GraphModuleState>
 		workspace?: string | undefined
 		prefix?: string | undefined
 		subflowParentsGlobalModuleStates?: Record<string, GraphModuleState>[]
@@ -134,6 +135,7 @@
 		hideFlowResult = false,
 		workspace = $workspaceStore,
 		prefix = undefined,
+		topModuleStates = undefined,
 		refreshGlobal,
 		updateGlobalRefresh,
 		subflowParentsGlobalModuleStates = [],
@@ -152,6 +154,8 @@
 		onJobsLoaded = undefined,
 		onDone = undefined
 	}: Props = $props()
+
+	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
 
 	let resultStreams: Record<string, string | undefined> = $state({})
 
@@ -219,13 +223,10 @@
 	function onFlowModuleId() {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
-			updateGlobalRefresh(buildSubflowKey(modId, prefix), async (clear, root) => {
-				if (isSelectedBranch) {
-					console.debug('updateGlobalRefreshInner refresh', modId, prefix, clear, root)
-					await refresh(clear, root) // refresh(true, loopJob)
-				} else {
-					console.debug('updateGlobalRefreshInner no refresh', modId, prefix, clear, root)
-				}
+			let prefixedId = buildSubflowKey(modId, prefix)
+			updateGlobalRefresh(prefixedId, async (clear, root) => {
+				// console.debug('updateGlobalRefreshInner refresh', prefixedId, clear, root)
+				await refresh(clear, root) // refresh(true, loopJob)
 			})
 		}
 	}
@@ -263,6 +264,7 @@
 				newState.job_id = newValue.job_id
 			}
 			moduleState[key] = newState
+			console.debug('updateModuleStates 1', key)
 			return
 		}
 
@@ -286,6 +288,7 @@
 			newValue.type = moduleState[key].type
 		}
 		if (!deepEqual(moduleState[key], newValue)) {
+			console.debug('updateModuleStates 2', key)
 			moduleState[key] = newValue
 		}
 	}
@@ -295,12 +298,15 @@
 	}
 
 	async function refresh(clearLoop: boolean, rootJob: string | undefined) {
+		console.debug('refresh', clearLoop, rootJob)
 		let modId = flowJobIds?.moduleId
+		let topModuleStates = getTopModuleStates
+
 		if (clearLoop) {
 			if (!rootJob) {
-				let topLevelModuleStates = globalModuleStates?.[globalModuleStates?.length - 1]
-				if (modId) {
-					delete topLevelModuleStates[modId]
+				if (modId && topModuleStates) {
+					let prefixedId = buildSubflowKey(modId, prefix)
+					delete topModuleStates[prefixedId] // TODO: this is not working
 				}
 
 				if (subflowParentsGlobalModuleStates.length > 0) {
@@ -314,14 +320,15 @@
 					}
 				} else {
 					for (let mod of innerModules ?? []) {
-						if (mod.id) {
-							delete topLevelModuleStates[mod.id]
+						if (mod.id && topModuleStates) {
+							let prefixedId = buildSubflowKey(mod.id, prefix)
+							delete topModuleStates[prefixedId]
 						}
 					}
 				}
 			}
 		} else {
-			let state = modId ? getTopModuleStates()?.[modId] : undefined
+			let state = modId ? topModuleStates?.[buildSubflowKey(modId, prefix)] : undefined
 			let loopjob = state?.selectedForloop
 			let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
 
@@ -330,12 +337,23 @@
 			}
 		}
 
-		for (let [k, rec] of Object.entries(recursiveRefresh)) {
-			if (rootJob != undefined && rootJob != k) {
-				continue
-			}
+		let callRec = async (rec: (clear, root) => Promise<void>) => {
 			await tick()
 			await rec(clearLoop, undefined)
+		}
+		if (rootJob) {
+			let rec = recursiveRefresh[rootJob]
+			if (rec) {
+				await callRec(rec)
+				console.debug('refresh recursive 1', rec)
+			} else {
+				console.debug('refresh recursive no rec', rootJob)
+			}
+		} else {
+			for (let rec of Object.values(recursiveRefresh)) {
+				await callRec(rec)
+				console.debug('refresh recursive 2', rec)
+			}
 		}
 	}
 
@@ -357,7 +375,7 @@
 	) {
 		let newValue = { ...(localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual(localModuleStates[key], value) || force) {
-			console.debug('setModuleState', key, value, force, keepType)
+			console.debug('setModuleState', key, force, keepType, $state.snapshot(value))
 			;[localModuleStates, ...globalModuleStates].forEach((s) => {
 				updateModuleStates(s, key, newValue, keepType)
 			})
@@ -485,7 +503,8 @@
 				if (mod.flow_jobs_success || mod.flow_jobs) {
 					setModuleState(mod.id ?? '', {
 						flow_jobs_success: mod.flow_jobs_success,
-						flow_jobs: mod.flow_jobs
+						flow_jobs: mod.flow_jobs,
+						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
 					})
 				}
 			})
@@ -606,21 +625,9 @@
 		}
 	}
 
-	function getTopModuleStates() {
-		return globalModuleStates?.[globalModuleStates?.length - 1]
-	}
-
-	let forloop_selected = $state(getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop)
-
-	// let sub: Unsubscriber | undefined = undefined
-	function onSelectedForloopChange(selectedForloop: string | undefined) {
-		untrack(() => {
-			if (selectedForloop != forloop_selected) {
-				// console.log('onSelectedForloopChange 2', selectedForloop, forloop_selected)
-				forloop_selected = selectedForloop
-			}
-		})
-	}
+	let forloop_selected = $state(
+		getTopModuleStates?.[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]?.selectedForloop
+	)
 
 	onDestroy(() => {
 		destroyed = true
@@ -714,9 +721,10 @@
 		isForloop: boolean
 	) {
 		if (modId) {
-			let globalState = getTopModuleStates()
-			let state = globalState?.[modId]
 			let prefixedId = buildSubflowKey(modId, prefix)
+
+			let topModuleStates = getTopModuleStates
+			let state = topModuleStates?.[prefixedId]
 
 			if (clicked && state?.selectedForloop) {
 				await refreshGlobal?.(prefixedId, true, state.selectedForloop)
@@ -740,11 +748,14 @@
 					id != state?.selectedForloop ||
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
+				console.debug('setIteration', selectedNotEqual, state, topModuleStates)
 				if (selectedNotEqual) {
-					globalState[modId] = {
-						type: 'WaitingForPriorSteps',
-						args: {},
-						...newState
+					if (topModuleStates) {
+						topModuleStates[prefixedId] = {
+							type: 'WaitingForPriorSteps',
+							args: {},
+							...newState
+						}
 					}
 				}
 			}
@@ -809,7 +820,8 @@
 				duration_ms: undefined
 			}
 
-			let currentIndex = getTopModuleStates()?.[modId]?.selectedForloopIndex == j
+			let currentIndex =
+				getTopModuleStates?.[buildSubflowKey(modId, prefix)]?.selectedForloopIndex == j
 
 			if (currentIndex) {
 				v.logs = jobLoaded.logs
@@ -918,6 +930,7 @@
 	let subflowsSize = $state(500)
 
 	function setParentModuleState(modId: string, state: Partial<GraphModuleState>) {
+		console.debug('setParentModuleState', modId, state)
 		;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
 			if (stateMap[modId]) {
 				stateMap[modId] = { ...stateMap[modId], ...state }
@@ -975,10 +988,17 @@
 	})
 	let isListJob = $derived(flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs))
 	$effect(() => {
-		let selectedForloop =
-			globalModuleStates?.[globalModuleStates?.length - 1]?.[flowJobIds?.moduleId ?? '']
-				?.selectedForloop
-		flowJobIds?.moduleId && onSelectedForloopChange(selectedForloop)
+		if (isSelectedBranch) {
+			let modId = flowJobIds?.moduleId
+			if (modId) {
+				let selectedForloop = getTopModuleStates?.[buildSubflowKey(modId, prefix)]?.selectedForloop
+				untrack(() => {
+					if (selectedForloop != forloop_selected) {
+						forloop_selected = selectedForloop
+					}
+				})
+			}
+		}
 	})
 	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
 
@@ -1122,6 +1142,7 @@
 							<!-- <LogId id={loopJobId} /> -->
 							<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 								<FlowStatusViewerInner
+									topModuleStates={getTopModuleStates}
 									{refreshGlobal}
 									isSelectedBranch={isSelectedBranch && forloopIsSelected}
 									updateRecursiveRefreshFn={updateRecursiveRefreshInner}
@@ -1216,6 +1237,7 @@
 									<!-- <LogId id={loopJobId} /> -->
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
 										<FlowStatusViewerInner
+											topModuleStates={getTopModuleStates}
 											{refreshGlobal}
 											isSelectedBranch={isSelectedBranch && retry_selected == failedRetry}
 											{updateGlobalRefresh}
@@ -1241,6 +1263,7 @@
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<FlowStatusViewerInner
+										topModuleStates={getTopModuleStates}
 										{isSelectedBranch}
 										{refreshGlobal}
 										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
@@ -1276,6 +1299,7 @@
 									<div class="text-secondary">no subflow (empty loop?)</div>
 								{:else}
 									<FlowStatusViewerInner
+										topModuleStates={getTopModuleStates}
 										{refreshGlobal}
 										updateRecursiveRefreshFn={updateRecursiveRefreshInner}
 										{childFlow}
