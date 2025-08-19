@@ -250,7 +250,7 @@
 				)
 			) {
 				newState.type = 'InProgress'
-			} else if (newValue.type != undefined) {
+			} else if (['Success', 'Failure'].includes(newValue.type)) {
 				newState.type = newValue.type
 			}
 
