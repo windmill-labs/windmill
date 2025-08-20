@@ -13,7 +13,14 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
+import { 
+	createSearchHubScriptsTool, 
+	type Tool, 
+	executeTestRun, 
+	buildSchemaForTool, 
+	buildTestRunArgs,
+	buildContextString
+} from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import { inferArgs } from '$lib/infer'
@@ -460,25 +467,12 @@ WINDMILL LANGUAGE CONTEXT:
 
 `
 
-export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
 
 export function prepareScriptSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
 		role: 'system',
 		content: CHAT_SYSTEM_PROMPT
 	}
-}
-
-const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
-	let code = codeContext.split('\n')
-	let shiftOffset = 0
-	codePieces.sort((a, b) => a.startLine - b.startLine)
-	for (const codePiece of codePieces) {
-		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
-		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
-		shiftOffset += 2
-	}
-	return code.join('\n')
 }
 
 export function prepareScriptTools(
@@ -508,61 +502,12 @@ export function prepareScriptUserMessage(
 		isPreprocessor?: boolean
 	} = {}
 ): ChatCompletionUserMessageParam {
-	let codeContext = 'CODE:\n'
-	let errorContext = 'ERROR:\n'
-	let dbContext = 'DATABASES:\n'
-	let diffContext = 'DIFF:\n'
-	let hasCode = false
-	let hasError = false
-	let hasDb = false
-	let hasDiff = false
-	for (const context of selectedContext) {
-		if (context.type === 'code') {
-			hasCode = true
-			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
-				.replace('{language}', scriptLangToEditorLang(language))
-				.replace(
-					'{code}',
-					applyCodePieceToCodeContext(
-						selectedContext.filter((c) => c.type === 'code_piece'),
-						context.content
-					)
-				)
-		} else if (context.type === 'error') {
-			if (hasError) {
-				throw new Error('Multiple error contexts provided')
-			}
-			hasError = true
-			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
-		} else if (context.type === 'db') {
-			hasDb = true
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
-				'{schema}',
-				context.schema?.stringified ?? 'to fetch with get_db_schema'
-			)
-		} else if (context.type === 'diff') {
-			hasDiff = true
-			const diff = JSON.stringify(context.diff)
-			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
-		}
-	}
-
 	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
 		'{lang_context}',
 		getLangContext(language, { allowResourcesFetch: true, ...options })
 	)
-	if (hasCode) {
-		userMessage += codeContext
-	}
-	if (hasError) {
-		userMessage += errorContext
-	}
-	if (hasDb) {
-		userMessage += dbContext
-	}
-	if (hasDiff) {
-		userMessage += diffContext
-	}
+	const contextInstructions = buildContextString(selectedContext)
+	userMessage += contextInstructions
 	return {
 		role: 'user',
 		content: userMessage

@@ -150,7 +150,6 @@ export default class ContextManager {
 		currentlySelectedContext: ContextElement[]
 	) {
 		try {
-			let firstTime = !this.workspace
 			if (this.workspace !== workspace) {
 				await this.refreshDbResources(workspace)
 				this.workspace = workspace
@@ -209,16 +208,14 @@ export default class ContextManager {
 
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 
-			if (firstTime) {
-				newSelectedContext = [
-					{
-						type: 'code',
-						title: this.getContextCodePath(scriptOptions) ?? '',
-						content: scriptOptions.code,
-						lang: scriptOptions.lang
-					}
-				]
-			}
+			newSelectedContext = [
+				{
+					type: 'code',
+					title: this.getContextCodePath(scriptOptions) ?? '',
+					content: scriptOptions.code,
+					lang: scriptOptions.lang
+				}
+			]
 
 			const db = this.getSelectedDBSchema(scriptOptions, dbSchemas)
 			if (
@@ -282,7 +279,6 @@ export default class ContextManager {
 	}
 
 	addSelectedLinesToContext(lines: string, startLine: number, endLine: number, moduleId?: string) {
-		console.log('addSelectedLinesToContext', lines, startLine, endLine, moduleId, this.scriptOptions)
 		const title = moduleId ? `[${moduleId}] L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
 		if (
 			!this.scriptOptions ||
@@ -382,5 +378,9 @@ export default class ContextManager {
 		} else if (!moduleId) {
 			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
 		}
+	}
+
+	clearContext() {
+		this.selectedContext = []
 	}
 }

@@ -4,13 +4,113 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
-import type { ContextElement } from './context'
+import type { CodePieceElement, ContextElement } from './context'
 import { copilotSessionModel, workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob } from '$lib/gen'
+import { scriptLangToEditorLang } from '$lib/scripts'
+
+// Common context formatters
+export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
+
+export interface ContextStringResult {
+	dbContext: string
+	diffContext: string
+	flowModuleContext: string
+	hasDb: boolean
+	hasDiff: boolean
+	hasFlowModule: boolean
+}
+
+const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
+	let code = codeContext.split('\n')
+	let shiftOffset = 0
+	codePieces.sort((a, b) => a.startLine - b.startLine)
+	for (const codePiece of codePieces) {
+		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
+		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
+		shiftOffset += 2
+	}
+	return code.join('\n')
+}
+
+export function buildContextString(selectedContext: ContextElement[]): string {
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
+	let codeContext = `
+	- {title}:
+	\`\`\`{language}
+	{code}
+	\`\`\`
+	`
+	let errorContext = `
+	ERROR:
+	{error}
+	`
+	let hasCode = false
+	let hasDb = false
+	let hasDiff = false
+	let hasFlowModule = false
+	let hasError = false
+	
+	let result = ''
+	for (const context of selectedContext) {
+		if (context.type === 'code') {
+			hasCode = true
+			codeContext = codeContext.replace('{title}', context.title)
+				.replace('{language}', scriptLangToEditorLang(context.lang))
+				.replace(
+					'{code}',
+					applyCodePieceToCodeContext(
+						selectedContext.filter((c) => c.type === 'code_piece'),
+						context.content
+					)
+				)
+		} else if (context.type === 'error') {
+			if (hasError) {
+				throw new Error('Multiple error contexts provided')
+			}
+			hasError = true
+			errorContext = errorContext.replace('{error}', context.content)
+		} else if (context.type === 'db') {
+			hasDb = true
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
+				'{schema}',
+				context.schema?.stringified ?? 'to fetch with get_db_schema'
+			)
+			dbContext += '\n'
+		} else if (context.type === 'diff') {
+			hasDiff = true
+			const diff = JSON.stringify(context.diff)
+			diffContext += (diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff) + '\n'
+		} else if (context.type === 'flow_module') {
+			hasFlowModule = true
+			flowModuleContext += `${context.id}\n`
+		}
+	}
+
+	if (hasCode) {
+		result += '\n\n' + codeContext
+	}
+	if (hasError) {
+		result += '\n\n' + errorContext
+	}
+	if (hasDb) {
+		result += '\n\n' + dbContext
+	}
+	if (hasDiff) {
+		result += '\n\n' + diffContext
+	}
+	if (hasFlowModule) {
+		result += '\n\n' + flowModuleContext
+	}
+
+	return result
+}
 
 type BaseDisplayMessage = {
 	content: string

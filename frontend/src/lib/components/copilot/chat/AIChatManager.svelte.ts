@@ -209,6 +209,7 @@ class AIChatManager {
 	) {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
+		this.contextManager.clearContext()
 		if (mode === AIMode.SCRIPT) {
 			this.systemMessage = prepareScriptSystemMessage()
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content

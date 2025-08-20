@@ -11,10 +11,17 @@ import {
 	getFormattedResourceTypes,
 	getLangContext,
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
-	createDbSchemaTool,
-	CHAT_USER_DB_CONTEXT
+	createDbSchemaTool
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
+import { 
+	createSearchHubScriptsTool, 
+	createToolDef, 
+	type Tool, 
+	executeTestRun, 
+	buildSchemaForTool, 
+	buildTestRunArgs,
+	buildContextString
+} from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
@@ -837,31 +844,7 @@ export function prepareFlowUserMessage(
 	const selectedId = flowAndSelectedId?.selectedId
 
 	// Handle context elements
-	let dbContext = 'DATABASES:\n'
-	let diffContext = 'DIFF:\n'
-	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
-	let hasDb = false
-	let hasDiff = false
-	let hasFlowModule = false
-	
-	if (selectedContext) {
-		for (const context of selectedContext) {
-			if (context.type === 'db') {
-				hasDb = true
-				dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
-					'{schema}',
-					context.schema?.stringified ?? 'to fetch with get_db_schema'
-				)
-			} else if (context.type === 'diff') {
-				hasDiff = true
-				const diff = JSON.stringify(context.diff)
-				diffContext += diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
-			} else if (context.type === 'flow_module') {
-				hasFlowModule = true
-				flowModuleContext += `${context.id}\n`
-			}
-		}
-	}
+	const contextInstructions = selectedContext ? buildContextString(selectedContext) : ''
 
 	if (!flow || !selectedId) {
 		let userMessage = `## INSTRUCTIONS:
@@ -888,15 +871,7 @@ ${YAML.stringify(flow.value.failure_module)}
 currently selected step:
 ${selectedId}`
 
-if (hasDb) {
-	flowContent += '\n\n' + dbContext
-}
-if (hasDiff) {
-	flowContent += '\n\n' + diffContext
-}
-if (hasFlowModule) {
-	flowContent += '\n\n' + flowModuleContext
-}
+flowContent += contextInstructions
 
 flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
