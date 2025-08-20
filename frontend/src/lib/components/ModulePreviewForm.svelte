@@ -98,14 +98,11 @@
 
 	loadResourceTypes()
 
-	let args = $state(<Record<string, any>>{})
-
 	onMount(() => {
 		if (!testSteps) {
 			sendUserToast('testSteps module not initialized. Preview will not work.', true)
 		}
 		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
-		args = testSteps?.getStepArgs(mod.id)
 	})
 </script>
 
@@ -120,14 +117,17 @@
 					)}
 					data-arg={argName}
 				>
-					{#if typeof args.value == 'object' && schema?.properties?.[argName]}
+					{#if schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
 							minW={false}
 							autofocus={autofocus && !focusArg && i == 0}
 							label={argName}
 							description={schema.properties[argName].description}
-							bind:value={args.value[argName]}
+							bind:value={
+								() => testSteps?.getStepInputArgs(mod.id, argName) ?? {},
+								(v) => testSteps?.setStepInputArgs(mod.id, argName, v)
+							}
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
 							required={schema?.required?.includes(argName)}
