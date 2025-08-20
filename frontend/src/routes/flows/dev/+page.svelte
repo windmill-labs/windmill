@@ -24,7 +24,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
-	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs'
+	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined

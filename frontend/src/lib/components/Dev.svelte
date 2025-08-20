@@ -48,7 +48,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { StepsInputArgs } from './flows/stepsInputArgs'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
 
