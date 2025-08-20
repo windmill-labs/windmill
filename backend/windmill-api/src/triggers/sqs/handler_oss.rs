@@ -1,23 +1,19 @@
 #[allow(unused)]
-
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditSqsConfig, NewSqsConfig, SqsConfig, TestSqsConfig, TriggerCrud},
+    super::{EditSqsConfig, NewSqsConfig, SqsConfig, SqsTrigger, TestSqsConfig},
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger},
+        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
     },
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
-
-#[cfg(not(feature = "private"))]
-pub struct SqsTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
@@ -29,25 +25,20 @@ impl TriggerCrud for SqsTrigger {
     type NewTriggerConfig = NewSqsConfig;
     type TestConnectionConfig = TestSqsConfig;
 
-    const TABLE_NAME: &'static str = "sqs_trigger";
-    const TRIGGER_TYPE: &'static str = "sqs";
-    const SUPPORTS_ENABLED: bool = true;
-    const SUPPORTS_SERVER_STATE: bool = true;
+    const TABLE_NAME: &'static str = "";
+    const TRIGGER_TYPE: &'static str = "";
+    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/sqs_triggers";
-    const DEPLOYMENT_NAME: &'static str = "SQS trigger";
+    const ROUTE_PREFIX: &'static str = "";
+    const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::SqsTrigger { path }
     }
 
     fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "queue_url",
-            "aws_resource_path",
-            "message_attributes",
-            "aws_auth_resource_type",
-        ]
+        vec![]
     }
 
     async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {

@@ -4,10 +4,10 @@ pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditNatsConfig, NatsConfig, NatsTrigger, NewNatsConfig, TestNatsConfig},
+    super::NatsTrigger,
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -18,19 +18,19 @@ use {
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for NatsTrigger {
-    type Trigger = Trigger<Self::TriggerConfig>;
-    type TriggerConfig = NatsConfig;
-    type EditTriggerConfig = EditNatsConfig;
-    type NewTriggerConfig = NewNatsConfig;
-    type TestConnectionConfig = TestNatsConfig;
+    type Trigger = ();
+    type TriggerConfig = ();
+    type EditTriggerConfig = ();
+    type NewTriggerConfig = ();
+    type TestConnectionConfig = ();
 
-    const TABLE_NAME: &'static str = "nats_trigger";
-    const TRIGGER_TYPE: &'static str = "nats";
-    const SUPPORTS_ENABLED: bool = true;
-    const SUPPORTS_SERVER_STATE: bool = true;
+    const TABLE_NAME: &'static str = "";
+    const TRIGGER_TYPE: &'static str = "";
+    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/nats_triggers";
-    const DEPLOYMENT_NAME: &'static str = "NATS trigger";
+    const ROUTE_PREFIX: &'static str = "";
+    const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::NatsTrigger { path }

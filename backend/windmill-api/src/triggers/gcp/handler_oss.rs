@@ -1,13 +1,13 @@
-#[cfg(not(feature = "private"))]
-use windmill_common::triggers::TriggerKind;
-
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditGcpConfig, GcpConfig, GcpTrigger, NewGcpConfig, TestGcpConfig},
-    crate::db::{ApiAuthed, DB},
+    super::GcpTrigger,
+    crate::{
+        db::{ApiAuthed, DB},
+        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
+    },
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::error::{Error, Result},
@@ -17,34 +17,26 @@ use {
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for GcpTrigger {
-    type Trigger = Trigger<Self::TriggerConfig>;
-    type TriggerConfig = GcpConfig;
-    type EditTriggerConfig = EditGcpConfig;
-    type NewTriggerConfig = NewGcpConfig;
-    type TestConnectionConfig = TestGcpConfig;
+    type Trigger = ();
+    type TriggerConfig = ();
+    type EditTriggerConfig = ();
+    type NewTriggerConfig = ();
+    type TestConnectionConfig = ();
 
-    const TABLE_NAME: &'static str = "gcp_trigger";
-    const TRIGGER_TYPE: &'static str = "gcp";
-    const TRIGGER_KIND: TriggerKind = TriggerKind::Gcp;
-    const SUPPORTS_ENABLED: bool = true;
-    const SUPPORTS_SERVER_STATE: bool = true;
+    const TABLE_NAME: &'static str = "";
+    const TRIGGER_TYPE: &'static str = "";
+    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/gcp_triggers";
-    const DEPLOYMENT_NAME: &'static str = "GCP trigger";
+    const ROUTE_PREFIX: &'static str = "";
+    const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::GcpTrigger { path }
     }
 
     fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "gcp_resource_path",
-            "topic_id",
-            "subscription_id",
-            "delivery_type",
-            "delivery_config",
-            "subscription_mode",
-        ]
+        vec![]
     }
 
     async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {

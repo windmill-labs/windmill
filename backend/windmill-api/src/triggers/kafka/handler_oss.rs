@@ -1,14 +1,13 @@
 #[allow(unused)]
-
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditKafkaConfig, KafkaConfig, NewKafkaConfig, TestKafkaConfig},
+    super::KafkaTrigger,
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -19,19 +18,19 @@ use {
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for KafkaTrigger {
-    type Trigger = Trigger<Self::TriggerConfig>;
-    type TriggerConfig = KafkaConfig;
-    type EditTriggerConfig = EditKafkaConfig;
-    type NewTriggerConfig = NewKafkaConfig;
-    type TestConnectionConfig = TestKafkaConfig;
+    type Trigger = ();
+    type TriggerConfig = ();
+    type EditTriggerConfig = ();
+    type NewTriggerConfig = ();
+    type TestConnectionConfig = ();
 
-    const TABLE_NAME: &'static str = "kafka_trigger";
-    const TRIGGER_TYPE: &'static str = "kafka";
-    const SUPPORTS_ENABLED: bool = true;
-    const SUPPORTS_SERVER_STATE: bool = true;
+    const TABLE_NAME: &'static str = "";
+    const TRIGGER_TYPE: &'static str = "";
+    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/kafka_triggers";
-    const DEPLOYMENT_NAME: &'static str = "Kafka trigger";
+    const ROUTE_PREFIX: &'static str = "";
+    const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::KafkaTrigger { path }

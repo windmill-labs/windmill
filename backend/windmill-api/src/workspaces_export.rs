@@ -29,7 +29,8 @@ use crate::{
             feature = "sqs_trigger",
             feature = "gcp_trigger",
             feature = "nats",
-        )
+        ),
+        feature = "private"
     )
 ))]
 use crate::triggers::TriggerCrud;
@@ -586,7 +587,7 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
         {
             use crate::triggers::kafka::KafkaTrigger;
             let handler = KafkaTrigger;
@@ -603,7 +604,7 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
         {
             use crate::triggers::sqs::SqsTrigger;
             let handler = SqsTrigger;
@@ -620,7 +621,7 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
         {
             use crate::triggers::gcp::GcpTrigger;
             let handler = GcpTrigger;
@@ -637,7 +638,7 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
+        #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
         {
             use crate::triggers::nats::NatsTrigger;
             let handler = NatsTrigger;
