@@ -18,6 +18,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
+	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -56,6 +57,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		deployedFlow?: Flow
 	}
 
 	let {
@@ -89,7 +91,7 @@
 		job,
 		suspendStatus,
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -103,11 +105,21 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
+	$effect(() => {
+		const options: FlowOptions = {
+			currentFlow: flowStore.val,
+			lastDeployedFlow: savedFlow?.draft,
+			path: savedFlow?.path
+		}
+		aiChatManager.flowOptions = options
+	})
+
 	onMount(() => {
 		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
 	onDestroy(() => {
+		aiChatManager.flowOptions = undefined
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
@@ -195,7 +207,7 @@
 			{/if}
 		</Pane>
 		{#if !disableAi}
-			<FlowAIChat {flowModuleSchemaMap} deployedFlow={savedFlow} />
+			<FlowAIChat {flowModuleSchemaMap} />
 		{/if}
 	</Splitpanes>
 </div>

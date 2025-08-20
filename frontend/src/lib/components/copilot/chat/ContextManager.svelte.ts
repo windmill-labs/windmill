@@ -1,4 +1,4 @@
-import { ResourceService, type ListResourceResponse, type ScriptLang } from '$lib/gen'
+import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
@@ -6,6 +6,7 @@ import type { ContextElement } from './context'
 
 import type { DisplayMessage } from './shared'
 import { langToExt } from '$lib/editorLangUtils'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
@@ -19,10 +20,9 @@ export interface ScriptOptions {
 }
 
 export interface FlowOptions {
-	currentFlow: any // ExtendedOpenFlow
-	lastDeployedFlow?: any // Flow without draft
+	currentFlow: ExtendedOpenFlow
+	lastDeployedFlow?: Flow
 	path: string | undefined
-	diffMode: boolean
 }
 
 export default class ContextManager {

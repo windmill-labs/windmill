@@ -1,5 +1,5 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
-import type { ScriptOptions } from './ContextManager.svelte'
+import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
 	prepareFlowSystemMessage,
@@ -88,6 +88,7 @@ class AIChatManager {
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
+	flowOptions = $state<FlowOptions | undefined>(undefined)
 	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
 		undefined
 	)
@@ -884,7 +885,7 @@ class AIChatManager {
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.FLOW && this.flowAiChatHelpers) {
-			const flowOptions = this.flowAiChatHelpers.getFlowOptions()
+			const flowOptions = this.flowOptions
 			this.contextManager.updateAvailableContextForFlow(
 				flowOptions,
 				dbSchemas,

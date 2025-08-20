@@ -14,7 +14,6 @@ import {
 	createDbSchemaTool,
 	CHAT_USER_DB_CONTEXT
 } from '../script/core'
-import { diffLines } from 'diff'
 import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -24,7 +23,6 @@ export type AIModuleAction = 'added' | 'modified' | 'removed'
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	getFlowOptions: () => { currentFlow: ExtendedOpenFlow; lastDeployedFlow?: any; path?: string; diffMode: boolean }
 	// flow apply/reject
 	getPreviewFlow: () => ExtendedOpenFlow
 	hasDiff: () => boolean
