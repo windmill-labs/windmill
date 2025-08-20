@@ -7,33 +7,44 @@
 	export const AI_TOOL_ROW_OFFSET = 30
 	export const BELOW_ADDITIONAL_OFFSET = 19
 
-	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call_'
-	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message_'
+	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
+	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 40
 	const MAX_TOOLS_PER_ROW = 2
 
 	let computeAIToolNodesCache:
-		| [
-				(Node & NodeLayout)[],
-				Record<string, GraphModuleState> | undefined,
-				ReturnType<typeof computeAIToolNodes>
-		  ]
+		| {
+				nodes: (Node & NodeLayout)[]
+				hasFlowModuleStates: boolean
+				ret: ReturnType<typeof computeAIToolNodes>
+		  }
 		| undefined
 
-	export function getToolCallId(idx: number, moduleId?: string) {
-		return moduleId ? AI_TOOL_CALL_PREFIX + idx + '_' + moduleId : AI_TOOL_MESSAGE_PREFIX + idx
+	export function getToolCallId(idx: number, agentModuleId: string, moduleId?: string) {
+		return moduleId
+			? AI_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx + '-' + moduleId
+			: AI_TOOL_MESSAGE_PREFIX + '-' + agentModuleId + '-' + idx
 	}
 
 	export function computeAIToolNodes(
-		[nodes, edges]: [(Node & NodeLayout)[], Edge[]],
+		nodes: (Node & NodeLayout)[],
 		eventHandlers: GraphEventHandlers,
 		insertable: boolean,
 		flowModuleStates: Record<string, GraphModuleState> | undefined
-	): [(Node & NodeLayout)[], Edge[]] {
-		if (nodes === computeAIToolNodesCache?.[0] && flowModuleStates === computeAIToolNodesCache?.[1])
-			return computeAIToolNodesCache[2]
+	): {
+		toolNodes: (Node & NodeLayout)[]
+		toolEdges: Edge[]
+		newNodePositions: Record<string, { x: number; y: number }>
+	} {
+		if (
+			computeAIToolNodesCache &&
+			!!flowModuleStates === computeAIToolNodesCache.hasFlowModuleStates &&
+			deepEqual(nodes, computeAIToolNodesCache.nodes)
+		) {
+			return computeAIToolNodesCache.ret
+		}
 
 		const allToolNodes: (Node & NodeLayout)[] = []
 		const allToolEdges: Edge[] = []
@@ -67,14 +78,14 @@
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
 					if (a.type === 'tool_call') {
-						const id = getToolCallId(idx, a.module_id)
+						const id = getToolCallId(idx, node.id, a.module_id)
 						return {
 							id,
 							name: a.function_name
 						}
 					} else {
 						return {
-							id: getToolCallId(idx),
+							id: getToolCallId(idx, node.id),
 							name: 'Message'
 						}
 					}
@@ -158,7 +169,6 @@
 			}
 		}
 
-		const existingAssetNodes = nodes.filter((n) => n.type === 'asset')
 		const sortedNewNodes = clone(nodes)
 			.filter((n) => n.type !== 'asset')
 			.sort((a, b) => a.position.y - b.position.y)
@@ -180,11 +190,21 @@
 			node.position.y += currentYOffset
 		}
 
-		let ret: ReturnType<typeof computeAIToolNodes> = [
-			[...sortedNewNodes, ...existingAssetNodes, ...allToolNodes],
-			[...edges, ...allToolEdges]
-		]
-		computeAIToolNodesCache = [nodes, flowModuleStates, ret]
+		let ret: ReturnType<typeof computeAIToolNodes> = {
+			toolNodes: allToolNodes,
+			toolEdges: allToolEdges,
+			newNodePositions: Object.fromEntries(
+				sortedNewNodes.map((n) => {
+					return [n.id, n.position]
+				})
+			)
+		}
+
+		computeAIToolNodesCache = {
+			nodes,
+			hasFlowModuleStates: !!flowModuleStates,
+			ret
+		}
 		return ret
 	}
 </script>
@@ -206,6 +226,7 @@
 	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
+	import { deepEqual } from 'fast-equals'
 
 	let hover = $state(false)
 
@@ -257,9 +278,8 @@
 			{#if data.insertable}
 				<button
 					class={twMerge(
-						'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white',
-						'group-active:!flex group-hover:!flex !hidden',
-						$selectedId === data.moduleId ? '!flex' : ''
+						'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white !hidden',
+						$selectedId === data.moduleId || hover ? '!flex' : ''
 					)}
 					title="Delete"
 					onclick={() => data.eventHandlers.delete({ id: data.moduleId }, '')}

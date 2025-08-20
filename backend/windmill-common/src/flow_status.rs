@@ -130,6 +130,7 @@ struct UntaggedFlowStatusModule {
     failed_retries: Option<Vec<Uuid>>,
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
+    agent_actions_success: Option<Vec<bool>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -175,6 +176,8 @@ pub enum FlowStatusModule {
         while_loop: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_actions_success: Option<Vec<bool>>,
     },
     Success {
         id: String,
@@ -193,6 +196,8 @@ pub enum FlowStatusModule {
         skipped: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_actions_success: Option<Vec<bool>>,
     },
     Failure {
         id: String,
@@ -207,6 +212,8 @@ pub enum FlowStatusModule {
         failed_retries: Vec<Uuid>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_actions_success: Option<Vec<bool>>,
     },
 }
 
@@ -259,6 +266,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 while_loop: untagged.while_loop.unwrap_or(false),
                 progress: untagged.progress,
                 agent_actions: untagged.agent_actions,
+                agent_actions_success: untagged.agent_actions_success,
             }),
             "Success" => Ok(FlowStatusModule::Success {
                 id: untagged
@@ -274,6 +282,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 skipped: untagged.skipped.unwrap_or(false),
                 agent_actions: untagged.agent_actions,
+                agent_actions_success: untagged.agent_actions_success,
             }),
             "Failure" => Ok(FlowStatusModule::Failure {
                 id: untagged
@@ -287,6 +296,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
+                agent_actions_success: untagged.agent_actions_success,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -377,6 +387,21 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { agent_actions, .. } => agent_actions.clone(),
             FlowStatusModule::Success { agent_actions, .. } => agent_actions.clone(),
             FlowStatusModule::Failure { agent_actions, .. } => agent_actions.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn agent_actions_success(&self) -> Option<Vec<bool>> {
+        match self {
+            FlowStatusModule::InProgress { agent_actions_success, .. } => {
+                agent_actions_success.clone()
+            }
+            FlowStatusModule::Success { agent_actions_success, .. } => {
+                agent_actions_success.clone()
+            }
+            FlowStatusModule::Failure { agent_actions_success, .. } => {
+                agent_actions_success.clone()
+            }
             _ => None,
         }
     }

@@ -1,10 +1,16 @@
 <script lang="ts">
 	import type { GraphModuleState } from './graph'
-	import { JobService, type FlowModule, type FlowStatusModule, type Job } from '$lib/gen'
+	import {
+		JobService,
+		type CompletedJob,
+		type FlowModule,
+		type FlowStatusModule,
+		type Job
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
-	import { getToolCallId } from './graph/renderers/nodes/AIToolNode.svelte'
+	import { onMount } from 'svelte'
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
 		content: string
@@ -33,31 +39,38 @@
 	})
 
 	interface Props {
-		result: unknown
 		tools: FlowModule[]
-		agentJob: Partial<Job>
-		localModuleStates?: Record<string, GraphModuleState>
+		agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
 		workspaceId?: string | undefined
+		storedToolCallJobs?: Record<number, Job>
+		onToolJobLoaded?: (job: Job, idx: number) => void
 	}
 
-	let { result, tools, agentJob, localModuleStates, workspaceId }: Props = $props()
+	let { tools, agentJob, workspaceId, onToolJobLoaded, storedToolCallJobs }: Props = $props()
 
-	async function loadModuleStates(agentActions: AgentActionWithContent[]) {
+	const fakeModuleStates: Record<string, GraphModuleState> = $state({})
+
+	async function loadMissingJobs(agentActions: AgentActionWithContent[]) {
 		const promises = agentActions.map(async (toolCall, idx) => {
 			if (toolCall.type === 'tool_call') {
-				const job = await JobService.getJob({
-					id: toolCall.job_id,
-					workspace: workspaceId ?? $workspaceStore!
-				})
-				localModuleStatesCopy.localModuleStates[getToolCallId(idx, toolCall.module_id)] = {
+				let job: Job | undefined = storedToolCallJobs?.[idx]
+
+				if (!job || job.type !== 'CompletedJob') {
+					job = await JobService.getJob({
+						id: toolCall.job_id,
+						workspace: workspaceId ?? $workspaceStore!
+					})
+				}
+				fakeModuleStates[idx.toString()] = {
 					args: job.args,
 					type: job['success'] ? 'Success' : 'Failure',
 					logs: job.logs,
 					result: job['result'],
 					job_id: toolCall.job_id
 				}
+				onToolJobLoaded?.(job, idx)
 			} else {
-				localModuleStatesCopy.localModuleStates[getToolCallId(idx)] = {
+				fakeModuleStates[idx.toString()] = {
 					type: 'Success',
 					args: {},
 					logs: '',
@@ -69,12 +82,9 @@
 		await Promise.all(promises)
 	}
 
-	let localModuleStatesCopy: { localModuleStates: Record<string, GraphModuleState> } = $state.raw({
-		localModuleStates: {}
-	})
 	let job: Partial<Job> | undefined = $state(undefined)
 	async function loadToolCalls() {
-		let parsedResult = resultSchema.safeParse(result)
+		let parsedResult = resultSchema.safeParse(agentJob.result)
 		if (!parsedResult.success) {
 			console.error('Invalid result', parsedResult.error)
 			return
@@ -98,21 +108,7 @@
 			)
 			.filter((m) => m !== undefined)
 
-		if (!localModuleStates) {
-			await loadModuleStates(agentActions)
-		} else {
-			localModuleStatesCopy.localModuleStates = structuredClone($state.snapshot(localModuleStates))
-			agentActions.forEach((action, idx) => {
-				if (action.type === 'message') {
-					localModuleStatesCopy.localModuleStates[getToolCallId(idx)] = {
-						type: 'Success',
-						args: {},
-						logs: '',
-						result: action.content
-					}
-				}
-			})
-		}
+		await loadMissingJobs(agentActions)
 
 		job = {
 			...agentJob,
@@ -121,7 +117,7 @@
 					.map((toolCall, idx) => {
 						if (toolCall.type === 'message') {
 							return {
-								id: getToolCallId(idx),
+								id: idx.toString(),
 								value: {
 									type: 'identity' as const
 								}
@@ -131,7 +127,7 @@
 							return module
 								? {
 										...module,
-										id: getToolCallId(idx, module.id)
+										id: idx.toString()
 									}
 								: undefined
 						}
@@ -141,7 +137,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		loadToolCalls()
 	})
 </script>
@@ -150,7 +146,7 @@
 	<div class="p-2">
 		<FlowLogViewerWrapper
 			{job}
-			localModuleStates={localModuleStatesCopy.localModuleStates}
+			localModuleStates={fakeModuleStates}
 			{workspaceId}
 			render={true}
 			onSelectedIteration={async () => {}}

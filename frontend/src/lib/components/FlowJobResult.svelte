@@ -2,9 +2,8 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { CompletedJob, FlowModule, Job } from '$lib/gen'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
-	import type { GraphModuleState } from './graph'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -22,10 +21,10 @@
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
 		aiAgentStatus?: {
-			result: unknown
 			tools: FlowModule[]
-			agentJob: Partial<Job>
-			localModuleStates?: Record<string, GraphModuleState>
+			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
+			storedToolCallJobs?: Record<number, Job>
+			onToolJobLoaded?: (job: Job, idx: number) => void
 		}
 	}
 

@@ -2554,20 +2554,10 @@ pub async fn handle_queued_job(
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
             JobKind::AIAgent => match conn {
                 Connection::Sql(db) => {
-                    let flow_data = if let Some(runnable_id) = job.runnable_id {
-                        cache::job::fetch_flow(db, &job.kind, Some(runnable_id)).await?
-                    } else if let Some(raw_flow) = raw_flow {
-                        cache::job::fetch_preview_flow(db, &job.id, Some(raw_flow)).await?
-                    } else {
-                        return Err(Error::internal_err(
-                            "expected runnable id or raw flow for ai agent job".to_string(),
-                        ));
-                    };
-
                     handle_ai_agent_job(
                         conn,
+                        db,
                         job.as_ref(),
-                        flow_data,
                         &client,
                         &mut canceled_by,
                         &mut mem_peak,

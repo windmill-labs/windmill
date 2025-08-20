@@ -628,4 +628,8 @@ components:
                 required:
                   - content
                   - type
+        agent_actions_success:
+          type: array
+          items:
+            type: boolean
       required: [type]

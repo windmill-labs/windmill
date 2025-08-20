@@ -836,7 +836,7 @@ pub mod job {
             match (kind, hash.map(|ScriptHash(id)| id)) {
                 (FlowDependencies, Some(id)) => flow::fetch_version(db, id).await,
                 (FlowNode, Some(id)) => flow::fetch_flow(db, FlowNodeId(id)).await,
-                (Flow | AIAgent, Some(id)) => match flow::fetch_version_lite(db, id).await {
+                (Flow, Some(id)) => match flow::fetch_version_lite(db, id).await {
                     Ok(raw_flow) => Ok(raw_flow),
                     Err(_) => flow::fetch_version(db, id).await,
                 },

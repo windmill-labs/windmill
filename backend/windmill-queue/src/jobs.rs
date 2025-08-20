@@ -33,7 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{FlowVersionOrRawFlow, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 #[cfg(feature = "enterprise")]
@@ -4442,18 +4442,12 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::AIAgent { flow_version_or_raw_flow, path } => (
-            match flow_version_or_raw_flow {
-                FlowVersionOrRawFlow::FlowVersion(flow_version) => Some(flow_version),
-                _ => None,
-            },
+        JobPayload::AIAgent { path } => (
+            None,
             Some(path),
             None,
             JobKind::AIAgent,
-            match flow_version_or_raw_flow {
-                FlowVersionOrRawFlow::RawFlow(raw_flow) => Some(raw_flow),
-                _ => None,
-            },
+            None,
             None,
             None,
             None,
@@ -5005,6 +4999,7 @@ async fn restarted_flows_resolution(
                             while_loop: false,
                             progress: None,
                             agent_actions: None,
+                            agent_actions_success: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -5044,6 +5039,7 @@ async fn restarted_flows_resolution(
                             while_loop: false,
                             progress: None,
                             agent_actions: None,
+                            agent_actions_success: None,
                         });
                     }
                     _ => {

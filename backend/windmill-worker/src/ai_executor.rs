@@ -7,14 +7,14 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
     auth::get_job_perms,
-    cache::{self, FlowData},
+    cache,
     client::AuthedClient,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
     flows::{FlowModule, FlowModuleValue},
     get_latest_hash_for_path,
-    jobs::DB,
-    scripts::{get_full_hub_script_by_path, ScriptLang},
+    jobs::{JobKind, DB},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
@@ -294,7 +294,7 @@ async fn update_flow_status_module_with_actions(
                 UPDATE v2_job_status SET
                     flow_status = jsonb_set(
                         flow_status,
-                        array['modules', $3::INTEGER::TEXT, 'agent_actions'],
+                        array['modules', $3::TEXT, 'agent_actions'],
                         $2
                     )
                 WHERE id = $1
@@ -302,6 +302,40 @@ async fn update_flow_status_module_with_actions(
                 parent_job,
                 sqlx::types::Json(actions) as _,
                 step as i32
+            )
+            .execute(db)
+            .await?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn update_flow_status_module_with_actions_success(
+    db: &DB,
+    parent_job: &uuid::Uuid,
+    action_success: bool,
+) -> Result<(), Error> {
+    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
+    match step {
+        Step::Step(step) => {
+            // Append the new bool to the existing array, or create a new array if it doesn't exist
+            sqlx::query!(
+                r#"
+                UPDATE v2_job_status SET
+                    flow_status = jsonb_set(
+                        flow_status,
+                        array['modules', $2::TEXT, 'agent_actions_success'],
+                        COALESCE(
+                            flow_status->'modules'->$2->'agent_actions_success',
+                            to_jsonb(ARRAY[]::bool[])
+                        ) || to_jsonb(ARRAY[$3::bool])
+                    )
+                WHERE id = $1
+                "#,
+                parent_job,
+                step as i32,
+                action_success
             )
             .execute(db)
             .await?;
@@ -363,7 +397,7 @@ async fn call_tool(
     hostname: &str,
     job_completed_tx: &JobCompletedSender,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-) -> error::Result<Arc<Box<RawValue>>> {
+) -> error::Result<(bool, Arc<Box<RawValue>>)> {
     let tool_call_args =
         serde_json::from_str::<HashMap<String, Box<RawValue>>>(&tool_call.function.arguments)?;
 
@@ -485,7 +519,7 @@ async fn call_tool(
     #[cfg(feature = "benchmark")]
     let mut bench = BenchmarkIter::new();
 
-    if let Err(err) = handle_queued_job(
+    match handle_queued_job(
         tool_job.clone(),
         None,
         None,
@@ -508,38 +542,48 @@ async fn call_tool(
     )
     .await
     {
-        let err_string = format!("{}: {}", err.name(), err.to_string());
-        let err_json = error_to_value(&err);
-        let _ =
-            handle_non_flow_job_error(db, &tool_job, 0, None, err_string, err_json, worker_name)
-                .await;
-        Err(err)
-    } else {
-        let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
+        Err(err) => {
+            let err_string = format!("{}: {}", err.name(), err.to_string());
+            let err_json = error_to_value(&err);
+            let _ = handle_non_flow_job_error(
+                db,
+                &tool_job,
+                0,
+                None,
+                err_string,
+                err_json,
+                worker_name,
+            )
+            .await;
+            Err(err)
+        }
+        Ok(success) => {
+            let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
 
-        let result = if let Some(SendResult {
-            result: SendResultPayload::JobCompleted(JobCompleted { result, .. }),
-            ..
-        }) = send_result.as_ref()
-        {
-            job_completed_tx
-                .send(send_result.as_ref().unwrap().result.clone(), true)
-                .await
-                .map_err(to_anyhow)?;
-            result
-        } else {
-            if let Some(send_result) = send_result {
+            let result = if let Some(SendResult {
+                result: SendResultPayload::JobCompleted(JobCompleted { result, .. }),
+                ..
+            }) = send_result.as_ref()
+            {
                 job_completed_tx
-                    .send(send_result.result, true)
+                    .send(send_result.as_ref().unwrap().result.clone(), true)
                     .await
                     .map_err(to_anyhow)?;
-            }
-            return Err(Error::internal_err(
-                "Tool job completed but no result".to_string(),
-            ));
-        };
+                result
+            } else {
+                if let Some(send_result) = send_result {
+                    job_completed_tx
+                        .send(send_result.result, true)
+                        .await
+                        .map_err(to_anyhow)?;
+                }
+                return Err(Error::internal_err(
+                    "Tool job completed but no result".to_string(),
+                ));
+            };
 
-        Ok(result.clone())
+            Ok((success, result.clone()))
+        }
     }
 }
 
@@ -650,6 +694,7 @@ async fn run_agent(
             });
 
             update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+            update_flow_status_module_with_actions_success(db, parent_job, true).await?;
         }
 
         if tool_calls.is_empty() {
@@ -698,7 +743,7 @@ async fn run_agent(
                 )
                 .await
                 {
-                    Ok(result) => {
+                    Ok((success, result)) => {
                         messages.push(OpenAIMessage {
                             role: "tool".to_string(),
                             content: Some(result.get().to_string()),
@@ -710,6 +755,8 @@ async fn run_agent(
                             }),
                             ..Default::default()
                         });
+                        update_flow_status_module_with_actions_success(db, parent_job, success)
+                            .await?;
                     }
                     Err(err) => {
                         let err_string = format!("{}: {}", err.name(), err.to_string());
@@ -724,6 +771,8 @@ async fn run_agent(
                             }),
                             ..Default::default()
                         });
+                        update_flow_status_module_with_actions_success(db, parent_job, false)
+                            .await?;
                     }
                 }
             } else {
@@ -746,13 +795,33 @@ async fn run_agent(
     }))
 }
 
+pub struct FlowJobRunnableIdAndRawFlow {
+    pub runnable_id: Option<ScriptHash>,
+    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub kind: JobKind,
+}
+
+pub async fn get_flow_job_runnable_and_raw_flow(
+    db: &DB,
+    job_id: &uuid::Uuid,
+) -> windmill_common::error::Result<FlowJobRunnableIdAndRawFlow> {
+    let job = sqlx::query_as!(
+        FlowJobRunnableIdAndRawFlow,
+        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(job)
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
+    db: &DB,
 
-    // agent job and flow data
+    // agent job
     job: &MiniPulledJob,
-    flow_data: Arc<FlowData>,
 
     // job execution context
     client: &AuthedClient,
@@ -766,15 +835,6 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
-    let db = match conn {
-        Connection::Sql(db) => db,
-        Connection::Http(_) => {
-            return Err(Error::internal_err(
-                "AI agent job is not supported on agent workers".to_string(),
-            ));
-        }
-    };
-
     let args = build_args_map(job, client, conn).await?;
 
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
@@ -789,6 +849,22 @@ pub async fn handle_ai_agent_job(
         return Err(Error::internal_err(
             "AI agent job has no parent job".to_string(),
         ));
+    };
+
+    let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
+
+    let flow_data = match flow_job.kind {
+        JobKind::Flow | JobKind::FlowNode => {
+            cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
+        }
+        JobKind::FlowPreview => {
+            cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
+        }
+        _ => {
+            return Err(Error::internal_err(
+                "expected parent flow, flow preview or flow node for ai agent job".to_string(),
+            ));
+        }
     };
 
     let value = flow_data.value();

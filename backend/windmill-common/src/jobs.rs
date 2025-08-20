@@ -377,15 +377,8 @@ pub enum JobPayload {
     Identity,
     Noop,
     AIAgent {
-        flow_version_or_raw_flow: FlowVersionOrRawFlow,
         path: String,
     },
-}
-
-#[derive(Clone, Debug)]
-pub enum FlowVersionOrRawFlow {
-    FlowVersion(i64),
-    RawFlow(FlowValue),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]

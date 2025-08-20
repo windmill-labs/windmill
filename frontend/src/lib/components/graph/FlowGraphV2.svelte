@@ -401,13 +401,17 @@
 				position: n.position
 			}))
 		)
-		newNodes = [
-			...newNodes.map((n) => ({ ...n, position: assetNodesResult.newNodePositions[n.id] })),
-			...assetNodesResult.newAssetNodes
+		newNodes = newNodes.map((n) => ({
+			...n,
+			position: assetNodesResult.newNodePositions[n.id]
+		}))
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		nodes = [
+			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
+			...assetNodesResult.newAssetNodes,
+			...aiToolNodesResult.toolNodes
 		]
-
-		nodes = newNodes
-		edges = [...assetNodesResult.newAssetEdges, ...graph.edges]
+		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
 
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)

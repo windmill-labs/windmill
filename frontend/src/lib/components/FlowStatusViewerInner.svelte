@@ -451,39 +451,6 @@
 		}
 	}
 
-	function loadAIAgentToolJobs(agentActions: NonNullable<FlowStatusModule['agent_actions']>) {
-		agentActions.forEach((action, idx) => {
-			if (action.type === 'tool_call') {
-				const toolCallId = getToolCallId(idx, action.module_id)
-				JobService.getJob({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: action.job_id
-				})
-					.then((job) => {
-						setModuleState(
-							toolCallId,
-							{
-								job_id: job.id,
-								logs: job.logs,
-								args: job.args,
-								tag: job.tag,
-								result: job.type === 'CompletedJob' ? job.result : undefined,
-								type:
-									job.type === 'CompletedJob' ? (job.success ? 'Success' : 'Failure') : 'InProgress'
-							},
-							true
-						)
-					})
-					.catch((e) => {
-						console.error(
-							`Could not load tool jobs for tool call ${action.job_id} in flow job ${jobId}`,
-							e
-						)
-					})
-			}
-		})
-	}
-
 	function updateInnerModules() {
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -546,12 +513,27 @@
 					})
 				}
 
-				if (mod.agent_actions) {
-					setModuleState(mod.id ?? '', {
+				if (mod.agent_actions && mod.id) {
+					setModuleState(mod.id, {
 						agent_actions: mod.agent_actions
 					})
-
-					loadAIAgentToolJobs(mod.agent_actions)
+					mod.agent_actions.forEach((action, idx) => {
+						if (mod.id) {
+							if (action.type == 'tool_call') {
+								const toolCallId = getToolCallId(idx, mod.id, action.module_id)
+								const success = mod.agent_actions_success?.[idx]
+								setModuleState(toolCallId, {
+									job_id: action.job_id,
+									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+								})
+							} else if (action.type == 'message') {
+								const toolCallId = getToolCallId(idx, mod.id)
+								setModuleState(toolCallId, {
+									type: 'Success'
+								})
+							}
+						}
+					})
 				}
 			})
 		}
@@ -752,10 +734,6 @@
 					force
 				)
 
-				if (mod.agent_actions) {
-					loadAIAgentToolJobs(mod.agent_actions)
-				}
-
 				setDurationStatusByJob(id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
@@ -934,6 +912,11 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 
 	let storedListJobs: Record<number, Job> = $state({})
+
+	let storedToolCallJobs: Record<number, Job> = $state({})
+	let selectedToolCall: number | undefined = $state(undefined)
+	let toolCallIndicesToLoad: number[] = $state([])
+
 	let wrapperHeight: number = $state(0)
 
 	function removeFailureNode(id: string, parent_module: any) {
@@ -1384,6 +1367,75 @@
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 										{globalIterationBounds}
 									/>
+									{#if mod.agent_actions && mod.agent_actions.length > 0}
+										{#each mod.agent_actions as agentAction, j}
+											{#if agentAction.type === 'tool_call' && mod.id}
+												{@const toolCallId = getToolCallId(j, mod.id, agentAction.module_id)}
+												{@const isSelected = selectedToolCall === j}
+												<Button
+													variant={isSelected ? 'contained' : 'border'}
+													color={mod.agent_actions_success?.[j] === false
+														? 'red'
+														: isSelected
+															? 'dark'
+															: 'light'}
+													btnClasses="w-full flex justify-start"
+													on:click={async () => {
+														if (selectedToolCall == j) {
+															selectedToolCall = undefined
+														} else {
+															selectedToolCall = j
+														}
+													}}
+													endIcon={{
+														icon: ChevronDown,
+														classes: isSelected ? '!rotate-180' : ''
+													}}
+												>
+													<span class="truncate font-mono">
+														Tool call: {agentAction.function_name}
+													</span>
+												</Button>
+												{#if isSelected || storedToolCallJobs[j] || toolCallIndicesToLoad.includes(j)}
+													<FlowStatusViewerInner
+														topModuleStates={getTopModuleStates}
+														{refreshGlobal}
+														updateRecursiveRefreshFn={updateRecursiveRefreshInner}
+														globalModuleStates={[localModuleStates, ...globalModuleStates]}
+														globalDurationStatuses={[
+															localDurationStatuses,
+															...globalDurationStatuses
+														]}
+														render={selected == 'sequence' && render && isSelected}
+														{workspaceId}
+														{prefix}
+														{updateGlobalRefresh}
+														{subflowParentsGlobalModuleStates}
+														{subflowParentsDurationStatuses}
+														{isSelectedBranch}
+														jobId={agentAction.job_id}
+														job={storedToolCallJobs[j]}
+														initialJob={storedToolCallJobs[j]}
+														{reducedPolling}
+														onJobsLoaded={({ job, force }) => {
+															storedToolCallJobs[j] = job
+															onJobsLoadedInner({ id: toolCallId } as FlowStatusModule, job, force)
+														}}
+														loadExtraLogs={(logs) => {
+															setModuleState(toolCallId, {
+																logs
+															})
+														}}
+														{onResultStreamUpdate}
+														graphTabOpen={selected == 'graph' && graphTabOpen}
+														isNodeSelected={localModuleStates?.[toolCallId]?.job_id ==
+															agentAction.job_id}
+														{globalIterationBounds}
+													/>
+												{/if}
+											{/if}
+										{/each}
+									{/if}
 								{/if}
 							{:else}
 								<ModuleStatus
@@ -1429,7 +1481,6 @@
 								{/if}
 							{/each}
 						</div>
-
 						<FlowGraphV2
 							{selectedId}
 							triggerNode={true}
@@ -1451,12 +1502,19 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('_').pop() : e
+										const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
 										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
 											(m) => m?.id === id
 										)
 										stepDetail = mod
 										selectedNode = e
+										if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
+											const [_prefix, _agentModuleId, j, _toolModuleId] = e.split('-')
+											const jIdx = Number(j)
+											if (!toolCallIndicesToLoad.includes(jIdx)) {
+												toolCallIndicesToLoad.push(jIdx)
+											}
+										}
 									}
 								} else {
 									stepDetail = e
@@ -1609,9 +1667,9 @@
 											logs={node.logs}
 											downloadLogs={!hideDownloadLogs}
 											aiAgentStatus={agentTools &&
-											(node?.type === 'Success' || node?.type === 'Failure')
+											node.job_id &&
+											(node.type === 'Success' || node.type === 'Failure')
 												? {
-														result: node.result,
 														tools: agentTools,
 														agentJob: {
 															id: node.job_id,
@@ -1619,9 +1677,12 @@
 															logs: node.logs,
 															args: node.args,
 															success: node.type === 'Success',
-															type: node.duration_ms ? 'CompletedJob' : undefined
+															type: 'CompletedJob'
 														},
-														localModuleStates
+														storedToolCallJobs,
+														onToolJobLoaded: (job, idx) => {
+															storedToolCallJobs[idx] = job
+														}
 													}
 												: undefined}
 										/>

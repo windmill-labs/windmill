@@ -40,8 +40,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, FlowVersionOrRawFlow, JobKind, JobPayload, OnBehalfOf, RawCode,
-    ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
@@ -628,6 +627,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              failed_retries: vec![],
                              skipped: false,
                              agent_actions: None,
+                             agent_actions_success: None,
                          }
                      } else {
                          success = false;
@@ -639,6 +639,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              branch_chosen: None,
                              failed_retries: vec![],
                              agent_actions: None,
+                             agent_actions_success: None,
                          }
                      };
                     let r = sqlx::query_scalar!(
@@ -810,6 +811,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             skipped: is_skipped,
                             agent_actions: module_status.agent_actions(),
+                            agent_actions_success: module_status.agent_actions_success(),
                         }),
                     )
                 } else {
@@ -834,6 +836,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             branch_chosen,
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             agent_actions: module_status.agent_actions(),
+                            agent_actions_success: module_status.agent_actions_success(),
                         }),
                     )
                 }
@@ -2612,6 +2615,7 @@ async fn push_next_flow_job(
                     failed_retries: vec![],
                     skipped: false,
                     agent_actions: None,
+                    agent_actions_success: None,
                 }),
                 flow_job.id
             )
@@ -3003,6 +3007,7 @@ async fn push_next_flow_job(
                 while_loop,
                 progress: None,
                 agent_actions: None,
+                agent_actions_success: None,
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
@@ -3017,6 +3022,7 @@ async fn push_next_flow_job(
             while_loop: false,
             progress: None,
             agent_actions: None,
+            agent_actions_success: None,
         },
         NextStatus::NextBranchStep(NextBranch {
             mut flow_jobs,
@@ -3041,6 +3047,7 @@ async fn push_next_flow_job(
                 while_loop: false,
                 progress: None,
                 agent_actions: None,
+                agent_actions_success: None,
             }
         }
 
@@ -3056,6 +3063,7 @@ async fn push_next_flow_job(
             while_loop: false,
             progress: None,
             agent_actions: None,
+            agent_actions_success: None,
         },
         NextStatus::NextStep => {
             FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: one_uuid? }
@@ -3397,20 +3405,7 @@ async fn compute_next_flow_transform(
         }
         FlowModuleValue::AIAgent { .. } => {
             let path = get_path(flow_job, status, module);
-            let payload = JobPayload::AIAgent {
-                flow_version_or_raw_flow: flow_job
-                    .runnable_id
-                    .map(|runnable_id| {
-                        if flow_job.kind != JobKind::FlowNode {
-                            FlowVersionOrRawFlow::FlowVersion(runnable_id.0)
-                        } else {
-                            // if parent is a flow node, we don't have the flow version, so we use the raw flow
-                            FlowVersionOrRawFlow::RawFlow(flow.clone())
-                        }
-                    })
-                    .unwrap_or_else(|| FlowVersionOrRawFlow::RawFlow(flow.clone())),
-                path,
-            };
+            let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
