@@ -12,7 +12,7 @@ export class TestSteps {
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
 	#steps = $state<Record<string, { value: any }>>({})
 
-	constructor() { }
+	constructor() {}
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
 		if (!this.#steps[moduleId]) {
@@ -21,12 +21,12 @@ export class TestSteps {
 		this.#steps[moduleId].value = args
 	}
 
-	getStepArgs(moduleId: string): ModuleArgs {
-		let args = this.#steps[moduleId]
-		if (!args) {
-			this.#steps[moduleId] = { value: {} }
-		}
+	getStepArgs(moduleId: string): ModuleArgs | undefined {
 		return this.#steps[moduleId]
+	}
+
+	getStepInputArgs(moduleId: string, argName: string): any | undefined {
+		return this.#steps[moduleId]?.value?.[argName]
 	}
 
 	setStepArgs(moduleId: string, args: Record<string, any>) {
@@ -34,6 +34,13 @@ export class TestSteps {
 			this.#steps[moduleId] = { value: {} }
 		}
 		this.#steps[moduleId].value = args
+	}
+
+	setStepInputArgs(moduleId: string, argName: string, value: any) {
+		if (!this.#steps[moduleId]) {
+			this.#steps[moduleId] = { value: {} }
+		}
+		this.#steps[moduleId].value[argName] = value
 	}
 
 	getStepArg(moduleId: string, argName: string): any | undefined {
