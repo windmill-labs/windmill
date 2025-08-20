@@ -368,4 +368,17 @@ export default class ContextManager {
 					: undefined
 		}))
 	}
+
+	setSelectedModuleContext(moduleId: string | undefined, availableContext: ContextElement[] | undefined) {
+		console.log('setSelectedModuleContext', moduleId, availableContext)
+		if (availableContext && moduleId) {
+			const module = availableContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
+			if (module && !this.selectedContext.find((c) => c.type === 'flow_module' && c.id === moduleId)) {
+				this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
+				this.selectedContext = [...this.selectedContext, module]
+			}
+		} else if (!moduleId) {
+			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
+		}
+	}
 }
