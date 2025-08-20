@@ -31,8 +31,6 @@ return ${eval_string}
 }`
 }
 
-export type ModuleArgs = { value: Record<string, any> }
-
 function make_context_evaluator(eval_string, context): (context) => any {
 	let template = create_context_function_template(eval_string, context)
 	let functor = Function(template)
