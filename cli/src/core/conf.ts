@@ -38,12 +38,21 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   git_branches?: {
+    commonSpecificItems?: {
+      variables?: string[];
+      resources?: string[];
+    };
+  } & {
     [branchName: string]: SyncOptions & {
       overrides?: Partial<SyncOptions>;
       promotionOverrides?: Partial<SyncOptions>;
       baseUrl?: string;
       workspaceId?: string;
-    }
+      specificItems?: {
+        variables?: string[];
+        resources?: string[];
+      };
+    };
   };
   promotion?: string;
 }
