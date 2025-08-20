@@ -190,7 +190,7 @@
 	$effect(() => {
 		if (testJob && testJob.type === 'CompletedJob') {
 			lastJob = $state.snapshot(testJob)
-		} else if (flowStateStore && flowStateStore) {
+		} else if (id && flowStateStore?.val?.[id]) {
 			untrack(() => updateLastJob(flowStateStore))
 		}
 	})
