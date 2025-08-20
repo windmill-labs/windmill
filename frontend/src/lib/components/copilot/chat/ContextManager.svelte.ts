@@ -3,6 +3,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
 import type { ContextElement } from './context'
+import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
 import { langToExt } from '$lib/editorLangUtils'
@@ -23,6 +24,7 @@ export interface FlowOptions {
 	currentFlow: ExtendedOpenFlow
 	lastDeployedFlow?: Flow
 	path: string | undefined
+	modules: FlowModule[]
 }
 
 export default class ContextManager {
@@ -77,18 +79,6 @@ export default class ContextManager {
 
 			let newAvailableContext: ContextElement[] = []
 
-			if (toolSupport) {
-				for (const d of this.dbResources) {
-					const loadedSchema = dbSchemas[d.path]
-					newAvailableContext.push({
-						type: 'db',
-						title: d.path,
-						// If the db is already fetched, add the schema to the context
-						...(loadedSchema ? { schema: loadedSchema } : {})
-					})
-				}
-			}
-
 			// Add diff context if we have a deployed flow version
 			if (flowOptions?.lastDeployedFlow && flowOptions?.currentFlow) {
 				const deployedFlowString = JSON.stringify(flowOptions.lastDeployedFlow, null, 2)
@@ -104,6 +94,34 @@ export default class ContextManager {
 					})
 				}
 			}
+
+			for (const module of flowOptions?.modules ?? []) {
+				newAvailableContext.push({
+					type: 'flow_module',
+					id: module.id,
+					title: `module [${module.id}]`,
+					value: {
+						language: 'language' in module.value ? module.value.language : 'bunnative',
+						path: 'path' in module.value ? module.value.path : '',
+						type: module.value.type
+					}
+				})
+			}
+
+			console.log('newAvailableContext', newAvailableContext)
+
+			if (toolSupport) {
+				for (const d of this.dbResources) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
+
 
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 

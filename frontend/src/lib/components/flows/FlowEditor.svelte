@@ -109,7 +109,8 @@
 		const options: FlowOptions = {
 			currentFlow: flowStore.val,
 			lastDeployedFlow: savedFlow?.draft,
-			path: savedFlow?.path
+			path: savedFlow?.path,
+			modules: flowStore.val.value.modules
 		}
 		aiChatManager.flowOptions = options
 	})

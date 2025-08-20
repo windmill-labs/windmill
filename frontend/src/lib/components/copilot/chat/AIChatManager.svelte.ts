@@ -885,9 +885,8 @@ class AIChatManager {
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.FLOW && this.flowAiChatHelpers) {
-			const flowOptions = this.flowOptions
 			this.contextManager.updateAvailableContextForFlow(
-				flowOptions,
+				this.flowOptions,
 				dbSchemas,
 				workspaceStore ?? '',
 				!copilotSessionModel?.model.endsWith('/thinking'),

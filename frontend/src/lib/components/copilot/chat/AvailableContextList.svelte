@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import type { FlowModule } from '$lib/gen/types.gen'
 	import { ContextIconMap, type ContextElement } from './context'
 
 	interface Props {
@@ -55,7 +57,9 @@
 					: ''}"
 				onclick={() => onSelect(element)}
 			>
-				{#if Icon}
+				{#if element.type === 'flow_module'}
+					<FlowModuleIcon module={element as FlowModule} size={10} />
+				{:else if Icon}
 					<Icon size={16} />
 				{/if}
 				{element.type === 'diff' ? element.title.replace(/_/g, ' ') : element.title}

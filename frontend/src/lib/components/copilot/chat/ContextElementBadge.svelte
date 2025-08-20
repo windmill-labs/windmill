@@ -12,6 +12,8 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import type { FlowModule } from '$lib/gen'
 
 	export let contextElement: ContextElement
 	export let deletable = false
@@ -39,7 +41,11 @@
 				{#if showDelete && deletable}
 					<X size={16} />
 				{:else}
-					<svelte:component this={icon} size={16} />
+					{#if contextElement.type === 'flow_module'}
+						<FlowModuleIcon module={contextElement as FlowModule} size={10} />
+					{:else}
+						<svelte:component this={icon} size={16} />
+					{/if}
 				{/if}
 			</button>
 			<span class="truncate">
@@ -78,6 +84,10 @@
 					code={contextElement.content}
 					class="w-full p-2 "
 				/>
+			</div>
+		{:else if contextElement.type === 'flow_module'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				<div class="text-tertiary">{contextElement.title}</div>
 			</div>
 		{/if}
 	</svelte:fragment>

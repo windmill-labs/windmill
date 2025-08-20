@@ -806,6 +806,16 @@ For truly static values in step inputs (those not linked to previous steps or lo
 
 Both modules only support a script or rawscript step. You cannot nest modules using forloop/branchone/branchall.
 
+### Contexts
+
+You have access to the following contexts:
+- Database schemas
+- Flow diffs
+- Focused flow modules
+Database schemas give you the schema of databases the user is using.
+Flow diffs give you the diff between the current flow and the last deployed flow.
+Focused flow modules give you the ids of the flow modules the user is focused on. Your response should focus on these modules.
+
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
 If the user needs a resource as flow input, you should set the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
@@ -829,8 +839,10 @@ export function prepareFlowUserMessage(
 	// Handle context elements
 	let dbContext = 'DATABASES:\n'
 	let diffContext = 'DIFF:\n'
+	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
 	let hasDb = false
 	let hasDiff = false
+	let hasFlowModule = false
 	
 	if (selectedContext) {
 		for (const context of selectedContext) {
@@ -843,7 +855,10 @@ export function prepareFlowUserMessage(
 			} else if (context.type === 'diff') {
 				hasDiff = true
 				const diff = JSON.stringify(context.diff)
-				diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
+				diffContext += diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
+			} else if (context.type === 'flow_module') {
+				hasFlowModule = true
+				flowModuleContext += `${context.id}\n`
 			}
 		}
 	}
@@ -851,12 +866,6 @@ export function prepareFlowUserMessage(
 	if (!flow || !selectedId) {
 		let userMessage = `## INSTRUCTIONS:
 ${instructions}`
-		if (hasDb) {
-			userMessage += '\n\n' + dbContext
-		}
-		if (hasDiff) {
-			userMessage += '\n\n' + diffContext
-		}
 		return {
 			role: 'user',
 			content: userMessage
@@ -877,17 +886,22 @@ failure module:
 ${YAML.stringify(flow.value.failure_module)}
 
 currently selected step:
-${selectedId}
+${selectedId}`
 
-## INSTRUCTIONS:
+if (hasDb) {
+	flowContent += '\n\n' + dbContext
+}
+if (hasDiff) {
+	flowContent += '\n\n' + diffContext
+}
+if (hasFlowModule) {
+	flowContent += '\n\n' + flowModuleContext
+}
+
+flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
 
-	if (hasDb) {
-		flowContent += '\n\n' + dbContext
-	}
-	if (hasDiff) {
-		flowContent += '\n\n' + diffContext
-	}
+console.log('flowContent', flowContent)
 
 	return {
 		role: 'user',
