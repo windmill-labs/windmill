@@ -514,7 +514,7 @@
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
 			$selectedId,
 			flowStore.val,
-			flowStateStore,
+			flowStateStore.val,
 			$currentEditor
 		)
 		return cleanup

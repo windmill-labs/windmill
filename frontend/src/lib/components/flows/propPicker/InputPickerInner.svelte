@@ -45,7 +45,7 @@
 			{#if testSteps?.isArgManuallySet(id, key)}
 				<button
 					onclick={() => {
-						testSteps?.evalArg(id, key, flowStateStore, flowStore?.val, previewArgs?.val)
+						testSteps?.evalArg(id, key, flowStateStore?.val, flowStore?.val, previewArgs?.val)
 					}}
 					title="Re-evaluate input"
 					class="-my-1 ml-0.5 hover:text-primary dark:hover:text-primary dark:text-gray-500 text-gray-300"
