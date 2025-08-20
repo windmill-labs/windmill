@@ -433,6 +433,15 @@
 							>
 						{/if}
 					</div>
+				{:else if testJob}
+					<!-- {JSON.stringify(testJob)} -->
+					<OutputBadge
+						job={testJob}
+						class={twMerge(
+							'min-w-16 text-secondary',
+							preview || testJob?.id !== job?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+						)}
+					/>
 				{/if}
 
 				{#if !disableMock && !isLoadingAndNotMock}
@@ -522,7 +531,7 @@
 			</div>
 
 			<div class="px-2">
-				{#if selectedJob && 'result' in selectedJob && displayResultJob && toolbarLocationJob === 'external'}
+				{#if selectedJob && displayResultJob && toolbarLocationJob === 'external'}
 					<DisplayResultControlBar
 						workspaceId={selectedJob.workspace_id}
 						jobId={selectedJob.id}
