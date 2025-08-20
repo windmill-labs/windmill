@@ -1,3 +1,5 @@
+#[allow(unused)]
+
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
@@ -13,9 +15,6 @@ use {
     windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
-
-#[cfg(not(feature = "private"))]
-pub struct KafkaTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]

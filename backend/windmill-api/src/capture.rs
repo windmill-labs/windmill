@@ -46,13 +46,13 @@ use serde::de::DeserializeOwned;
 use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
+use crate::triggers::kafka::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_oss::NatsTriggerConfigConnection;
+use crate::triggers::nats::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
 use crate::triggers::postgres::{
@@ -908,7 +908,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::triggers::{gcp::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
@@ -931,9 +931,9 @@ async fn gcp_payload(
     )
     .await?;
 
-    let (payload, gcp) = process_google_push_request(headers, request).await?;
+    let (payload, trigger_info) = process_google_push_request(headers, request).await?;
 
-    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(payload, gcp);
+    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(&payload, trigger_info);
 
     let _ = insert_capture_payload(
         &db,

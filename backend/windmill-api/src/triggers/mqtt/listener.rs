@@ -35,6 +35,7 @@ use crate::{
 #[async_trait]
 impl Listener for MqttTrigger {
     type Consumer = MqttClientResult;
+    type Extra = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Mqtt;
 
     async fn get_consumer(
@@ -243,8 +244,8 @@ where
                             })),
                         ),
                     ]);
-                    listener
-                        .handle_event(db, listening_trigger, payload.into(), trigger_info)
+                    let _ = listener
+                        .handle_event(db, listening_trigger, payload.into(), trigger_info, None)
                         .await;
                 }
             }

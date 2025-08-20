@@ -20,6 +20,7 @@ use sqlx::{types::Json as SqlxJson, FromRow};
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
+    triggers::TriggerKind,
     utils::empty_as_none,
     worker::to_raw_value,
     DB,
@@ -29,11 +30,27 @@ lazy_static::lazy_static! {
     pub static ref GOOGLE_PUBLIC_KEY_CACHE: Cache<String, String> = Cache::new(500);
 }
 
-use crate::{db::ApiAuthed, resources::try_get_resource_from_db_as};
-
+use crate::{
+    db::ApiAuthed, resources::try_get_resource_from_db_as,
+    triggers::trigger_helpers::TriggerJobArgs,
+};
 #[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
+#[cfg(feature = "private")]
+mod listener_ee;
+pub mod listener_oss;
+
+#[derive(Clone, Copy)]
+pub struct GcpTrigger;
+
+impl TriggerJobArgs for GcpTrigger {
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Gcp;
+    type Payload = String;
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, sqlx::Type)]
 #[serde(rename_all = "snake_case")]

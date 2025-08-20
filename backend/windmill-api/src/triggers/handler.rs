@@ -33,19 +33,19 @@ use windmill_git_sync::handle_deployment_metadata;
 use crate::utils::check_scopes;
 
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
-use crate::triggers::gcp::handler_oss::GcpTrigger;
+use crate::triggers::gcp::GcpTrigger;
 #[cfg(feature = "http_trigger")]
 use crate::triggers::http::handler::HttpTrigger;
 #[cfg(all(feature = "kafka", feature = "enterprise"))]
-use crate::triggers::kafka::handler_oss::KafkaTrigger;
+use crate::triggers::kafka::KafkaTrigger;
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::MqttTrigger;
 #[cfg(all(feature = "nats", feature = "enterprise"))]
-use crate::triggers::nats::handler_oss::NatsTrigger;
+use crate::triggers::nats::NatsTrigger;
 #[cfg(feature = "postgres_trigger")]
 use crate::triggers::postgres::PostgresTrigger;
 #[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
-use crate::triggers::sqs::handler_oss::SqsTrigger;
+use crate::triggers::sqs::SqsTrigger;
 #[cfg(feature = "websocket")]
 use crate::triggers::websocket::WebsocketTrigger;
 
@@ -236,6 +236,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(updated > 0)
     }
 
+    #[allow(unused)]
     async fn trigger_count(
         &self,
         tx: &mut PgConnection,

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use base64::{engine, Engine};
 use itertools::Itertools;
 use rdkafka::{
     consumer::{Consumer, DefaultConsumerContext, StreamConsumer},
@@ -5,18 +8,45 @@ use rdkafka::{
     ClientConfig,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use serde_json::value::RawValue;
+use sqlx::{types::Json, FromRow};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    triggers::TriggerKind,
+    worker::to_raw_value,
     DB,
 };
 
-use crate::{db::ApiAuthed, ee_oss::interpolate, resources::try_get_resource_from_db_as};
+use crate::{
+    db::ApiAuthed, ee_oss::interpolate, resources::try_get_resource_from_db_as,
+    triggers::trigger_helpers::TriggerJobArgs,
+};
 
 #[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
+#[cfg(feature = "private")]
+mod listener_ee;
+pub mod listener_oss;
+
+#[derive(Copy, Clone)]
+pub struct KafkaTrigger;
+
+impl TriggerJobArgs for KafkaTrigger {
+    type Payload = Vec<u8>;
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Kafka;
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        let s = String::from_utf8(payload.to_vec())
+            .unwrap_or_else(|_| "Error: invalid utf8 payload".to_string());
+        HashMap::from([("msg".to_string(), to_raw_value(&s))])
+    }
+
+    fn v2_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        let base64_payload = engine::general_purpose::STANDARD.encode(payload);
+        HashMap::from([("payload".to_string(), to_raw_value(&base64_payload))])
+    }
+}
 
 // Kafka Configuration structs for the trait
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -24,6 +54,8 @@ pub struct KafkaConfig {
     pub kafka_resource_path: String,
     pub group_id: String,
     pub topics: Vec<String>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<Json<KafkaTriggerConfigConnection>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

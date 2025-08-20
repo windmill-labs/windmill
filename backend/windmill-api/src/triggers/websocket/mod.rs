@@ -18,6 +18,7 @@ use windmill_queue::PushArgsOwned;
 mod handler;
 mod listener;
 
+#[derive(Copy, Clone)]
 pub struct WebsocketTrigger;
 
 impl TriggerJobArgs for WebsocketTrigger {

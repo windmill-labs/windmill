@@ -369,7 +369,7 @@ pub async fn get_runnable_format(
 #[allow(dead_code)]
 
 pub trait TriggerJobArgs {
-    type Payload: Send + Sync + 'static;
+    type Payload: Send + Sync;
     const TRIGGER_KIND: TriggerKind;
 
     fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>>;

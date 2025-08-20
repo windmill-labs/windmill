@@ -28,8 +28,10 @@ mod listener;
 pub mod trigger_helpers;
 
 pub use handler::generate_trigger_routers;
+#[allow(unused)]
 pub(crate) use handler::TriggerCrud;
 pub use listener::start_all_listeners;
+#[allow(unused)]
 pub(crate) use listener::Listener;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -238,7 +240,7 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "kafka", feature = "enterprise"))]
     let kafka_count = {
-        use crate::triggers::kafka::handler_oss::KafkaTrigger;
+        use crate::triggers::kafka::KafkaTrigger;
         let mut tx = db.begin().await?;
         let count = KafkaTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
@@ -251,7 +253,7 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "nats", feature = "enterprise"))]
     let nats_count = {
-        use crate::triggers::nats::handler_oss::NatsTrigger;
+        use crate::triggers::nats::NatsTrigger;
         let mut tx = db.begin().await?;
         let count = NatsTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
@@ -290,7 +292,7 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
     let sqs_count = {
-        use crate::triggers::sqs::handler_oss::SqsTrigger;
+        use crate::triggers::sqs::SqsTrigger;
         let mut tx = db.begin().await?;
         let count = SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
         tx.rollback().await.ok();
@@ -301,7 +303,7 @@ pub(crate) async fn get_triggers_count_internal(
 
     #[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
     let gcp_count = {
-        use crate::triggers::gcp::handler_oss::GcpTrigger;
+        use crate::triggers::gcp::GcpTrigger;
         let mut tx = db.begin().await?;
         let count = GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
         tx.rollback().await.ok();

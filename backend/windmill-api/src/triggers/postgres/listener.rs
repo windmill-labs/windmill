@@ -132,6 +132,7 @@ impl PostgresSimpleClient {
 #[async_trait::async_trait]
 impl Listener for PostgresTrigger {
     type Consumer = (CopyBothDuplex<Bytes>, LogicalReplicationSettings);
+    type Extra = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Postgres;
 
     async fn get_consumer(
@@ -343,7 +344,13 @@ impl Listener for PostgresTrigger {
                                 ("row".to_string(), to_raw_value(&row)),
                             ]);
                             let _ = self
-                                .handle_event(db, listening_trigger, database_info, HashMap::new())
+                                .handle_event(
+                                    db,
+                                    listening_trigger,
+                                    database_info,
+                                    HashMap::new(),
+                                    None,
+                                )
                                 .await;
                         }
                         Some((o_id, old_row, row, transaction_type)) => {

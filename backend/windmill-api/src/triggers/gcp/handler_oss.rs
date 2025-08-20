@@ -6,16 +6,13 @@ pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditGcpConfig, GcpConfig, NewGcpConfig, TestGcpConfig},
+    super::{EditGcpConfig, GcpConfig, GcpTrigger, NewGcpConfig, TestGcpConfig},
     crate::db::{ApiAuthed, DB},
     axum::async_trait,
     sqlx::PgConnection,
     windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
-
-#[cfg(not(feature = "private"))]
-pub struct GcpTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]

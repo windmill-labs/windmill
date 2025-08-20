@@ -1,9 +1,10 @@
+#[allow(unused)]
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditNatsConfig, NatsConfig, NewNatsConfig, TestNatsConfig},
+    super::{EditNatsConfig, NatsConfig, NatsTrigger, NewNatsConfig, TestNatsConfig},
     crate::{
         db::{ApiAuthed, DB},
         triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
@@ -13,9 +14,6 @@ use {
     windmill_common::error::{Error, Result},
     windmill_git_sync::DeployedObject,
 };
-
-#[cfg(not(feature = "private"))]
-pub struct NatsTrigger;
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
@@ -39,13 +37,7 @@ impl TriggerCrud for NatsTrigger {
     }
 
     fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "nats_resource_path",
-            "subjects",
-            "stream_name",
-            "consumer_name",
-            "use_jetstream",
-        ]
+        vec![]
     }
 
     async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {

@@ -106,10 +106,6 @@ mod approvals;
 pub mod apps_ee;
 #[cfg(feature = "enterprise")]
 mod apps_oss;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
-pub mod gcp_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-mod gcp_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod git_sync_ee;
 #[cfg(feature = "enterprise")]
@@ -120,14 +116,6 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-pub mod kafka_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-mod kafka_triggers_oss;
-#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
-pub mod nats_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-mod nats_triggers_oss;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -153,10 +141,6 @@ mod slack_approvals;
 pub mod smtp_server_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_oss;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
-pub mod sqs_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
@@ -189,8 +173,6 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
-
-mod websocket_triggers;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -380,30 +362,6 @@ pub async fn run_server(
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         start_all_listeners(db.clone(), &killpill_rx);
-
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            let kafka_killpill_rx = killpill_rx.resubscribe();
-            kafka_triggers_oss::start_kafka_consumers(db.clone(), kafka_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            let nats_killpill_rx = killpill_rx.resubscribe();
-            nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            let sqs_killpill_rx = killpill_rx.resubscribe();
-            sqs_triggers_oss::start_sqs(db.clone(), sqs_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            let gcp_killpill_rx = killpill_rx.resubscribe();
-            gcp_triggers_oss::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
-        }
     }
 
     let listener = tokio::net::TcpListener::bind(addr)

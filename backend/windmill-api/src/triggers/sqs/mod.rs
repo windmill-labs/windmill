@@ -1,10 +1,16 @@
-use crate::{db::ApiAuthed, resources::try_get_resource_from_db_as};
+use std::collections::HashMap;
+
+use crate::{
+    db::ApiAuthed, resources::try_get_resource_from_db_as,
+    triggers::trigger_helpers::TriggerJobArgs,
+};
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_sqs::{config::Credentials, error::SdkError, Client};
 use aws_sdk_sts::operation::assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput;
 use backon::{ExponentialBuilder, Retryable};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sqlx::FromRow;
 use windmill_common::{
     auth::{
@@ -17,18 +23,40 @@ use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
     oidc_oss::WorkspaceClaim,
+    triggers::TriggerKind,
+    utils::empty_as_none,
+    worker::to_raw_value,
     DB,
 };
 
 #[cfg(feature = "private")]
 mod handler_ee;
 pub mod handler_oss;
+#[cfg(feature = "private")]
+mod listener_ee;
+pub mod listener_oss;
+
+#[derive(Copy, Clone)]
+pub struct SqsTrigger;
+
+impl TriggerJobArgs for SqsTrigger {
+    const TRIGGER_KIND: TriggerKind = TriggerKind::Sqs;
+    type Payload = String;
+    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("msg".to_string(), to_raw_value(&payload))])
+    }
+
+    fn v2_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("msg".to_string(), to_raw_value(&payload))])
+    }
+}
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
 pub struct SqsConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Vec<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub message_attributes: Option<Vec<String>>,
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
@@ -36,7 +64,8 @@ pub struct SqsConfig {
 pub struct NewSqsConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Vec<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub message_attributes: Option<Vec<String>>,
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
@@ -44,7 +73,8 @@ pub struct NewSqsConfig {
 pub struct EditSqsConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Vec<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub message_attributes: Option<Vec<String>>,
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
@@ -74,7 +104,7 @@ pub fn validate_aws_resource_path(path: &str) -> windmill_common::error::Result<
 }
 
 #[allow(unused)]
-struct AuthManager {
+pub struct AuthManager {
     credentials_expiration: DateTime<Utc>,
     id_token: IdToken,
     oidc: OidcAuth,

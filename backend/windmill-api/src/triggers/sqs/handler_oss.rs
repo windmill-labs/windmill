@@ -1,3 +1,5 @@
+#[allow(unused)]
+
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 

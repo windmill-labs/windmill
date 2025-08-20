@@ -588,7 +588,7 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
-            use crate::triggers::kafka::handler_oss::KafkaTrigger;
+            use crate::triggers::kafka::KafkaTrigger;
             let handler = KafkaTrigger;
             let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
@@ -605,7 +605,7 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
-            use crate::triggers::sqs::handler_oss::SqsTrigger;
+            use crate::triggers::sqs::SqsTrigger;
             let handler = SqsTrigger;
             let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
@@ -622,7 +622,7 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
-            use crate::triggers::gcp::handler_oss::GcpTrigger;
+            use crate::triggers::gcp::GcpTrigger;
             let handler = GcpTrigger;
             let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
@@ -639,7 +639,7 @@ pub(crate) async fn tarball_workspace(
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
-            use crate::triggers::nats::handler_oss::NatsTrigger;
+            use crate::triggers::nats::NatsTrigger;
             let handler = NatsTrigger;
             let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
