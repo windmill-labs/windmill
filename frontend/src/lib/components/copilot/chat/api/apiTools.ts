@@ -98,6 +98,7 @@ export function createApiTools(
 		return {
 			def: chatTool,
 			requiresConfirmation: needsConfirmation,
+			confirmationMessage: `Run ${toolName}`,
 			showDetails: true,
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name

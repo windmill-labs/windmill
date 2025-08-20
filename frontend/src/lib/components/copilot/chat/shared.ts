@@ -89,11 +89,11 @@ export async function processToolCall<T>({
 
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(needsConfirmation ? { content: 'Waiting for confirmation...' } : {}),
+			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage ?? "Waiting for confirmation..." } : {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails
+			showDetails: tool?.showDetails,
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -173,6 +173,7 @@ export interface Tool<T> {
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
+	confirmationMessage?: string
 	showDetails?: boolean
 }
 
@@ -411,8 +412,10 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const jobId = await config.jobStarter()
 
+		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
+
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test started, waiting for completion...`
+			content: `${contextName} test started, waiting for completion...`
 		})
 
 		const job = await pollJobCompletion(
@@ -423,7 +426,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		)
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
+			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
@@ -433,10 +436,10 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test execution failed`,
+			content: `Test execution failed`,
 			error: errorMessage
 		})
-		throw new Error(`Failed to execute ${config.contextName} test run: ${errorMessage}`)
+		throw new Error(`Failed to execute test run: ${errorMessage}`)
 	}
 }
 
