@@ -100,8 +100,12 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
             
             # Add each required field if it exists in the schema properties
             for field in required_fields:
-                if 'properties' in body_schema and field in body_schema['properties'] and field not in body_schema['required']:
-                    body_schema['required'].append(field)
+                if 'properties' in body_schema and field in body_schema['properties']:
+                    if field not in body_schema['required']:
+                        body_schema['required'].append(field)
+                else:
+                    # Log warning when a required field is missing from schema properties
+                    print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
     
     # Return None for empty schemas
     path_params_schema = path_params_schema if path_params_schema['properties'] else None
