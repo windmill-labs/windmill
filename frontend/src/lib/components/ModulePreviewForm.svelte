@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 
-	import { allTrue } from '$lib/utils'
+	import { allTrue, sendUserToast } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
@@ -101,8 +101,11 @@
 	let args = $state(<Record<string, any>>{})
 
 	onMount(() => {
-		testSteps?.updateStepArgs(mod.id, flowStateStore, flowStore?.val, previewArgs?.val)
-		args = testSteps?.getStepArgs(mod.id) ?? { value: {} }
+		if (!testSteps) {
+			sendUserToast('testSteps module not initialized. Preview will not work.', true)
+		}
+		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+		args = testSteps?.getStepArgs(mod.id)
 	})
 </script>
 

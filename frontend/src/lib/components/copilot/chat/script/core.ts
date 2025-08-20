@@ -916,5 +916,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
+	confirmationMessage: 'Run script test',
 	showDetails: true,
 }

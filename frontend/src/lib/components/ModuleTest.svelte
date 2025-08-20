@@ -36,7 +36,7 @@
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, flowStateStore, flowStore?.val, previewArgs?.val)
+		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
 		runTest(testSteps.getStepArgs(mod.id)?.value)
 	}
 
@@ -179,4 +179,17 @@
 			}
 		}
 	}
+	bind:job={modulesTestStates.states[mod.id].testJob}
+	loadPlaceholderJobOnStart={{
+		type: 'QueuedJob',
+		id: '',
+		running: false,
+		canceled: false,
+		job_kind: 'preview',
+		permissioned_as: '',
+		is_flow_step: false,
+		email: '',
+		visible_to_owner: true,
+		tag: ''
+	}}
 />
