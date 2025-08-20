@@ -125,7 +125,7 @@
 							label={argName}
 							description={schema.properties[argName].description}
 							bind:value={
-								() => testSteps?.getStepInputArgs(mod.id, argName) ?? {},
+								() => testSteps?.getStepInputArgs(mod.id, argName),
 								(v) => testSteps?.setStepInputArgs(mod.id, argName, v)
 							}
 							type={schema.properties[argName].type}
