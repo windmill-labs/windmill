@@ -35,7 +35,8 @@
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, flowStateStore, flowStore?.val, previewArgs?.val)
+		console.log('loadArgsAndRunTest', flowStateStore.val)
+		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
 		runTest(testSteps.getStepArgs(mod.id)?.value)
 	}
 
