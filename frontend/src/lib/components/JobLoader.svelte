@@ -571,6 +571,7 @@
 						noLogs: noLogs,
 						noCode
 					})
+					callbacks?.change?.(job)
 				}
 
 				if (!onlyResult) {
