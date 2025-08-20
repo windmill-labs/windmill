@@ -7193,6 +7193,36 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run_wait_result/preview:
+    post:
+      summary: run script preview and wait for result
+      operationId: runScriptPreviewAndWaitResult
+      x-mcp-tool: true
+      x-mcp-instructions: Allows testing a script before deploying it. For typescript code, the language to send is either bun or deno. By default, send bun if no deno specific code is detected.
+      x-mcp-required-fields:
+        - content
+        - language
+        - args
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Preview"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/workflow_as_code/{job_id}/{entrypoint}:
     post:
       summary: run code-workflow task
@@ -7301,6 +7331,30 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/run_wait_result/preview_flow:
+    post:
+      summary: run flow preview and wait for result
+      operationId: runFlowPreviewAndWaitResult
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowPreview"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs/queue/list:
     get:
@@ -15170,10 +15224,13 @@ components:
       properties:
         content:
           type: string
+          description: The code to run
         path:
           type: string
+          description: The path to the script
         script_hash:
           type: string
+          description: The hash of the script
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:

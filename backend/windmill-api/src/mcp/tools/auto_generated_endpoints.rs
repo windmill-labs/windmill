@@ -565,6 +565,86 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("runScriptPreviewAndWaitResult"),
+        description: Cow::Borrowed("run script preview and wait for result"),
+        instructions: Cow::Borrowed("Allows testing a script before deploying it. For typescript code, the language to send is either bun or deno. By default, send bun if no deno specific code is detected."),
+        path: Cow::Borrowed("/w/{workspace}/jobs/run_wait_result/preview"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "content": {
+                        "type": "string",
+                        "description": "The code to run"
+                },
+                "path": {
+                        "type": "string",
+                        "description": "The path to the script"
+                },
+                "script_hash": {
+                        "type": "string",
+                        "description": "The hash of the script"
+                },
+                "args": {
+                        "type": "object",
+                        "description": "The arguments to pass to the script or flow",
+                        "additionalProperties": {}
+                },
+                "language": {
+                        "type": "string",
+                        "enum": [
+                                "python3",
+                                "deno",
+                                "go",
+                                "bash",
+                                "powershell",
+                                "postgresql",
+                                "mysql",
+                                "bigquery",
+                                "snowflake",
+                                "mssql",
+                                "oracledb",
+                                "graphql",
+                                "nativets",
+                                "bun",
+                                "php",
+                                "rust",
+                                "ansible",
+                                "csharp",
+                                "nu",
+                                "java",
+                                "ruby",
+                                "duckdb"
+                        ]
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "kind": {
+                        "type": "string",
+                        "enum": [
+                                "code",
+                                "identity",
+                                "http"
+                        ]
+                },
+                "dedicated_worker": {
+                        "type": "boolean"
+                },
+                "lock": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "args",
+                "content",
+                "language"
+        ]
+})),
+    },
+    EndpointTool {
         name: Cow::Borrowed("listQueue"),
         description: Cow::Borrowed("list all queued jobs"),
         instructions: Cow::Borrowed(""),
