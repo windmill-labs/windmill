@@ -41,7 +41,7 @@ def load_openapi_spec(file_path: str) -> Dict[str, Any]:
         print(f"Error loading OpenAPI spec: {e}", file=sys.stderr)
         sys.exit(1)
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> tuple:
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None) -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -92,6 +92,20 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     # Process request body if present
     if request_body:
         body_schema = extract_request_body_schema(request_body, spec)
+        
+        # If we have required fields specified and a body schema, update the required array
+        if body_schema and required_fields:
+            if 'required' not in body_schema:
+                body_schema['required'] = []
+            
+            # Add each required field if it exists in the schema properties
+            for field in required_fields:
+                if 'properties' in body_schema and field in body_schema['properties']:
+                    if field not in body_schema['required']:
+                        body_schema['required'].append(field)
+                else:
+                    # Log warning when a required field is missing from schema properties
+                    print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
     
     # Return None for empty schemas
     path_params_schema = path_params_schema if path_params_schema['properties'] else None
@@ -199,6 +213,7 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'method': method.upper(),
                     'parameters': operation.get('parameters', []),
                     'requestBody': operation.get('requestBody'),
+                    'required_fields': operation.get('x-mcp-required-fields', []),
                 }
                 tools.append(tool)
     
@@ -227,7 +242,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields']
         )
         
         path_params_rust = schema_to_rust_value(path_params_schema)
