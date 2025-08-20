@@ -18,7 +18,7 @@
 		Play,
 		Loader2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -167,8 +167,7 @@
 				: (flowStateStore?.val?.[id]?.previewResult ?? {})
 	}
 	$effect(() => {
-		const args = [id, pickableIds, $flowPropPickerConfig, flowStateStore] as const
-		untrack(() => updateConnectingData(...args))
+		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
 	})
 
 	function updateLastJob(flowStateStore: any | undefined) {
@@ -190,8 +189,8 @@
 	$effect(() => {
 		if (testJob && testJob.type === 'CompletedJob') {
 			lastJob = $state.snapshot(testJob)
-		} else if (id && flowStateStore?.val?.[id]) {
-			untrack(() => updateLastJob(flowStateStore))
+		} else if (id) {
+			updateLastJob(flowStateStore)
 		}
 	})
 
