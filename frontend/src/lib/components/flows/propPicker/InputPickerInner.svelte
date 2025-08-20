@@ -17,14 +17,15 @@
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	onMount(() => {
-		testSteps?.updateStepArgs(id, flowStateStore, flowStore?.val, previewArgs?.val)
+		testSteps?.updateStepArgs(id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
 	})
 
 	const input = $derived(testSteps?.getStepArgs(id)?.value)
 </script>
 
 <div class="p-4 pr-6 h-full overflow-y-auto">
-	<ObjectViewer json={input} {inputTransform} {metaData} {editKey} />
+	<!-- {JSON.stringify({ inputTransform, input })} -->
+	<ObjectViewer json={input} {metaData} {editKey} />
 </div>
 
 {#snippet metaData(key: string)}

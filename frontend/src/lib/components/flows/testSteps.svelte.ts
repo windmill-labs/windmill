@@ -12,7 +12,7 @@ export class TestSteps {
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
 	#steps = $state<Record<string, { value: any }>>({})
 
-	constructor() {}
+	constructor() { }
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
 		if (!this.#steps[moduleId]) {
