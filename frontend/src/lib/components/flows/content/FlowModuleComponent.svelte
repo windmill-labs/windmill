@@ -433,6 +433,7 @@
 											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}
+											moduleId={flowModule.id}
 											bind:websocketAlive
 											bind:this={editor}
 											class="h-full relative"

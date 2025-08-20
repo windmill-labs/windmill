@@ -155,7 +155,6 @@ export default class ContextManager {
 				await this.refreshDbResources(workspace)
 				this.workspace = workspace
 			}
-			this.scriptOptions = scriptOptions
 			let newAvailableContext: ContextElement[] = [
 				{
 					type: 'code',
@@ -278,11 +277,17 @@ export default class ContextManager {
 		return this.availableContext
 	}
 
-	addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+	setScriptOptions(scriptOptions: ScriptOptions) {
+		this.scriptOptions = scriptOptions
+	}
+
+	addSelectedLinesToContext(lines: string, startLine: number, endLine: number, moduleId?: string) {
+		console.log('addSelectedLinesToContext', lines, startLine, endLine, moduleId, this.scriptOptions)
+		const title = moduleId ? `[${moduleId}] L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
 		if (
 			!this.scriptOptions ||
 			this.selectedContext.find(
-				(c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`
+				(c) => c.type === 'code_piece' && c.title === title
 			)
 		) {
 			return
@@ -291,7 +296,7 @@ export default class ContextManager {
 			...this.selectedContext,
 			{
 				type: 'code_piece',
-				title: `L${startLine}-L${endLine}`,
+				title: title,
 				startLine,
 				endLine,
 				content: lines,

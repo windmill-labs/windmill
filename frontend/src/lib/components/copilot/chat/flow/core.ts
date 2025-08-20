@@ -901,8 +901,6 @@ if (hasFlowModule) {
 flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
 
-console.log('flowContent', flowContent)
-
 	return {
 		role: 'user',
 		content: flowContent

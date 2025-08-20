@@ -825,12 +825,14 @@ class AIChatManager {
 		this.sendRequest()
 	}
 
-	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number) => {
+	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number, moduleId?: string) => {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		this.changeMode(AIMode.SCRIPT)
-		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		if (!moduleId) {
+			this.changeMode(AIMode.SCRIPT)
+		}
+		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine, moduleId)
 		this.focusInput()
 	}
 
@@ -884,7 +886,7 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
-		} else if (this.mode === AIMode.FLOW && this.flowAiChatHelpers) {
+		} else if (this.mode === AIMode.FLOW && this.flowOptions) {
 			this.contextManager.updateAvailableContextForFlow(
 				this.flowOptions,
 				dbSchemas,
@@ -892,6 +894,10 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
+		}
+
+		if (this.scriptEditorOptions) {
+			this.contextManager.setScriptOptions(this.scriptEditorOptions)
 		}
 	}
 
