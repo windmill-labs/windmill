@@ -143,6 +143,10 @@ export class TestSteps {
 		flow: OpenFlow | undefined,
 		previewArgs: Record<string, any> | undefined
 	) {
+		if (id == 'preprocessor') {
+			this.#steps[id] = { value: {} }
+			return
+		}
 		if (!flowState || !flow) {
 			return
 		}
