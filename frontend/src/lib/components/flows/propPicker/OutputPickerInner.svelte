@@ -20,7 +20,7 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -29,6 +29,7 @@
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		prefix?: string
@@ -56,7 +57,6 @@
 		rightMargin?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		lastJob?: Job
 		testJob?: Job & { result_stream?: string }
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
@@ -72,8 +72,7 @@
 	}
 
 	let {
-		lastJob = undefined,
-		testJob = undefined,
+		testJob,
 		prefix = '',
 		allowCopy = false,
 		connectingData = undefined,
@@ -174,6 +173,9 @@
 	let toolbarLocationJob: 'self' | 'external' | undefined = $state(undefined)
 	let toolbarLocationMock: 'self' | 'external' | undefined = $state(undefined)
 
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowStateStore = flowEditorContext?.flowStateStore
+
 	function updateCanEditWithDblClick(newValue: boolean) {
 		canEditWithDblClick = newValue
 		if (debounceTimeout) {
@@ -224,6 +226,33 @@
 		}
 	}
 
+	function updateLastJob() {
+		if (testJob && testJob.type === 'QueuedJob') {
+			return { ...testJob, preview: true }
+		}
+		if (
+			!flowStateStore ||
+			!moduleId ||
+			flowStateStore.val[moduleId]?.previewResult === 'never tested this far'
+		) {
+			return
+		}
+		return {
+			id: flowStateStore.val[moduleId]?.previewJobId ?? '',
+			result: flowStateStore.val[moduleId]?.previewResult,
+			type: 'CompletedJob' as const,
+			success: flowStateStore.val[moduleId]?.previewSuccess ?? undefined
+		} as Job & { result_stream?: string } & { preview?: boolean }
+	}
+
+	const job = $derived.by(updateLastJob)
+
+	export function setJobPreview() {
+		if (job) {
+			job.preview = true
+		}
+	}
+
 	let mockUpdateStatus = $derived(
 		preview === 'mock' && !mock?.enabled
 			? 'restore'
@@ -257,16 +286,6 @@
 			untrack(() => updateCanEditWithDblClick(newValue))
 		}
 	})
-
-	let job = $derived.by(() => {
-		if (testJob) {
-			return { ...testJob, preview: testJob.type === 'CompletedJob' }
-		}
-		if (lastJob) {
-			return { ...lastJob, preview: false }
-		}
-		return undefined
-	}) as SelectedJob | undefined
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 

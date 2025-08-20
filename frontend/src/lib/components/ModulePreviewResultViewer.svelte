@@ -16,9 +16,8 @@
 		editor: Editor | undefined
 		diffEditor: DiffEditor | undefined
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
-		lastJob?: Job | undefined
+		testJob?: Job & { result_stream?: string }
 		scriptProgress?: number | undefined
-		testJob?: Job | undefined
 		mod: FlowModule
 		testIsLoading?: boolean
 		disableMock?: boolean
@@ -33,7 +32,6 @@
 		editor,
 		diffEditor,
 		loopStatus = undefined,
-		lastJob = undefined,
 		scriptProgress = $bindable(undefined),
 		testJob = undefined,
 		mod,
@@ -54,6 +52,11 @@
 	let forceJson = $state(false)
 
 	const logJob = $derived(testJob ?? selectedJob)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	export function getOutputPickerInner() {
+		return outputPickerInner
+	}
 </script>
 
 <Splitpanes horizontal>
@@ -68,7 +71,6 @@
 		{/if}
 
 		<OutputPickerInner
-			{lastJob}
 			{testJob}
 			fullResult
 			moduleId={mod.id}
@@ -84,6 +86,7 @@
 			{loopStatus}
 			{disableMock}
 			{disableHistory}
+			bind:this={outputPickerInner}
 		>
 			{#snippet copilot_fix()}
 				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
