@@ -149,4 +149,16 @@
 		}
 	}
 	bind:job={modulesTestStates.states[mod.id].testJob}
+	loadPlaceholderJobOnStart={{
+		type: 'QueuedJob',
+		id: '',
+		running: false,
+		canceled: false,
+		job_kind: 'preview',
+		permissioned_as: '',
+		is_flow_step: false,
+		email: '',
+		visible_to_owner: true,
+		tag: ''
+	}}
 />

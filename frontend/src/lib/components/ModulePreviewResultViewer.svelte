@@ -49,6 +49,12 @@
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let jobProgressReset: () => void = $state(() => {})
 
+	$effect(() => {
+		if (preview != undefined && testJob) {
+			preview = undefined
+		}
+	})
+
 	let forceJson = $state(false)
 
 	const logJob = $derived(testJob ?? selectedJob)

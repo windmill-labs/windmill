@@ -44,6 +44,7 @@
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
 		onlyResult?: boolean
+		loadPlaceholderJobOnStart?: Job
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
 
@@ -60,6 +61,7 @@
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
 		onlyResult = false,
+		loadPlaceholderJobOnStart = undefined,
 		scriptProgress = $bindable(undefined),
 		noLogs = false,
 		children
@@ -326,7 +328,11 @@
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
-		job = undefined
+		if (loadPlaceholderJobOnStart) {
+			job = structuredClone(loadPlaceholderJobOnStart)
+		} else {
+			job = undefined
+		}
 		startedWatchingJob = Date.now()
 
 		// Clean up any existing SSE connection
@@ -564,13 +570,14 @@
 		if (isCurrentJob(id)) {
 			try {
 				// First load the job to get initial state
-				if (!job && !onlyResult) {
+				if ((!job || job.id == '') && !onlyResult) {
 					job = await JobService.getJob({
 						workspace: workspace!,
 						id,
 						noLogs: noLogs,
 						noCode
 					})
+					callbacks?.change?.(job)
 				}
 
 				if (!onlyResult) {
