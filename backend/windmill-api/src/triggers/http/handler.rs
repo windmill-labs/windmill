@@ -6,7 +6,7 @@ use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     resources::try_get_resource_from_db_as,
-    trigger_helpers::{
+    triggers::trigger_helpers::{
         get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result, RunnableId,
     },
     triggers::{
