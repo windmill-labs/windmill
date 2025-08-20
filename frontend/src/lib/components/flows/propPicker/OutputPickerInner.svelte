@@ -48,7 +48,6 @@
 		selectedJob?: SelectedJob
 		forceJson?: boolean
 		isLoading?: boolean
-		preview?: 'mock' | 'job' | undefined
 		hideHeaderBar?: boolean
 		simpleViewer?: any | undefined
 		path?: string
@@ -84,7 +83,6 @@
 		selectedJob = $bindable(undefined),
 		forceJson = $bindable(false),
 		isLoading = $bindable(false),
-		preview = $bindable(undefined),
 		hideHeaderBar = false,
 		simpleViewer = undefined,
 		path = '',
@@ -115,7 +113,7 @@
 						workspace_id: string
 						success: boolean
 				  }
-		  ) & { preview?: boolean; result_stream?: string; result?: unknown })
+		  ) & { result_stream?: string; result?: unknown })
 		| undefined
 
 	let jsonView = $state(false)
@@ -126,6 +124,7 @@
 	let historyOpen = $state(false)
 	let contentEl: HTMLDivElement | undefined = $state(undefined)
 	let hasOverflow = $state(false)
+	let preview: 'mock' | 'job' | undefined = $state(undefined)
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -148,11 +147,6 @@
 			return
 		}
 		selectJob(job)
-
-		if (job.preview && mock?.enabled) {
-			preview = 'job'
-			job.preview = false
-		}
 	})
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
@@ -228,7 +222,7 @@
 
 	function updateLastJob() {
 		if (testJob && testJob.type === 'QueuedJob') {
-			return { ...testJob, preview: true }
+			return testJob
 		}
 		if (
 			!flowStateStore ||
@@ -248,8 +242,8 @@
 	const job = $derived.by(updateLastJob)
 
 	export function setJobPreview() {
-		if (job) {
-			job.preview = true
+		if (mock?.enabled) {
+			preview = 'job'
 		}
 	}
 
@@ -294,6 +288,10 @@
 	)
 
 	const copilot_fix_render = $derived(copilot_fix)
+
+	export function getPreview() {
+		return preview
+	}
 </script>
 
 <div
@@ -453,7 +451,6 @@
 						{/if}
 					</div>
 				{:else if testJob}
-					<!-- {JSON.stringify(testJob)} -->
 					<OutputBadge
 						job={testJob}
 						class={twMerge(

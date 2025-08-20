@@ -182,6 +182,8 @@
 	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 </script>
 
 {#if deletable && id && editId}
@@ -246,7 +248,15 @@
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
-		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
+		<ModuleTest
+			bind:this={moduleTest}
+			{mod}
+			bind:testIsLoading
+			bind:testJob
+			onJobDone={() => {
+				outputPickerInner?.setJobPreview?.()
+			}}
+		/>
 	{/if}
 {/if}
 
@@ -443,6 +453,7 @@
 							isLoading={testIsLoading ||
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+							bind:this={outputPickerInner}
 						/>
 					{/snippet}
 				</OutputPicker>

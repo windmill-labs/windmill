@@ -46,14 +46,7 @@
 	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = $state(undefined)
-	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let jobProgressReset: () => void = $state(() => {})
-
-	$effect(() => {
-		if (preview != undefined && testJob) {
-			preview = undefined
-		}
-	})
 
 	let forceJson = $state(false)
 
@@ -63,6 +56,8 @@
 	export function getOutputPickerInner() {
 		return outputPickerInner
 	}
+
+	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
 </script>
 
 <Splitpanes horizontal>
@@ -87,7 +82,6 @@
 			bind:forceJson
 			bind:selectedJob
 			isLoading={testIsLoading || loadingJob}
-			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
 			{disableMock}
@@ -102,7 +96,7 @@
 		</OutputPickerInner>
 	</Pane>
 	<Pane size={35} minSize={10}>
-		{#if (mod.mock?.enabled && preview != 'job') || preview == 'mock'}
+		{#if (mod.mock?.enabled && preview !== 'job') || preview === 'mock'}
 			<LogViewer
 				small
 				content={undefined}
