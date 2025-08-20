@@ -1218,6 +1218,7 @@
 						delete modulesTestStates.states[id]
 					}}
 					{flowHasChanged}
+					previewOpen={flowPreviewButtons?.getPreviewOpen()}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

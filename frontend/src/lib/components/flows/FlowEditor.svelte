@@ -56,6 +56,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		previewOpen: boolean
 	}
 
 	let {
@@ -89,7 +90,8 @@
 		job,
 		suspendStatus,
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
+		previewOpen
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -191,6 +193,7 @@
 					{isOwner}
 					{suspendStatus}
 					onOpenDetails={onOpenPreview}
+					{previewOpen}
 				/>
 			{/if}
 		</Pane>

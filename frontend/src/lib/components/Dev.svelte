@@ -818,6 +818,7 @@
 								isOwner={flowPreviewContent?.getIsOwner()}
 								{suspendStatus}
 								onOpenDetails={flowPreviewButtons?.openPreview}
+								previewOpen={flowPreviewButtons?.getPreviewOpen()}
 							/>
 						{/key}
 					</Pane>

@@ -48,9 +48,10 @@
 		noEditor: boolean
 		disabled: boolean
 		onTestFlow?: () => void
+		previewOpen: boolean
 	}
 
-	let { noEditor, disabled, onTestFlow }: Props = $props()
+	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
 	const {
 		flowStore,
 		previewArgs,
@@ -195,7 +196,9 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-			runPreview()
+			if (!previewOpen) {
+				runPreview()
+			}
 		} else if (event.key === 'Enter' && previewSchema && !preventEnter) {
 			applySchemaAndArgs()
 			connectFirstNode()
