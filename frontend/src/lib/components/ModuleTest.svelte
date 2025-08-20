@@ -145,4 +145,5 @@
 			}
 		}
 	}
+	bind:job={modulesTestStates.states[mod.id].testJob}
 />
