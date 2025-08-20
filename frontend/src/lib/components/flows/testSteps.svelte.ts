@@ -21,7 +21,11 @@ export class TestSteps {
 		this.#steps[moduleId].value = args
 	}
 
-	getStepArgs(moduleId: string): ModuleArgs | undefined {
+	getStepArgs(moduleId: string): ModuleArgs {
+		let args = this.#steps[moduleId]
+		if (!args) {
+			this.#steps[moduleId] = { value: {} }
+		}
 		return this.#steps[moduleId]
 	}
 
@@ -143,10 +147,6 @@ export class TestSteps {
 		flow: OpenFlow | undefined,
 		previewArgs: Record<string, any> | undefined
 	) {
-		if (id == 'preprocessor') {
-			this.#steps[id] = { value: {} }
-			return
-		}
 		if (!flowState || !flow) {
 			return
 		}
