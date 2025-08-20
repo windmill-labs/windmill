@@ -157,7 +157,7 @@
 					<ContextElementBadge
 						contextElement={element}
 						deletable
-						on:delete={() => {
+						onDelete={() => {
 							selectedContext = selectedContext?.filter(
 								(c) => c.type !== element.type || c.title !== element.title
 							)

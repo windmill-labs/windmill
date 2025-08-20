@@ -57,7 +57,6 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
-		deployedFlow?: Flow
 	}
 
 	let {
