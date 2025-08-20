@@ -7198,7 +7198,11 @@ paths:
       summary: run script preview and wait for result
       operationId: runScriptPreviewAndWaitResult
       x-mcp-tool: true
-      x-mcp-instructions: Allows testing a script before deploying it. Only content, lang and args are required. Content is the code to run, lang is the language of the code, and args are the arguments to pass to the script. For typescript files, the language to send is either bun or deno. By default, send bun if no deno specific code is detected.
+      x-mcp-instructions: Allows testing a script before deploying it. For typescript code, the language to send is either bun or deno. By default, send bun if no deno specific code is detected.
+      x-mcp-required-fields:
+        - content
+        - language
+        - args
       tags:
         - job
       parameters:

@@ -567,7 +567,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("runScriptPreviewAndWaitResult"),
         description: Cow::Borrowed("run script preview and wait for result"),
-        instructions: Cow::Borrowed("Allows testing a script before deploying it. Only content, lang and args are required. Content is the code to run, lang is the language of the code, and args are the arguments to pass to the script. For typescript files, the language to send is either bun or deno. By default, send bun if no deno specific code is detected."),
+        instructions: Cow::Borrowed("Allows testing a script before deploying it. For typescript code, the language to send is either bun or deno. By default, send bun if no deno specific code is detected."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run_wait_result/preview"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -638,7 +638,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 }
         },
         "required": [
-                "args"
+                "args",
+                "content",
+                "language"
         ]
 })),
     },
