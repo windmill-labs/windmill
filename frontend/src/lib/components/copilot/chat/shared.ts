@@ -10,8 +10,9 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
-import { ScriptService, JobService, type CompletedJob } from '$lib/gen'
+import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
+import YAML from 'yaml'
 
 // Common context formatters
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
@@ -35,6 +36,36 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 		shiftOffset += 2
 	}
 	return code.join('\n')
+}
+
+export function applyCodePiecesToFlowModules(codePieces: CodePieceElement[], flowModules: FlowModule[]): string {
+	// Parse code piece titles to extract module IDs
+	// Format: "[id] L3-L5"
+	const moduleCodePieces = new Map<string, CodePieceElement[]>()
+	
+	for (const codePiece of codePieces) {
+		const match = codePiece.title.match(/\[([^\]]+)\]\s+L\d+-L\d+/)
+		if (match) {
+			const moduleId = match[1]
+			if (!moduleCodePieces.has(moduleId)) {
+				moduleCodePieces.set(moduleId, [])
+			}
+			moduleCodePieces.get(moduleId)!.push(codePiece)
+		}
+	}
+	
+	// Clone modules to avoid mutation
+	const modifiedModules = [...flowModules]
+	
+	// Apply code pieces to each module
+	for (const [moduleId, pieces] of moduleCodePieces) {
+		const module = modifiedModules.find(m => m.id === moduleId)
+		if (module && module.value.type === 'rawscript' && module.value.content) {
+			module.value.content = applyCodePieceToCodeContext(pieces, module.value.content)
+		}
+	}
+	
+	return YAML.stringify(modifiedModules)
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {

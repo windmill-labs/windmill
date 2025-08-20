@@ -20,7 +20,8 @@ import {
 	executeTestRun, 
 	buildSchemaForTool, 
 	buildTestRunArgs,
-	buildContextString
+	buildContextString,
+	applyCodePiecesToFlowModules
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -733,6 +734,15 @@ Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 
+## Code Markers in Flow Modules
+
+When viewing flow modules, the code content of rawscript steps may include \`[#START]\` and \`[#END]\` markers:
+- These markers indicate specific code sections that need attention
+- You MUST only modify the code between these markers when using the \`set_code\` tool
+- After modifying the code, remove the markers from your response
+- If a question is asked about the code, focus only on the code between the markers
+- The markers appear in the YAML representation of flow modules when specific code pieces are selected
+
 ## Understanding User Requests
 
 ### Individual Actions
@@ -855,12 +865,15 @@ ${instructions}`
 		}
 	}
 	
+	const codePieces = selectedContext?.filter(c => c.type === 'code_piece') ?? []
+	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
+	
 	let flowContent = `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
 flow modules:
-${YAML.stringify(flow.value.modules)}
+${flowModulesYaml}
 
 preprocessor module:
 ${YAML.stringify(flow.value.preprocessor_module)}

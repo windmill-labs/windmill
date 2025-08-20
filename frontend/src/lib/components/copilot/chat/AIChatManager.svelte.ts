@@ -209,7 +209,6 @@ class AIChatManager {
 	) {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
-		this.contextManager.clearContext()
 		if (mode === AIMode.SCRIPT) {
 			this.systemMessage = prepareScriptSystemMessage()
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
@@ -627,7 +626,7 @@ class AIChatManager {
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
-			if (this.mode === AIMode.SCRIPT) {
+			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
@@ -650,7 +649,7 @@ class AIChatManager {
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
+					contextElements: this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW ? oldSelectedContext : undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
