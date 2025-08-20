@@ -11,7 +11,8 @@
 		emptyModule,
 		pickScript,
 		pickFlow,
-		insertNewPreprocessorModule
+		insertNewPreprocessorModule,
+		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
@@ -139,6 +140,8 @@
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
+		} else if (kind == 'aiagent') {
+			;[module, state] = await createAiAgent(module.id)
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -190,6 +193,8 @@
 					return branch
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
+			} else if (mod.value.type == 'aiagent') {
+				mod.value.tools = removeAtId(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -448,6 +453,8 @@
 							}
 						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
 							targetModules = modules
+						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
+							targetModules = mod.value.tools
 						}
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
@@ -479,7 +486,8 @@
 									})
 								}
 							} else {
-								const index = detail.index ?? 0
+								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+
 								await insertNewModuleAtIndex(
 									targetModules,
 									index,
