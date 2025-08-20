@@ -413,6 +413,7 @@
 							{lastDeployedCode}
 							{diffMode}
 							openAiChat
+							moduleId={flowModule.id}
 						/>
 					</div>
 				{/if}

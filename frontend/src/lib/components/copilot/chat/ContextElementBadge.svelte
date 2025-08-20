@@ -52,7 +52,7 @@
 					{/if}
 				</button>
 				<span class="truncate">
-					{contextElement.type === 'diff'
+					{contextElement.type === 'diff' || contextElement.type === 'flow_module'
 						? contextElement.title.replace(/_/g, ' ')
 						: contextElement.title}
 				</span>

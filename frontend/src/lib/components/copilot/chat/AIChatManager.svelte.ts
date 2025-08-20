@@ -101,7 +101,7 @@ class AIChatManager {
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.scriptEditorOptions !== undefined,
+		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,

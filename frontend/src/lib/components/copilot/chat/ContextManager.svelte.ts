@@ -99,7 +99,7 @@ export default class ContextManager {
 				newAvailableContext.push({
 					type: 'flow_module',
 					id: module.id,
-					title: `module [${module.id}]`,
+					title: `module_[${module.id}]`,
 					value: {
 						language: 'language' in module.value ? module.value.language : 'bunnative',
 						path: 'path' in module.value ? module.value.path : '',
@@ -107,8 +107,6 @@ export default class ContextManager {
 					}
 				})
 			}
-
-			console.log('newAvailableContext', newAvailableContext)
 
 			if (toolSupport) {
 				for (const d of this.dbResources) {
@@ -370,12 +368,11 @@ export default class ContextManager {
 	}
 
 	setSelectedModuleContext(moduleId: string | undefined, availableContext: ContextElement[] | undefined) {
-		console.log('setSelectedModuleContext', moduleId, availableContext)
 		if (availableContext && moduleId) {
 			const module = availableContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
 			if (module && !this.selectedContext.find((c) => c.type === 'flow_module' && c.id === moduleId)) {
 				this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
-				this.selectedContext = [...this.selectedContext, module]
+				this.selectedContext = [module, ...this.selectedContext]
 			}
 		} else if (!moduleId) {
 			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')

@@ -25,6 +25,8 @@
 	const typePriority = {
 		code: 1,
 		diff: 2,
+		flow_module: 3,
+		db: 4,
 		default: 3
 	}
 
@@ -62,7 +64,7 @@
 				{:else if Icon}
 					<Icon size={16} />
 				{/if}
-				{element.type === 'diff' ? element.title.replace(/_/g, ' ') : element.title}
+				{element.type === 'diff' || element.type === 'flow_module' ? element.title.replace(/_/g, ' ') : element.title}
 			</button>
 		{/each}
 	{/if}
