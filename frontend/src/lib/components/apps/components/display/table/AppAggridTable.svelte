@@ -197,14 +197,14 @@
 			let idx = Number(event.node.data['__index'].split('-')[0])
 			uid = prevUid ?? ''
 			outputs?.newChange?.set({
-				row: event.node.rowIndex,
+				row: idx,
 				column: event.colDef.field,
 				value: dataCell,
 				old: result[idx][event.colDef.field]
 			})
 			result[idx][event.colDef.field] = dataCell
 
-			let data = { ...result[event.node.rowIndex] }
+			let data = { ...result[idx] }
 			outputs?.selectedRow?.set(data)
 			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		}
