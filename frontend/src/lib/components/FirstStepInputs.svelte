@@ -28,7 +28,7 @@
 		}
 	}
 	$effect(() => {
-		flowStore.val && flowStateStore && untrack(() => loadSchema())
+		flowStore.val && flowStateStore.val && untrack(() => loadSchema())
 	})
 
 	function handleClick() {

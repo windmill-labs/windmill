@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, type StateStore } from '$lib/utils'
 	import {
 		AlertTriangle,
 		Bed,
@@ -157,7 +157,7 @@
 		id: string | undefined,
 		pickableIds: Record<string, any> | undefined,
 		flowPropPickerConfig: any | undefined,
-		flowStateStore: FlowState | undefined
+		flowStateStore: StateStore<FlowState> | undefined
 	) {
 		if (!id) return
 		connectingData =

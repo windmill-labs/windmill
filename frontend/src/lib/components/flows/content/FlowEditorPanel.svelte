@@ -80,7 +80,7 @@
 	}
 
 	$effect(() => {
-		computeMissingInputWarnings(flowStore, flowStateStore, flowInputsStore)
+		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
 </script>
 

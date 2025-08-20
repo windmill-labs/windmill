@@ -1159,7 +1159,7 @@
 				</div>
 			</div>
 			<!-- metadata -->
-			{#if flowStateStore}
+			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
 					{disabledFlowInputs}

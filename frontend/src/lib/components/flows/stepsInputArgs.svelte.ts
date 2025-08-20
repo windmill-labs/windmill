@@ -23,7 +23,11 @@ export class StepsInputArgs {
 		this.#steps[moduleId].value = args
 	}
 
-	getStepArgs(moduleId: string): ModuleArgs | undefined {
+	getStepArgs(moduleId: string): ModuleArgs {
+		let args = this.#steps[moduleId]
+		if (!args) {
+			this.#steps[moduleId] = { value: {} }
+		}
 		return this.#steps[moduleId]
 	}
 

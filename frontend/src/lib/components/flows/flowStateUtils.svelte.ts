@@ -260,7 +260,7 @@ export async function createScriptFromInlineScript(
 	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
-export function deleteFlowStateById(id: string, flowStateStore: FlowState) {
+export function deleteFlowStateById(id: string, flowStateStore: StateStore<FlowState>) {
 	delete flowStateStore.val[id]
 }
 
@@ -295,7 +295,7 @@ export function sliceModules(
 
 export async function insertNewPreprocessorModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: FlowState,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 	},
@@ -325,7 +325,7 @@ export async function insertNewPreprocessorModule(
 
 export async function insertNewFailureModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: FlowState,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 		subkind: 'pgsql' | 'flow'
