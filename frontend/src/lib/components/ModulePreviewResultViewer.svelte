@@ -45,7 +45,7 @@
 		tagLabel = undefined
 	}: Props = $props()
 
-	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = $state(undefined)
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
@@ -86,7 +86,7 @@
 			{disableHistory}
 		>
 			{#snippet copilot_fix()}
-				{#if lang && editor && diffEditor && testSteps.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
+				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
 					<ScriptFix {lang} />
 				{/if}
 			{/snippet}

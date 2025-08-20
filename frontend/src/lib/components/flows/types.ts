@@ -7,7 +7,7 @@ import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
-import type { TestSteps } from './testSteps.svelte'
+import type { StepsInputArgs } from './stepsInputArgs.svelte'
 import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
@@ -37,31 +37,31 @@ export type ExtendedOpenFlow = OpenFlow & {
 
 export type FlowInputEditorState = {
 	selectedTab:
-	| 'inputEditor'
-	| 'history'
-	| 'savedInputs'
-	| 'json'
-	| 'captures'
-	| 'firstStepInputs'
-	| undefined
+		| 'inputEditor'
+		| 'history'
+		| 'savedInputs'
+		| 'json'
+		| 'captures'
+		| 'firstStepInputs'
+		| undefined
 	editPanelSize: number | undefined
 	payloadData: Record<string, any> | undefined
 }
 
 export type CurrentEditor =
 	| ((
-		| {
-			type: 'script'
-			editor: Editor
-			showDiffMode: () => void
-			hideDiffMode: () => void
-			diffMode: boolean
-			lastDeployedCode: string | undefined
-		}
-		| { type: 'iterator'; editor: SimpleEditor }
-	) & {
-		stepId: string
-	})
+			| {
+					type: 'script'
+					editor: Editor
+					showDiffMode: () => void
+					hideDiffMode: () => void
+					diffMode: boolean
+					lastDeployedCode: string | undefined
+			  }
+			| { type: 'iterator'; editor: SimpleEditor }
+	  ) & {
+			stepId: string
+	  })
 	| undefined
 
 export type FlowEditorContext = {
@@ -75,7 +75,7 @@ export type FlowEditorContext = {
 	flowStore: StateStore<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: StateStore<FlowState>
-	testSteps: TestSteps
+	stepsInputArgs: StepsInputArgs
 	saveDraft: () => void
 	initialPathStore: Writable<string>
 	fakeInitialPath: string

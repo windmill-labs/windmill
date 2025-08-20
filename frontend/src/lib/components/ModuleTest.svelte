@@ -23,7 +23,7 @@
 		scriptProgress = $bindable(undefined)
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs, modulesTestStates } =
+	const { flowStore, flowStateStore, pathStore, stepsInputArgs, previewArgs, modulesTestStates } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -31,12 +31,12 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
-		runTest(testSteps.getStepArgs(mod.id)?.value)
+		runTest(stepsInputArgs.getStepArgs(mod.id)?.value)
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
-		runTest(testSteps.getStepArgs(mod.id)?.value)
+		stepsInputArgs?.updateStepArgs(mod.id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
+		runTest(stepsInputArgs.getStepArgs(mod.id)?.value)
 	}
 
 	export async function runTest(args: any) {

@@ -8,7 +8,7 @@ import {
 } from './previousResults'
 import { evalValue, type ModuleArgs } from './utils'
 
-export class TestSteps {
+export class StepsInputArgs {
 	// Track args that have been evaluated from the flow state
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
 	// Track current args state, can be manually edited

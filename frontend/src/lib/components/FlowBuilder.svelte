@@ -77,7 +77,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { TestSteps } from './flows/testSteps.svelte'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
 	import {
@@ -571,7 +571,7 @@
 		payloadData: undefined
 	})
 
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -592,7 +592,7 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
@@ -1130,7 +1130,7 @@
 						{loading}
 						onRunPreview={() => {
 							// Reset manually edited args inputs when running a preview
-							testSteps.resetManuallyEditedArgs()
+							stepsInputArgs.resetManuallyEditedArgs()
 							modulesTestStates.hideJobsInGraph()
 							localModuleStates = {}
 							showJobStatus = true
@@ -1172,7 +1172,7 @@
 					{newFlow}
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
-							testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 							$selectedIdStore = 'preprocessor'
 						}
 					}}
