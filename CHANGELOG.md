@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.530.0](https://github.com/windmill-labs/windmill/compare/v1.529.0...v1.530.0) (2025-08-20)
+
+
+### Features
+
+* **mcp:** add script preview testing tool ([#6417](https://github.com/windmill-labs/windmill/issues/6417)) ([ae49737](https://github.com/windmill-labs/windmill/commit/ae497376769f5cd49a41c22cf558a9f052d5b56e))
+
+
+### Bug Fixes
+
+* aggrid newchange to point to correct idx ([#6425](https://github.com/windmill-labs/windmill/issues/6425)) ([511ff5e](https://github.com/windmill-labs/windmill/commit/511ff5e9f794c29c3c8a5fc0480675a1258fb056))
+* fix preprocessor preview ([47e49b2](https://github.com/windmill-labs/windmill/commit/47e49b243d8cf6d29fa5a59918a2168b87111352))
+* improve flow editor log streaming for individual tests ([ac066ab](https://github.com/windmill-labs/windmill/commit/ac066abb980501577cc96330a4a5f1309aa35661))
+
 ## [1.529.0](https://github.com/windmill-labs/windmill/compare/v1.528.0...v1.529.0) (2025-08-19)
 
 
