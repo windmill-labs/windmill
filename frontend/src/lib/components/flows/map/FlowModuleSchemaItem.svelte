@@ -144,7 +144,6 @@
 	let testIsLoading = $state(false)
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
-	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
@@ -168,30 +167,6 @@
 	}
 	$effect(() => {
 		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
-	})
-
-	function updateLastJob(flowStateStore: any | undefined) {
-		if (
-			!flowStateStore ||
-			!id ||
-			flowStateStore.val[id]?.previewResult === 'never tested this far'
-		) {
-			return
-		}
-		lastJob = {
-			id: flowStateStore.val[id]?.previewJobId ?? '',
-			result: flowStateStore.val[id]?.previewResult,
-			type: 'CompletedJob' as const,
-			success: flowStateStore.val[id]?.previewSuccess ?? undefined
-		}
-	}
-
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if (id) {
-			updateLastJob(flowStateStore)
-		}
 	})
 
 	let isConnectingCandidate = $derived(
@@ -455,7 +430,6 @@
 							prefix={'results'}
 							connectingData={isConnecting ? connectingData : undefined}
 							{mock}
-							{lastJob}
 							{testJob}
 							moduleId={id}
 							onSelect={selectConnection}
