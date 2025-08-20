@@ -9,9 +9,8 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
-import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
-import type { CodePieceElement, ContextElement } from '../context'
+import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import { 
 	createSearchHubScriptsTool, 
@@ -444,18 +443,6 @@ export async function main() {
 }
 </new_code>
 \`\`\`
-`
-
-const CHAT_USER_CODE_CONTEXT = `
-- {title}:
-\`\`\`{language}
-{code}
-\`\`\`
-`
-
-const CHAT_USER_ERROR_CONTEXT = `
-ERROR:
-{error}
 `
 
 export const CHAT_USER_PROMPT = `
