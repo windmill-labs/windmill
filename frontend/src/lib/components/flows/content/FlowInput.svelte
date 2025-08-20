@@ -64,7 +64,6 @@
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
 	let payloadData: Record<string, any> | undefined = undefined
-	let previewArguments: Record<string, any> | undefined = $state(previewArgs.val)
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
@@ -208,9 +207,6 @@
 	}
 
 	function runPreview() {
-		if (previewArguments) {
-			previewArgs.val = structuredClone($state.snapshot(previewArguments))
-		}
 		onTestFlow?.()
 	}
 
@@ -251,8 +247,8 @@
 
 	async function applySchemaAndArgs() {
 		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
-		if (previewArguments) {
-			savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+		if (previewArgs.val) {
+			savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
 		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
@@ -262,11 +258,13 @@
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
 		if (!payloadData) {
-			previewArguments = savedPreviewArgs
+			if (savedPreviewArgs) {
+				previewArgs.val = savedPreviewArgs
+			}
 			return
 		}
-		savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
-		previewArguments = structuredClone($state.snapshot(payloadData))
+		savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
+		previewArgs.val = structuredClone($state.snapshot(payloadData))
 	}
 
 	let tabButtonWidth = 0
@@ -375,7 +373,7 @@
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
-				bind:args={previewArguments}
+				bind:args={previewArgs.val}
 				bind:editPanelSize={
 					() => {
 						return editPanelSize
@@ -402,9 +400,8 @@
 				}}
 				shouldDispatchChanges={true}
 				on:change={() => {
-					previewArguments = previewArguments
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+						savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
 					}
 					refreshStateStore(flowStore)
 				}}
@@ -563,7 +560,7 @@
 								on:isEditing={(e) => {
 									preventEnter = e.detail
 								}}
-								previewArgs={previewArguments}
+								previewArgs={previewArgs.val}
 								{isValid}
 								limitPayloadSize
 								bind:this={savedInputsPicker}
@@ -586,7 +583,7 @@
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
-								selected={!!previewArguments}
+								selected={!!previewArgs.val}
 								bind:this={jsonInputs}
 							/>
 						</FlowInputEditor>
