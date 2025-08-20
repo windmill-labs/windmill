@@ -148,6 +148,13 @@
             # LSP/Local dev
             svelte-language-server
             taplo
+
+            # Orchestration/Kubernetes
+            minikube
+            kubectl
+            kubernetes-helm
+            conntrack-tools # To run minikube without driver (--driver=none)
+            cri-tools
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -245,6 +252,7 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           # RUST_LOG = "debug";
+          # RUST_LOG = "kube=debug";
           SQLX_OFFLINE = "true";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494

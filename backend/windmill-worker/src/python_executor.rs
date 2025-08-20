@@ -852,6 +852,7 @@ mount {{
         {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            python_cmd.env("windir", SYSTEM_ROOT.as_str());
             python_cmd.env(
                 "LOCALAPPDATA",
                 std::env::var("LOCALAPPDATA")

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.527.1
+  version: 1.528.0
   title: Windmill API
 
   contact:
@@ -11502,6 +11502,22 @@ paths:
                 additionalProperties:
                   type: integer
 
+  /workers/queue_running_counts:
+    get:
+      summary: get counts of currently running jobs per tag
+      operationId: getCountsOfRunningJobsPerTag
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue running counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -11614,6 +11630,22 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
+
+  /configs/native_kubernetes_autoscaling_healthcheck:
+    get:
+      summary: Check Kubernetes autoscaling health for a worker group
+      operationId: nativeKubernetesAutoscalingHealthcheck
+      tags:
+        - config
+      responses:
+        "200":
+          description: Kubernetes autoscaling is healthy
+        "400":
+          description: Error
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /configs/list_available_python_versions:
     get:

@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import {
+		type Job,
+		JobService,
+		type RestartedFrom,
+		type OpenFlow,
+		type ScriptLang
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -13,14 +19,13 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
-	import { emptyString, sendUserToast } from '$lib/utils'
+	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
-	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
@@ -39,8 +44,8 @@
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
 		branchOrIterationN?: number
 		scrollTop?: number
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		localModuleStates?: Record<string, GraphModuleState>
+		localDurationStatuses?: Record<string, DurationStatus>
 		onRunPreview?: () => void
 		render?: boolean
 		onJobDone?: () => void
@@ -63,8 +68,8 @@
 		rightColumnSelect = $bindable('timeline'),
 		branchOrIterationN = $bindable(0),
 		scrollTop = $bindable(0),
-		localModuleStates = $bindable(writable({})),
-		localDurationStatuses = $bindable(writable({})),
+		localModuleStates = $bindable({}),
+		localDurationStatuses = $bindable({}),
 		onRunPreview,
 		render = false,
 		onJobDone,
@@ -77,7 +82,7 @@
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
-	let suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $state(writable({}))
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
 	export function test() {
@@ -568,9 +573,9 @@
 					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
-					{flowStateStore}
+					bind:flowStateStore={flowStateStore.val}
 					{jobId}
-					on:done={(x) => {
+					onDone={() => {
 						isRunning = false
 						$executionCount = $executionCount + 1
 						onJobDone?.()
