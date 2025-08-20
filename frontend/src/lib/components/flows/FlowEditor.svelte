@@ -115,6 +115,7 @@
 	})
 
 	onMount(() => {
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.FLOW)
 	})
 

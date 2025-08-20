@@ -269,6 +269,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
