@@ -9,10 +9,12 @@ import {
 import { evalValue, type ModuleArgs } from './utils'
 
 export class TestSteps {
+	// Track args that have been evaluated from the flow state
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
-	#steps = $state<Record<string, { value: any }>>({})
+	// Track current args state, can be manually edited
+	#steps = $state<Record<string, ModuleArgs>>({})
 
-	constructor() { }
+	constructor() {}
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
 		if (!this.#steps[moduleId]) {
@@ -179,5 +181,9 @@ export class TestSteps {
 			}
 		})
 		this.#stepsEvaluated[moduleId].value = nargs
+	}
+
+	resetManuallyEditedArgs() {
+		this.#steps = $state.snapshot(this.#stepsEvaluated)
 	}
 }

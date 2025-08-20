@@ -1129,6 +1129,8 @@
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
+							// Reset manually edited args inputs when running a preview
+							testSteps.resetManuallyEditedArgs()
 							modulesTestStates.hideJobsInGraph()
 							localModuleStates = {}
 							showJobStatus = true
