@@ -529,6 +529,10 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
+    AIAgent {
+        input_transforms: HashMap<String, InputTransform>,
+        tools: Vec<FlowModule>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -563,6 +567,7 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
+    tools: Option<Vec<FlowModule>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -655,6 +660,12 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 assets: untagged.assets,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
+            "aiagent" => Ok(FlowModuleValue::AIAgent {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tools: untagged
+                    .tools
+                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -666,6 +677,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "branchall",
                     "rawscript",
                     "identity",
+                    "aiagent",
                 ],
             )),
         }

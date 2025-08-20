@@ -77,12 +77,12 @@ export function getNestedModules(flow: OpenFlow, id: string, branchIndex?: numbe
 		}
 
 		return branch.modules
+	} else if (module.value.type === 'aiagent') {
+		return module.value.tools
 	} else {
 		throw new Error('Module is not a loop or branch')
 	}
 }
-
-
 
 export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
 	switch (action) {

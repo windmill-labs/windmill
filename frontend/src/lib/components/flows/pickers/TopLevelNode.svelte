@@ -1,6 +1,15 @@
 <script lang="ts">
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { CheckCircle2, ChevronRight, Code, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
+	import {
+		BotIcon,
+		CheckCircle2,
+		ChevronRight,
+		Code,
+		GitBranch,
+		Repeat,
+		Square,
+		Zap
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -53,6 +62,9 @@
 		{:else if label === 'Branch to all'}
 			<GitBranch size={14} />
 			Branch to all
+		{:else if label === 'AI Agent'}
+			<BotIcon size={14} />
+			AI Agent
 		{/if}
 	</span>
 	{#if returnIcon && selected}

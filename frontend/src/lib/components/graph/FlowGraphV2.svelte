@@ -53,6 +53,8 @@
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
+	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -108,6 +110,7 @@
 			index: number
 			detail: string
 			isPreprocessor?: boolean
+			agentId?: string
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
@@ -398,13 +401,17 @@
 				position: n.position
 			}))
 		)
-		newNodes = [
-			...newNodes.map((n) => ({ ...n, position: assetNodesResult.newNodePositions[n.id] })),
-			...assetNodesResult.newAssetNodes
+		newNodes = newNodes.map((n) => ({
+			...n,
+			position: assetNodesResult.newNodePositions[n.id]
+		}))
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		nodes = [
+			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
+			...assetNodesResult.newAssetNodes,
+			...aiToolNodesResult.toolNodes
 		]
-
-		nodes = newNodes
-		edges = [...assetNodesResult.newAssetEdges, ...graph.edges]
+		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
 
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -426,7 +433,9 @@
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
 		asset: AssetNode,
-		assetsOverflowed: AssetsOverflowedNode
+		assetsOverflowed: AssetsOverflowedNode,
+		aiTool: AiToolNode,
+		newAiTool: NewAiToolNode
 	} as any
 
 	const edgeTypes = {

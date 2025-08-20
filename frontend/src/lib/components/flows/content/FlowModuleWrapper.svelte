@@ -42,6 +42,7 @@
 		previousModule?: FlowModule | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		parentModule = $bindable(),
 		previousModule = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		isAgentTool = false
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -188,7 +190,7 @@
 				preprocessorModule={$selectedId === 'preprocessor'}
 			/>
 		{/if}
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent'}
 		<FlowModuleComponent
 			{noEditor}
 			bind:flowModule
@@ -202,6 +204,7 @@
 			{savedModule}
 			forceTestTab={forceTestTab?.[flowModule.id]}
 			highlightArg={highlightArg?.[flowModule.id]}
+			{isAgentTool}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
@@ -288,5 +291,14 @@
 				/>
 			{/each}
 		{/if}
+	{/each}
+{:else if flowModule.value.type === 'aiagent'}
+	{#each flowModule.value.tools as _, index (index)}
+		<FlowModuleWrapper
+			{noEditor}
+			bind:flowModule={flowModule.value.tools[index]}
+			bind:parentModule={flowModule}
+			isAgentTool
+		/>
 	{/each}
 {/if}

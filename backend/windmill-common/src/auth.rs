@@ -8,6 +8,7 @@ use crate::{
     error::{Error, Result},
     jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
+    utils::WarnAfterExt,
     DB,
 };
 
@@ -259,6 +260,22 @@ pub async fn get_groups_for_user(
     Ok(groups)
 }
 
+pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
+    db: E,
+    job_id: &Uuid,
+    w_id: &str,
+) -> sqlx::Result<Option<JobPerms>> {
+    sqlx::query_as!(
+        JobPerms,
+        "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .warn_after_seconds(3)
+    .await
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -274,14 +291,7 @@ pub async fn create_token_for_owner(
     let job_perms = if perms.is_some() {
         Ok(perms)
     } else {
-        sqlx::query_as!(
-            JobPerms,
-            "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
-            job_id,
-            w_id
-        )
-        .fetch_optional(db)
-        .await
+        get_job_perms(db, job_id, w_id).await
     };
     let job_authed = match job_perms {
         Ok(Some(jp)) => jp.into(),
@@ -297,8 +307,16 @@ pub async fn create_token_for_owner(
         }
     };
 
-    create_jwt_token(job_authed, w_id, expires_in, Some(*job_id), Some(label.to_string()), audit_span, None)
-        .await
+    create_jwt_token(
+        job_authed,
+        w_id,
+        expires_in,
+        Some(*job_id),
+        Some(label.to_string()),
+        audit_span,
+        None,
+    )
+    .await
 }
 
 pub async fn create_jwt_token(
@@ -319,8 +337,8 @@ pub async fn create_jwt_token(
         folders: authed.folders.clone(),
         label,
         workspace_id: workspace_id.to_string(),
-        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64))
-            .timestamp() as usize,
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64)).timestamp()
+            as usize,
         job_id: job_id.map(|id| id.to_string()),
         scopes,
         audit_span,

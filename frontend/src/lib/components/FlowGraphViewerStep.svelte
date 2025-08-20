@@ -137,6 +137,8 @@
 						Inline {stepDetail.value.language} script
 					{:else if stepDetail.value.type == 'script'}
 						Workspace script
+					{:else if stepDetail.value.type == 'aiagent'}
+						AI Agent
 					{/if}
 				</span>
 			</div>
@@ -217,6 +219,11 @@
 			{:else}
 				<FlowModuleScript path={stepDetail.value.path} />
 			{/if}
+		{:else if stepDetail.value.type == 'aiagent'}
+			<div class="text-2xs">
+				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
+			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}
 			<div>
 				<p class="font-medium text-secondary pb-2"> Iterator expression: </p>

@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type JavascriptTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
+	import { loadSchemaFromModule } from './flows/flowInfers'
 
 	interface Props {
 		mod: FlowModule
@@ -84,6 +85,39 @@
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
+		} else if (val.type == 'aiagent') {
+			const { schema } = await loadSchemaFromModule(mod)
+
+			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
+				Object.keys(args).map((key) => [
+					key,
+					{
+						expr: `flow_input.${key}`,
+						type: 'javascript'
+					}
+				])
+			)
+
+			await jobLoader?.runFlowPreview(
+				args,
+				{
+					value: {
+						modules: [
+							{
+								...mod,
+								value: {
+									type: 'aiagent',
+									tools: mod.value.type == 'aiagent' ? mod.value.tools : [],
+									input_transforms: inputTransforms
+								}
+							}
+						]
+					},
+					summary: '',
+					schema
+				},
+				callbacks
+			)
 		} else {
 			throw Error('Not supported module type')
 		}

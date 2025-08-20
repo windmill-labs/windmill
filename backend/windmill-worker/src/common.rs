@@ -549,13 +549,14 @@ pub async fn update_worker_ping_for_failed_init_script(
     }
 }
 
-pub fn error_to_value(err: Error) -> serde_json::Value {
+pub fn error_to_value(err: &Error) -> serde_json::Value {
     match err {
-        Error::JsonErr(err) => err,
+        Error::JsonErr(err) => err.clone(),
         _ => json!({"message": err.to_string(), "name": err.name()}),
     }
 }
 
+#[derive(Clone)]
 pub struct OccupancyMetrics {
     pub running_job_started_at: Option<Instant>,
     pub total_duration_of_running_jobs: f32,

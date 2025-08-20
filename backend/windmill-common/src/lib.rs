@@ -627,8 +627,8 @@ pub fn get_latest_flow_version_info_for_path<
     }
 }
 
-pub async fn get_latest_hash_for_path<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<(
@@ -652,7 +652,7 @@ pub async fn get_latest_hash_for_path<'c>(
         script_path,
         w_id
     )
-    .fetch_optional(&mut **db)
+    .fetch_optional(db)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;

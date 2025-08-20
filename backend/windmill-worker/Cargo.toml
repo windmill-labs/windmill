@@ -59,6 +59,7 @@ windmill-git-sync.workspace = true
 flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
+ulid.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

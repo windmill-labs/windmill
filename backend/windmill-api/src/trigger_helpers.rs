@@ -798,6 +798,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;

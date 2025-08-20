@@ -117,7 +117,7 @@ pub async fn update_workflow_as_code_status(
 
 // TODO: merge as a CTE
 #[tracing::instrument(level = "trace", skip_all)]
-async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
+pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     let r = sqlx::query!(
         "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
         FROM v2_job_status WHERE id = $1",

@@ -3885,6 +3885,7 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -3979,6 +3980,7 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -4074,6 +4076,7 @@ pub async fn run_script_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4222,6 +4225,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
 
@@ -4752,6 +4756,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4902,6 +4907,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5016,6 +5022,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5133,6 +5140,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5202,6 +5210,7 @@ async fn run_preview_script(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5312,6 +5321,7 @@ async fn run_bundle_preview_script(
                 None,
                 None,
                 Some(&authed.clone().into()),
+                false,
             )
             .await?;
             job_id = Some(uuid);
@@ -5477,6 +5487,7 @@ async fn run_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5542,6 +5553,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5882,6 +5894,7 @@ async fn run_preview_flow_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -6021,6 +6034,7 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
