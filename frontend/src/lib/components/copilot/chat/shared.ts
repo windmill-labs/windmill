@@ -80,7 +80,6 @@ export function applyCodePiecesToFlowModules(
 
 	for (const codePiece of codePieces) {
 		const match = codePiece.title.match(/\[([^\]]+)\]\s+L\d+-L\d+/)
-		console.log('[HERE] match', match)
 		if (match) {
 			const moduleId = match[1]
 			if (!moduleCodePieces.has(moduleId)) {
@@ -96,10 +95,8 @@ export function applyCodePiecesToFlowModules(
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
 		const module = findModuleById(modifiedModules, moduleId)
-		console.log('[HERE] module', module)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = applyCodePieceToCodeContext(pieces, module.value.content)
-			console.log('[HERE] module.value.content', module.value.content)
 		}
 	}
 
