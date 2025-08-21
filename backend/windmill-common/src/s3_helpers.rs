@@ -243,6 +243,8 @@ pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted_to_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -250,6 +252,8 @@ pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted_to_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -257,6 +261,8 @@ pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted_to_user_paths: Option<bool>,
 }
 
 #[derive(Clone, Debug)]

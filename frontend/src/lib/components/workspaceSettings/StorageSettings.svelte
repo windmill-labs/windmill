@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import { Plus, X } from 'lucide-svelte'
+	import { Plus, Shield, X } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -15,6 +15,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import { fade } from 'svelte/transition'
+	import Popover from '../meltComponents/Popover.svelte'
 
 	let { s3ResourceSettings = $bindable() }: { s3ResourceSettings: S3ResourceSettings } = $props()
 
@@ -148,7 +149,7 @@
 		</div>
 	{/if}
 	<div class="mt-6">
-		<div class="flex mt-2 flex-col gap-y-4 max-w-3xl">
+		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
 				<div class="flex gap-1 items-center">
 					<input
@@ -193,6 +194,25 @@
 							}
 						}
 					/>
+					<Popover closeOnOtherPopoverOpen>
+						<svelte:fragment slot="trigger">
+							<Button variant="contained" btnClasses="px-2.5 py-2.5" color="dark" size="sm">
+								<Shield size={16} />
+							</Button>
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							<div class="flex flex-col gap-2 mx-4 py-4">
+								<Toggle
+									bind:checked={s3ResourceSettings.secondaryStorage![idx][1].restrictedToUserPaths}
+									options={{
+										right: 'Restrict access to u/username/**',
+										rightTooltip:
+											'If set, all users will only be able to read and write objects with path u/username/**'
+									}}
+								/>
+							</div>
+						</svelte:fragment>
+					</Popover>
 					<Button
 						size="sm"
 						variant="contained"

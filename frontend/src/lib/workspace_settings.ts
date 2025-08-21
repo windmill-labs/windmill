@@ -8,6 +8,7 @@ type s3ResourceSettingsItem = {
 	resourceType: s3type
 	resourcePath: string | undefined
 	publicResource: boolean | undefined
+	restrictedToUserPaths?: boolean
 }
 export type S3ResourceSettings = s3ResourceSettingsItem & {
 	secondaryStorage: [string, s3ResourceSettingsItem][] | undefined
@@ -31,38 +32,43 @@ export function convertBackendSettingsToFrontendSettingsItem(
 		return {
 			resourceType: 's3',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			restrictedToUserPaths: large_file_storage?.restricted_to_user_paths
 		}
 	} else if (large_file_storage?.type === 'AzureBlobStorage') {
 		return {
 			resourceType: 'azure_blob',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			restrictedToUserPaths: large_file_storage?.restricted_to_user_paths
 		}
 	} else if (large_file_storage?.type === 'AzureWorkloadIdentity') {
 		return {
 			resourceType: 'azure_workload_identity',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			restrictedToUserPaths: large_file_storage?.restricted_to_user_paths
 		}
 	} else if (large_file_storage?.type === 'S3AwsOidc') {
 		return {
 			resourceType: 's3_aws_oidc',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			restrictedToUserPaths: large_file_storage?.restricted_to_user_paths
 		}
 	} else if (large_file_storage?.type === 'GoogleCloudStorage') {
-		const gcsStorage = large_file_storage
 		return {
 			resourceType: 'gcloud_storage',
-			resourcePath: gcsStorage?.gcs_resource_path?.replace('$res:', ''),
-			publicResource: gcsStorage?.public_resource
+			resourcePath: large_file_storage?.gcs_resource_path?.replace('$res:', ''),
+			publicResource: large_file_storage?.public_resource,
+			restrictedToUserPaths: large_file_storage?.restricted_to_user_paths
 		}
 	} else {
 		return {
 			resourceType: 's3',
 			resourcePath: undefined,
-			publicResource: undefined
+			publicResource: undefined,
+			restrictedToUserPaths: undefined
 		}
 	}
 }
@@ -86,7 +92,8 @@ export function convertFrontendToBackendettingsItem(
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
 		let params = {
-			public_resource: s3ResourceSettings.publicResource
+			public_resource: s3ResourceSettings.publicResource,
+			restricted_to_user_paths: s3ResourceSettings.restrictedToUserPaths
 		}
 		if (s3ResourceSettings.resourceType === 'azure_blob') {
 			let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
