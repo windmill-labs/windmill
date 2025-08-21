@@ -220,7 +220,7 @@
 							class={twMerge(css?.container?.class, 'wm-stepper')}
 							style={css?.container?.style}
 							containerHeight={componentContainerHeight - tabHeight - footerHeight}
-							on:focus={() => {
+							onFocus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
 									handleTabSelection()
