@@ -55,6 +55,7 @@ export interface FlowModule {
 	value: {
 		language?: ScriptLang | 'bunnative'
 		path?: string
+		content?: string
 		type: string
 	}
 }

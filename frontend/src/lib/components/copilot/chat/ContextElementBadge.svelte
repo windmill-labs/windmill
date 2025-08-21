@@ -91,9 +91,19 @@
 					/>
 				</div>
 			{:else if contextElement.type === 'flow_module'}
+				{#if contextElement.value.content}
+					<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+						<HighlightCode
+							language={contextElement.value.language}
+							code={contextElement.value.content}
+							class="w-full p-2 "
+						/>
+					</div>
+				{:else}
 				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
 					<div class="text-tertiary">{contextElement.title}</div>
 				</div>
+				{/if}
 			{/if}
 		
 	{/snippet}

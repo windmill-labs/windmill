@@ -103,6 +103,7 @@ export default class ContextManager {
 					value: {
 						language: 'language' in module.value ? module.value.language : 'bunnative',
 						path: 'path' in module.value ? module.value.path : '',
+						content: 'content' in module.value ? module.value.content : '',
 						type: module.value.type
 					}
 				})
