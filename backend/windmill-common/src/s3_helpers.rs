@@ -1,3 +1,4 @@
+use crate::db::Authed;
 use crate::error::{self};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
@@ -235,6 +236,16 @@ impl LargeFileStorage {
             LargeFileStorage::AzureWorkloadIdentity(az_lfs) => &az_lfs.azure_blob_resource_path,
             LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
         }
+    }
+    pub fn is_restricted_to_user_paths(&self) -> bool {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.restricted_to_user_paths,
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.restricted_to_user_paths,
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.restricted_to_user_paths,
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.restricted_to_user_paths,
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.restricted_to_user_paths,
+        }
+        .unwrap_or(false)
     }
 }
 
@@ -1103,4 +1114,24 @@ impl ObjectStoreResource {
             )),
         }
     }
+}
+
+pub fn check_lfs_object_path_permissions(
+    lfs: &LargeFileStorage,
+    object_path: &str,
+    authed: &Authed,
+) -> error::Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
+    let username = authed.username.as_str();
+
+    if lfs.is_restricted_to_user_paths() {
+        if !object_path.starts_with(&format!("u/{username}/")) {
+            return Err(error::Error::NotAuthorized(format!(
+                "Can only access u/{username}/**"
+            )));
+        }
+    }
+    Ok(())
 }

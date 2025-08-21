@@ -17,15 +17,17 @@ use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
     jwt,
-    s3_helpers::{build_object_store_client, ObjectStoreResource},
+    s3_helpers::{
+        build_object_store_client, check_lfs_object_path_permissions, ObjectStoreResource,
+    },
 };
 
 use crate::{
     auth::AuthCache,
     db::DB,
-    job_helpers_ee::upload_file_from_req,
+    job_helpers_ee::{get_large_file_storage, upload_file_from_req},
     job_helpers_oss::{
-        delete_s3_file_internal, get_workspace_s3_resource, read_object_streamable,
+        delete_s3_file_internal, get_workspace_s3_resource_from_lfs, read_object_streamable,
         DeleteS3FileQuery,
     },
 };
@@ -46,7 +48,7 @@ async fn get_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
+    let uri = format!("/api/w/{}/s3_proxy/{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
@@ -56,8 +58,16 @@ async fn get_object(
         _ => Some(storage_str.clone()),
     };
 
+    let lfs = get_large_file_storage(&db, &w_id, storage).await?;
+    let lfs = match lfs {
+        Some(lfs) => lfs,
+        None => {
+            return Err(Error::InternalErr(format!("Large file storage not found",)));
+        }
+    };
+    check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
     let (_, s3_resource) =
-        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -78,7 +88,7 @@ async fn put_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
+    let uri = format!("/api/w/{}/s3_proxy/{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
@@ -88,8 +98,16 @@ async fn put_object(
         _ => Some(storage_str.clone()),
     };
 
+    let lfs = get_large_file_storage(&db, &w_id, storage).await?;
+    let lfs = match lfs {
+        Some(lfs) => lfs,
+        None => {
+            return Err(Error::InternalErr(format!("Large file storage not found",)));
+        }
+    };
+    check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
     let (_, s3_resource) =
-        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -131,7 +149,7 @@ async fn post_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
+    let uri = format!("/api/w/{}/s3_proxy/{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
@@ -141,8 +159,16 @@ async fn post_object(
         _ => Some(storage_str.clone()),
     };
 
+    let lfs = get_large_file_storage(&db, &w_id, storage).await?;
+    let lfs = match lfs {
+        Some(lfs) => lfs,
+        None => {
+            return Err(Error::InternalErr(format!("Large file storage not found",)));
+        }
+    };
+    check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
     let (_, s3_resource) =
-        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -167,7 +193,7 @@ async fn delete_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<()> {
-    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
+    let uri = format!("/api/w/{}/s3_proxy/{}", w_id, req.uri().to_string());
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
