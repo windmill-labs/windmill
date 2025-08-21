@@ -584,7 +584,8 @@ pub async fn install_go_dependencies(
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
+    // If annotation used we want to call tidy with special flag to pin go to 1.22
+    // The reason for this that at some point we had to jump from go 1.22 to 1.25 and this addds backward compatibility.
     if anns.go1_22_compat && mod_command == "tidy" {
         child_cmd.args(vec!["-go", "1.22"]);
     }
