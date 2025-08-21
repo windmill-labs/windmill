@@ -222,9 +222,9 @@
 		<svelte:fragment slot="content">
 			<div class="flex flex-col gap-3 mx-4 py-4 w-[40rem]">
 				<Toggle
-					bind:checked={storage.allowUserPaths}
+					bind:checked={storage.restrictToUserPaths}
 					options={{
-						right: 'Allow access to u/username/** paths',
+						right: 'Restrict access to u/username/** paths',
 						rightTooltip:
 							'If set, all users will be able to read and write objects with path u/username/**'
 					}}

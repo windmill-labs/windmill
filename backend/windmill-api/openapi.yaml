@@ -17506,7 +17506,7 @@ components:
           type: string
         public_resource:
           type: boolean
-        allow_user_paths:
+        restrict_to_user_paths:
           type: boolean
         secondary_storage:
           type: object
@@ -17531,7 +17531,7 @@ components:
                 type: string
               public_resource:
                 type: boolean
-              allow_user_paths:
+              restrict_to_user_paths:
                 type: boolean
 
     DucklakeSettings:
