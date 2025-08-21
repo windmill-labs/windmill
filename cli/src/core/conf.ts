@@ -1,5 +1,8 @@
 import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
+import { join, dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -71,9 +74,86 @@ export interface Codebase {
   inject?: string[];
 }
 
+function getGitRepoRoot(): string | null {
+  try {
+    const result = execSync("git rev-parse --show-toplevel", {
+      encoding: "utf8",
+      stdio: "pipe"
+    });
+    return result.trim();
+  } catch (error) {
+    return null;
+  }
+}
+
+function findWmillYaml(): string | null {
+  const startDir = resolve(Deno.cwd());
+  const isInGitRepo = isGitRepository();
+
+  // If not in git repo, only check current directory
+  if (!isInGitRepo) {
+    const wmillYamlPath = join(startDir, "wmill.yaml");
+    return existsSync(wmillYamlPath) ? wmillYamlPath : null;
+  }
+
+  // If in git repo, search up to git repository root
+  const gitRoot = getGitRepoRoot();
+  let currentDir = startDir;
+  let foundPath: string | null = null;
+
+  while (true) {
+    const wmillYamlPath = join(currentDir, "wmill.yaml");
+
+    if (existsSync(wmillYamlPath)) {
+      foundPath = wmillYamlPath;
+      break;
+    }
+
+    // Check if we've reached the git repository root
+    if (gitRoot && resolve(currentDir) === resolve(gitRoot)) {
+      break;
+    }
+
+    // Check if we've reached the filesystem root
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+
+    currentDir = parentDir;
+  }
+
+  // If wmill.yaml was found in a parent directory, warn the user and change working directory
+  if (foundPath && resolve(dirname(foundPath)) !== resolve(startDir)) {
+    const configDir = dirname(foundPath);
+    const relativePath = foundPath.replace(startDir, ".");
+    log.warn(`⚠️  wmill.yaml found in parent directory: ${relativePath}`);
+
+    // Change working directory to where wmill.yaml was found
+    Deno.chdir(configDir);
+    log.info(`📁 Changed working directory to: ${configDir}`);
+  }
+
+  return foundPath;
+}
+
+export function getWmillYamlPath(): string | null {
+  return findWmillYaml();
+}
+
 export async function readConfigFile(): Promise<SyncOptions> {
   try {
-    const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
+    // First, try to find wmill.yaml recursively
+    const wmillYamlPath = findWmillYaml();
+
+    if (!wmillYamlPath) {
+      log.warn(
+        "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
+      );
+      return {};
+    }
+
+    const conf = (await yamlParseFile(wmillYamlPath)) as SyncOptions;
 
     // Handle obsolete overrides format
     if (conf && 'overrides' in conf) {
@@ -92,7 +172,7 @@ export async function readConfigFile(): Promise<SyncOptions> {
         delete conf.overrides;
         // Write the updated config back to file
         try {
-          await Deno.writeTextFile("wmill.yaml", yamlStringify(conf));
+          await Deno.writeTextFile(wmillYamlPath, yamlStringify(conf));
         } catch (error) {
           log.warn(`Could not update wmill.yaml to remove empty overrides: ${error instanceof Error ? error.message : error}`);
         }
@@ -110,60 +190,21 @@ export async function readConfigFile(): Promise<SyncOptions> {
       throw e; // Re-throw the specific obsolete format error
     }
 
-    // Check if file exists to distinguish between file not found and parsing errors
-    try {
-      await Deno.stat("wmill.yaml");
-      // File exists but couldn't be parsed - this is likely a YAML syntax error
-      if (e instanceof Error && e.message.includes("Error parsing yaml")) {
-        const yamlError = e.cause instanceof Error ? e.cause.message : String(e.cause);
-        throw new Error(
-          "❌ YAML syntax error in wmill.yaml:\n" +
-          "   " + yamlError + "\n" +
-          "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
-        );
-      } else {
-        // File exists but has other issues (permissions, etc.)
-        throw new Error(
-          "❌ Failed to read wmill.yaml:\n" +
-          "   " + (e instanceof Error ? e.message : String(e)) + "\n" +
-          "   Please check file permissions or fix the syntax."
-        );
-      }
-    } catch (statError) {
-      // Check if it's actually a YAML syntax error vs file not found
-      if (e instanceof Error && e.message.includes("Error parsing yaml")) {
-        const causeMessage = e.cause instanceof Error ? e.cause.message : String(e.cause);
-        // If the cause mentions file not found or permission issues, treat as file access error
-        if (causeMessage.includes("No such file or directory") ||
-            causeMessage.includes("ENOENT") ||
-            causeMessage.includes("Permission denied") ||
-            causeMessage.includes("EACCES")) {
-          if (causeMessage.includes("Permission denied") || causeMessage.includes("EACCES")) {
-            throw new Error(
-              "❌ Cannot read wmill.yaml: Permission denied\n" +
-              "   Please check file permissions or run with appropriate access rights."
-            );
-          } else {
-            log.warn(
-              "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
-            );
-            return {};
-          }
-        } else {
-          // Real YAML syntax error
-          throw new Error(
-            "❌ YAML syntax error in wmill.yaml:\n" +
-            "   " + causeMessage + "\n" +
-            "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
-          );
-        }
-      }
-
-      // File doesn't exist - this is the original behavior
-      log.warn(
-        "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
+    // Since we already found the file path, this is likely a parsing or access error
+    if (e instanceof Error && e.message.includes("Error parsing yaml")) {
+      const yamlError = e.cause instanceof Error ? e.cause.message : String(e.cause);
+      throw new Error(
+        "❌ YAML syntax error in wmill.yaml:\n" +
+        "   " + yamlError + "\n" +
+        "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
       );
-      return {};
+    } else {
+      // File exists but has other issues (permissions, etc.)
+      throw new Error(
+        "❌ Failed to read wmill.yaml:\n" +
+        "   " + (e instanceof Error ? e.message : String(e)) + "\n" +
+        "   Please check file permissions or fix the syntax."
+      );
     }
   }
 }
