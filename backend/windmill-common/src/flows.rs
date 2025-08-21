@@ -145,10 +145,17 @@ pub struct StopAfterIf {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+pub struct RetryIf {
+    pub expr: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Retry {
     pub constant: ConstantDelay,
     pub exponential: ExponentialDelay,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_if: Option<RetryIf>,
 }
 
 impl Retry {
@@ -156,7 +163,7 @@ impl Retry {
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
     pub fn interval(&self, previous_attempts: u32, silent: bool) -> Option<Duration> {
-        let Self { constant, exponential } = self;
+        let Self { constant, exponential, .. } = self;
 
         if previous_attempts < constant.attempts {
             Some(Duration::from_secs(constant.seconds as u64))

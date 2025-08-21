@@ -816,7 +816,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        next_retry(&retry, &old_status.retry).is_none()
+                        evaluate_retry(
+                            &retry,
+                            &old_status.retry,
+                            result.clone(),
+                            None,
+                            Some(flow),
+                            Some(client),
+                            Some(db),
+                        )
+                        .await?
+                        .is_none()
                     } else {
                         false
                     };
@@ -1146,6 +1156,45 @@ pub async fn update_flow_status_after_job_completion_internal(
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
 
+        let should_retry = if !success
+            && !unrecoverable
+            && !skip_seq_branch_failure
+            && !skip_loop_failures
+            && !continue_on_error
+        {
+            let default_retry = Retry::default();
+            let retry_config = match module_step {
+                Step::PreprocessorStep => flow_value
+                    .preprocessor_module
+                    .as_ref()
+                    .and_then(|m| m.retry.as_ref()),
+                Step::Step(i) => flow_value
+                    .modules
+                    .get(i)
+                    .as_ref()
+                    .and_then(|m| m.retry.as_ref()),
+                Step::FailureStep => flow_value
+                    .failure_module
+                    .as_ref()
+                    .and_then(|m| m.retry.as_ref()),
+            }
+            .unwrap_or(&default_retry);
+
+            evaluate_retry(
+                retry_config,
+                &old_status.retry,
+                result.clone(),
+                None,
+                Some(flow),
+                Some(client),
+                Some(db),
+            )
+            .await?
+            .is_some()
+        } else {
+            false
+        };
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.is_canceled() => false,
@@ -1154,30 +1203,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
-            false
-                if next_retry(
-                    match module_step {
-                        Step::PreprocessorStep => flow_value
-                            .preprocessor_module
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                        Step::Step(i) => flow_value
-                            .modules
-                            .get(i)
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                        Step::FailureStep => flow_value
-                            .failure_module
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                    }
-                    .unwrap_or(&Retry::default()),
-                    &old_status.retry,
-                )
-                .is_some() =>
-            {
-                true
-            }
+            false if should_retry => true,
             false
                 if !is_failure_step
                     && !has_triggered_error_handler
@@ -1528,11 +1554,63 @@ async fn compute_skip_branchall_failure<'c>(
 //         )))
 // }
 
-fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u32, Duration)> {
-    (status.fail_count <= MAX_RETRY_ATTEMPTS)
-        .then(|| &retry)
-        .and_then(|retry| retry.interval(status.fail_count, false))
-        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
+async fn evaluate_retry(
+    retry: &Retry,
+    status: &RetryStatus,
+    result: Arc<Box<RawValue>>,
+    flow_args: Option<Marc<HashMap<String, Box<RawValue>>>>,
+    flow_id: Option<uuid::Uuid>,
+    client: Option<&AuthedClient>,
+    db: Option<&DB>,
+) -> anyhow::Result<Option<(u32, Duration)>> {
+    if status.fail_count > MAX_RETRY_ATTEMPTS {
+        return Ok(None);
+    }
+
+    if let Some(retry_if) = &retry.retry_if {
+        let args = match flow_args {
+            Some(args) => args,
+            None => {
+                let flow_id = flow_id.ok_or_else(|| {
+                    Error::internal_err(
+                        "flow_id required when flow_args not provided for retry condition"
+                            .to_string(),
+                    )
+                })?;
+                let db = db.ok_or_else(|| {
+                    Error::internal_err(
+                        "database required when flow_args not provided for retry condition"
+                            .to_string(),
+                    )
+                })?;
+
+                let fetched_args = sqlx::query_scalar!(
+                    "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\" FROM v2_job WHERE id = $1",
+                    flow_id
+                )
+                .fetch_one(db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("retrieval of args from state for retry condition: {e:#}"))
+                })?;
+
+                Marc::new(fetched_args.unwrap_or_default().0)
+            }
+        };
+
+        let should_retry =
+            compute_bool_from_expr(&retry_if.expr, args, result, None, None, client, None, None)
+                .await?;
+
+        if !should_retry {
+            tracing::debug!("Retry condition evaluated to false, not retrying");
+            return Ok(None);
+        }
+    }
+
+    Ok(retry
+        .interval(status.fail_count, false)
+        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL))))
 }
 
 async fn compute_bool_from_expr(
@@ -2361,7 +2439,16 @@ async fn push_next_flow_job(
 
     let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
         let retry = &module.retry.clone().unwrap_or_default();
-        next_retry(retry, &status.retry)
+        evaluate_retry(
+            retry,
+            &status.retry,
+            arc_last_job_result.clone(),
+            Some(arc_flow_job_args.clone()),
+            None,
+            Some(client),
+            None,
+        )
+        .await?
     } else {
         None
     };
