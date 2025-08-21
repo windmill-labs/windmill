@@ -200,14 +200,12 @@
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
 				items={$app.grid}
-				on:redraw={(e) => {
+				onRedraw={(grid) => {
 					push(history, $app)
-					$app.grid = e.detail
+					$app.grid = grid
 				}}
 				root
-				on:dropped={(e) => {
-					const { id, overlapped, x, y } = e.detail
-
+				onDropped={({ id, overlapped, x, y }) => {
 					const overlappedComponent = findGridItem($app, overlapped)
 
 					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
