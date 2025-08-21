@@ -3,7 +3,6 @@
 	import Popover from '../Popover.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
-	import { goto } from '$app/navigation'
 	import { conditionalMelt } from '$lib/utils'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -46,9 +45,12 @@
 		class: classNames = undefined
 	}: Props = $props()
 
-	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
+	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
 
 	let dispatch = createEventDispatcher()
+
+	// Dynamic component based on whether href is provided
+	const Element = href ? 'a' : 'button'
 </script>
 
 {#if !disabled}
@@ -59,7 +61,8 @@
 		disablePopup={!isCollapsed}
 		placement="right"
 	>
-		<button
+		<svelte:element
+			this={Element}
 			bind:this={buttonRef}
 			use:triggerableByAI={{
 				id: aiId,
@@ -70,13 +73,13 @@
 					}
 				}
 			}}
-			onclick={(e) => {
-				if (stopPropagationOnClick) e.preventDefault()
-				if (href) {
-					goto(href)
-				}
-				dispatch('click')
-			}}
+			onclick={href
+				? undefined
+				: (e) => {
+						if (stopPropagationOnClick) e.preventDefault()
+						dispatch('click')
+					}}
+			{href}
 			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 				lightMode
@@ -132,7 +135,7 @@
 					<SideBarNotification notificationCount={notificationsCount} small={false} />
 				</div>
 			{/if}
-		</button>
+		</svelte:element>
 
 		{#snippet text()}
 			{#if label}
