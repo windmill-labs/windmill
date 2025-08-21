@@ -14,9 +14,6 @@ import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$
 import { scriptLangToEditorLang } from '$lib/scripts'
 import YAML from 'yaml'
 
-// Common context formatters
-export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
-
 export interface ContextStringResult {
 	dbContext: string
 	diffContext: string
@@ -104,15 +101,18 @@ export function applyCodePiecesToFlowModules(
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {
-	let dbContext = 'DATABASES:\n'
-	let diffContext = 'DIFF:\n'
-	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
-	let codeContext = `
+	const dbTemplate = `- {title}: SCHEMA: \n{schema}\n`
+	const codeTemplate = `
 	- {title}:
 	\`\`\`{language}
 	{code}
 	\`\`\`
 	`
+
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
+	let codeContext = 'CODE:\n'
 	let errorContext = `
 	ERROR:
 	{error}
@@ -123,11 +123,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	let hasFlowModule = false
 	let hasError = false
 
-	let result = ''
+	let result = '\n\n'
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			hasCode = true
-			codeContext = codeContext
+			codeContext += codeTemplate
 				.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(context.lang))
 				.replace(
@@ -145,10 +145,9 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			errorContext = errorContext.replace('{error}', context.content)
 		} else if (context.type === 'db') {
 			hasDb = true
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
-				'{schema}',
-				context.schema?.stringified ?? 'to fetch with get_db_schema'
-			)
+			dbContext += dbTemplate
+				.replace('{title}', context.title)
+				.replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 			dbContext += '\n'
 		} else if (context.type === 'diff') {
 			hasDiff = true
@@ -161,19 +160,19 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	}
 
 	if (hasCode) {
-		result += '\n\n' + codeContext
+		result += '\n' + codeContext
 	}
 	if (hasError) {
-		result += '\n\n' + errorContext
+		result += '\n' + errorContext
 	}
 	if (hasDb) {
-		result += '\n\n' + dbContext
+		result += '\n' + dbContext
 	}
 	if (hasDiff) {
-		result += '\n\n' + diffContext
+		result += '\n' + diffContext
 	}
 	if (hasFlowModule) {
-		result += '\n\n' + flowModuleContext
+		result += '\n' + flowModuleContext
 	}
 
 	return result
