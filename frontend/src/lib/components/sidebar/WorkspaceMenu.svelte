@@ -244,6 +244,19 @@
 					</a>
 				</div>
 			{/if}
+			{#if (isCloudHosted() || $superadmin) && !strictWorkspaceSelect}
+				<div class="py-1" role="none">
+					<a
+						href="{base}/user/fork_workspace"
+						class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
+						role="menuitem"
+						tabindex="-1"
+					>
+						<GitFork size={16} />
+						Fork current workspace
+					</a>
+				</div>
+			{/if}
 			{#if !strictWorkspaceSelect}
 				<div class="py-1" role="none">
 					<MenuItem
