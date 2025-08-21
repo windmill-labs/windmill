@@ -109,10 +109,62 @@ export async function readConfigFile(): Promise<SyncOptions> {
     if (e instanceof Error && (e.message.includes("overrides") || e.message.includes("Obsolete configuration format"))) {
       throw e; // Re-throw the specific obsolete format error
     }
-    log.warn(
-      "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
-    );
-    return {};
+
+    // Check if file exists to distinguish between file not found and parsing errors
+    try {
+      await Deno.stat("wmill.yaml");
+      // File exists but couldn't be parsed - this is likely a YAML syntax error
+      if (e instanceof Error && e.message.includes("Error parsing yaml")) {
+        const yamlError = e.cause instanceof Error ? e.cause.message : String(e.cause);
+        throw new Error(
+          "❌ YAML syntax error in wmill.yaml:\n" +
+          "   " + yamlError + "\n" +
+          "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
+        );
+      } else {
+        // File exists but has other issues (permissions, etc.)
+        throw new Error(
+          "❌ Failed to read wmill.yaml:\n" +
+          "   " + (e instanceof Error ? e.message : String(e)) + "\n" +
+          "   Please check file permissions or fix the syntax."
+        );
+      }
+    } catch (statError) {
+      // Check if it's actually a YAML syntax error vs file not found
+      if (e instanceof Error && e.message.includes("Error parsing yaml")) {
+        const causeMessage = e.cause instanceof Error ? e.cause.message : String(e.cause);
+        // If the cause mentions file not found or permission issues, treat as file access error
+        if (causeMessage.includes("No such file or directory") ||
+            causeMessage.includes("ENOENT") ||
+            causeMessage.includes("Permission denied") ||
+            causeMessage.includes("EACCES")) {
+          if (causeMessage.includes("Permission denied") || causeMessage.includes("EACCES")) {
+            throw new Error(
+              "❌ Cannot read wmill.yaml: Permission denied\n" +
+              "   Please check file permissions or run with appropriate access rights."
+            );
+          } else {
+            log.warn(
+              "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
+            );
+            return {};
+          }
+        } else {
+          // Real YAML syntax error
+          throw new Error(
+            "❌ YAML syntax error in wmill.yaml:\n" +
+            "   " + causeMessage + "\n" +
+            "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
+          );
+        }
+      }
+
+      // File doesn't exist - this is the original behavior
+      log.warn(
+        "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
+      );
+      return {};
+    }
   }
 }
 
