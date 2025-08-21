@@ -66,8 +66,9 @@ async fn get_object(
         }
     };
     check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
+    // UserDB is None because we don't expose the credentials and we check permissions separately
     let (_, s3_resource) =
-        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, None, &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -106,8 +107,9 @@ async fn put_object(
         }
     };
     check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
+    // UserDB is None because we don't expose the credentials and we check permissions separately
     let (_, s3_resource) =
-        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, None, &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",
@@ -167,8 +169,9 @@ async fn post_object(
         }
     };
     check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
+    // UserDB is None because we don't expose the credentials and we check permissions separately
     let (_, s3_resource) =
-        get_workspace_s3_resource_from_lfs(&authed, &db, Some(user_db), &token, &w_id, lfs).await?;
+        get_workspace_s3_resource_from_lfs(&authed, &db, None, &token, &w_id, lfs).await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",

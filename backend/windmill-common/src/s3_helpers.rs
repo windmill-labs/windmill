@@ -1140,9 +1140,8 @@ pub fn check_lfs_object_path_permissions(
         if object_path.starts_with(&format!("u/{username}/")) {
             return Ok(());
         }
-        return Err(error::Error::NotAuthorized(format!(
-            "Cannot access path {object_path}"
-        )));
     }
-    Ok(())
+    return Err(error::Error::NotAuthorized(format!(
+        "Cannot access path {object_path}"
+    )));
 }
