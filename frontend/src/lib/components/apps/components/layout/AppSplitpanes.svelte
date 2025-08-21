@@ -36,7 +36,9 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, id, {
+		selectedPaneIndex: 0
+	})
 
 	let everRender = $state(render)
 
@@ -129,13 +131,14 @@
 									style={css?.container?.style}
 									subGridId={`${id}-${index}`}
 									containerHeight={horizontal ? undefined : componentContainerHeight - 8}
-									on:focus={() => {
+									onFocus={() => {
 										if (!$connectingInput.opened) {
 											$selectedComponent = [id]
 											$focusedGrid = {
 												parentComponentId: id,
 												subGridIndex: index
 											}
+											$worldStore.outputsById[id].selectedPaneIndex.set(index)
 										}
 									}}
 								/>

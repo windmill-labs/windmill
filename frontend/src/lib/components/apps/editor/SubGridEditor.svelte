@@ -3,7 +3,7 @@
 
 	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
@@ -34,6 +34,7 @@
 		visible?: boolean
 		id: string
 		shouldHighlight?: boolean
+		onFocus?: () => void
 	}
 
 	let {
@@ -46,10 +47,9 @@
 		subGridId,
 		visible = true,
 		id,
-		shouldHighlight = true
+		shouldHighlight = true,
+		onFocus
 	}: Props = $props()
-
-	const dispatch = createEventDispatcher()
 
 	const {
 		app,
@@ -80,7 +80,7 @@
 	let highlight = $derived(id === $focusedGrid?.parentComponentId && shouldHighlight)
 
 	const onpointerdown = (e) => {
-		dispatch('focus')
+		onFocus?.()
 	}
 
 	function selectComponent(e: PointerEvent, id: string) {

@@ -160,7 +160,7 @@
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight -
 											(30 * accordionInput?.value.length + 40)}
-										on:focus={() => {
+										onFocus={() => {
 											if (!$connectingInput.opened) {
 												$selectedComponent = [id]
 											}

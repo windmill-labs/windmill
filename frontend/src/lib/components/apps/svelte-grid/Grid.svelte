@@ -53,7 +53,7 @@
 		parentWidth?: number | undefined
 		disableMove?: boolean
 		children?: import('svelte').Snippet<[any]>
-		onDropped?: (e: { id: string; overlapped: string; x: number; y: number }) => void
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
 		onRedraw?: (grid: FilledItem<T>[]) => void
 		onResize?: (e: {
 			cols: number
