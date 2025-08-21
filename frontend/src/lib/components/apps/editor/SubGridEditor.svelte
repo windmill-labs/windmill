@@ -218,7 +218,7 @@
 			{#if $mode !== 'preview'}
 				<div
 					class={highlight
-						? `outline !outline-dashed outline-2 min-h-full ${
+						? `!outline-dashed outline-2 min-h-full ${
 								isActive && !$selectedComponent?.includes(id)
 									? 'outline-orange-600'
 									: 'outline-gray-400 dark:outline-gray-600'
@@ -229,19 +229,17 @@
 					<Grid
 						allIdsInPath={$allIdsInPath}
 						items={$app.subgrids?.[subGridId] ?? []}
-						on:redraw={(e) => {
+						onRedraw={(grid) => {
 							push(editorContext?.history, $app)
 							if ($app.subgrids) {
-								$app.subgrids[subGridId] = e.detail
+								$app.subgrids[subGridId] = grid
 							}
 						}}
 						selectedIds={$selectedComponent}
 						scroller={container}
 						parentWidth={$parentWidth - 17}
 						{containerWidth}
-						on:dropped={(e) => {
-							const { id, overlapped, x, y } = e.detail
-
+						onDropped={({ id, overlapped, x, y }) => {
 							if (!overlapped) {
 								moveToRoot(id, { x, y })
 							} else {
@@ -257,7 +255,6 @@
 								if (id === overlapped) {
 									return
 								}
-
 								moveComponentBetweenSubgrids(
 									id,
 									overlapped,
