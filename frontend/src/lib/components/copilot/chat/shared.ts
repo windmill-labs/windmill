@@ -26,6 +26,38 @@ export interface ContextStringResult {
 	hasFlowModule: boolean
 }
 
+export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
+	for (const module of modules) {
+		if (module.id === moduleId) {
+			return module
+		}
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			const found = findModuleById(module.value.modules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+		if (module.value.type === 'branchall') {
+			const allModules = module.value.branches.flatMap((b) => b.modules)
+			const found = findModuleById(allModules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+		if (module.value.type === 'branchone') {
+			const allModules = [
+				...module.value.branches.flatMap((b) => b.modules),
+				...module.value.default
+			]
+			const found = findModuleById(allModules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+	}
+	return undefined
+}
+
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
 	let shiftOffset = 0
@@ -38,13 +70,17 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 	return code.join('\n')
 }
 
-export function applyCodePiecesToFlowModules(codePieces: CodePieceElement[], flowModules: FlowModule[]): string {
+export function applyCodePiecesToFlowModules(
+	codePieces: CodePieceElement[],
+	flowModules: FlowModule[]
+): string {
 	// Parse code piece titles to extract module IDs
 	// Format: "[id] L3-L5"
 	const moduleCodePieces = new Map<string, CodePieceElement[]>()
-	
+
 	for (const codePiece of codePieces) {
 		const match = codePiece.title.match(/\[([^\]]+)\]\s+L\d+-L\d+/)
+		console.log('[HERE] match', match)
 		if (match) {
 			const moduleId = match[1]
 			if (!moduleCodePieces.has(moduleId)) {
@@ -53,18 +89,20 @@ export function applyCodePiecesToFlowModules(codePieces: CodePieceElement[], flo
 			moduleCodePieces.get(moduleId)!.push(codePiece)
 		}
 	}
-	
+
 	// Clone modules to avoid mutation
 	const modifiedModules = [...flowModules]
-	
+
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = modifiedModules.find(m => m.id === moduleId)
+		const module = findModuleById(modifiedModules, moduleId)
+		console.log('[HERE] module', module)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = applyCodePieceToCodeContext(pieces, module.value.content)
+			console.log('[HERE] module.value.content', module.value.content)
 		}
 	}
-	
+
 	return YAML.stringify(modifiedModules)
 }
 
@@ -87,12 +125,13 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	let hasDiff = false
 	let hasFlowModule = false
 	let hasError = false
-	
+
 	let result = ''
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			hasCode = true
-			codeContext = codeContext.replace('{title}', context.title)
+			codeContext = codeContext
+				.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(context.lang))
 				.replace(
 					'{code}',
@@ -220,11 +259,13 @@ export async function processToolCall<T>({
 
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage ?? "Waiting for confirmation..." } : {}),
+			...(tool?.requiresConfirmation
+				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
+				: {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails,
+			showDetails: tool?.showDetails
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -385,12 +426,17 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
-export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<boolean> {
+export async function buildSchemaForTool(
+	toolDef: ChatCompletionTool,
+	schemaBuilder: () => Promise<FunctionParameters>
+): Promise<boolean> {
 	try {
 		const schema = await schemaBuilder()
 
 		// if schema properties contains values different from '^[a-zA-Z0-9_.-]{1,64}$'
-		const invalidProperties = Object.keys(schema.properties ?? {}).filter((key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key))
+		const invalidProperties = Object.keys(schema.properties ?? {}).filter(
+			(key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key)
+		)
 		if (invalidProperties.length > 0) {
 			console.warn(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
 			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
@@ -406,7 +452,15 @@ export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuil
 	} catch (error) {
 		console.error('Error building schema for tool', error)
 		// fallback to schema with args as a JSON string
-		toolDef.function.parameters = { type: 'object', properties: { args: { type: 'string', description: 'JSON string containing the arguments for the tool' } }, additionalProperties: false, strict: false, required: ['args'] }
+		toolDef.function.parameters = {
+			type: 'object',
+			properties: {
+				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['args']
+		}
 		return false
 	}
 }
@@ -524,7 +578,10 @@ function getErrorMessage(result: unknown): string {
 export async function buildTestRunArgs(args: any, toolDef: ChatCompletionTool): Promise<any> {
 	let parsedArgs = args
 	// if the schema is the fallback schema, parse the args as a JSON string
-	if ((toolDef.function.parameters as any).properties?.args?.description === 'JSON string containing the arguments for the tool') {
+	if (
+		(toolDef.function.parameters as any).properties?.args?.description ===
+		'JSON string containing the arguments for the tool'
+	) {
 		try {
 			parsedArgs = JSON.parse(args.args)
 		} catch (error) {

@@ -13,15 +13,16 @@ import {
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
 	createDbSchemaTool
 } from '../script/core'
-import { 
-	createSearchHubScriptsTool, 
-	createToolDef, 
-	type Tool, 
-	executeTestRun, 
-	buildSchemaForTool, 
+import {
+	createSearchHubScriptsTool,
+	createToolDef,
+	type Tool,
+	executeTestRun,
+	buildSchemaForTool,
 	buildTestRunArgs,
 	buildContextString,
-	applyCodePiecesToFlowModules
+	applyCodePiecesToFlowModules,
+	findModuleById
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -350,8 +351,11 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
-	args: z.object({}).nullable().optional()
-	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+	args: z
+		.object({})
+		.nullable()
+		.optional()
+		.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -574,7 +578,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: testRunFlowToolDef,
-		fn: async function({ args, workspace, helpers, toolCallbacks, toolId }) {
+		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
@@ -589,13 +593,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			const parsedArgs = await buildTestRunArgs(args, this.def)
 			return executeTestRun({
-				jobStarter: () => JobService.runFlowPreview({
-					workspace: workspace,
-					requestBody: {
-						args: parsedArgs,
-						value: flow.value,
-					}
-				}),
+				jobStarter: () =>
+					JobService.runFlowPreview({
+						workspace: workspace,
+						requestBody: {
+							args: parsedArgs,
+							value: flow.value
+						}
+					}),
 				workspace,
 				toolCallbacks,
 				toolId,
@@ -603,7 +608,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				contextName: 'flow'
 			})
 		},
-		setSchema: async function(helpers: FlowAIChatHelpers) {
+		setSchema: async function (helpers: FlowAIChatHelpers) {
 			await buildSchemaForTool(this.def, async () => {
 				const flowInputsSchema = await helpers.getFlowInputsSchema()
 				return flowInputsSchema
@@ -634,7 +639,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Find the step in the flow
 			const modules = helpers.getModules()
-			let targetModule: FlowModule | undefined = modules.find((m) => m.id === stepId)
+			let targetModule: FlowModule | undefined = findModuleById(modules, stepId)
 
 			if (!targetModule) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -659,7 +664,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: moduleValue.content ?? '',
 								language: moduleValue.language,
-								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs
 							}
 						}),
 					workspace,
@@ -687,7 +695,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: script.content,
 								language: script.language,
-								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs,
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs
 							}
 						}),
 					workspace,
@@ -733,6 +744,7 @@ Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
+When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
 ## Code Markers in Flow Modules
 
@@ -864,10 +876,10 @@ ${instructions}`
 			content: userMessage
 		}
 	}
-	
-	const codePieces = selectedContext?.filter(c => c.type === 'code_piece') ?? []
+
+	const codePieces = selectedContext?.filter((c) => c.type === 'code_piece') ?? []
 	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
-	
+
 	let flowContent = `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
@@ -884,9 +896,9 @@ ${YAML.stringify(flow.value.failure_module)}
 currently selected step:
 ${selectedId}`
 
-flowContent += contextInstructions
+	flowContent += contextInstructions
 
-flowContent += `\n\n## INSTRUCTIONS:
+	flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
 
 	return {
