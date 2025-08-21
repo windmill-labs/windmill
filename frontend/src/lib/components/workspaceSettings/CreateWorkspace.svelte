@@ -76,11 +76,12 @@
 	const WM_FORK_PREFIX = 'wm-ephemeral-'
 
 	async function createOrForkWorkspace() {
+		const prefixed_id =  `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
 			if ($workspaceStore) {
 				await WorkspaceService.createEphemeralWorkspace({
 					requestBody: {
-						id: `${WM_FORK_PREFIX}${id}`,
+						id: prefixed_id,
 						name,
 						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 						username: automateUsernameCreation ? undefined : username,
@@ -97,7 +98,7 @@
 		}
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(id)
+		switchWorkspace(isFork ? prefixed_id : id)
 
 		goto(rd ?? '/')
 	}
