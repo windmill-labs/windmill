@@ -39,9 +39,9 @@
 			clientY: number
 			intersectingElement?: string | undefined
 			shadow?: GridShadow | undefined
-			overlapped?: string | undefined
+			overlapped?: string
 		}) => void
-		onDropped?: (e: { id: string; overlapped: string; x: number; y: number }) => void
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
 		onInitMove?: () => void
 		onResizeStart?: () => void
 		onResizeEnd?: () => void
@@ -415,10 +415,6 @@
 		}
 
 		if (!fakeShadow) {
-			return
-		}
-
-		if (!overlapped) {
 			return
 		}
 

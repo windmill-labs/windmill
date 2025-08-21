@@ -81,8 +81,7 @@
 
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
-		parentComponentId: string,
-		subGridIndex: number,
+		subgrid: { parentComponentId: string; subGridIndex: number } | undefined,
 		position?: { x: number; y: number }
 	) {
 		// Find the component in the source subgrid
@@ -106,7 +105,7 @@
 		insertNewGridItem(
 			$app,
 			(id) => ({ ...gridItem.data, id }),
-			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			subgrid,
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
 			position,
@@ -119,10 +118,12 @@
 		// Update the app state
 		$app = $app
 
-		$selectedComponent = [parentComponentId]
-		$focusedGrid = {
-			parentComponentId,
-			subGridIndex
+		if (subgrid) {
+			$selectedComponent = [subgrid.parentComponentId]
+			$focusedGrid = subgrid
+		} else {
+			$selectedComponent = [componentId]
+			$focusedGrid = undefined
 		}
 	}
 </script>
@@ -206,13 +207,9 @@
 				}}
 				root
 				onDropped={({ id, overlapped, x, y }) => {
-					const overlappedComponent = findGridItem($app, overlapped)
+					const overlappedComponent = overlapped ? findGridItem($app, overlapped) : undefined
 
 					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
-						return
-					}
-
-					if (!overlapped) {
 						return
 					}
 
@@ -222,8 +219,16 @@
 
 					moveComponentBetweenSubgrids(
 						id,
-						overlapped,
-						subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+						overlapped
+							? {
+									parentComponentId: overlapped,
+									subGridIndex: subGridIndexKey(
+										overlappedComponent?.data?.type,
+										overlapped,
+										$worldStore
+									)
+								}
+							: undefined,
 						{ x, y }
 					)
 				}}
