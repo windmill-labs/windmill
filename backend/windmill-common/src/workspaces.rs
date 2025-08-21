@@ -63,6 +63,8 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_workspace_fork_tracking: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -17618,6 +17618,8 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        skip_workspace_fork_tracking:
+          type: boolean
         collapsed:
           type: boolean
         settings:
