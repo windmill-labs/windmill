@@ -15,96 +15,89 @@
 	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
-		contextElement: ContextElement;
-		deletable?: boolean;
-		onDelete?: () => void;
+		contextElement: ContextElement
+		deletable?: boolean
+		onDelete?: () => void
 	}
 
-	let { contextElement, deletable = false, onDelete }: Props = $props();
+	let { contextElement, deletable = false, onDelete }: Props = $props()
 	const icon = ContextIconMap[contextElement.type]
 	let showDelete = $state(false)
-
 </script>
 
 <Popover>
 	{#snippet trigger()}
-	
-			<div
-				class={twMerge(
-					'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
-				)}
-				onmouseenter={() => (showDelete = true)}
-				onmouseleave={() => (showDelete = false)}
-				aria-label="Context element"
-				role="button"
-				tabindex={0}
-			>
-				<button onclick={onDelete} class:cursor-default={!deletable}>
-					{#if showDelete && deletable}
-						<X size={16} />
-					{:else}
-						{#if contextElement.type === 'flow_module'}
-							<FlowModuleIcon module={contextElement as FlowModule} size={10} />
-						{:else}
-							{@const SvelteComponent = icon}
-						<SvelteComponent size={16} />
-						{/if}
-					{/if}
-				</button>
-				<span class="truncate">
-					{contextElement.type === 'diff' || contextElement.type === 'flow_module'
-						? contextElement.title.replace(/_/g, ' ')
-						: contextElement.title}
-				</span>
-			</div>
-		
+		<div
+			class={twMerge(
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
+			)}
+			onmouseenter={() => (showDelete = true)}
+			onmouseleave={() => (showDelete = false)}
+			aria-label="Context element"
+			role="button"
+			tabindex={0}
+		>
+			<button onclick={onDelete} class:cursor-default={!deletable}>
+				{#if showDelete && deletable}
+					<X size={16} />
+				{:else if contextElement.type === 'flow_module'}
+					<FlowModuleIcon module={contextElement as FlowModule} size={16} />
+				{:else}
+					{@const SvelteComponent = icon}
+					<SvelteComponent size={16} />
+				{/if}
+			</button>
+			<span class="truncate">
+				{contextElement.type === 'diff' || contextElement.type === 'flow_module'
+					? contextElement.title.replace(/_/g, ' ')
+					: contextElement.title}
+			</span>
+		</div>
 	{/snippet}
 	{#snippet content()}
-	
-			{#if contextElement.type === 'error'}
-				<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
-					<Highlight language={json} code={contextElement.content} class="w-full p-2" />
-				</div>
-			{:else if contextElement.type === 'db'}
+		{#if contextElement.type === 'error'}
+			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
+				<Highlight language={json} code={contextElement.content} class="w-full p-2" />
+			</div>
+		{:else if contextElement.type === 'db'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				{#if contextElement.schema && contextElement.schema.lang === 'graphql'}
+					{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							code={formatGraphqlSchema(contextElement.schema.schema)}
+							class="h-full"
+						/>
+					{/await}
+				{:else if contextElement.schema}
+					<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />
+				{:else}
+					<div class="text-tertiary">Not loaded yet</div>
+				{/if}
+			</div>
+		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff'}
+			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
+				<HighlightCode
+					language={contextElement.lang}
+					code={contextElement.content}
+					class="w-full p-2 "
+				/>
+			</div>
+		{:else if contextElement.type === 'flow_module'}
+			{#if contextElement.value.content}
 				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
-					{#if contextElement.schema && contextElement.schema.lang === 'graphql'}
-						{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
-							<Loader2 class="animate-spin" />
-						{:then Module}
-							<Module.default
-								code={formatGraphqlSchema(contextElement.schema.schema)}
-								class="h-full"
-							/>
-						{/await}
-					{:else if contextElement.schema}
-						<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />
-					{:else}
-						<div class="text-tertiary">Not loaded yet</div>
-					{/if}
-				</div>
-			{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff'}
-				<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
 					<HighlightCode
-						language={contextElement.lang}
-						code={contextElement.content}
+						language={contextElement.value.language}
+						code={contextElement.value.content}
 						class="w-full p-2 "
 					/>
 				</div>
-			{:else if contextElement.type === 'flow_module'}
-				{#if contextElement.value.content}
-					<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
-						<HighlightCode
-							language={contextElement.value.language}
-							code={contextElement.value.content}
-							class="w-full p-2 "
-						/>
-					</div>
-				{:else}
+			{:else}
 				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
 					<div class="text-tertiary">{contextElement.title}</div>
 				</div>
-				{/if}
 			{/if}
-		
+		{/if}
 	{/snippet}
 </Popover>

@@ -60,11 +60,13 @@
 				onclick={() => onSelect(element)}
 			>
 				{#if element.type === 'flow_module'}
-					<FlowModuleIcon module={element as FlowModule} size={10} />
+					<FlowModuleIcon module={element as FlowModule} size={16} />
 				{:else if Icon}
 					<Icon size={16} />
 				{/if}
-				{element.type === 'diff' || element.type === 'flow_module' ? element.title.replace(/_/g, ' ') : element.title}
+				{element.type === 'diff' || element.type === 'flow_module'
+					? element.title.replace(/_/g, ' ')
+					: element.title}
 			</button>
 		{/each}
 	{/if}
