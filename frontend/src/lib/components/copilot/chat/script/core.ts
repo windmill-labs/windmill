@@ -1,6 +1,6 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, emptySchema, isObject, toCamel } from '$lib/utils'
+import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
@@ -16,13 +16,11 @@ import {
 	createSearchHubScriptsTool,
 	type Tool,
 	executeTestRun,
-	buildSchemaForTool,
 	buildTestRunArgs,
 	buildContextString
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
-import { inferArgs } from '$lib/infer'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
