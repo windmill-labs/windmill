@@ -128,9 +128,11 @@
 	let initialObjectSelected = $state(
 		format === 'json-schema'
 			? 'json-schema'
-			: Object.keys(properties ?? {}).length == 0
-				? 'resource'
-				: 'custom-object'
+			: jsonSchemaResource
+				? 'custom-object'
+				: Object.keys(properties ?? {}).length == 0
+					? 'resource'
+					: 'custom-object'
 	)
 	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
 
@@ -327,6 +329,10 @@
 							on:selected={(e) => {
 								if (e.detail === 'editor') {
 									jsonSchemaResource = undefined
+								} else {
+									properties = undefined
+									order = undefined
+									requiredProperty = undefined
 								}
 							}}
 						>

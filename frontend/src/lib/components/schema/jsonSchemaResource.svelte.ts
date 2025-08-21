@@ -10,7 +10,6 @@ const jsonSchemaResourceSchema = z.object({
 })
 export async function getJsonSchemaFromResource(path: string, workspace: string) {
 	if (loadedJsonSchemaResources[workspace]?.[path]) {
-		console.debug('cache hit for', path)
 		return loadedJsonSchemaResources[workspace][path]
 	}
 
