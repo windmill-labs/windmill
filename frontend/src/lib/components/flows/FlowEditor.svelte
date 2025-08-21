@@ -90,7 +90,7 @@
 		job,
 		suspendStatus,
 		onDelete,
-		flowHasChanged,
+		flowHasChanged
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -107,7 +107,8 @@
 	$effect(() => {
 		const options: FlowOptions = {
 			currentFlow: flowStore.val,
-			lastDeployedFlow: savedFlow?.draft,
+			lastDeployedFlow: savedFlow,
+			lastSavedFlow: savedFlow?.draft,
 			path: savedFlow?.path,
 			modules: flowStore.val.value.modules
 		}

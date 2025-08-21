@@ -128,7 +128,7 @@ class AIChatManager {
 		return (
 			estimatedTokens >
 			modelContextWindow -
-			Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
 	}
 
@@ -558,8 +558,8 @@ class AIChatManager {
 					onNewToken: (token: string) => {
 						reply += token
 					},
-					onMessageEnd: () => { },
-					setToolStatus: () => { }
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
 				},
 				systemMessage
 			}
@@ -649,7 +649,10 @@ class AIChatManager {
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW ? oldSelectedContext : undefined,
+					contextElements:
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+							? oldSelectedContext
+							: undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
@@ -825,7 +828,12 @@ class AIChatManager {
 		this.sendRequest()
 	}
 
-	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number, moduleId?: string) => {
+	addSelectedLinesToContext = (
+		lines: string,
+		startLine: number,
+		endLine: number,
+		moduleId?: string
+	) => {
 		if (!this.open) {
 			this.toggleOpen()
 		}
@@ -957,15 +965,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-							diffMode: currentEditor.diffMode,
-							lastDeployedCode: currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
+								diffMode: currentEditor.diffMode,
+								lastDeployedCode: currentEditor.lastDeployedCode,
+								lastSavedCode: undefined
+							}
 						: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
+								diffMode: false,
+								lastDeployedCode: undefined,
+								lastSavedCode: undefined
+							}
 
 				return {
 					args: moduleState?.previewArgs ?? {},
@@ -992,10 +1000,12 @@ class AIChatManager {
 			this.scriptEditorOptions = undefined
 		}
 
-		untrack(() => this.contextManager?.setSelectedModuleContext(
-			selectedId,
-			untrack(() => this.contextManager.getAvailableContext())
-		))
+		untrack(() =>
+			this.contextManager?.setSelectedModuleContext(
+				selectedId,
+				untrack(() => this.contextManager.getAvailableContext())
+			)
+		)
 
 		return () => {
 			this.scriptEditorOptions = undefined

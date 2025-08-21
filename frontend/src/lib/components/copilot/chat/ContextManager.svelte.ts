@@ -25,6 +25,7 @@ export interface FlowOptions {
 	lastDeployedFlow?: Flow
 	path: string | undefined
 	modules: FlowModule[]
+	lastSavedFlow?: Flow
 }
 
 export default class ContextManager {
@@ -65,7 +66,7 @@ export default class ContextManager {
 	}
 
 	async updateAvailableContextForFlow(
-		flowOptions: FlowOptions | undefined,
+		flowOptions: FlowOptions,
 		dbSchemas: DBSchemas,
 		workspace: string,
 		toolSupport: boolean,
@@ -80,22 +81,31 @@ export default class ContextManager {
 			let newAvailableContext: ContextElement[] = []
 
 			// Add diff context if we have a deployed flow version
-			if (flowOptions?.lastDeployedFlow && flowOptions?.currentFlow) {
-				const deployedFlowString = JSON.stringify(flowOptions.lastDeployedFlow, null, 2)
-				const currentFlowString = JSON.stringify(flowOptions.currentFlow, null, 2)
-				
-				if (deployedFlowString !== currentFlowString) {
-					newAvailableContext.push({
-						type: 'diff',
-						title: 'diff_with_last_deployed_version',
-						content: deployedFlowString,
-						diff: diffLines(deployedFlowString, currentFlowString),
-						lang: 'bunnative' // Use a generic lang for flow diffs
-					})
-				}
+			const deployedFlowString = JSON.stringify(flowOptions.lastDeployedFlow, null, 2)
+			const savedFlowString = JSON.stringify(flowOptions.lastSavedFlow, null, 2)
+			const currentFlowString = JSON.stringify(flowOptions.currentFlow, null, 2)
+
+			if (currentFlowString && deployedFlowString && deployedFlowString !== currentFlowString) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_deployed_version',
+					content: deployedFlowString,
+					diff: diffLines(deployedFlowString, currentFlowString),
+					lang: 'graphql' // irrelevant, but needed for the diff component
+				})
 			}
 
-			for (const module of flowOptions?.modules ?? []) {
+			if (currentFlowString && savedFlowString && savedFlowString !== currentFlowString) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_saved_draft',
+					content: savedFlowString,
+					diff: diffLines(savedFlowString, currentFlowString),
+					lang: 'graphql' // irrelevant, but needed for the diff component
+				})
+			}
+
+			for (const module of flowOptions.modules) {
 				newAvailableContext.push({
 					type: 'flow_module',
 					id: module.id,
@@ -121,20 +131,19 @@ export default class ContextManager {
 				}
 			}
 
-
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 
 			// Filter selected context to only include available items
-			newSelectedContext = newSelectedContext.filter(
-				(c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
-			).map((c) =>
-				c.type === 'db' && dbSchemas[c.title]
-					? {
-						...c,
-						schema: dbSchemas[c.title]
-					}
-					: c
-			)
+			newSelectedContext = newSelectedContext
+				.filter((c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title))
+				.map((c) =>
+					c.type === 'db' && dbSchemas[c.title]
+						? {
+								...c,
+								schema: dbSchemas[c.title]
+							}
+						: c
+				)
 
 			this.availableContext = newAvailableContext
 			this.selectedContext = newSelectedContext
@@ -244,15 +253,15 @@ export default class ContextManager {
 				.map((c) =>
 					c.type === 'code'
 						? {
-							...c,
-							content: scriptOptions.code,
-							title: this.getContextCodePath(scriptOptions)
-						}
+								...c,
+								content: scriptOptions.code,
+								title: this.getContextCodePath(scriptOptions)
+							}
 						: c.type === 'db' && dbSchemas[c.title]
 							? {
-								...c,
-								schema: dbSchemas[c.title]
-							}
+									...c,
+									schema: dbSchemas[c.title]
+								}
 							: c
 				)
 
@@ -283,9 +292,7 @@ export default class ContextManager {
 		const title = moduleId ? `[${moduleId}] L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
 		if (
 			!this.scriptOptions ||
-			this.selectedContext.find(
-				(c) => c.type === 'code_piece' && c.title === title
-			)
+			this.selectedContext.find((c) => c.type === 'code_piece' && c.title === title)
 		) {
 			return
 		}
@@ -323,14 +330,14 @@ export default class ContextManager {
 			...(options.withCode === false ? [] : [codeContext]),
 			...(options.withDiff
 				? [
-					{
-						type: 'diff' as const,
-						title: 'diff_with_last_deployed_version',
-						content: this.scriptOptions.lastDeployedCode ?? '',
-						diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
-						lang: this.scriptOptions.lang
-					}
-				]
+						{
+							type: 'diff' as const,
+							title: 'diff_with_last_deployed_version',
+							content: this.scriptOptions.lastDeployedCode ?? '',
+							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
+							lang: this.scriptOptions.lang
+						}
+					]
 				: [])
 		]
 	}
@@ -357,22 +364,28 @@ export default class ContextManager {
 			contextElements:
 				m.role !== 'tool' && m.contextElements
 					? m.contextElements.map((c) =>
-						c.type === 'db'
-							? {
-								type: 'db',
-								title: c.title,
-								schema: dbSchemas[c.title]
-							}
-							: c
-					)
+							c.type === 'db'
+								? {
+										type: 'db',
+										title: c.title,
+										schema: dbSchemas[c.title]
+									}
+								: c
+						)
 					: undefined
 		}))
 	}
 
-	setSelectedModuleContext(moduleId: string | undefined, availableContext: ContextElement[] | undefined) {
+	setSelectedModuleContext(
+		moduleId: string | undefined,
+		availableContext: ContextElement[] | undefined
+	) {
 		if (availableContext && moduleId) {
 			const module = availableContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
-			if (module && !this.selectedContext.find((c) => c.type === 'flow_module' && c.id === moduleId)) {
+			if (
+				module &&
+				!this.selectedContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
+			) {
 				this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
 				this.selectedContext = [module, ...this.selectedContext]
 			}

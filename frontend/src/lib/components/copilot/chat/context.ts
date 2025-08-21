@@ -8,7 +8,8 @@ export const ContextIconMap = {
 	error: TriangleAlert,
 	db: Database,
 	diff: Diff,
-	code_piece: Code,
+	code_piece: Code
+	// flow_module type is handled with FlowModuleIcon
 }
 
 export interface CodeElement {
@@ -60,4 +61,10 @@ export interface FlowModule {
 	}
 }
 
-export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement | FlowModule
+export type ContextElement =
+	| CodeElement
+	| ErrorElement
+	| DBElement
+	| DiffElement
+	| CodePieceElement
+	| FlowModule
