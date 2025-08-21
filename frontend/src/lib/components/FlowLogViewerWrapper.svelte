@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import { type Writable } from 'svelte/store'
 	import type { GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import { untrack } from 'svelte'
@@ -8,8 +7,8 @@
 	import { readFieldsRecursively } from '$lib/utils'
 
 	interface Props {
-		job: Job
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		job: Partial<Job>
+		localModuleStates: Record<string, GraphModuleState>
 		workspaceId: string | undefined
 		render: boolean
 		onSelectedIteration: (
@@ -17,9 +16,17 @@
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
+		mode?: 'flow' | 'aiagent'
 	}
 
-	let { job, localModuleStates, workspaceId, render, onSelectedIteration }: Props = $props()
+	let {
+		job,
+		localModuleStates,
+		workspaceId,
+		render,
+		onSelectedIteration,
+		mode = 'flow'
+	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
 	let expandedRows: Record<string, boolean> = $state({})
@@ -44,7 +51,7 @@
 	}
 
 	function getSelectedIteration(stepId: string): number {
-		return $localModuleStates[stepId]?.selectedForloopIndex ?? 0
+		return localModuleStates[stepId]?.selectedForloopIndex ?? 0
 	}
 
 	function toggleExpandAll() {
@@ -69,5 +76,6 @@
 		{getSelectedIteration}
 		flowId="root"
 		flowStatus={undefined}
+		{mode}
 	/>
 </div>

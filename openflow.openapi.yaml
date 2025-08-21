@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.527.1
+  version: 1.530.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -222,6 +222,7 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
+        - $ref: "#/components/schemas/AiAgent"
       discriminator:
         propertyName: type
         mapping:
@@ -233,6 +234,7 @@ components:
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
+          aiagent: "#/components/schemas/AiAgent"
 
     RawScript:
       type: object
@@ -458,6 +460,28 @@ components:
         - branches
         - type
 
+    AiAgent:
+      type: object
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        type:
+          type: string
+          enum:
+            - aiagent
+        parallel:
+          type: boolean
+      required:
+        - tools
+        - type
+        - input_transforms
+
     Identity:
       type: object
       properties:
@@ -492,7 +516,6 @@ components:
               properties:
                 parent_module:
                   type: string
-
         retry:
           type: object
           properties:
@@ -585,4 +608,38 @@ components:
             format: uuid
         skipped:
           type: boolean
+        agent_actions:
+          type: array
+          items:
+            type: object
+            oneOf:
+              - type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  type:
+                    type: string
+                    enum: [tool_call]
+                  module_id:
+                    type: string
+                required:
+                  - job_id
+                  - function_name
+                  - type
+                  - module_id
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [message]
+                required:
+                  - content
+                  - type
+        agent_actions_success:
+          type: array
+          items:
+            type: boolean
       required: [type]

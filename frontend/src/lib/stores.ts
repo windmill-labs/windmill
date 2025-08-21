@@ -158,6 +158,7 @@ export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
 export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
 export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
@@ -165,6 +166,7 @@ export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const relativeLineNumbers = writable<boolean>(getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true')
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )

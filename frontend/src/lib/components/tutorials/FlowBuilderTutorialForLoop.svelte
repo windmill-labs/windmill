@@ -26,7 +26,7 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const id = nextId($flowStateStore, flowStore.val)
+		const id = nextId(flowStateStore.val, flowStore.val)
 		const index = options?.indexToInsertAt ?? flowStore.val.value.modules.length
 
 		let tempId = ''
@@ -109,7 +109,7 @@
 						'We can refer to the result of previous steps using the results object: results.a or use static values like [1,2,3] in this case.',
 					onNextClick: () => {
 						updateFlowModuleById(flowStore.val, id, (module) => {
-							const newId = nextId($flowStateStore, flowStore.val)
+							const newId = nextId(flowStateStore.val, flowStore.val)
 							tempId = newId
 
 							if (module.value.type === 'forloopflow') {
@@ -134,8 +134,8 @@
 								]
 							}
 
-							$flowStateStore[newId] = emptyFlowModuleState()
-							let schema = $flowStateStore[newId].schema ?? { properties: {} }
+							flowStateStore.val[newId] = emptyFlowModuleState()
+							let schema = flowStateStore.val[newId].schema ?? { properties: {} }
 							schema.properties = {
 								x: {
 									type: 'string',

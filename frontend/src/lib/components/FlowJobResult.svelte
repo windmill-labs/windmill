@@ -2,6 +2,8 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
+	import type { CompletedJob, FlowModule, Job } from '$lib/gen'
+	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -18,6 +20,12 @@
 		refreshLog?: boolean
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
+		aiAgentStatus?: {
+			tools: FlowModule[]
+			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
+			storedToolCallJobs?: Record<number, Job>
+			onToolJobLoaded?: (job: Job, idx: number) => void
+		}
 	}
 
 	let {
@@ -33,7 +41,8 @@
 		tag = undefined,
 		workspaceId = undefined,
 		downloadLogs = true,
-		tagLabel = undefined
+		tagLabel = undefined,
+		aiAgentStatus = undefined
 	}: Props = $props()
 </script>
 
@@ -54,13 +63,17 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
-		<LogViewer
-			{tagLabel}
-			download={downloadLogs}
-			content={logs ?? ''}
-			{jobId}
-			isLoading={waitingForExecutor}
-			{tag}
-		/>
+		{#if aiAgentStatus}
+			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} />
+		{:else}
+			<LogViewer
+				{tagLabel}
+				download={downloadLogs}
+				content={logs ?? ''}
+				{jobId}
+				isLoading={waitingForExecutor}
+				{tag}
+			/>
+		{/if}
 	</div>
 </div>

@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
-import { workspaceStore } from '$lib/stores'
+import { copilotSessionModel, workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -89,11 +89,11 @@ export async function processToolCall<T>({
 
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(needsConfirmation ? { content: 'Waiting for confirmation...' } : {}),
+			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage ?? "Waiting for confirmation..." } : {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails
+			showDetails: tool?.showDetails,
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -173,6 +173,7 @@ export interface Tool<T> {
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
+	confirmationMessage?: string
 	showDetails?: boolean
 }
 
@@ -252,6 +253,32 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		return JSON.stringify(results)
 	}
 })
+
+export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<boolean> {
+	try {
+		const schema = await schemaBuilder()
+
+		// if schema properties contains values different from '^[a-zA-Z0-9_.-]{1,64}$'
+		const invalidProperties = Object.keys(schema.properties ?? {}).filter((key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key))
+		if (invalidProperties.length > 0) {
+			console.warn(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
+			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
+		}
+
+		toolDef.function.parameters = { ...schema, additionalProperties: false }
+		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
+		const model = get(copilotSessionModel)?.provider
+		if (model === 'openai' || model === 'azure_openai') {
+			toolDef.function.strict = false
+		}
+		return true
+	} catch (error) {
+		console.error('Error building schema for tool', error)
+		// fallback to schema with args as a JSON string
+		toolDef.function.parameters = { type: 'object', properties: { args: { type: 'string', description: 'JSON string containing the arguments for the tool' } }, additionalProperties: false, strict: false, required: ['args'] }
+		return false
+	}
+}
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
@@ -362,6 +389,20 @@ function getErrorMessage(result: unknown): string {
 	return 'Unknown error'
 }
 
+// Build test run args based on the tool definition, if it contains a fallback schema
+export async function buildTestRunArgs(args: any, toolDef: ChatCompletionTool): Promise<any> {
+	let parsedArgs = args
+	// if the schema is the fallback schema, parse the args as a JSON string
+	if ((toolDef.function.parameters as any).properties?.args?.description === 'JSON string containing the arguments for the tool') {
+		try {
+			parsedArgs = JSON.parse(args.args)
+		} catch (error) {
+			console.error('Error parsing arguments for tool', error)
+		}
+	}
+	return parsedArgs
+}
+
 // Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	try {
@@ -371,8 +412,10 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const jobId = await config.jobStarter()
 
+		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
+
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test started, waiting for completion...`
+			content: `${contextName} test started, waiting for completion...`
 		})
 
 		const job = await pollJobCompletion(
@@ -383,7 +426,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		)
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
+			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
@@ -393,10 +436,10 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${config.contextName} test execution failed`,
+			content: `Test execution failed`,
 			error: errorMessage
 		})
-		throw new Error(`Failed to execute ${config.contextName} test run: ${errorMessage}`)
+		throw new Error(`Failed to execute test run: ${errorMessage}`)
 	}
 }
 

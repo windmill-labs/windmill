@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, type StateStore } from '$lib/utils'
 	import {
 		AlertTriangle,
 		Bed,
@@ -18,7 +18,7 @@
 		Play,
 		Loader2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -158,37 +158,39 @@
 		id: string | undefined,
 		pickableIds: Record<string, any> | undefined,
 		flowPropPickerConfig: any | undefined,
-		flowStateStore: FlowState | undefined
+		flowStateStore: StateStore<FlowState> | undefined
 	) {
 		if (!id) return
 		connectingData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? pickableIds[id]
-				: (flowStateStore?.[id]?.previewResult ?? {})
+				: (flowStateStore?.val?.[id]?.previewResult ?? {})
 	}
 	$effect(() => {
-		const args = [id, pickableIds, $flowPropPickerConfig, $flowStateStore] as const
-		untrack(() => updateConnectingData(...args))
+		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
 	})
 
 	function updateLastJob(flowStateStore: any | undefined) {
-		if (!flowStateStore || !id || flowStateStore[id]?.previewResult === 'never tested this far') {
+		if (
+			!flowStateStore ||
+			!id ||
+			flowStateStore.val[id]?.previewResult === 'never tested this far'
+		) {
 			return
 		}
 		lastJob = {
-			id: flowStateStore[id]?.previewJobId ?? '',
-			result: flowStateStore[id]?.previewResult,
+			id: flowStateStore.val[id]?.previewJobId ?? '',
+			result: flowStateStore.val[id]?.previewResult,
 			type: 'CompletedJob' as const,
-			workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
-			success: flowStateStore[id]?.previewSuccess ?? undefined
+			success: flowStateStore.val[id]?.previewSuccess ?? undefined
 		}
 	}
 
 	$effect(() => {
 		if (testJob && testJob.type === 'CompletedJob') {
 			lastJob = $state.snapshot(testJob)
-		} else if (flowStateStore && $flowStateStore) {
-			untrack(() => updateLastJob($flowStateStore))
+		} else if (id) {
+			updateLastJob(flowStateStore)
 		}
 	})
 
@@ -268,7 +270,7 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore?.[id]}
+	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}

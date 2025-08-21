@@ -1,10 +1,10 @@
-import { type Writable, get } from 'svelte/store'
 import type { FlowState } from './flows/flowState'
 import { NEVER_TESTED_THIS_FAR } from './flows/models'
 import { JobService, type Flow, type FlowModule } from '$lib/gen'
 import { dfs } from './flows/dfs'
 import { getContext, setContext } from 'svelte'
 import pLimit from 'p-limit'
+import type { StateStore } from '$lib/utils'
 
 export type stepState = {
 	initial?: boolean
@@ -76,7 +76,7 @@ export class StepHistoryLoader {
 
 	async loadIndividualStepsStates(
 		flow: Flow,
-		flowStateStore: Writable<FlowState>,
+		flowStateStore: StateStore<FlowState>,
 		workspaceId: string,
 		initialPath: string,
 		path: string
@@ -84,7 +84,7 @@ export class StepHistoryLoader {
 		// Collect all modules that need loading
 		const modulesToLoad: FlowModule[] = []
 		dfs(flow.value.modules, (module) => {
-			const prev = get(flowStateStore)[module.id]?.previewResult
+			const prev = flowStateStore.val[module.id]?.previewResult
 			if (!prev || prev === NEVER_TESTED_THIS_FAR) {
 				modulesToLoad.push(module)
 				// Initialize step state if it doesn't exist
@@ -128,16 +128,12 @@ export class StepHistoryLoader {
 					})
 
 					if ('result' in getJobResult) {
-						flowStateStore.update((state) => ({
-							...state,
-							[module.id]: {
-								...(state[module.id] ?? {}),
-								previewResult: getJobResult.result,
-								previewJobId: previousJobId[0].id,
-								previewWorkspaceId: previousJobId[0].workspace_id,
-								previewSuccess: getJobResult.success
-							}
-						}))
+						flowStateStore.val[module.id] = {
+							...(flowStateStore.val[module.id] ?? {}),
+							previewResult: getJobResult.result,
+							previewJobId: previousJobId[0].id,
+							previewSuccess: getJobResult.success
+						}
 						this.#stepStates[module.id].initial =
 							this.#stepStates[module.id].initial !== undefined
 								? this.#stepStates[module.id].initial

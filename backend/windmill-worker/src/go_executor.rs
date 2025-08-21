@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file, Connection},
+    worker::{save_cache, write_file, Connection, GoAnnotations},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -464,6 +464,7 @@ pub async fn install_go_dependencies(
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    let anns = GoAnnotations::parse(code);
     if raw_deps {
         let go_mod =
             if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
@@ -529,7 +530,11 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
-    let hash = format!("go-{}", hash);
+    let hash = format!(
+        "go{}-{}",
+        if anns.go1_22_compat { "1.22" } else { "" },
+        hash
+    );
 
     let mut skip_tidy = has_sum;
 
@@ -579,6 +584,11 @@ pub async fn install_go_dependencies(
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // If annotation used we want to call tidy with special flag to pin go to 1.22
+    // The reason for this that at some point we had to jump from go 1.22 to 1.25 and this addds backward compatibility.
+    if anns.go1_22_compat && mod_command == "tidy" {
+        child_cmd.args(vec!["-go", "1.22"]);
+    }
 
     #[cfg(windows)]
     set_windows_env_vars(&mut child_cmd);

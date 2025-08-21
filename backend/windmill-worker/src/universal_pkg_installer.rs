@@ -14,6 +14,7 @@ use windmill_common::{error, worker::Connection};
 
 use crate::{common::start_child_process, DISABLE_NSJAIL};
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct RequiredDependency<T: Clone + Send + Sync> {
     /// Expected directory of dependency in cache
