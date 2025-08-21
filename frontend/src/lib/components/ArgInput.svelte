@@ -6,8 +6,10 @@
 	import {
 		setInputCat as computeInputCat,
 		debounce,
+		emptySchema,
 		emptyString,
 		getSchemaFromProperties,
+		sendUserToast,
 		type DynamicSelect
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
@@ -42,6 +44,9 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 	import { base } from '$lib/base'
+	import { z } from 'zod'
+	import { AppService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		label?: string
@@ -73,6 +78,7 @@
 		autofocus?: boolean | null
 		compact?: boolean
 		password?: boolean
+		jsonSchemaResource?: string
 		pickForField?: string | undefined
 		variableEditor?: VariableEditor | undefined
 		itemPicker?: ItemPicker | undefined
@@ -139,6 +145,7 @@
 		autofocus = null,
 		compact = false,
 		password = false,
+		jsonSchemaResource = undefined,
 		pickForField = $bindable(undefined),
 		variableEditor = undefined,
 		itemPicker = undefined,
@@ -432,6 +439,29 @@
 		e.stopPropagation()
 	}
 
+	const jsonSchemaResourceSchema = z.object({
+		schema: z.record(z.string(), z.any())
+	})
+	async function getJsonSchemaFromResource(path: string) {
+		try {
+			const resourceValue = await AppService.getPublicResource({
+				path,
+				workspace: workspace ?? $workspaceStore ?? ''
+			})
+
+			const parsedResource = jsonSchemaResourceSchema.safeParse(resourceValue)
+			if (parsedResource.success) {
+				return parsedResource.data.schema
+			} else {
+				console.error('Invalid JSON schema resource:', parsedResource.error)
+				sendUserToast('Invalid JSON schema resource: ' + parsedResource.error, true)
+			}
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Could not load JSON schema resource: ' + err, true)
+		}
+	}
+
 	let redraw = $state(0)
 	let itemsLimit = $state(50)
 
@@ -658,6 +688,47 @@
 				{appPath}
 				{computeS3ForceViewerPolicies}
 			/>
+		{:else if inputCat == 'object' && format == 'json-schema'}
+			{#await import('$lib/components/EditableSchemaForm.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					bind:schema={
+						() =>
+							value && typeof value === 'object' && !Array.isArray(value) ? value : emptySchema(),
+						(v) => {
+							value = v
+						}
+					}
+					isFlowInput
+					editTab="inputEditor"
+					noPreview
+					addPropertyInEditorTab
+				/>
+			{/await}
+		{:else if inputCat == 'object' && jsonSchemaResource}
+			{#await getJsonSchemaFromResource(jsonSchemaResource)}
+				<Loader2 class="animate-spin" />
+			{:then schema}
+				{#if !schema || !schema.properties}
+					{#await import('$lib/components/JsonEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+					{/await}
+				{:else}
+					<div class="py-4 pr-2 pl-6 border rounded-md w-full">
+						<SchemaForm
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							{prettifyHeader}
+							{schema}
+							bind:args={value}
+						/>
+					</div>
+				{/if}
+			{/await}
 		{:else if inputCat == 'list' && !isListJson}
 			<div class="w-full flex gap-4">
 				<div class="w-full">

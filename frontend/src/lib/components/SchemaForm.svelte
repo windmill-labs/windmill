@@ -304,6 +304,7 @@
 								order={formerProperty?.order}
 								nestedRequired={formerProperty?.required}
 								itemsType={formerProperty?.items}
+								jsonSchemaResource={formerProperty?.['x-json-schema-resource']}
 								disabled={disabledArgs.includes(argName) || disabled || formerProperty?.disabled}
 								{compact}
 								{variableEditor}
@@ -364,6 +365,7 @@
 									oneOf={schema.properties[argName].oneOf}
 									required={schema?.required?.includes(argName)}
 									pattern={schema.properties[argName].pattern}
+									jsonSchemaResource={schema.properties[argName]['x-json-schema-resource']}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
 										structuredClone($state.snapshot(schema.properties[argName].default))}
