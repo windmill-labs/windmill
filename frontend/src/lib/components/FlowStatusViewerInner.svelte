@@ -44,6 +44,11 @@
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
 	import { writable } from 'svelte/store'
+	import {
+		AI_TOOL_CALL_PREFIX,
+		AI_TOOL_MESSAGE_PREFIX,
+		getToolCallId
+	} from './graph/renderers/nodes/AIToolNode.svelte'
 
 	let {
 		flowStateStore,
@@ -507,6 +512,29 @@
 						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
 					})
 				}
+
+				if (mod.agent_actions && mod.id) {
+					setModuleState(mod.id, {
+						agent_actions: mod.agent_actions
+					})
+					mod.agent_actions.forEach((action, idx) => {
+						if (mod.id) {
+							if (action.type == 'tool_call') {
+								const toolCallId = getToolCallId(idx, mod.id, action.module_id)
+								const success = mod.agent_actions_success?.[idx]
+								setModuleState(toolCallId, {
+									job_id: action.job_id,
+									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+								})
+							} else if (action.type == 'message') {
+								const toolCallId = getToolCallId(idx, mod.id)
+								setModuleState(toolCallId, {
+									type: 'Success'
+								})
+							}
+						}
+					})
+				}
 			})
 		}
 	}
@@ -699,7 +727,8 @@
 						flow_jobs_success: mod.flow_jobs_success,
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
-						skipped: mod.skipped
+						skipped: mod.skipped,
+						agent_actions: mod.agent_actions
 						// retries: flowStateStore?.raw_flow
 					},
 					force
@@ -883,6 +912,11 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 
 	let storedListJobs: Record<number, Job> = $state({})
+
+	let storedToolCallJobs: Record<number, Job> = $state({})
+	let selectedToolCall: number | undefined = $state(undefined)
+	let toolCallIndicesToLoad: number[] = $state([])
+
 	let wrapperHeight: number = $state(0)
 
 	function removeFailureNode(id: string, parent_module: any) {
@@ -903,7 +937,7 @@
 		modules: FlowModule[],
 		expandedSubflows: Record<string, FlowModule[]>
 	): string[] {
-		const ids = dfs(modules, (x) => x.id)
+		const ids = dfs(modules, (x) => x.id, { skipToolNodes: true })
 
 		function rec(ids: string[], prefix: string | undefined): string[] {
 			return ids.concat(
@@ -1333,6 +1367,75 @@
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 										{globalIterationBounds}
 									/>
+									{#if mod.agent_actions && mod.agent_actions.length > 0}
+										{#each mod.agent_actions as agentAction, j}
+											{#if agentAction.type === 'tool_call' && mod.id}
+												{@const toolCallId = getToolCallId(j, mod.id, agentAction.module_id)}
+												{@const isSelected = selectedToolCall === j}
+												<Button
+													variant={isSelected ? 'contained' : 'border'}
+													color={mod.agent_actions_success?.[j] === false
+														? 'red'
+														: isSelected
+															? 'dark'
+															: 'light'}
+													btnClasses="w-full flex justify-start"
+													on:click={async () => {
+														if (selectedToolCall == j) {
+															selectedToolCall = undefined
+														} else {
+															selectedToolCall = j
+														}
+													}}
+													endIcon={{
+														icon: ChevronDown,
+														classes: isSelected ? '!rotate-180' : ''
+													}}
+												>
+													<span class="truncate font-mono">
+														Tool call: {agentAction.function_name}
+													</span>
+												</Button>
+												{#if isSelected || storedToolCallJobs[j] || toolCallIndicesToLoad.includes(j)}
+													<FlowStatusViewerInner
+														topModuleStates={getTopModuleStates}
+														{refreshGlobal}
+														updateRecursiveRefreshFn={updateRecursiveRefreshInner}
+														globalModuleStates={[localModuleStates, ...globalModuleStates]}
+														globalDurationStatuses={[
+															localDurationStatuses,
+															...globalDurationStatuses
+														]}
+														render={selected == 'sequence' && render && isSelected}
+														{workspaceId}
+														{prefix}
+														{updateGlobalRefresh}
+														{subflowParentsGlobalModuleStates}
+														{subflowParentsDurationStatuses}
+														{isSelectedBranch}
+														jobId={agentAction.job_id}
+														job={storedToolCallJobs[j]}
+														initialJob={storedToolCallJobs[j]}
+														{reducedPolling}
+														onJobsLoaded={({ job, force }) => {
+															storedToolCallJobs[j] = job
+															onJobsLoadedInner({ id: toolCallId } as FlowStatusModule, job, force)
+														}}
+														loadExtraLogs={(logs) => {
+															setModuleState(toolCallId, {
+																logs
+															})
+														}}
+														{onResultStreamUpdate}
+														graphTabOpen={selected == 'graph' && graphTabOpen}
+														isNodeSelected={localModuleStates?.[toolCallId]?.job_id ==
+															agentAction.job_id}
+														{globalIterationBounds}
+													/>
+												{/if}
+											{/if}
+										{/each}
+									{/if}
 								{/if}
 							{:else}
 								<ModuleStatus
@@ -1378,7 +1481,6 @@
 								{/if}
 							{/each}
 						</div>
-
 						<FlowGraphV2
 							{selectedId}
 							triggerNode={true}
@@ -1400,9 +1502,19 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === e)
+										const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
+											(m) => m?.id === id
+										)
 										stepDetail = mod
 										selectedNode = e
+										if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
+											const [_prefix, _agentModuleId, j, _toolModuleId] = e.split('-')
+											const jIdx = Number(j)
+											if (!toolCallIndicesToLoad.includes(jIdx)) {
+												toolCallIndicesToLoad.push(jIdx)
+											}
+										}
 									}
 								} else {
 									stepDetail = e
@@ -1454,9 +1566,12 @@
 							/>
 						{:else if rightColumnSelect == 'node_status'}
 							<div class="pt-2 grow flex flex-col">
-								{#if selectedNode}
+								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
+									<div class="pt-2 px-4 pb-4">
+										<Alert type="info" title="Message output is available on the AI agent node" />
+									</div>
+								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
-
 									{#if selectedNode == 'end'}
 										<FlowJobResult
 											tagLabel={customUi?.tagLabel}
@@ -1484,6 +1599,10 @@
 											<p class="p-2 text-secondary">No arguments</p>
 										{/if}
 									{:else if node}
+										{@const module =
+											stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
+										{@const agentTools =
+											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
 										{#if node.flow_jobs_results}
 											<span class="pl-1 text-tertiary"
 												>Result of step as collection of all subflows</span
@@ -1547,6 +1666,25 @@
 											tag={node.tag}
 											logs={node.logs}
 											downloadLogs={!hideDownloadLogs}
+											aiAgentStatus={agentTools &&
+											node.job_id &&
+											(node.type === 'Success' || node.type === 'Failure')
+												? {
+														tools: agentTools,
+														agentJob: {
+															id: node.job_id,
+															result: node.result,
+															logs: node.logs,
+															args: node.args,
+															success: node.type === 'Success',
+															type: 'CompletedJob'
+														},
+														storedToolCallJobs,
+														onToolJobLoaded: (job, idx) => {
+															storedToolCallJobs[idx] = job
+														}
+													}
+												: undefined}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

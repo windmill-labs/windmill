@@ -8,7 +8,15 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { extractCodeFromMarkdown, getLatestAssistantMessage, processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
+import {
+	extractCodeFromMarkdown,
+	getLatestAssistantMessage,
+	processToolCall,
+	type DisplayMessage,
+	type Tool,
+	type ToolCallbacks,
+	type ToolDisplayMessage
+} from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -80,7 +88,9 @@ class AIChatManager {
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(undefined)
+	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
+		undefined
+	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
@@ -660,7 +670,10 @@ class AIChatManager {
 			}
 			switch (this.mode) {
 				case AIMode.FLOW:
-					userMessage = prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
+					userMessage = prepareFlowUserMessage(
+						oldInstructions,
+						this.flowAiChatHelpers!.getFlowAndSelectedId()
+					)
 					break
 				case AIMode.NAVIGATOR:
 					userMessage = prepareNavigatorUserMessage(oldInstructions)
@@ -923,7 +936,7 @@ class AIChatManager {
 			const module = getModule(id)
 
 			if (module && module.value.type === 'rawscript') {
-				const moduleState: FlowModuleState | undefined = flowStateStore.val[module.id]
+				const moduleState: FlowModuleState | undefined = flowStateStore[module.id]
 
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id

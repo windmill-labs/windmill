@@ -6,30 +6,35 @@ import {
 	getStepPropPicker,
 	type PickableProperties
 } from './previousResults'
-import { evalValue, type ModuleArgs } from './utils'
+import { evalValue } from './utils'
 
 export class TestSteps {
-	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
-	#steps = $state<Record<string, { value: any }>>({})
+	#stepsEvaluated = $state<Record<string, Record<string, any>>>({})
+	#steps = $state<Record<string, Record<string, any>>>({})
 
 	constructor() {}
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
-		if (!this.#steps[moduleId]) {
-			this.#steps[moduleId] = { value: {} }
-		}
-		this.#steps[moduleId].value = args
+		this.#steps[moduleId] = args
 	}
 
-	getStepArgs(moduleId: string): ModuleArgs | undefined {
+	getStepArgs(moduleId: string): Record<string, any> | undefined {
 		return this.#steps[moduleId]
 	}
 
+	getStepInputArgs(moduleId: string, argName: string): any | undefined {
+		return this.#steps[moduleId]?.[argName]
+	}
+
 	setStepArgs(moduleId: string, args: Record<string, any>) {
+		this.#steps[moduleId] = args
+	}
+
+	setStepInputArgs(moduleId: string, argName: string, value: any) {
 		if (!this.#steps[moduleId]) {
-			this.#steps[moduleId] = { value: {} }
+			this.#steps[moduleId] = {}
 		}
-		this.#steps[moduleId].value = args
+		this.#steps[moduleId][argName] = value
 	}
 
 	getStepArg(moduleId: string, argName: string): any | undefined {
@@ -38,26 +43,26 @@ export class TestSteps {
 
 	setEvaluatedStepArg(moduleId: string, argName: string, value: any) {
 		if (!this.#steps[moduleId]) {
-			this.#steps[moduleId] = { value: {} }
+			this.#steps[moduleId] = {}
 		}
 		if (!this.#stepsEvaluated[moduleId]) {
-			this.#stepsEvaluated[moduleId] = { value: {} }
+			this.#stepsEvaluated[moduleId] = {}
 		}
-		this.#steps[moduleId].value[argName] = $state.snapshot(value)
-		this.#stepsEvaluated[moduleId].value[argName] = $state.snapshot(value)
+		this.#steps[moduleId][argName] = $state.snapshot(value)
+		this.#stepsEvaluated[moduleId][argName] = $state.snapshot(value)
 	}
 
 	isArgManuallySet(moduleId: string, argName: string): boolean {
 		return (
-			JSON.stringify(this.#steps[moduleId]?.value?.[argName]) !==
-			JSON.stringify(this.#stepsEvaluated[moduleId]?.value?.[argName])
+			JSON.stringify(this.#steps[moduleId]?.[argName]) !==
+			JSON.stringify(this.#stepsEvaluated[moduleId]?.[argName])
 		)
 	}
 
 	getManuallyEditedArgs(moduleId: string): string[] {
 		const manuallyEditedArgs: string[] = []
 
-		const moduleArgs = this.#steps[moduleId]?.value ?? {}
+		const moduleArgs = this.#steps[moduleId] ?? {}
 
 		Object.keys(moduleArgs).forEach((argName) => {
 			if (this.isArgManuallySet(moduleId, argName)) {
@@ -101,8 +106,8 @@ export class TestSteps {
 		const pickableProperties = stepPropPicker.pickableProperties
 
 		const argSnapshot = $state.snapshot(evalValue(argName, modules[0], pickableProperties, false))
-		this.#stepsEvaluated[moduleId].value[argName] = argSnapshot
-		this.#steps[moduleId].value[argName] = structuredClone(argSnapshot)
+		this.#stepsEvaluated[moduleId][argName] = argSnapshot
+		this.#steps[moduleId][argName] = structuredClone(argSnapshot)
 	}
 
 	initializeFromSchema(
@@ -120,21 +125,21 @@ export class TestSteps {
 		const manuallyEditedArgs = this.getManuallyEditedArgs(mod.id)
 
 		if (!this.#steps[mod.id]) {
-			this.#steps[mod.id] = { value: {} }
+			this.#steps[mod.id] = {}
 		}
 		if (!this.#stepsEvaluated[mod.id]) {
-			this.#stepsEvaluated[mod.id] = { value: {} }
+			this.#stepsEvaluated[mod.id] = {}
 		}
-		this.#stepsEvaluated[mod.id].value = $state.snapshot(args)
+		this.#stepsEvaluated[mod.id] = $state.snapshot(args)
 
 		// Preserve manually edited args
 		const argsSnapshot = $state.snapshot(args)
 		Object.keys(argsSnapshot).forEach((key) => {
 			if (manuallyEditedArgs.includes(key)) {
-				argsSnapshot[key] = this.#steps[mod.id]?.value?.[key]
+				argsSnapshot[key] = this.#steps[mod.id]?.[key]
 			}
 		})
-		this.#steps[mod.id].value = argsSnapshot
+		this.#steps[mod.id] = argsSnapshot
 	}
 
 	updateStepArgs(
@@ -173,11 +178,11 @@ export class TestSteps {
 			return
 		}
 		const nargs = {}
-		Object.keys(this.#stepsEvaluated[moduleId]?.value ?? {}).forEach((key) => {
+		Object.keys(this.#stepsEvaluated[moduleId] ?? {}).forEach((key) => {
 			if (keys.includes(key)) {
-				nargs[key] = this.#stepsEvaluated[moduleId]?.value?.[key]
+				nargs[key] = this.#stepsEvaluated[moduleId]?.[key]
 			}
 		})
-		this.#stepsEvaluated[moduleId].value = nargs
+		this.#stepsEvaluated[moduleId] = nargs
 	}
 }
