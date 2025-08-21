@@ -28,6 +28,20 @@
 			: AI_TOOL_MESSAGE_PREFIX + '-' + agentModuleId + '-' + idx
 	}
 
+	function getComparableNode(node: Node & NodeLayout): Node & NodeLayout {
+		if (node.type === 'module' && node.data.module.value.type === 'aiagent') {
+			return {
+				...node,
+				data: {
+					...node.data,
+					module: $state.snapshot(node.data.module) // module is a proxy object so we need to snapshot to be able to compare
+				}
+			}
+		} else {
+			return node
+		}
+	}
+
 	export function computeAIToolNodes(
 		nodes: (Node & NodeLayout)[],
 		eventHandlers: GraphEventHandlers,
@@ -41,7 +55,7 @@
 		if (
 			computeAIToolNodesCache &&
 			!!flowModuleStates === computeAIToolNodesCache.hasFlowModuleStates &&
-			deepEqual(nodes, computeAIToolNodesCache.nodes)
+			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes)
 		) {
 			return computeAIToolNodesCache.ret
 		}
@@ -201,7 +215,7 @@
 		}
 
 		computeAIToolNodesCache = {
-			nodes,
+			nodes: nodes.map(getComparableNode),
 			hasFlowModuleStates: !!flowModuleStates,
 			ret
 		}
