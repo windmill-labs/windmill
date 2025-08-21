@@ -12,11 +12,11 @@ import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { 
-	createSearchHubScriptsTool, 
-	type Tool, 
-	executeTestRun, 
-	buildSchemaForTool, 
+import {
+	createSearchHubScriptsTool,
+	type Tool,
+	executeTestRun,
+	buildSchemaForTool,
 	buildTestRunArgs,
 	buildContextString
 } from '../shared'
@@ -354,7 +354,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
-	- After modifying the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected. If the user cancels the test run, do not try again and wait for the next user instruction.
+	- At the end of your reponse, if you modified or suggested changes to the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -453,7 +453,6 @@ WINDMILL LANGUAGE CONTEXT:
 {lang_context}
 
 `
-
 
 export function prepareScriptSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
@@ -558,7 +557,12 @@ async function formatDBSchema(dbSchema: DBSchema) {
 }
 
 export interface ScriptChatHelpers {
-	getScriptOptions: () => { code: string; lang: ScriptLang | 'bunnative'; path: string; args: Record<string, any> }
+	getScriptOptions: () => {
+		code: string
+		lang: ScriptLang | 'bunnative'
+		path: string
+		args: Record<string, any>
+	}
 	getLastSuggestedCode: () => string | undefined
 	applyCode: (code: string, applyAll?: boolean) => void
 }
@@ -566,14 +570,14 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Searching resource types for "' + args.query + '"...'
+		})
 		const lang = helpers.getScriptOptions().lang
-		const formattedResourceTypes = await getFormattedResourceTypes(
-			lang,
-			args.query,
-			workspace
-		)
-		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + args.query + '"' })
+		const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Retrieved resource types for "' + args.query + '"'
+		})
 		return formattedResourceTypes
 	}
 }
@@ -586,7 +590,9 @@ export function createDbSchemaTool<T>(): Tool<T> {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
 			}
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Getting database schema for ' + args.resourcePath + '...'
+			})
 			const resource = await ResourceService.getResource({
 				workspace: workspace,
 				path: args.resourcePath
@@ -608,7 +614,9 @@ export function createDbSchemaTool<T>(): Tool<T> {
 				throw new Error('Database not found')
 			}
 			const stringSchema = await formatDBSchema(db)
-			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved database schema for ' + args.resourcePath
+			})
 			return stringSchema
 		}
 	}
@@ -782,25 +790,28 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 			properties: {
 				args: {
 					type: 'object',
-					description: 'Arguments to pass to the script (optional, uses current editor args if not provided)'
+					description:
+						'Arguments to pass to the script (optional, uses current editor args if not provided)'
 				}
 			},
 			required: []
 		}
-	},
+	}
 }
 
 export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	def: TEST_RUN_SCRIPT_TOOL,
-	fn: async function({ args, workspace, helpers, toolCallbacks, toolId }) {
+	fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
-		
+
 		if (!scriptOptions) {
-			toolCallbacks.setToolStatus(toolId, { 
+			toolCallbacks.setToolStatus(toolId, {
 				content: 'No script available to test',
 				error: 'No script found in current context'
 			})
-			throw new Error('No script code available to test. Please ensure you have a script open in the editor.')
+			throw new Error(
+				'No script code available to test. Please ensure you have a script open in the editor.'
+			)
 		}
 
 		let codeToTest = scriptOptions.code
@@ -810,7 +821,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
 			codeToTest = lastSuggestedCode
 			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-			
+
 			// Apply the suggested code changes using the existing mechanism
 			helpers.applyCode(lastSuggestedCode, true)
 
@@ -820,15 +831,16 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		const parsedArgs = await buildTestRunArgs(args, this.def)
 
 		return executeTestRun({
-			jobStarter: () => JobService.runScriptPreview({
-				workspace: workspace,
-				requestBody: {
-					path: scriptOptions.path,
-					content: codeToTest,
-					args: parsedArgs,
-					language: scriptOptions.lang as ScriptLang,
-				}
-			}),
+			jobStarter: () =>
+				JobService.runScriptPreview({
+					workspace: workspace,
+					requestBody: {
+						path: scriptOptions.path,
+						content: codeToTest,
+						args: parsedArgs,
+						language: scriptOptions.lang as ScriptLang
+					}
+				}),
 			workspace,
 			toolCallbacks,
 			toolId,
@@ -836,7 +848,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			contextName: 'script'
 		})
 	},
-	setSchema: async function(helpers: ScriptChatHelpers) {
+	setSchema: async function (helpers: ScriptChatHelpers) {
 		await buildSchemaForTool(this.def, async () => {
 			const scriptOptions = helpers.getScriptOptions()
 			const code = scriptOptions?.code
@@ -854,5 +866,5 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	},
 	requiresConfirmation: true,
 	confirmationMessage: 'Run script test',
-	showDetails: true,
+	showDetails: true
 }
