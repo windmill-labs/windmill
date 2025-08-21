@@ -2540,9 +2540,36 @@ async fn clone_variables(
         return Ok(());
     }
 
-    // Build encryption keys for both workspaces
-    let source_mc = build_crypt(db, source_workspace_id).await?;
-    let target_mc = build_crypt(db, target_workspace_id).await?;
+    // Get workspace keys from within the transaction
+    let source_key = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+        source_workspace_id
+    )
+    .fetch_one(db)
+    .await?;
+    
+    let target_key = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+        target_workspace_id
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Build encryption keys manually
+    use windmill_common::variables::SECRET_SALT;
+    let source_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}", source_key, salt)
+    } else {
+        source_key
+    };
+    let target_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}", target_key, salt)
+    } else {
+        target_key
+    };
+    
+    let source_mc = magic_crypt::new_magic_crypt!(source_crypt_key, 256);
+    let target_mc = magic_crypt::new_magic_crypt!(target_crypt_key, 256);
 
     // Process each variable
     for var in variables {
