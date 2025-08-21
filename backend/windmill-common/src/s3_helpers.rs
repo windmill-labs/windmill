@@ -237,13 +237,23 @@ impl LargeFileStorage {
             LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
         }
     }
-    pub fn is_restricted_to_user_paths(&self) -> bool {
+    pub fn allow_user_paths(&self) -> bool {
         match self {
-            LargeFileStorage::S3Storage(lfs) => lfs.restricted_to_user_paths,
-            LargeFileStorage::S3AwsOidc(lfs) => lfs.restricted_to_user_paths,
-            LargeFileStorage::AzureBlobStorage(lfs) => lfs.restricted_to_user_paths,
-            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.restricted_to_user_paths,
-            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.restricted_to_user_paths,
+            LargeFileStorage::S3Storage(lfs) => lfs.allow_user_paths,
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.allow_user_paths,
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.allow_user_paths,
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.allow_user_paths,
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.allow_user_paths,
+        }
+        .unwrap_or(false)
+    }
+    pub fn is_public_resource(&self) -> bool {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.public_resource,
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.public_resource,
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.public_resource,
         }
         .unwrap_or(false)
     }
@@ -255,7 +265,7 @@ pub struct S3Storage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub restricted_to_user_paths: Option<bool>,
+    pub allow_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -264,7 +274,7 @@ pub struct AzureBlobStorage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub restricted_to_user_paths: Option<bool>,
+    pub allow_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -273,7 +283,7 @@ pub struct GoogleCloudStorage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub restricted_to_user_paths: Option<bool>,
+    pub allow_user_paths: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -1121,17 +1131,18 @@ pub fn check_lfs_object_path_permissions(
     object_path: &str,
     authed: &Authed,
 ) -> error::Result<()> {
-    if authed.is_admin {
+    if authed.is_admin || lfs.is_public_resource() {
         return Ok(());
     }
     let username = authed.username.as_str();
 
-    if lfs.is_restricted_to_user_paths() {
-        if !object_path.starts_with(&format!("u/{username}/")) {
-            return Err(error::Error::NotAuthorized(format!(
-                "Can only access u/{username}/**"
-            )));
+    if lfs.allow_user_paths() {
+        if object_path.starts_with(&format!("u/{username}/")) {
+            return Ok(());
         }
+        return Err(error::Error::NotAuthorized(format!(
+            "Cannot access path {object_path}"
+        )));
     }
     Ok(())
 }

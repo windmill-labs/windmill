@@ -203,11 +203,11 @@
 						<svelte:fragment slot="content">
 							<div class="flex flex-col gap-2 mx-4 py-4">
 								<Toggle
-									bind:checked={s3ResourceSettings.secondaryStorage![idx][1].restrictedToUserPaths}
+									bind:checked={s3ResourceSettings.secondaryStorage![idx][1].allowUserPaths}
 									options={{
-										right: 'Restrict access to u/username/**',
+										right: 'Allow access to u/username/** paths',
 										rightTooltip:
-											'If set, all users will only be able to read and write objects with path u/username/**'
+											'If set, all users will be able to read and write objects with path u/username/**'
 									}}
 								/>
 							</div>
