@@ -22,6 +22,7 @@
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import Button from './common/button/Button.svelte'
+	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -94,6 +95,9 @@
 				path: resourceToEdit.path,
 				requestBody: { path, value: args, description }
 			})
+			if (resourceToEdit.resource_type === 'json_schema') {
+				clearJsonSchemaResourceCache(resourceToEdit.path, $workspaceStore!)
+			}
 			sendUserToast(`Updated resource at ${path}`)
 			dispatch('refresh', path)
 		} else {

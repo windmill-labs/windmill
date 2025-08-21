@@ -9,7 +9,6 @@
 		emptySchema,
 		emptyString,
 		getSchemaFromProperties,
-		sendUserToast,
 		type DynamicSelect
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
@@ -44,9 +43,8 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 	import { base } from '$lib/base'
-	import { z } from 'zod'
-	import { AppService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 
 	interface Props {
 		label?: string
@@ -439,29 +437,6 @@
 		e.stopPropagation()
 	}
 
-	const jsonSchemaResourceSchema = z.object({
-		schema: z.record(z.string(), z.any())
-	})
-	async function getJsonSchemaFromResource(path: string) {
-		try {
-			const resourceValue = await AppService.getPublicResource({
-				path,
-				workspace: workspace ?? $workspaceStore ?? ''
-			})
-
-			const parsedResource = jsonSchemaResourceSchema.safeParse(resourceValue)
-			if (parsedResource.success) {
-				return parsedResource.data.schema
-			} else {
-				console.error('Invalid JSON schema resource:', parsedResource.error)
-				sendUserToast('Invalid JSON schema resource: ' + parsedResource.error, true)
-			}
-		} catch (err) {
-			console.error(err)
-			sendUserToast('Could not load JSON schema resource: ' + err, true)
-		}
-	}
-
 	let redraw = $state(0)
 	let itemsLimit = $state(50)
 
@@ -707,7 +682,7 @@
 				/>
 			{/await}
 		{:else if inputCat == 'object' && jsonSchemaResource}
-			{#await getJsonSchemaFromResource(jsonSchemaResource)}
+			{#await getJsonSchemaFromResource(jsonSchemaResource, workspace ?? $workspaceStore ?? '')}
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}
