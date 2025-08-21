@@ -111,6 +111,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
+		tagEdit?: boolean
 	}
 	settingsPanel?: SettingsPanelUi
 	disableTooltips?: boolean
