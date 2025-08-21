@@ -46,12 +46,15 @@ async fn get_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
+    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
-    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+    let storage = match storage_str.as_str() {
+        "_default_" => None,
+        _ => Some(storage_str.clone()),
+    };
 
     let (_, s3_resource) =
         get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
@@ -75,12 +78,15 @@ async fn put_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
+    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
-    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+    let storage = match storage_str.as_str() {
+        "_default_" => None,
+        _ => Some(storage_str.clone()),
+    };
 
     let (_, s3_resource) =
         get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
@@ -125,12 +131,15 @@ async fn post_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<Response> {
-    let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
+    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
-    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+    let storage = match storage_str.as_str() {
+        "_default_" => None,
+        _ => Some(storage_str.clone()),
+    };
 
     let (_, s3_resource) =
         get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id, storage).await?;
@@ -158,12 +167,15 @@ async fn delete_object(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
 ) -> Result<()> {
-    let uri = format!("/api/w/{}/s3_proxy{}", w_id, req.uri().to_string());
+    let uri = format!("/api/w/{w_id}/s3_proxy/{storage_str}/{object_key}");
     let token = get_token(req.headers(), req.method().as_str(), &uri).await?;
     let Some(authed) = auth_cache.get_authed(Some(w_id.clone()), &token).await else {
         return Err(Error::NotAuthorized("Invalid token".to_string()));
     };
-    let storage = Some(storage_str.clone()).filter(|s| !s.is_empty());
+    let storage = match storage_str.as_str() {
+        "_default_" => None,
+        _ => Some(storage_str.clone()),
+    };
 
     delete_s3_file_internal(
         &authed,
