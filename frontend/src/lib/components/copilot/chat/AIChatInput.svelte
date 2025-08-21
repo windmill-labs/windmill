@@ -52,7 +52,7 @@
 		if (placeholder) {
 			return placeholder
 		}
-		
+
 		switch (aiChatManager.mode) {
 			case AIMode.SCRIPT:
 				return 'Modify this script...'
@@ -150,6 +150,7 @@
 								addContextToSelection(element)
 								close()
 							}}
+							categorize
 						/>
 					</svelte:fragment>
 				</Popover>

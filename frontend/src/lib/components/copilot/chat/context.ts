@@ -61,10 +61,13 @@ export interface FlowModule {
 	}
 }
 
-export type ContextElement =
+export type ContextElement = (
 	| CodeElement
 	| ErrorElement
 	| DBElement
 	| DiffElement
 	| CodePieceElement
 	| FlowModule
+) & {
+	deletable?: boolean
+}

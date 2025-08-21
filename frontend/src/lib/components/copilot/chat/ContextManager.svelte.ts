@@ -223,7 +223,8 @@ export default class ContextManager {
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
 					content: scriptOptions.code,
-					lang: scriptOptions.lang
+					lang: scriptOptions.lang,
+					deletable: false
 				}
 			]
 

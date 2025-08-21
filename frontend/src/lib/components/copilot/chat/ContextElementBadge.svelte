@@ -23,6 +23,8 @@
 	let { contextElement, deletable = false, onDelete }: Props = $props()
 	const icon = ContextIconMap[contextElement.type]
 	let showDelete = $state(false)
+
+	const isDeletable = $derived(deletable && contextElement.deletable !== false)
 </script>
 
 <Popover>
@@ -37,8 +39,8 @@
 			role="button"
 			tabindex={0}
 		>
-			<button onclick={onDelete} class:cursor-default={!deletable}>
-				{#if showDelete && deletable}
+			<button onclick={isDeletable ? onDelete : undefined} class:cursor-default={!isDeletable}>
+				{#if showDelete && isDeletable}
 					<X size={16} />
 				{:else if contextElement.type === 'flow_module'}
 					<FlowModuleIcon module={contextElement as FlowModule} size={16} />
