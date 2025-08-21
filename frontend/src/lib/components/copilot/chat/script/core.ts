@@ -784,17 +784,14 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
 	function: {
 		name: 'test_run_script',
 		description: 'Execute a test run of the current script in the editor',
-		// will be overridden by setSchema
 		parameters: {
 			type: 'object',
 			properties: {
-				args: {
-					type: 'object',
-					description:
-						'Arguments to pass to the script (optional, uses current editor args if not provided)'
-				}
+				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
 			},
-			required: []
+			additionalProperties: false,
+			strict: false,
+			required: ['args']
 		}
 	}
 }
@@ -846,22 +843,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			toolId,
 			startMessage: 'Running test...',
 			contextName: 'script'
-		})
-	},
-	setSchema: async function (helpers: ScriptChatHelpers) {
-		await buildSchemaForTool(this.def, async () => {
-			const scriptOptions = helpers.getScriptOptions()
-			const code = scriptOptions?.code
-			const lang = scriptOptions?.lang
-			const lastSuggestedCode = helpers.getLastSuggestedCode()
-
-			const codeToTest = lastSuggestedCode ?? code
-			if (codeToTest) {
-				const newSchema = emptySchema()
-				await inferArgs(lang, codeToTest, newSchema)
-				return newSchema
-			}
-			return emptySchema()
 		})
 	},
 	requiresConfirmation: true,
