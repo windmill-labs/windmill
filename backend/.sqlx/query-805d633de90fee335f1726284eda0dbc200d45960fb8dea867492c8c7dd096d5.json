@@ -1,11 +1,21 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                 kind AS \"job_kind!: JobKind\",\n                 runnable_id AS \"script_hash: ScriptHash\",\n                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                 raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n             FROM v2_job INNER JOIN v2_job_status ON v2_job.id = v2_job_status.id WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 LIMIT 1",
+  "query": "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "job_kind!: JobKind",
+        "name": "runnable_id: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw_flow: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind: _",
         "type_info": {
           "Custom": {
             "name": "job_kind",
@@ -34,35 +44,18 @@
             }
           }
         }
-      },
-      {
-        "ordinal": 1,
-        "name": "script_hash: ScriptHash",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 2,
-        "name": "flow_status!: Json<Box<RawValue>>",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 3,
-        "name": "raw_flow: Json<Box<RawValue>>",
-        "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
-      false,
       true,
       true,
-      true
+      false
     ]
   },
-  "hash": "92c7c961198e506426bf3f97a8ddbb34af450041c675b30b708fed3ef9e01d2d"
+  "hash": "805d633de90fee335f1726284eda0dbc200d45960fb8dea867492c8c7dd096d5"
 }

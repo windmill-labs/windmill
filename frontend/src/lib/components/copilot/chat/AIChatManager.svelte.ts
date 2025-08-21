@@ -952,7 +952,7 @@ class AIChatManager {
 			const module = getModule(id)
 
 			if (module && module.value.type === 'rawscript') {
-				const moduleState: FlowModuleState | undefined = flowStateStore.val[module.id]
+				const moduleState: FlowModuleState | undefined = flowStateStore[module.id]
 
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id

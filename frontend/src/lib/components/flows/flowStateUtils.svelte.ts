@@ -28,7 +28,8 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		if (
 			flowModule.value.type == 'script' ||
 			flowModule.value.type == 'rawscript' ||
-			flowModule.value.type == 'flow'
+			flowModule.value.type == 'flow' ||
+			flowModule.value.type == 'aiagent'
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
@@ -161,6 +162,18 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	return [branchesFlowModules, flowModuleState]
 }
 
+export async function createAiAgent(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const aiAgentFlowModules: FlowModule = {
+		id,
+		value: { type: 'aiagent', tools: [], input_transforms: {} },
+		summary: 'AI Agent'
+	}
+
+	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)
+
+	return [aiAgentFlowModules, flowModuleState]
+}
+
 export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const flowFlowModules: FlowModule = {
 		id,
@@ -260,7 +273,7 @@ export async function createScriptFromInlineScript(
 	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
-export function deleteFlowStateById(id: string, flowStateStore: FlowState) {
+export function deleteFlowStateById(id: string, flowStateStore: StateStore<FlowState>) {
 	delete flowStateStore.val[id]
 }
 
@@ -295,7 +308,7 @@ export function sliceModules(
 
 export async function insertNewPreprocessorModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: FlowState,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 	},
@@ -325,7 +338,7 @@ export async function insertNewPreprocessorModule(
 
 export async function insertNewFailureModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: FlowState,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 		subkind: 'pgsql' | 'flow'

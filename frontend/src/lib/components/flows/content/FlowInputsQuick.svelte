@@ -159,7 +159,8 @@
 		['For loop', 'forloop'],
 		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
-		['Branch to all', 'branchall']
+		['Branch to all', 'branchall'],
+		['AI Agent', 'aiagent']
 	]
 	let topLevelNodes: [string, string][] = $state([])
 	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
