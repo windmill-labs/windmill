@@ -87,7 +87,7 @@ export function applyCodePiecesToFlowModules(
 	}
 
 	// Clone modules to avoid mutation
-	const modifiedModules = [...flowModules]
+	const modifiedModules = JSON.parse(JSON.stringify(flowModules))
 
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
