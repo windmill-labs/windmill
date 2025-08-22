@@ -12,7 +12,7 @@ export interface SpecificItemsConfig {
  * Merges commonSpecificItems with branch-specific specificItems
  */
 export function getSpecificItemsForCurrentBranch(config: SyncOptions): SpecificItemsConfig | undefined {
-  if (!isGitRepository() || !config.git_branches) {
+  if (!isGitRepository() || !config.gitBranches) {
     return undefined;
   }
 
@@ -21,8 +21,8 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions): SpecificI
     return undefined;
   }
 
-  const commonItems = config.git_branches.commonSpecificItems;
-  const branchItems = config.git_branches[currentBranch]?.specificItems;
+  const commonItems = config.gitBranches.commonSpecificItems;
+  const branchItems = config.gitBranches[currentBranch]?.specificItems;
 
   // If neither common nor branch-specific items exist, return undefined
   if (!commonItems && !branchItems) {

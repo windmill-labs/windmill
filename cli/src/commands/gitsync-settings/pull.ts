@@ -163,11 +163,11 @@ export async function pullGitSyncSettings(
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
-          if (!updatedConfig.git_branches) {
-            updatedConfig.git_branches = {};
+          if (!updatedConfig.gitBranches) {
+            updatedConfig.gitBranches = {};
           }
-          if (!updatedConfig.git_branches[currentBranch]) {
-            updatedConfig.git_branches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.gitBranches[currentBranch]) {
+            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
           }
         }
       }
@@ -356,16 +356,16 @@ export async function pullGitSyncSettings(
       let needsBranchStructure = false;
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
-        if (currentBranch && (!localConfig.git_branches || !localConfig.git_branches[currentBranch])) {
+        if (currentBranch && (!localConfig.gitBranches || !localConfig.gitBranches[currentBranch])) {
           needsBranchStructure = true;
 
           // Create empty branch structure
           const updatedConfig = { ...localConfig };
-          if (!updatedConfig.git_branches) {
-            updatedConfig.git_branches = {};
+          if (!updatedConfig.gitBranches) {
+            updatedConfig.gitBranches = {};
           }
-          if (!updatedConfig.git_branches[currentBranch]) {
-            updatedConfig.git_branches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.gitBranches[currentBranch]) {
+            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
           }
 
           // Write updated configuration
@@ -427,11 +427,11 @@ export async function pullGitSyncSettings(
       const currentBranch = getCurrentGitBranch();
       if (currentBranch) {
         log.info(`Detected Git repository, adding empty branch structure for: ${currentBranch}`);
-        if (!updatedConfig.git_branches) {
-          updatedConfig.git_branches = {};
+        if (!updatedConfig.gitBranches) {
+          updatedConfig.gitBranches = {};
         }
-        if (!updatedConfig.git_branches[currentBranch]) {
-          updatedConfig.git_branches[currentBranch] = { overrides: {} };
+        if (!updatedConfig.gitBranches[currentBranch]) {
+          updatedConfig.gitBranches[currentBranch] = { overrides: {} };
         }
       }
     }

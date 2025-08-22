@@ -79,9 +79,9 @@ function mergeCliWithEffectiveOptions<
 // Resolve effective sync options using branch-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
+  localConfig: SyncOptions,
   promotion?: string
 ): Promise<SyncOptions> {
-  const localConfig = await readConfigFile();
   return await getEffectiveSettings(localConfig, promotion);
 }
 
@@ -1264,10 +1264,11 @@ export async function pull(
   // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
+    opts,
     opts.promotion
   );
 
-  // Extract specific items configuration before merging overwrites git_branches
+  // Extract specific items configuration before merging overwrites gitBranches
   const specificItems = getSpecificItemsForCurrentBranch(opts);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -1338,6 +1339,12 @@ export async function pull(
         path: change.path,
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
+          : {}),
+        ...(specificItems && isSpecificItem(change.path, specificItems)
+          ? {
+              branch_specific: true,
+              branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+            }
           : {}),
       })),
       total: changes.length,
@@ -1516,6 +1523,12 @@ export async function pull(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
+          ...(specificItems && isSpecificItem(change.path, specificItems)
+            ? {
+                branch_specific: true,
+                branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+              }
+            : {}),
         })),
         total: changes.length,
       };
@@ -1627,10 +1640,11 @@ export async function push(
   // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
+    opts,
     opts.promotion
   );
 
-  // Extract specific items configuration BEFORE merging overwrites git_branches
+  // Extract specific items configuration BEFORE merging overwrites gitBranches
   const specificItems = getSpecificItemsForCurrentBranch(opts);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -1774,6 +1788,12 @@ export async function push(
         path: change.path,
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
+          : {}),
+        ...(specificItems && isSpecificItem(change.path, specificItems)
+          ? {
+              branch_specific: true,
+              branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+            }
           : {}),
       })),
       total: changes.length,
@@ -2155,6 +2175,12 @@ export async function push(
           path: change.path,
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
+            : {}),
+          ...(specificItems && isSpecificItem(change.path, specificItems)
+            ? {
+                branch_specific: true,
+                branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+              }
             : {}),
         })),
         total: changes.length,
