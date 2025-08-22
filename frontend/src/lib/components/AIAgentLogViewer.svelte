@@ -48,6 +48,8 @@
 
 	let { tools, agentJob, workspaceId, onToolJobLoaded, storedToolCallJobs }: Props = $props()
 
+	$inspect('test', storedToolCallJobs)
+
 	const fakeModuleStates: Record<string, GraphModuleState> = $state({})
 
 	async function loadMissingJobs(agentActions: AgentActionWithContent[]) {
