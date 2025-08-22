@@ -18,10 +18,14 @@
 	interface Props {
 		flowModuleRetry: Retry | undefined
 		disabled?: boolean
-		flowModule?: FlowModule
+		flowModule: FlowModule
 	}
 
-	let { flowModuleRetry = $bindable(), disabled = false, flowModule = $bindable() }: Props = $props()
+	let {
+		flowModuleRetry = $bindable(),
+		disabled = false,
+		flowModule = $bindable()
+	}: Props = $props()
 
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -31,25 +35,19 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
-		flowModule
-			? getStepPropPicker(
-					$flowStateStore,
-					undefined,
-					undefined,
-					flowModule.id,
-					flowStore.val,
-					previewArgs.val,
-					false
-			  )
-			: null
+		getStepPropPicker(
+			flowStateStore.val,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
-	let result = $derived(
-		flowModule 
-			? $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR 
-			: NEVER_TESTED_THIS_FAR
-	)
+	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -118,7 +116,7 @@
 			<ToggleButton light value="exponential" label="Exponential" {item} />
 		{/snippet}
 	</ToggleButtonGroup>
-	
+
 	{#if (delayType === 'constant' || delayType === 'exponential') && flowModule && stepPropPicker}
 		<Section label="Retry Condition" class="w-full">
 			{#snippet header()}
@@ -191,7 +189,7 @@
 			</div>
 		</Section>
 	{/if}
-	
+
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
