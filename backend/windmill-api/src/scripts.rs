@@ -1389,13 +1389,19 @@ async fn get_empty_ts_script_by_path() -> String {
     return String::new();
 }
 
+#[derive(Deserialize)]
+struct RawScriptByPathQuery {
+    cache_key: Option<String>,
+}
+
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, false).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query.cache_key).await
 }
 
 async fn raw_script_by_path_unpinned(
@@ -1403,8 +1409,9 @@ async fn raw_script_by_path_unpinned(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query.cache_key).await
 }
 
 lazy_static::lazy_static! {
@@ -1419,6 +1426,7 @@ async fn raw_script_by_path_internal(
     authed: ApiAuthed,
     w_id: String,
     unpin: bool,
+    cache_key: Option<String>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;

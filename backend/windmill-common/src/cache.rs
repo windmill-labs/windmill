@@ -537,6 +537,48 @@ pub mod flow {
     }
 }
 
+pub mod python_import_by_path {
+    use super::*;
+    use crate::DB;
+
+    #[derive(Eq, PartialEq, Debug, Hash, Clone)]
+    pub struct ScriptPathWithCacheKey {
+        pub path: String,
+        pub cache_key: String,
+    }
+
+    impl Item for ScriptPathWithCacheKey {
+        fn path(&self, root: impl AsRef<Path>) -> PathBuf {
+            root.as_ref()
+                .join(self.path.clone())
+                .join(self.cache_key.clone())
+        }
+    }
+
+    #[derive(Eq, PartialEq, Debug, Hash, Clone, Serialize, Deserialize)]
+    pub struct ScriptContentOrPrefix {
+        pub content: String,
+        pub prefix: bool,
+    }
+
+    make_static! {
+        static ref CACHE: { ScriptPathWithCacheKey => ScriptContentOrPrefix } in "python_import_by_path" <= 1000;
+    }
+
+    pub async fn fetch(
+        db: &DB,
+        path: &str,
+        w_id: &str,
+        cache_key: &str,
+    ) -> error::Result<ScriptContentOrPrefix> {
+        let r =sqlx::query_scalar!(
+            "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+            path,
+            w_id
+        ).fetch_optional(db).await?;
+        todo!()
+    }
+}
 pub mod script {
     use crate::{worker::Connection, DB};
 
