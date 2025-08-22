@@ -182,13 +182,8 @@
 		showContextTooltip = false
 	}
 
-	async function updateTooltipPosition(
-		availableContext: ContextElement[],
-		showContextTooltip: boolean,
-		contextTooltipWord: string,
-		currentViewItemsNumber: number
-	) {
-		if (!textarea || !showContextTooltip) return
+	async function updateTooltipPosition(currentViewItemsNumber: number) {
+		if (!textarea) return
 
 		try {
 			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
@@ -276,18 +271,8 @@
 			onKeyDown(e)
 		}
 
-		// Don't handle navigation keys if the tooltip is showing
-		// Let AvailableContextList handle them
-		if (
-			showContextTooltip &&
-			(e.key === 'ArrowDown' ||
-				e.key === 'ArrowUp' ||
-				e.key === 'ArrowLeft' ||
-				e.key === 'ArrowRight' ||
-				e.key === 'Tab' ||
-				e.key === 'Escape' ||
-				e.key === 'Enter')
-		) {
+		// Don't handle navigation keys if the tooltip is showing, availableContextList handles them
+		if (showContextTooltip) {
 			// Prevent default for Enter to avoid adding new line
 			if (e.key === 'Enter') {
 				e.preventDefault()
@@ -302,12 +287,9 @@
 	}
 
 	$effect(() => {
-		updateTooltipPosition(
-			availableContext,
-			showContextTooltip,
-			contextTooltipWord,
-			tooltipCurrentViewNumber
-		)
+		if (showContextTooltip) {
+			updateTooltipPosition(tooltipCurrentViewNumber)
+		}
 	})
 
 	export function focus() {
@@ -363,7 +345,6 @@
 				}}
 				showAllAvailable={true}
 				stringSearch={contextTooltipWord.slice(1)}
-				isActive={showContextTooltip}
 				onKeyDown={(e) => handleKeyDown(e)}
 				onViewChange={(newNumber) => {
 					tooltipCurrentViewNumber = newNumber

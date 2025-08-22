@@ -13,9 +13,7 @@
 		stringSearch?: string
 		selectedIndex?: number
 		onKeyDown?: (e: KeyboardEvent) => void
-		onNavigate?: (direction: 'up' | 'down' | 'enter' | 'back') => void
-		isActive?: boolean
-		setItemsNumber?: (newNumber: number) => void
+		onViewChange?: (newNumber: number) => void
 	}
 
 	const {
@@ -26,9 +24,7 @@
 		stringSearch = '',
 		selectedIndex = 0,
 		onKeyDown,
-		onNavigate,
-		isActive = true,
-		setItemsNumber
+		onViewChange
 	}: Props = $props()
 
 	// Current view state: 'categories' or specific category type
@@ -99,11 +95,11 @@
 
 	// Report view changes
 	$effect(() => {
-		if (setItemsNumber) {
+		if (onViewChange) {
 			if (currentView === 'categories') {
-				setItemsNumber(availableCategories.length)
+				onViewChange(availableCategories.length)
 			} else {
-				setItemsNumber(currentCategoryItems.length + 1)
+				onViewChange(currentCategoryItems.length + 1)
 			}
 		}
 	})
@@ -119,8 +115,6 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (!isActive) return
-
 		let handled = false
 
 		if (stringSearch.length > 0) {
@@ -132,7 +126,6 @@
 					itemSelectedIndex = (itemSelectedIndex + 1) % filteredAvailableContext.length
 				}
 				handled = true
-				onNavigate?.('down')
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -142,7 +135,6 @@
 						filteredAvailableContext.length
 				}
 				handled = true
-				onNavigate?.('up')
 			} else if (e.key === 'Enter' || e.key === 'Tab') {
 				if (e.key === 'Tab') e.preventDefault()
 				e.stopPropagation()
@@ -151,7 +143,6 @@
 					onSelect(selectedItem)
 				}
 				handled = true
-				onNavigate?.('enter')
 			}
 		} else if (currentView === 'categories') {
 			// Navigation in categories view
@@ -160,14 +151,12 @@
 				e.stopPropagation()
 				categorySelectedIndex = (categorySelectedIndex + 1) % availableCategories.length
 				handled = true
-				onNavigate?.('down')
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
 				categorySelectedIndex =
 					(categorySelectedIndex - 1 + availableCategories.length) % availableCategories.length
 				handled = true
-				onNavigate?.('up')
 			} else if (e.key === 'Enter' || e.key === 'ArrowRight') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -176,7 +165,6 @@
 					handleCategoryClick(selectedCategory.id)
 				}
 				handled = true
-				onNavigate?.('enter')
 			}
 		} else {
 			// Navigation in category items view
@@ -187,7 +175,6 @@
 					itemSelectedIndex = (itemSelectedIndex + 1) % currentCategoryItems.length
 				}
 				handled = true
-				onNavigate?.('down')
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -196,7 +183,6 @@
 						(itemSelectedIndex - 1 + currentCategoryItems.length) % currentCategoryItems.length
 				}
 				handled = true
-				onNavigate?.('up')
 			} else if (e.key === 'Enter' || e.key === 'Tab') {
 				if (e.key === 'Tab') e.preventDefault()
 				e.stopPropagation()
@@ -206,13 +192,11 @@
 					currentView = 'categories' // Go back to categories after selection
 				}
 				handled = true
-				onNavigate?.('enter')
 			} else if (e.key === 'ArrowLeft' || e.key === 'Escape') {
 				e.preventDefault()
 				e.stopPropagation()
 				handleBackClick()
 				handled = true
-				onNavigate?.('back')
 			}
 		}
 
@@ -224,11 +208,9 @@
 
 	// Listen for keyboard events
 	$effect(() => {
-		if (isActive) {
-			document.addEventListener('keydown', handleKeyDown)
-			return () => {
-				document.removeEventListener('keydown', handleKeyDown)
-			}
+		document.addEventListener('keydown', handleKeyDown)
+		return () => {
+			document.removeEventListener('keydown', handleKeyDown)
 		}
 	})
 </script>
@@ -312,9 +294,7 @@
 						<Icon size={16} />
 					{/if}
 					<span class="truncate">
-						{element.type === 'diff' || element.type === 'flow_module'
-							? element.title.replace(/_/g, ' ')
-							: element.title}
+						{element.type === 'diff' ? element.title.replace(/_/g, ' ') : element.title}
 					</span>
 				</button>
 			{/each}
