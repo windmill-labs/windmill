@@ -170,5 +170,5 @@ export function isCurrentBranchFile(path: string): boolean {
  */
 export function isBranchSpecificFile(path: string): boolean {
   // Pattern: *.branchName.variable.yaml or *.branchName.resource.yaml
-  return /\.\w+\.(variable|resource)\.yaml$/.test(path);
+  return /\.[^.]+\.(variable|resource)\.yaml$/.test(path);
 }
