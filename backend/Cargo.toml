@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.527.1"
+version = "1.532.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.527.1"
+version = "1.532.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -49,7 +49,7 @@ incremental = true
 lto = "thin"
 
 [features]
-default = ["ruby"]
+default = []
 private = ["windmill-api/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
 agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
@@ -148,6 +148,8 @@ size.workspace = true
 strum.workspace = true
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
+kube.workspace = true
+k8s-openapi.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -399,6 +401,8 @@ systemstat = "0.2.4"
 size = "0.5.0"
 
 flume = { version = "0.11.1", features = ["async"] }
+kube = { version = "1.1.0", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.25.0", features = ["latest"] }
 
 # Macro-related
 proc-macro2 = "1.0"
@@ -417,4 +421,3 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
-

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
@@ -11,8 +11,6 @@
 	} from '../editor/appUtils'
 	import { throttle } from './utils/other'
 	import { moveMode } from '../gridUtils'
-
-	const dispatch = createEventDispatcher()
 
 	interface Props {
 		sensor: any
@@ -41,8 +39,13 @@
 			clientY: number
 			intersectingElement?: string | undefined
 			shadow?: GridShadow | undefined
-			overlapped?: string | undefined
+			overlapped?: string
 		}) => void
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
+		onInitMove?: () => void
+		onResizeStart?: () => void
+		onResizeEnd?: () => void
+		onRepaint?: (e: { id: string; isPointerUp: boolean; activate: boolean }) => void
 		children?: import('svelte').Snippet
 	}
 
@@ -69,6 +72,11 @@
 		disableMove = true,
 		mounted = false,
 		onMove,
+		onDropped,
+		onInitMove,
+		onResizeStart,
+		onResizeEnd,
+		onRepaint,
 		children
 	}: Props = $props()
 
@@ -112,7 +120,7 @@
 					window.addEventListener('pointermove', pointermove)
 					window.addEventListener('pointerup', pointerup)
 
-					dispatch('initmove')
+					onInitMove?.()
 
 					const cordDiff = {
 						x: (moveX / $scale) * 100 - initX,
@@ -165,11 +173,7 @@
 	}
 
 	let repaint = (activate: boolean, isPointerUp: boolean) => {
-		dispatch('repaint', {
-			id,
-			isPointerUp,
-			activate
-		})
+		onRepaint?.({ id, isPointerUp, activate })
 	}
 
 	// Autoscroll
@@ -221,7 +225,7 @@
 
 			initX = (clientX / $scale) * 100
 			initY = (clientY / $scale) * 100
-			dispatch('initmove')
+			onInitMove?.()
 		}
 		window.addEventListener('pointermove', pointermove)
 		window.addEventListener('pointerup', pointerup)
@@ -299,7 +303,6 @@
 		}
 
 		throttledComputeShadow(clientX, clientY)
-
 		onMove({
 			cordDiff,
 			clientY,
@@ -359,7 +362,7 @@
 				el.getAttribute('data-iscontainer') === 'true'
 		)
 
-		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[1] : undefined
+		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[2] : undefined
 
 		const container = newOverlapped
 			? intersectingElement?.querySelector('.svlt-grid-container')
@@ -411,6 +414,10 @@
 			dragClosure = undefined
 		}
 
+		if (!fakeShadow) {
+			return
+		}
+
 		if (!moving) {
 			return
 		}
@@ -421,7 +428,7 @@
 			return
 		}
 
-		dispatch('dropped', {
+		onDropped?.({
 			id,
 			overlapped,
 			x: fakeShadow?.x,
@@ -456,7 +463,7 @@
 
 		window.addEventListener('pointermove', resizePointerMove)
 		window.addEventListener('pointerup', resizePointerUp)
-		dispatch('resizeStart')
+		onResizeStart?.()
 	}
 
 	const resizePointerMove = ({ pageX, pageY }) => {
@@ -492,7 +499,7 @@
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
-		dispatch('resizeEnd')
+		onResizeEnd?.()
 	}
 
 	function shouldDisplayShadow(moveMode: 'insert' | 'move', overlapped: string | undefined) {

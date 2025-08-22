@@ -24,7 +24,10 @@
 >
 	<!-- Collapsible Header -->
 	<button
-		class="w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700"
+		class={twMerge(
+			"w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700",
+			message.needsConfirmation ? "opacity-80" : ""
+		)}
 		onclick={() => (isExpanded = !isExpanded)}
 		disabled={!message.showDetails}
 	>
@@ -37,16 +40,13 @@
 				{/if}
 			{/if}
 
-			{#if message.isLoading}
+			{#if message.isLoading && !message.needsConfirmation}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 			{:else if message.error}
 				<span class="text-red-500">✗</span>
 			{:else if !message.isLoading && !message.error}
 				<span class="text-green-500">✓</span>
-			{:else}
-				<span class="text-tertiary">○</span>
 			{/if}
-
 			<span class="text-primary font-medium text-2xs">
 				{message.content}
 			</span>
@@ -57,7 +57,9 @@
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
 			<!-- Parameters Section -->
-			<ToolContentDisplay title="Parameters" content={message.parameters} />
+			<div class={message.needsConfirmation ? "opacity-80" : ""}>
+				<ToolContentDisplay title="Parameters" content={message.parameters} />
+			</div>
 
 			<!-- Confirmation Footer -->
 			{#if message.needsConfirmation}
@@ -69,7 +71,7 @@
 				>
 					<Button
 						variant="border"
-						color="red"
+						color="gray"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {
@@ -80,7 +82,7 @@
 					></Button>
 					<Button
 						variant="border"
-						color="blue"
+						color="green"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {

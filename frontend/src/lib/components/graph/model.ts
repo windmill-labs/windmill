@@ -1,5 +1,5 @@
 import type { FlowStatusModule, Job } from '$lib/gen'
-import type { Writable } from 'svelte/store'
+import type { StateStore } from '$lib/utils'
 import type { FlowState } from '../flows/flowState'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
@@ -24,15 +24,18 @@ export type GraphModuleStates = {
 }
 
 export type DurationStatus = {
-	iteration_from?: number
-	iteration_total?: number
 	byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
 }
 
+export type GlobalIterationBounds = {
+	iteration_from?: number
+	iteration_total?: number
+}
+
 export type FlowStatusViewerContext = {
-	flowStateStore?: Writable<FlowState>
-	retryStatus: Writable<Record<string, number | undefined>>
-	suspendStatus: Writable<Record<string, { nb: number; job: Job }>>
+	flowStateStore?: FlowState
+	retryStatus: StateStore<Record<string, number | undefined>>
+	suspendStatus: StateStore<Record<string, { nb: number; job: Job }>>
 	hideDownloadInGraph?: boolean
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean
@@ -63,6 +66,7 @@ export type GraphModuleState = {
 	suspend_count?: number
 	isListJob?: boolean
 	skipped?: boolean
+	agent_actions?: FlowStatusModule['agent_actions']
 }
 
 export type NestedNodes = GraphItem[]

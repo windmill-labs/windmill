@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
@@ -200,10 +200,10 @@
 				module.value.input_transforms = input_transforms
 				refreshStateStore(flowStore)
 
-				if ($flowStateStore[id]) {
-					$flowStateStore[id].schema = schema
+				if (flowStateStore.val[id]) {
+					flowStateStore.val[id].schema = schema
 				} else {
-					$flowStateStore[id] = {
+					flowStateStore.val[id] = {
 						schema
 					}
 				}
@@ -305,7 +305,6 @@
 			}
 
 			if (location.type === 'preprocessor' || location.type === 'failure') {
-				$flowStateStore = $flowStateStore
 				refreshStateStore(flowStore)
 
 				setModuleStatus(location.type, 'added')
@@ -322,7 +321,6 @@
 					await flowModuleSchemaMap?.addBranch(newModule.id)
 				}
 
-				$flowStateStore = $flowStateStore
 				refreshStateStore(flowStore)
 
 				setModuleStatus(newModule.id, 'added')
@@ -516,7 +514,7 @@
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
 			$selectedId,
 			flowStore.val,
-			$flowStateStore,
+			flowStateStore.val,
 			$currentEditor
 		)
 		return cleanup

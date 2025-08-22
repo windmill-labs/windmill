@@ -100,7 +100,8 @@
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
-		vimMode
+		vimMode,
+		relativeLineNumbers
 	} from '$lib/stores'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
@@ -183,6 +184,7 @@
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
+		moduleId?: string
 	}
 
 	let {
@@ -208,7 +210,8 @@
 		changeTimeout = 500,
 		loadAsync = false,
 		key = undefined,
-		class: clazz = undefined
+		class: clazz = undefined,
+		moduleId = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1234,7 +1237,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, $relativeLineNumbers),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1327,7 +1330,8 @@
 					aiChatManager.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
-						selection.endLineNumber
+						selection.endLineNumber,
+						moduleId
 					)
 				} else {
 					aiChatManager.toggleOpen()
@@ -1651,6 +1655,11 @@
 	})
 	$effect(() => {
 		files && model && untrack(() => onFileChanges())
+	})
+	$effect(() => {
+		editor?.updateOptions({ 
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
 	})
 </script>
 

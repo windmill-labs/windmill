@@ -21,13 +21,12 @@
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import type { GraphModuleState } from './graph/model'
-	import type { Writable } from 'svelte/store'
 
 	type RootJobData = Partial<Job>
 
 	interface Props {
 		modules: FlowModule[]
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		localModuleStates: Record<string, GraphModuleState>
 		rootJob: RootJobData
 		flowStatus: FlowStatusModule['type'] | undefined
 		expandedRows: Record<string, boolean>
@@ -46,6 +45,7 @@
 		) => Promise<void>
 		getSelectedIteration: (stepId: string) => number
 		flowSummary?: string
+		mode?: 'flow' | 'aiagent'
 	}
 
 	let {
@@ -64,7 +64,8 @@
 		flowId = 'root',
 		onSelectedIteration,
 		getSelectedIteration,
-		flowSummary
+		flowSummary,
+		mode = 'flow'
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -97,16 +98,18 @@
 	function getStepProgress(job: RootJobData, totalSteps: number): string {
 		if (totalSteps === 0) return ''
 
+		const stepWord = mode === 'aiagent' ? 'action' : 'step'
+
 		// If flow is completed, show total steps
 		if (job.type === 'CompletedJob') {
-			return ` (${totalSteps} step${totalSteps === 1 ? '' : 's'})`
+			return ` (${totalSteps} ${stepWord}${totalSteps === 1 ? '' : 's'})`
 		}
 
 		// If flow is running, use flow_status.step if available (like JobStatus.svelte)
 		if (job.type === 'QueuedJob') {
 			if (job.flow_status?.step !== undefined) {
 				const currentStep = (job.flow_status.step ?? 0) + 1
-				return ` (step ${currentStep} of ${totalSteps})`
+				return ` (${stepWord} ${currentStep} of ${totalSteps})`
 			}
 
 			return ''
@@ -122,7 +125,7 @@
 	}
 
 	function hasEmptySubflow(stepId: string, stepType: FlowModuleValue['type'] | undefined): boolean {
-		const state = $localModuleStates[stepId]
+		const state = localModuleStates[stepId]
 
 		if (!state || !stepType) return false
 		return (
@@ -172,7 +175,7 @@
 				}
 
 				// Check if this entry itself has an error (but don't flag it - only its parents)
-				const stepStatus = $localModuleStates[module.id]?.type
+				const stepStatus = localModuleStates[module.id]?.type
 				if (stepStatus === 'Failure') {
 					currentEntryHasError = true
 					// Don't add the entry itself to parentsWithErrors
@@ -318,7 +321,7 @@
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
-								{level == 0 ? 'Flow' : 'Subflow'}
+								{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
 								{#if flowInfo.label}
 									: {flowInfo.label}
 								{/if}
@@ -402,7 +405,7 @@
 							{#if modules.length > 0}
 								{#each modules as module (module.id)}
 									{@const isLeafStep = !hasSubflows(module)}
-									{@const status = $localModuleStates[module.id]?.type}
+									{@const status = localModuleStates[module.id]?.type}
 									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 									{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 									{@const isCollapsible = !hasEmptySubflowValue}
@@ -451,20 +454,26 @@
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
 															<b>
-																{module.id}
+																{mode === 'aiagent'
+																	? module.summary
+																		? 'Tool call'
+																		: 'Message'
+																	: module.id}
 															</b>
-															{#if module.value.type === 'forloopflow'}
-																For loop
-															{:else if module.value.type === 'whileloopflow'}
-																While loop
-															{:else if module.value.type === 'branchall'}
-																Branch to all
-															{:else if module.value.type === 'branchone'}
-																Branch to one
-															{:else if module.value.type === 'flow'}
-																Subflow
-															{:else}
-																Step
+															{#if mode === 'flow'}
+																{#if module.value.type === 'forloopflow'}
+																	For loop
+																{:else if module.value.type === 'whileloopflow'}
+																	While loop
+																{:else if module.value.type === 'branchall'}
+																	Branch to all
+																{:else if module.value.type === 'branchone'}
+																	Branch to one
+																{:else if module.value.type === 'flow'}
+																	Subflow
+																{:else}
+																	Step
+																{/if}
 															{/if}
 															{#if module.summary}
 																: {module.summary}
@@ -479,7 +488,7 @@
 																</span>
 															{/if}
 														</span>
-														{#if !hasEmptySubflowValue && $localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
+														{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
 															<span
 																class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
 															>
@@ -488,18 +497,18 @@
 																		moduleId={module.id}
 																		id={module.id}
 																		{onSelectedIteration}
-																		flowJobsSuccess={$localModuleStates[module.id]
+																		flowJobsSuccess={localModuleStates[module.id]
 																			?.flow_jobs_success}
-																		flowJobs={$localModuleStates[module.id]?.flow_jobs}
-																		selected={$localModuleStates[module.id]?.selectedForloopIndex ??
+																		flowJobs={localModuleStates[module.id]?.flow_jobs}
+																		selected={localModuleStates[module.id]?.selectedForloopIndex ??
 																			0}
-																		selectedManually={$localModuleStates[module.id]
+																		selectedManually={localModuleStates[module.id]
 																			?.selectedForLoopSetManually ?? false}
 																		showIcon={false}
 																	/>
 																</span>
 																{#if module.value.type === 'forloopflow'}
-																	{`/${$localModuleStates[module.id]?.iteration_total ?? 0}`}
+																	{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
 																{/if}
 															</span>
 														{/if}
@@ -507,37 +516,39 @@
 												</div>
 
 												{#if isLeafStep}
-													{@const jobId = $localModuleStates[module.id]?.job_id}
-													<a
-														href={getJobLink(jobId ?? '')}
-														class="text-xs text-primary hover:underline font-mono"
-														target="_blank"
-														rel="noopener noreferrer"
-													>
-														{truncateRev(jobId ?? '', 6)}
-													</a>
+													{@const jobId = localModuleStates[module.id]?.job_id}
+													{#if jobId}
+														<a
+															href={getJobLink(jobId ?? '')}
+															class="text-xs text-primary hover:underline font-mono"
+															target="_blank"
+															rel="noopener noreferrer"
+														>
+															{truncateRev(jobId ?? '', 6)}
+														</a>
+													{/if}
 												{/if}
 											</div>
 
 											{#if isCollapsible && isExpanded(module.id, isRunning)}
-												{@const args = $localModuleStates[module.id]?.args}
-												{@const logs = $localModuleStates[module.id]?.logs}
-												{@const result = $localModuleStates[module.id]?.result}
-												{@const jobId = $localModuleStates[module.id]?.job_id}
+												{@const args = localModuleStates[module.id]?.args}
+												{@const logs = localModuleStates[module.id]?.logs}
+												{@const result = localModuleStates[module.id]?.result}
+												{@const jobId = localModuleStates[module.id]?.job_id}
 												<div class="my-1 transition-all duration-200 ease-in-out">
 													<!-- Show child steps if they exist -->
 													{#each getSubflows(module) as subflow}
 														{@const subflowJob = {
 															id: jobId,
 															type:
-																$localModuleStates[module.id]?.type === 'Failure' ||
-																$localModuleStates[module.id]?.type === 'Success'
+																localModuleStates[module.id]?.type === 'Failure' ||
+																localModuleStates[module.id]?.type === 'Success'
 																	? 'CompletedJob'
 																	: ('QueuedJob' as Job['type']),
 															logs,
 															result,
 															args,
-															success: $localModuleStates[module.id]?.type === 'Success'
+															success: localModuleStates[module.id]?.type === 'Success'
 														}}
 														<div class="border-l mb-2">
 															<!-- Recursively render child steps using FlowLogViewer -->
@@ -545,7 +556,7 @@
 																modules={subflow.modules}
 																{localModuleStates}
 																rootJob={subflowJob}
-																flowStatus={$localModuleStates[module.id]?.type}
+																flowStatus={localModuleStates[module.id]?.type}
 																{expandedRows}
 																{allExpanded}
 																{showResultsInputs}

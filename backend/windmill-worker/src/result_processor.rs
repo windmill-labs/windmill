@@ -647,7 +647,7 @@ pub async fn process_completed_job(
     return Ok(None);
 }
 
-async fn handle_non_flow_job_error(
+pub async fn handle_non_flow_job_error(
     db: &DB,
     job: &MiniPulledJob,
     mem_peak: i32,
@@ -692,7 +692,7 @@ pub async fn handle_job_error(
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let err_string = format!("{}: {}", err.name(), err.to_string());
-    let err_json = error_to_value(err);
+    let err_json = error_to_value(&err);
 
     let update_job_future = || async {
         handle_non_flow_job_error(
