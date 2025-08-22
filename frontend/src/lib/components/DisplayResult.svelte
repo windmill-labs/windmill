@@ -928,7 +928,7 @@
 										>
 									</button>
 								{:else if !s3object?.disable_download}
-									<FileDownload {s3object} />
+									<FileDownload {workspaceId} {s3object} {appPath} />
 								{:else}
 									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}

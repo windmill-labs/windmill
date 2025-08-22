@@ -3,9 +3,13 @@
 	import { Download } from 'lucide-svelte'
 	import { base } from '$lib/base'
 
-	export let s3object: any
-	export let workspaceId: string | undefined = undefined
-	export let appPath: string | undefined = undefined
+	interface Props {
+		s3object: any
+		workspaceId?: string | undefined
+		appPath?: string | undefined
+	}
+
+	let { s3object, workspaceId = undefined, appPath = undefined }: Props = $props()
 </script>
 
 <a
