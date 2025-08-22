@@ -1,6 +1,6 @@
 import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 
@@ -144,7 +144,7 @@ function findWmillYaml(): string | null {
   // If wmill.yaml was found in a parent directory, warn the user and change working directory
   if (foundPath && resolve(dirname(foundPath)) !== resolve(startDir)) {
     const configDir = dirname(foundPath);
-    const relativePath = foundPath.replace(startDir, ".");
+    const relativePath = relative(startDir, foundPath);
     log.warn(`⚠️  wmill.yaml found in parent directory: ${relativePath}`);
 
     // Change working directory to where wmill.yaml was found
