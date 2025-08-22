@@ -179,7 +179,10 @@
 			}
 		}
 	}
-	bind:job={modulesTestStates.states[mod.id].testJob}
+	bind:job={
+		() => modulesTestStates.states[mod.id]?.testJob,
+		(v) => modulesTestStates.states[mod.id] && (modulesTestStates.states[mod.id].testJob = v)
+	}
 	loadPlaceholderJobOnStart={{
 		type: 'QueuedJob',
 		id: '',
