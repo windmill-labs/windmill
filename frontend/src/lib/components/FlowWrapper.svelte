@@ -5,12 +5,14 @@
 
 	let {
 		flowStore: oldFlowStore,
+		flowStateStore: oldFlowStateStore,
 		disableAi,
 		light,
 		...props
 	}: FlowBuilderProps & { light?: boolean } = $props()
 
 	let flowStore = $state(oldFlowStore)
+	let flowStateStore = $state(oldFlowStateStore)
 
 	let trialRender = $state(true)
 
@@ -24,7 +26,7 @@
 {#if trialRender}
 	<AiChatLayout noPadding={true} {disableAi}>
 		{#if light}<div class="bg-red-500 absolute z-10">Trial version</div>{/if}
-		<FlowBuilder {flowStore} {disableAi} {...props} />
+		<FlowBuilder {flowStore} {flowStateStore} {disableAi} {...props} />
 	</AiChatLayout>
 {:else}
 	<div class="flex flex-col items-center justify-center h-screen">
