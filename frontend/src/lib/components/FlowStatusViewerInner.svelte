@@ -1717,7 +1717,7 @@
 											logs={node.logs}
 											downloadLogs={!hideDownloadLogs}
 											aiAgentStatus={agentTools &&
-											node.job_id &&
+											node?.job_id &&
 											(node.type === 'Success' || node.type === 'Failure')
 												? {
 														tools: agentTools,
