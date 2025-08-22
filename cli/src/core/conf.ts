@@ -337,6 +337,14 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
       });
 
       if (shouldCreate) {
+        // Warn if branch name contains filesystem-unsafe characters
+        if (/[\/\\:*?"<>|.]/.test(currentBranch)) {
+          const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
+          log.warn(`⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`);
+          log.warn(`   Branch-specific files will be saved with sanitized name: "${sanitizedBranchName}"`);
+          log.warn(`   Example: "file.variable.yaml" → "file.${sanitizedBranchName}.variable.yaml"`);
+        }
+
         // Read current config, add branch, and write it back
         const currentConfig = await readConfigFile();
 
@@ -353,6 +361,13 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
         return;
       }
     } else {
+      // Warn about filesystem-unsafe characters in branch name
+      if (/[\/\\:*?"<>|.]/.test(currentBranch)) {
+        const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
+        log.warn(`⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`);
+        log.warn(`   Branch-specific files will use sanitized name: "${sanitizedBranchName}"`);
+      }
+      
       log.warn(
         `⚠️  WARNING: Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
         `   Consider adding configuration for branch '${currentBranch}' in the gitBranches section of wmill.yaml.\n` +
