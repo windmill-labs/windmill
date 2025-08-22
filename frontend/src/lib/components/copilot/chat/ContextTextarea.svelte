@@ -38,7 +38,7 @@
 	let tooltipPosition = $state({ x: 0, y: 0 })
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
-	let selectedSuggestionIndex = $state(0)
+	let tooltipCurrentViewNumber = $state(0)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -185,7 +185,8 @@
 	async function updateTooltipPosition(
 		availableContext: ContextElement[],
 		showContextTooltip: boolean,
-		contextTooltipWord: string
+		contextTooltipWord: string,
+		currentViewItemsNumber: number
 	) {
 		if (!textarea || !showContextTooltip) return
 
@@ -193,16 +194,12 @@
 			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 			const rect = textarea.getBoundingClientRect()
 
-			const filteredAvailableContext = availableContext.filter(
-				(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-			)
-
 			const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
 			const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
 			const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
 
 			// Calculate uncapped height, subtract gap from last item as it's not needed
-			const numItems = filteredAvailableContext.length
+			const numItems = currentViewItemsNumber
 			let uncappedHeight =
 				numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
 			// Ensure height is at least containerPadding even if no items
@@ -270,68 +267,47 @@
 		} else {
 			showContextTooltip = false
 			contextTooltipWord = ''
-			selectedSuggestionIndex = 0
-		}
-	}
-
-	function handleKeyPress(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault()
-			if (contextTooltipWord) {
-				const filteredContext = availableContext.filter(
-					(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-				)
-				const contextElement = filteredContext[selectedSuggestionIndex]
-				if (contextElement) {
-					const isInSelectedContext = selectedContext.find(
-						(c) => c.title === contextElement.title && c.type === contextElement.type
-					)
-					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
-					if (isInSelectedContext && value.split(' ').pop() === '@' + contextElement.title) {
-						onSendRequest()
-						return
-					}
-					handleContextSelection(contextElement)
-				} else if (contextTooltipWord === '@' && availableContext.length > 0) {
-					handleContextSelection(availableContext[0])
-				}
-			} else {
-				onSendRequest()
-			}
 		}
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		// Pass to parent first if provided
 		if (onKeyDown) {
 			onKeyDown(e)
 		}
 
-		if (!showContextTooltip) return
-
-		const filteredContext = availableContext.filter(
-			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-		)
-
-		if (e.key === 'Tab') {
-			e.preventDefault()
-			const contextElement = filteredContext[selectedSuggestionIndex]
-			if (contextElement) {
-				handleContextSelection(contextElement)
+		// Don't handle navigation keys if the tooltip is showing
+		// Let AvailableContextList handle them
+		if (
+			showContextTooltip &&
+			(e.key === 'ArrowDown' ||
+				e.key === 'ArrowUp' ||
+				e.key === 'ArrowLeft' ||
+				e.key === 'ArrowRight' ||
+				e.key === 'Tab' ||
+				e.key === 'Escape' ||
+				e.key === 'Enter')
+		) {
+			// Prevent default for Enter to avoid adding new line
+			if (e.key === 'Enter') {
+				e.preventDefault()
 			}
+			return
 		}
 
-		if (e.key === 'ArrowDown') {
+		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
-			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % filteredContext.length
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault()
-			selectedSuggestionIndex =
-				(selectedSuggestionIndex - 1 + filteredContext.length) % filteredContext.length
+			onSendRequest()
 		}
 	}
 
 	$effect(() => {
-		updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+		updateTooltipPosition(
+			availableContext,
+			showContextTooltip,
+			contextTooltipWord,
+			tooltipCurrentViewNumber
+		)
 	})
 
 	export function focus() {
@@ -352,7 +328,6 @@
 	</div>
 	<textarea
 		bind:this={textarea}
-		onkeypress={handleKeyPress}
 		onkeydown={handleKeyDown}
 		bind:value
 		use:autosize
@@ -388,7 +363,11 @@
 				}}
 				showAllAvailable={true}
 				stringSearch={contextTooltipWord.slice(1)}
-				selectedIndex={selectedSuggestionIndex}
+				isActive={showContextTooltip}
+				onKeyDown={(e) => handleKeyDown(e)}
+				onViewChange={(newNumber) => {
+					tooltipCurrentViewNumber = newNumber
+				}}
 			/>
 		</div>
 	</Portal>
