@@ -91,15 +91,27 @@ export function toBranchSpecificPath(basePath: string, branchName: string): stri
   const extension = extensionMatch[1];
   const pathWithoutExtension = basePath.substring(0, basePath.length - extension.length);
 
-  return `${pathWithoutExtension}.${branchName}${extension}`;
+  // Sanitize branch name to be filesystem-safe
+  const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|]/g, '_');
+
+  // Warn about potential collisions if sanitization occurred
+  if (sanitizedBranchName !== branchName) {
+    console.warn(`Warning: Branch name "${branchName}" contains special characters and was sanitized to "${sanitizedBranchName}". This may cause collisions with other similarly named branches.`);
+  }
+
+  return `${pathWithoutExtension}.${sanitizedBranchName}${extension}`;
 }
 
 /**
  * Convert a branch-specific path back to a base path
  */
 export function fromBranchSpecificPath(branchSpecificPath: string, branchName: string): string {
-  // Pattern: path.branchName.extension
-  const pattern = new RegExp(`\\.${branchName}(\\.(variable|resource)\\.yaml)$`);
+  // Sanitize branch name the same way as in toBranchSpecificPath
+  const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|]/g, '_');
+
+  // Pattern: path.sanitizedBranchName.extension
+  const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`\\.${escapedBranchName}(\\.(variable|resource)\\.yaml)$`);
   const match = branchSpecificPath.match(pattern);
 
   if (!match) {
@@ -109,7 +121,7 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
   const extension = match[1];
   const pathWithoutBranchAndExtension = branchSpecificPath.substring(
     0,
-    branchSpecificPath.length - `.${branchName}${extension}`.length
+    branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
   );
 
   return `${pathWithoutBranchAndExtension}${extension}`;
