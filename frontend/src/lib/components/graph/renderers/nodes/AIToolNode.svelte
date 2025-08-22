@@ -11,7 +11,7 @@
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 
 	const ROW_WIDTH = 275
-	const NEW_TOOL_NODE_WIDTH = 40
+	const NEW_TOOL_NODE_WIDTH = 50
 	const MAX_TOOLS_PER_ROW = 2
 
 	let computeAIToolNodesCache:
@@ -140,13 +140,13 @@
 					width: inputToolWidth,
 					position: {
 						x:
-							tools.length === 1
+							(tools.length === 1
 								? (ROW_WIDTH - inputToolWidth) / 2
 								: (i + 1) % 2 === 0
 									? inputToolWidth + inputToolXGap
 									: isLastRow && tools.length % 2 === 1
 										? (ROW_WIDTH - inputToolWidth) / 2
-										: 0,
+										: 0) + node.data.offset,
 						y:
 							baseOffset +
 							rowOffset *
@@ -176,7 +176,7 @@
 					parentId: node.id,
 					width: NEW_TOOL_NODE_WIDTH,
 					position: {
-						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
+						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
 						y: baseOffset + rowOffset
 					}
 				} satisfies Node & NewAiToolN)

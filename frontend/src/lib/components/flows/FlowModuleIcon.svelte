@@ -20,19 +20,19 @@
 </script>
 
 {#if module.value.type === 'aiagent'}
-	<Bot size={16} />
+	<Bot size={16} class="text-violet-800 dark:text-violet-400" />
 {:else if module.value.type === 'rawscript'}
 	<LanguageIcon lang={module.value.language} width={iconWidth} height={iconHeight} />
 {:else if module.summary === 'Terminate flow'}
-	<Square size={size} />
+	<Square {size} />
 {:else if module.value.type === 'identity'}
-	<ArrowDown size={size} />
+	<ArrowDown {size} />
 {:else if module.value.type === 'flow'}
-	<BarsStaggered size={size} />
+	<BarsStaggered {size} />
 {:else if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
-	<Repeat size={size} />
+	<Repeat {size} />
 {:else if module.value.type === 'branchone' || module.value.type === 'branchall'}
-	<GitBranch size={size} />
+	<GitBranch {size} />
 {:else if module.value.type === 'script'}
 	{#if module.value.path.startsWith('hub/')}
 		<IconedResourceType
@@ -42,9 +42,9 @@
 			silent={true}
 		/>
 	{:else}
-		<Building size={size} />
+		<Building {size} />
 	{/if}
 {:else}
 	<!-- Fallback icon for unknown module types -->
-	<BarsStaggered size={size} />
+	<BarsStaggered {size} />
 {/if}

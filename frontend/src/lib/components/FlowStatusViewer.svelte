@@ -110,6 +110,9 @@
 	let updateGlobalRefresh = (moduleId: string, updateFn: (clear, root) => Promise<void>) => {
 		globalRefreshes[moduleId] = [...(globalRefreshes[moduleId] ?? []), updateFn]
 	}
+
+	let storedToolCallJobs: Record<string, Job> = $state({})
+	let toolCallIndicesToLoad: string[] = $state([])
 </script>
 
 <FlowStatusViewerInner
@@ -141,4 +144,30 @@
 	isNodeSelected={true}
 	{refreshGlobal}
 	{updateGlobalRefresh}
+	toolCallStore={{
+		getStoredToolCallJob: (storeKey: string) => storedToolCallJobs[storeKey],
+		setStoredToolCallJob: (storeKey: string, job: Job) => {
+			storedToolCallJobs[storeKey] = job
+		},
+		getLocalToolCallJobs: (prefix: string) => {
+			// we return a map from tool call index to job
+			// to do so, we filter the storedToolCallJobs object by the prefix and we make sure what's left in the key is a tool call index: 2 part of format agentModuleId-toolCallIndex
+			// and not a further nested tool call index
+			return Object.fromEntries(
+				Object.entries(storedToolCallJobs)
+					.filter(
+						([key]) => key.startsWith(prefix) && key.replace(prefix, '').split('-').length === 2
+					)
+					.map(([key, job]) => [Number(key.replace(prefix, '').split('-').pop()), job])
+			)
+		},
+		isToolCallToBeLoaded: (storeKey: string) => {
+			return toolCallIndicesToLoad.includes(storeKey)
+		},
+		addToolCallToLoad: (storeKey: string) => {
+			if (!toolCallIndicesToLoad.includes(storeKey)) {
+				toolCallIndicesToLoad.push(storeKey)
+			}
+		}
+	}}
 />
