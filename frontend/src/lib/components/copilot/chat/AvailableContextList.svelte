@@ -135,7 +135,7 @@
 			} else if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'Tab') {
 				e.preventDefault()
 				e.stopPropagation()
-				const selectedCategory = availableCategories[itemSelectedIndex]
+				const selectedCategory = availableCategories[categorySelectedIndex]
 				if (selectedCategory) {
 					handleCategoryClick(selectedCategory.id)
 				}
@@ -171,10 +171,6 @@
 				e.preventDefault()
 				e.stopPropagation()
 				handleBackClick()
-			} else if (e.key === 'Escape') {
-				e.preventDefault()
-				e.stopPropagation()
-				setShowing?.(false)
 			}
 		}
 	}
