@@ -135,7 +135,7 @@
 				e.stopPropagation()
 				itemSelectedIndex =
 					(itemSelectedIndex - 1 + availableCategories.length) % availableCategories.length
-			} else if (e.key === 'Enter' || e.key === 'ArrowRight') {
+			} else if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'Tab') {
 				e.preventDefault()
 				e.stopPropagation()
 				const selectedCategory = availableCategories[itemSelectedIndex]
