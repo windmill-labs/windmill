@@ -9,10 +9,9 @@
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		onSelect: (element: ContextElement) => void
+		setShowing?: (showing: boolean) => void
 		showAllAvailable?: boolean
 		stringSearch?: string
-		selectedIndex?: number
-		onKeyDown?: (e: KeyboardEvent) => void
 		onViewChange?: (newNumber: number) => void
 	}
 
@@ -20,10 +19,9 @@
 		availableContext,
 		selectedContext,
 		onSelect,
+		setShowing,
 		showAllAvailable = false,
 		stringSearch = '',
-		selectedIndex = 0,
-		onKeyDown,
 		onViewChange
 	}: Props = $props()
 
@@ -31,7 +29,6 @@
 	let currentView = $state<'categories' | 'diffs' | 'modules' | 'databases' | 'code'>('categories')
 
 	// Selected index for keyboard navigation
-	let categorySelectedIndex = $state(0)
 	let itemSelectedIndex = $state(0)
 
 	// Category definitions
@@ -81,18 +78,6 @@
 		categories.filter((cat) => contextByCategory[cat.id].length > 0)
 	)
 
-	// Update selected indices when selectedIndex prop changes
-	$effect(() => {
-		if (selectedIndex !== undefined && currentView !== 'categories') {
-			itemSelectedIndex = selectedIndex
-		}
-	})
-
-	// Reset item index when changing categories or search changes
-	$effect(() => {
-		itemSelectedIndex = 0
-	})
-
 	// Report view changes
 	$effect(() => {
 		if (onViewChange) {
@@ -115,8 +100,6 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		let handled = false
-
 		if (stringSearch.length > 0) {
 			// Navigation in search view (flat list)
 			if (e.key === 'ArrowDown') {
@@ -125,7 +108,6 @@
 				if (filteredAvailableContext.length > 0) {
 					itemSelectedIndex = (itemSelectedIndex + 1) % filteredAvailableContext.length
 				}
-				handled = true
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -134,7 +116,6 @@
 						(itemSelectedIndex - 1 + filteredAvailableContext.length) %
 						filteredAvailableContext.length
 				}
-				handled = true
 			} else if (e.key === 'Enter' || e.key === 'Tab') {
 				if (e.key === 'Tab') e.preventDefault()
 				e.stopPropagation()
@@ -142,29 +123,29 @@
 				if (selectedItem) {
 					onSelect(selectedItem)
 				}
-				handled = true
 			}
 		} else if (currentView === 'categories') {
 			// Navigation in categories view
 			if (e.key === 'ArrowDown') {
 				e.preventDefault()
 				e.stopPropagation()
-				categorySelectedIndex = (categorySelectedIndex + 1) % availableCategories.length
-				handled = true
+				itemSelectedIndex = (itemSelectedIndex + 1) % availableCategories.length
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
-				categorySelectedIndex =
-					(categorySelectedIndex - 1 + availableCategories.length) % availableCategories.length
-				handled = true
+				itemSelectedIndex =
+					(itemSelectedIndex - 1 + availableCategories.length) % availableCategories.length
 			} else if (e.key === 'Enter' || e.key === 'ArrowRight') {
 				e.preventDefault()
 				e.stopPropagation()
-				const selectedCategory = availableCategories[categorySelectedIndex]
+				const selectedCategory = availableCategories[itemSelectedIndex]
 				if (selectedCategory) {
 					handleCategoryClick(selectedCategory.id)
 				}
-				handled = true
+			} else if (e.key === 'Escape' || e.key === 'ArrowLeft') {
+				e.preventDefault()
+				e.stopPropagation()
+				setShowing?.(false)
 			}
 		} else {
 			// Navigation in category items view
@@ -174,7 +155,6 @@
 				if (currentCategoryItems.length > 0) {
 					itemSelectedIndex = (itemSelectedIndex + 1) % currentCategoryItems.length
 				}
-				handled = true
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -182,7 +162,6 @@
 					itemSelectedIndex =
 						(itemSelectedIndex - 1 + currentCategoryItems.length) % currentCategoryItems.length
 				}
-				handled = true
 			} else if (e.key === 'Enter' || e.key === 'Tab') {
 				if (e.key === 'Tab') e.preventDefault()
 				e.stopPropagation()
@@ -191,18 +170,15 @@
 					onSelect(selectedItem)
 					currentView = 'categories' // Go back to categories after selection
 				}
-				handled = true
 			} else if (e.key === 'ArrowLeft' || e.key === 'Escape') {
 				e.preventDefault()
 				e.stopPropagation()
 				handleBackClick()
-				handled = true
+			} else if (e.key === 'Escape') {
+				e.preventDefault()
+				e.stopPropagation()
+				setShowing?.(false)
 			}
-		}
-
-		// Pass through unhandled keys to parent
-		if (!handled && onKeyDown) {
-			onKeyDown(e)
 		}
 	}
 
@@ -211,6 +187,12 @@
 		document.addEventListener('keydown', handleKeyDown)
 		return () => {
 			document.removeEventListener('keydown', handleKeyDown)
+		}
+	})
+
+	$effect(() => {
+		if (stringSearch.length > 0) {
+			itemSelectedIndex = 0
 		}
 	})
 </script>
@@ -250,7 +232,7 @@
 			{@const Icon = category.icon}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 pr-0 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
-				categorySelectedIndex
+				itemSelectedIndex
 					? 'bg-surface-hover'
 					: ''}"
 				onclick={() => handleCategoryClick(category.id)}

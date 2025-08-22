@@ -271,9 +271,8 @@
 			onKeyDown(e)
 		}
 
-		// Don't handle navigation keys if the tooltip is showing, availableContextList handles them
 		if (showContextTooltip) {
-			// Prevent default for Enter to avoid adding new line
+			// avoid new line after Enter in the tooltip
 			if (e.key === 'Enter') {
 				e.preventDefault()
 			}
@@ -345,9 +344,11 @@
 				}}
 				showAllAvailable={true}
 				stringSearch={contextTooltipWord.slice(1)}
-				onKeyDown={(e) => handleKeyDown(e)}
 				onViewChange={(newNumber) => {
 					tooltipCurrentViewNumber = newNumber
+				}}
+				setShowing={(showing) => {
+					showContextTooltip = showing
 				}}
 			/>
 		</div>
