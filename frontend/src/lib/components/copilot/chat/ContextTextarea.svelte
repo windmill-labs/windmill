@@ -155,7 +155,7 @@
 	}
 
 	function getHighlightedText(text: string) {
-		return text.replace(/@[\w/.-]+/g, (match) => {
+		return text.replace(/@[\w/.\-\[\]]+/g, (match) => {
 			const contextElement = availableContext.find((c) => c.title === match.slice(1))
 			if (contextElement) {
 				return `<span class="bg-black dark:bg-white text-white dark:text-black z-10">${match}</span>`

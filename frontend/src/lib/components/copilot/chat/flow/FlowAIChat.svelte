@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
