@@ -23,6 +23,24 @@ export interface ContextStringResult {
 	hasFlowModule: boolean
 }
 
+export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
+	return modules.flatMap((m) => {
+		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
+			return [m, ...extractAllModules(m.value.modules)]
+		}
+		if (m.value.type === 'branchall') {
+			return [m, ...extractAllModules(m.value.branches.flatMap((b) => b.modules))]
+		}
+		if (m.value.type === 'branchone') {
+			return [
+				m,
+				...extractAllModules([...m.value.branches.flatMap((b) => b.modules), ...m.value.default])
+			]
+		}
+		return [m]
+	})
+}
+
 export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
 	for (const module of modules) {
 		if (module.id === moduleId) {
