@@ -860,7 +860,7 @@ If the user wants a specific resource as step input, you should set the step val
 export function prepareFlowUserMessage(
 	instructions: string,
 	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
-	selectedContext?: ContextElement[]
+	selectedContext: ContextElement[] = []
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
@@ -877,7 +877,7 @@ ${instructions}`
 		}
 	}
 
-	const codePieces = selectedContext?.filter((c) => c.type === 'code_piece') ?? []
+	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
 	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
 
 	let flowContent = `## FLOW:

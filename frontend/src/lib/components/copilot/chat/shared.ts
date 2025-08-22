@@ -4,7 +4,7 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
-import type { CodePieceElement, ContextElement } from './context'
+import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { copilotSessionModel, workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
@@ -68,22 +68,16 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 }
 
 export function applyCodePiecesToFlowModules(
-	codePieces: CodePieceElement[],
+	codePieces: FlowModuleCodePieceElement[],
 	flowModules: FlowModule[]
 ): string {
-	// Parse code piece titles to extract module IDs
-	// Format: "[id] L3-L5"
-	const moduleCodePieces = new Map<string, CodePieceElement[]>()
-
+	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
 	for (const codePiece of codePieces) {
-		const match = codePiece.title.match(/\[([^\]]+)\]\s+L\d+-L\d+/)
-		if (match) {
-			const moduleId = match[1]
-			if (!moduleCodePieces.has(moduleId)) {
-				moduleCodePieces.set(moduleId, [])
-			}
-			moduleCodePieces.get(moduleId)!.push(codePiece)
+		const moduleId = codePiece.id
+		if (!moduleCodePieces.has(moduleId)) {
+			moduleCodePieces.set(moduleId, [])
 		}
+		moduleCodePieces.get(moduleId)!.push(codePiece)
 	}
 
 	// Clone modules to avoid mutation
@@ -93,7 +87,10 @@ export function applyCodePiecesToFlowModules(
 	for (const [moduleId, pieces] of moduleCodePieces) {
 		const module = findModuleById(modifiedModules, moduleId)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
-			module.value.content = applyCodePieceToCodeContext(pieces, module.value.content)
+			module.value.content = applyCodePieceToCodeContext(
+				pieces as unknown as CodePieceElement[],
+				module.value.content
+			)
 		}
 	}
 
