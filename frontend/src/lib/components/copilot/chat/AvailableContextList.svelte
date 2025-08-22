@@ -3,7 +3,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import { ContextIconMap, type ContextElement } from './context'
-	import { ArrowLeft, Diff, Database, Code, ChevronRight } from 'lucide-svelte'
+	import { ArrowLeft, Diff, Database, ChevronRight } from 'lucide-svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -26,7 +26,7 @@
 	}: Props = $props()
 
 	// Current view state: 'categories' or specific category type
-	let currentView = $state<'categories' | 'diffs' | 'modules' | 'databases' | 'code'>('categories')
+	let currentView = $state<'categories' | 'diffs' | 'modules' | 'databases'>('categories')
 
 	// Selected index for keyboard navigation
 	let itemSelectedIndex = $state(0)
@@ -35,8 +35,7 @@
 	const categories = [
 		{ id: 'diffs', label: 'Diffs', icon: Diff },
 		{ id: 'modules', label: 'Modules', icon: BarsStaggered },
-		{ id: 'databases', label: 'Databases', icon: Database },
-		{ id: 'code', label: 'Code', icon: Code }
+		{ id: 'databases', label: 'Databases', icon: Database }
 	]
 
 	const filteredAvailableContext = $derived(
@@ -55,15 +54,13 @@
 		const grouped: Record<string, ContextElement[]> = {
 			diffs: [],
 			modules: [],
-			databases: [],
-			code: []
+			databases: []
 		}
 
 		filteredAvailableContext.forEach((context) => {
 			if (context.type === 'diff') grouped.diffs.push(context)
 			else if (context.type === 'flow_module') grouped.modules.push(context)
 			else if (context.type === 'db') grouped.databases.push(context)
-			else if (context.type === 'code') grouped.code.push(context)
 		})
 
 		return grouped
