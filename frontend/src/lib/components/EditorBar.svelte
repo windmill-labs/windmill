@@ -82,6 +82,7 @@
 		showHistoryDrawer?: boolean
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
+		moduleId?: string
 	}
 
 	let {
@@ -105,7 +106,8 @@
 		diffMode = false,
 		showHistoryDrawer = $bindable(false),
 		right,
-		openAiChat = false
+		openAiChat = false,
+		moduleId = undefined
 	}: Props = $props()
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
@@ -964,7 +966,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton />
+					<FlowInlineScriptAiButton {moduleId} />
 				{:else}
 					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 				{/if}

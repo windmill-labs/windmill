@@ -419,6 +419,7 @@
 							{lastDeployedCode}
 							{diffMode}
 							openAiChat
+							moduleId={flowModule.id}
 						/>
 					</div>
 				{/if}
@@ -477,6 +478,7 @@
 													{}
 												)}
 												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+												moduleId={flowModule.id}
 											/>
 											<DiffEditor
 												open={false}
