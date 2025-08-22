@@ -196,7 +196,9 @@
 
 <div
 	class="flex flex-col gap-1 text-tertiary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll"
-	onmousedown={(e) => e.preventDefault()}
+	onmousedown={(e) =>
+		// avoids triggering onblur on the textinput and closing the tooltip
+		e.preventDefault()}
 	role="listbox"
 	tabindex={0}
 >
