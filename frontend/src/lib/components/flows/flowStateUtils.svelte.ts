@@ -165,8 +165,7 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 export async function createAiAgent(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const aiAgentFlowModules: FlowModule = {
 		id,
-		value: { type: 'aiagent', tools: [], input_transforms: {} },
-		summary: 'AI Agent'
+		value: { type: 'aiagent', tools: [], input_transforms: {} }
 	}
 
 	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)

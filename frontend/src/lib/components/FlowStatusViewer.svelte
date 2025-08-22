@@ -144,7 +144,7 @@
 	isNodeSelected={true}
 	{refreshGlobal}
 	{updateGlobalRefresh}
-	toolCallCache={{
+	toolCallStore={{
 		getStoredToolCallJob: (storeKey: string) => storedToolCallJobs[storeKey],
 		setStoredToolCallJob: (storeKey: string, job: Job) => {
 			storedToolCallJobs[storeKey] = job

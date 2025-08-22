@@ -117,7 +117,7 @@
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
 		onDone?: ({ job }: { job: CompletedJob }) => void
-		toolCallCache?: {
+		toolCallStore?: {
 			getStoredToolCallJob: (storeKey: string) => Job | undefined
 			setStoredToolCallJob: (storeKey: string, job: Job) => void
 			getLocalToolCallJobs: (prefix: string) => Record<number, Job>
@@ -164,7 +164,7 @@
 		onStart = undefined,
 		onJobsLoaded = undefined,
 		onDone = undefined,
-		toolCallCache
+		toolCallStore
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -957,8 +957,10 @@
 					let nprefix = buildPrefix(prefix, oid)
 					return fms
 						? rec(
-								dfs(fms, (x) =>
-									x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)
+								dfs(
+									fms,
+									(x) => (x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)),
+									{ skipToolNodes: true }
 								),
 								nprefix
 							)
@@ -1016,6 +1018,11 @@
 				selectedForLoopSetManually: false
 			})
 		}
+		if (selectedNode?.startsWith(AI_TOOL_CALL_PREFIX)) {
+			const [, agentModuleId, toolCallIndex, _] = selectedNode.split('-')
+			const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
+			toolCallStore?.addToolCallToLoad(parentLoopsPrefix + agentModuleId + '-' + toolCallIndex)
+		}
 	}
 
 	$effect(() => {
@@ -1048,8 +1055,8 @@
 	let noLogs = $derived(graphTabOpen && !isNodeSelected)
 
 	/**
-	 * Returns a string like "forloopmodid1-{iter1}-forloopmodid2-{iter2}-forloopmodid3-{iter3}"
-	 * that can be used to prefix tool call cache keys for nested tool calls.
+	 * Returns a string like "forloopmodid1-{iter1}-forloopmodid2-{iter2}-forloopmodid3-{iter3}-"
+	 * that can be used to prefix tool call store keys for nested tool calls.
 	 */
 	function getParentLoopsPrefix(modId: string) {
 		if (job?.raw_flow) {
@@ -1058,7 +1065,7 @@
 			for (const parent of parents) {
 				if (parent.value.type === 'forloopflow' || parent.value.type === 'whileloopflow') {
 					const state = localModuleStates[parent.id]
-					if (state?.selectedForloopIndex) {
+					if (state?.selectedForloopIndex !== undefined) {
 						indices.push(parent.id + '-' + state.selectedForloopIndex.toString())
 					}
 				}
@@ -1203,7 +1210,7 @@
 							{@const forloopIsSelected =
 								forloop_selected == loopJobId ||
 								(innerModule?.type != 'forloopflow' && innerModule?.type != 'whileloopflow')}
-							{@const forLoopCacheKeyPrefix =
+							{@const forLoopStoreKeyPrefix =
 								innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow'
 									? (flowJobIds?.moduleId ?? '') + '-' + j + '-'
 									: ''}
@@ -1241,17 +1248,17 @@
 									graphTabOpen={selected == 'graph' && graphTabOpen}
 									isNodeSelected={forloop_selected == loopJobId}
 									{globalIterationBounds}
-									toolCallCache={{
+									toolCallStore={{
 										getStoredToolCallJob: (storeKey: string) =>
-											toolCallCache?.getStoredToolCallJob(forLoopCacheKeyPrefix + storeKey),
+											toolCallStore?.getStoredToolCallJob(forLoopStoreKeyPrefix + storeKey),
 										setStoredToolCallJob: (storeKey: string, job: Job) =>
-											toolCallCache?.setStoredToolCallJob(forLoopCacheKeyPrefix + storeKey, job),
+											toolCallStore?.setStoredToolCallJob(forLoopStoreKeyPrefix + storeKey, job),
 										getLocalToolCallJobs: (prefix: string) =>
-											toolCallCache?.getLocalToolCallJobs(forLoopCacheKeyPrefix + prefix) ?? {},
+											toolCallStore?.getLocalToolCallJobs(forLoopStoreKeyPrefix + prefix) ?? {},
 										addToolCallToLoad: (storeKey: string) =>
-											toolCallCache?.addToolCallToLoad(forLoopCacheKeyPrefix + storeKey),
+											toolCallStore?.addToolCallToLoad(forLoopStoreKeyPrefix + storeKey),
 										isToolCallToBeLoaded: (storeKey: string) =>
-											toolCallCache?.isToolCallToBeLoaded(forLoopCacheKeyPrefix + storeKey) ?? false
+											toolCallStore?.isToolCallToBeLoaded(forLoopStoreKeyPrefix + storeKey) ?? false
 									}}
 								/>
 							</div>
@@ -1412,15 +1419,16 @@
 										graphTabOpen={selected == 'graph' && graphTabOpen}
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 										{globalIterationBounds}
-										{toolCallCache}
+										{toolCallStore}
 									/>
-									{#if mod.agent_actions && mod.agent_actions.length > 0}
+									{#if mod.agent_actions && mod.agent_actions.length > 0 && mod.id}
+										{@const storeKeyPrefix = getParentLoopsPrefix(mod.id)}
 										{#each mod.agent_actions as agentAction, j}
-											{#if agentAction.type === 'tool_call' && mod.id}
+											{#if agentAction.type === 'tool_call'}
 												{@const toolCallId = getToolCallId(j, mod.id, agentAction.module_id)}
-												{@const storeKey = getParentLoopsPrefix(mod.id) + mod.id + '-' + j}
-												{@const storedToolCallJob = toolCallCache?.getStoredToolCallJob(storeKey)}
 												{@const localToolCallKey = mod.id + '-' + j}
+												{@const storeKey = storeKeyPrefix + localToolCallKey}
+												{@const storedToolCallJob = toolCallStore?.getStoredToolCallJob(storeKey)}
 												{@const isSelected = localToolCallKey === selectedToolCall}
 												<Button
 													variant={isSelected ? 'contained' : 'border'}
@@ -1446,7 +1454,7 @@
 														Tool call: {agentAction.function_name}
 													</span>
 												</Button>
-												{#if isSelected || storedToolCallJob || toolCallCache?.isToolCallToBeLoaded(storeKey)}
+												{#if isSelected || storedToolCallJob || toolCallStore?.isToolCallToBeLoaded(storeKey)}
 													<FlowStatusViewerInner
 														topModuleStates={getTopModuleStates}
 														{refreshGlobal}
@@ -1468,7 +1476,7 @@
 														initialJob={storedToolCallJob}
 														{reducedPolling}
 														onJobsLoaded={({ job, force }) => {
-															toolCallCache?.setStoredToolCallJob(storeKey, job)
+															toolCallStore?.setStoredToolCallJob(storeKey, job)
 															onJobsLoadedInner({ id: toolCallId } as FlowStatusModule, job, force)
 														}}
 														loadExtraLogs={(logs) => {
@@ -1563,7 +1571,7 @@
 											const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
 											const jIdx = Number(j)
 											const storeKey = parentLoopsPrefix + agentModuleId + '-' + jIdx
-											toolCallCache?.addToolCallToLoad(storeKey)
+											toolCallStore?.addToolCallToLoad(storeKey)
 										}
 									}
 								} else {
@@ -1653,6 +1661,7 @@
 											stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
 										{@const agentTools =
 											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
+										{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 										{#if node.flow_jobs_results}
 											<span class="pl-1 text-tertiary"
 												>Result of step as collection of all subflows</span
@@ -1730,13 +1739,12 @@
 															type: 'CompletedJob'
 														},
 														storedToolCallJobs: module
-															? toolCallCache?.getLocalToolCallJobs(getParentLoopsPrefix(module.id))
+															? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
 															: undefined,
 														onToolJobLoaded: (job, idx) => {
 															if (module) {
-																const parentLoopsPrefix = getParentLoopsPrefix(module.id)
 																const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																toolCallCache?.setStoredToolCallJob(storeKey, job)
+																toolCallStore?.setStoredToolCallJob(storeKey, job)
 															}
 														}
 													}
