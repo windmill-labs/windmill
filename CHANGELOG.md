@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.532.0](https://github.com/windmill-labs/windmill/compare/v1.531.0...v1.532.0) (2025-08-22)
+
+
+### Features
+
+* **aichat:** allow adding contexts to flow mode ([#6424](https://github.com/windmill-labs/windmill/issues/6424)) ([73272f1](https://github.com/windmill-labs/windmill/commit/73272f16fddc355703b04f2c3458520753d1e19c))
+* json schema resource ([#6433](https://github.com/windmill-labs/windmill/issues/6433)) ([7da79a8](https://github.com/windmill-labs/windmill/commit/7da79a8bc525fc6b89748ad0af25c2bac4ca2ef3))
+
 ## [1.531.0](https://github.com/windmill-labs/windmill/compare/v1.530.0...v1.531.0) (2025-08-22)
 
 
