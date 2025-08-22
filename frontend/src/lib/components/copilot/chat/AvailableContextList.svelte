@@ -30,6 +30,7 @@
 
 	// Selected index for keyboard navigation
 	let itemSelectedIndex = $state(0)
+	let categorySelectedIndex = $state(0)
 
 	// Category definitions
 	const categories = [
@@ -88,7 +89,6 @@
 
 	function handleCategoryClick(categoryId: string) {
 		currentView = categoryId as typeof currentView
-		itemSelectedIndex = 0
 	}
 
 	function handleBackClick() {
@@ -126,12 +126,12 @@
 			if (e.key === 'ArrowDown') {
 				e.preventDefault()
 				e.stopPropagation()
-				itemSelectedIndex = (itemSelectedIndex + 1) % availableCategories.length
+				categorySelectedIndex = (categorySelectedIndex + 1) % availableCategories.length
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault()
 				e.stopPropagation()
-				itemSelectedIndex =
-					(itemSelectedIndex - 1 + availableCategories.length) % availableCategories.length
+				categorySelectedIndex =
+					(categorySelectedIndex - 1 + availableCategories.length) % availableCategories.length
 			} else if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'Tab') {
 				e.preventDefault()
 				e.stopPropagation()
@@ -194,7 +194,12 @@
 	})
 </script>
 
-<div class="flex flex-col gap-1 text-tertiary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll">
+<div
+	class="flex flex-col gap-1 text-tertiary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll"
+	onmousedown={(e) => e.preventDefault()}
+	role="listbox"
+	tabindex={0}
+>
 	{#if stringSearch.length > 0}
 		<!-- Search view - show flat list -->
 		{#each filteredAvailableContext as element, i}
@@ -229,7 +234,7 @@
 			{@const Icon = category.icon}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 pr-0 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
-				itemSelectedIndex
+				categorySelectedIndex
 					? 'bg-surface-hover'
 					: ''}"
 				onclick={() => handleCategoryClick(category.id)}
