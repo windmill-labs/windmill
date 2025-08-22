@@ -4,6 +4,7 @@ import { JobService, type Flow, type FlowModule } from '$lib/gen'
 import { dfs } from './flows/dfs'
 import { getContext, setContext } from 'svelte'
 import pLimit from 'p-limit'
+import type { StateStore } from '$lib/utils'
 
 export type stepState = {
 	initial?: boolean
@@ -75,7 +76,7 @@ export class StepHistoryLoader {
 
 	async loadIndividualStepsStates(
 		flow: Flow,
-		flowStateStore: FlowState,
+		flowStateStore: StateStore<FlowState>,
 		workspaceId: string,
 		initialPath: string,
 		path: string

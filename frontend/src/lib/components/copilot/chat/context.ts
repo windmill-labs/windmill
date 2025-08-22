@@ -9,6 +9,7 @@ export const ContextIconMap = {
 	db: Database,
 	diff: Diff,
 	code_piece: Code
+	// flow_module type is handled with FlowModuleIcon
 }
 
 export interface CodeElement {
@@ -47,4 +48,26 @@ export interface CodePieceElement {
 	lang: ScriptLang | 'bunnative'
 }
 
-export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement
+export interface FlowModule {
+	type: 'flow_module'
+	id: string
+	title: string
+	// mimics the FlowModule type, with only the fields we need
+	value: {
+		language?: ScriptLang | 'bunnative'
+		path?: string
+		content?: string
+		type: string
+	}
+}
+
+export type ContextElement = (
+	| CodeElement
+	| ErrorElement
+	| DBElement
+	| DiffElement
+	| CodePieceElement
+	| FlowModule
+) & {
+	deletable?: boolean
+}

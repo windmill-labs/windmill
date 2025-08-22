@@ -8,6 +8,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
+	interface Props {
+		moduleId?: string
+	}
+
+	const { moduleId }: Props = $props()
+
 	const aiChatScriptModeClasses = $derived(
 		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
 			? 'dark:bg-violet-900 bg-violet-100'
@@ -22,7 +28,7 @@
 		btnClasses={twMerge('!px-2', aiChatScriptModeClasses)}
 		{onClick}
 		iconOnly
-		title="Open AI chat in script mode"
+		title="Open AI chat"
 		startIcon={{ icon: WandSparkles, classes: 'text-violet-800 dark:text-violet-400' }}
 	/>
 {/snippet}
@@ -30,7 +36,8 @@
 {#if $copilotInfo.enabled}
 	{@render button(() => {
 		aiChatManager.openChat()
-		aiChatManager.changeMode(AIMode.SCRIPT)
+		const availableContext = aiChatManager.contextManager.getAvailableContext()
+		aiChatManager.contextManager.setSelectedModuleContext(moduleId, availableContext)
 	})}
 {:else}
 	<Popover

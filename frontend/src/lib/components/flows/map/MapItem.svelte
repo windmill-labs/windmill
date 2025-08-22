@@ -1,15 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
-	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
+	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import {
 		isTriggerStep,
@@ -185,9 +182,7 @@
 					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<Repeat size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchone'}
@@ -208,9 +203,7 @@
 					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<GitBranch size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchall'}
@@ -231,9 +224,7 @@
 					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<GitBranch size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else}
@@ -281,30 +272,10 @@
 					{skipped}
 				>
 					{#snippet icon()}
-						<div>
-							{#if mod.value.type === 'rawscript'}
-								<LanguageIcon lang={mod.value.language} width={16} height={16} />
-							{:else if mod.summary == 'Terminate flow'}
-								<Square size={16} />
-							{:else if mod.value.type === 'identity'}
-								<ArrowDown size={16} />
-							{:else if mod.value.type === 'flow'}
-								<BarsStaggered size={16} />
-							{:else if mod.value.type === 'script'}
-								{#if mod.value.path.startsWith('hub/')}
-									<div>
-										<IconedResourceType
-											width="20px"
-											height="20px"
-											name={mod.value.path.split('/')[2]}
-											silent={true}
-										/>
-									</div>
-								{:else}
-									<Building size={14} />
-								{/if}
-							{/if}
-						</div>
+						{@const size = mod.value.type === 'script' && mod.value.path.startsWith('hub/')
+							? 20
+							: mod.value.type === "script" ? 14 : 16}
+						<FlowModuleIcon module={mod} size={size} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

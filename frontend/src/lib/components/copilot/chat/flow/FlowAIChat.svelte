@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
@@ -514,7 +514,7 @@
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
 			$selectedId,
 			flowStore.val,
-			flowStateStore,
+			flowStateStore.val,
 			$currentEditor
 		)
 		return cleanup

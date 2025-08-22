@@ -184,6 +184,7 @@
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
+		moduleId?: string
 	}
 
 	let {
@@ -209,7 +210,8 @@
 		changeTimeout = 500,
 		loadAsync = false,
 		key = undefined,
-		class: clazz = undefined
+		class: clazz = undefined,
+		moduleId = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1328,7 +1330,8 @@
 					aiChatManager.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
-						selection.endLineNumber
+						selection.endLineNumber,
+						moduleId
 					)
 				} else {
 					aiChatManager.toggleOpen()

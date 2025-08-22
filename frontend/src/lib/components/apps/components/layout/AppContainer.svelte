@@ -97,7 +97,7 @@
 					style={css?.container?.style}
 					subGridId={`${id}-0`}
 					containerHeight={componentContainerHeight}
-					on:focus={() => {
+					onFocus={() => {
 						if (!$connectingInput.opened) {
 							$selectedComponent = [id]
 						}
