@@ -76,7 +76,6 @@
 		autofocus?: boolean | null
 		compact?: boolean
 		password?: boolean
-		jsonSchemaResource?: string
 		pickForField?: string | undefined
 		variableEditor?: VariableEditor | undefined
 		itemPicker?: ItemPicker | undefined
@@ -143,7 +142,6 @@
 		autofocus = null,
 		compact = false,
 		password = false,
-		jsonSchemaResource = undefined,
 		pickForField = $bindable(undefined),
 		variableEditor = undefined,
 		itemPicker = undefined,
@@ -681,8 +679,8 @@
 					addPropertyInEditorTab
 				/>
 			{/await}
-		{:else if inputCat == 'object' && jsonSchemaResource}
-			{#await getJsonSchemaFromResource(jsonSchemaResource, workspace ?? $workspaceStore ?? '')}
+		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}

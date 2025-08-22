@@ -131,7 +131,6 @@
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
 							required={schema?.required?.includes(argName)}
-							jsonSchemaResource={schema.properties[argName]['x-json-schema-resource']}
 							pattern={schema.properties[argName].pattern}
 							bind:editor={editor[argName]}
 							bind:valid={inputCheck[argName]}

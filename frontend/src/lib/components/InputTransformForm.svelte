@@ -606,7 +606,6 @@
 							bind:itemsType={schema.properties[argName].items}
 							properties={schema.properties[argName].properties}
 							nestedRequired={schema.properties[argName].required}
-							jsonSchemaResource={schema.properties[argName]['x-json-schema-resource']}
 							displayHeader={false}
 							extra={argExtra}
 							{variableEditor}

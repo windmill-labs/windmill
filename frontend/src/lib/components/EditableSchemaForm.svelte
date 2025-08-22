@@ -782,9 +782,6 @@
 																	bind:properties={schema.properties[argName].properties}
 																	bind:order={schema.properties[argName].order}
 																	bind:requiredProperty={schema.properties[argName].required}
-																	bind:jsonSchemaResource={
-																		schema.properties[argName]['x-json-schema-resource']
-																	}
 																	{displayWebhookWarning}
 																	on:requiredChange={(event) => {
 																		if (event.detail.required) {

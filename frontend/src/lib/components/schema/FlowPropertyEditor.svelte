@@ -49,7 +49,6 @@
 		order?: string[] | undefined
 		requiredProperty?: string[] | undefined
 		displayWebhookWarning?: boolean
-		jsonSchemaResource?: string | undefined
 	}
 
 	let {
@@ -73,8 +72,7 @@
 		properties = $bindable(undefined),
 		order = $bindable(undefined),
 		requiredProperty = $bindable(undefined),
-		displayWebhookWarning = true,
-		jsonSchemaResource = $bindable(undefined)
+		displayWebhookWarning = true
 	}: Props = $props()
 
 	let oneOfSelected: string | undefined = $state(undefined)
@@ -128,7 +126,7 @@
 	let initialObjectSelected = $state(
 		format === 'json-schema'
 			? 'json-schema'
-			: jsonSchemaResource
+			: format?.startsWith('jsonschema-')
 				? 'custom-object'
 				: Object.keys(properties ?? {}).length == 0
 					? 'resource'
@@ -137,7 +135,7 @@
 	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
 
 	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
-		jsonSchemaResource ? 'json-schema-resource' : 'editor'
+		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
 	)
 </script>
 
@@ -328,7 +326,7 @@
 							class="mb-2"
 							on:selected={(e) => {
 								if (e.detail === 'editor') {
-									jsonSchemaResource = undefined
+									format = undefined
 								} else {
 									properties = undefined
 									order = undefined
@@ -366,7 +364,20 @@
 								}
 							/>
 						{:else if customObjectSelected === 'json-schema-resource'}
-							<ResourcePicker resourceType="json_schema" bind:value={jsonSchemaResource} />
+							<ResourcePicker
+								resourceType="json_schema"
+								bind:value={
+									() => {
+										if (format?.startsWith('jsonschema-')) {
+											return format.substring('jsonschema-'.length)
+										}
+										return undefined
+									},
+									(v) => {
+										format = 'jsonschema-' + v
+									}
+								}
+							/>
 						{/if}
 					</TabContent>
 
