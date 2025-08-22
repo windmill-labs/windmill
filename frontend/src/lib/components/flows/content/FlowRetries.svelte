@@ -18,7 +18,7 @@
 	interface Props {
 		flowModuleRetry: Retry | undefined
 		disabled?: boolean
-		flowModule: FlowModule
+		flowModule?: FlowModule
 	}
 
 	let {
@@ -35,19 +35,25 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
-		getStepPropPicker(
-			flowStateStore.val,
-			undefined,
-			undefined,
-			flowModule.id,
-			flowStore.val,
-			previewArgs.val,
-			false
-		)
+		flowModule
+			? getStepPropPicker(
+					flowStateStore.val,
+					undefined,
+					undefined,
+					flowModule.id,
+					flowStore.val,
+					previewArgs.val,
+					false
+				)
+			: null
 	)
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
-	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+	let result = $derived(
+		flowModule
+			? (flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+			: NEVER_TESTED_THIS_FAR
+	)
 
 	function setConstantRetries() {
 		flowModuleRetry = {
