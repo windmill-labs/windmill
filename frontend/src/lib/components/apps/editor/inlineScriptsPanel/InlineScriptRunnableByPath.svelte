@@ -116,7 +116,6 @@
 		if (deepEqual(runnable, lastRunnable)) {
 			return
 		}
-		console.log('runnable', runnable)
 		notFound = false
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)

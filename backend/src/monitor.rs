@@ -2571,8 +2571,6 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
     let app_workspaced_route =
         load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
 
-    println!("Updating...");
-
     let ws_route = match app_workspaced_route {
         Some(serde_json::Value::Bool(ws_route)) => ws_route,
         None => false,
