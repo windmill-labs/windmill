@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.533.1](https://github.com/windmill-labs/windmill/compare/v1.533.0...v1.533.1) (2025-08-23)
+
+
+### Bug Fixes
+
+* **app:** fix oneOf selected undefined freeze ([0ae8f44](https://github.com/windmill-labs/windmill/commit/0ae8f44773adb0576e1b63e858b506ba9a9fe7b3))
+
 ## [1.533.0](https://github.com/windmill-labs/windmill/compare/v1.532.0...v1.533.0) (2025-08-23)
 
 
