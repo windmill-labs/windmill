@@ -42,7 +42,7 @@
 			<button onclick={isDeletable ? onDelete : undefined} class:cursor-default={!isDeletable}>
 				{#if showDelete && isDeletable}
 					<X size={16} />
-				{:else if contextElement.type === 'flow_module'}
+				{:else if contextElement.type === 'flow_module' || contextElement.type === 'flow_module_code_piece'}
 					<FlowModuleIcon module={contextElement as FlowModule} size={16} />
 				{:else}
 					{@const SvelteComponent = icon}
@@ -50,7 +50,7 @@
 				{/if}
 			</button>
 			<span class="truncate">
-				{contextElement.type === 'diff' || contextElement.type === 'flow_module'
+				{contextElement.type === 'diff'
 					? contextElement.title.replace(/_/g, ' ')
 					: contextElement.title}
 			</span>
@@ -78,7 +78,7 @@
 					<div class="text-tertiary">Not loaded yet</div>
 				{/if}
 			</div>
-		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff'}
+		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff' || contextElement.type === 'flow_module_code_piece'}
 			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
 				<HighlightCode
 					language={contextElement.lang}

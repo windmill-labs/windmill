@@ -19,6 +19,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
+	import { extractAllModules } from '../copilot/chat/shared'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -110,7 +111,7 @@
 			lastDeployedFlow: savedFlow,
 			lastSavedFlow: savedFlow?.draft,
 			path: savedFlow?.path,
-			modules: flowStore.val.value.modules
+			modules: extractAllModules(flowStore.val.value.modules)
 		}
 		aiChatManager.flowOptions = options
 	})
