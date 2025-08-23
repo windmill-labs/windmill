@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.533.0](https://github.com/windmill-labs/windmill/compare/v1.532.0...v1.533.0) (2025-08-23)
+
+
+### Features
+
+* CLI improvements ([#6446](https://github.com/windmill-labs/windmill/issues/6446)) ([a41b9e4](https://github.com/windmill-labs/windmill/commit/a41b9e47e233ebaa2baafb5cca1187bb85d6f8f4))
+
+
+### Bug Fixes
+
+* **frontend:** ai agent flow status + UI nits ([#6447](https://github.com/windmill-labs/windmill/issues/6447)) ([c13747c](https://github.com/windmill-labs/windmill/commit/c13747cda9449369288e8d078b60542ea79a49bf))
+
 ## [1.532.0](https://github.com/windmill-labs/windmill/compare/v1.531.0...v1.532.0) (2025-08-22)
 
 
