@@ -135,7 +135,7 @@ async function tryResolveBranchWorkspace(
 
   // Read wmill.yaml to check for branch workspace configuration
   const config = await readConfigFile();
-  const branchConfig = config.git_branches?.[currentBranch];
+  const branchConfig = config.gitBranches?.[currentBranch];
 
   // Check if branch has workspace configuration
   if (!branchConfig?.baseUrl || !branchConfig?.workspaceId) {

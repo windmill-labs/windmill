@@ -43,14 +43,14 @@ async function initAction(opts: InitOptions) {
     if (isGitRepository()) {
       const currentBranch = getCurrentGitBranch();
       if (currentBranch) {
-        initialConfig.git_branches = {
+        initialConfig.gitBranches = {
           [currentBranch]: { overrides: {} },
         };
       } else {
-        initialConfig.git_branches = {};
+        initialConfig.gitBranches = {};
       }
     } else {
-      initialConfig.git_branches = {};
+      initialConfig.gitBranches = {};
     }
 
     await Deno.writeTextFile("wmill.yaml", yamlStringify(initialConfig));
@@ -116,16 +116,16 @@ async function initAction(opts: InitOptions) {
           const currentConfig = await import("../../core/conf.ts").then((m) =>
             m.readConfigFile()
           );
-          if (!currentConfig.git_branches) {
-            currentConfig.git_branches = {};
+          if (!currentConfig.gitBranches) {
+            currentConfig.gitBranches = {};
           }
-          if (!currentConfig.git_branches[currentBranch]) {
-            currentConfig.git_branches[currentBranch] = { overrides: {} };
+          if (!currentConfig.gitBranches[currentBranch]) {
+            currentConfig.gitBranches[currentBranch] = { overrides: {} };
           }
 
-          currentConfig.git_branches[currentBranch].baseUrl =
+          currentConfig.gitBranches[currentBranch].baseUrl =
             activeWorkspace.remote;
-          currentConfig.git_branches[currentBranch].workspaceId =
+          currentConfig.gitBranches[currentBranch].workspaceId =
             activeWorkspace.workspaceId;
 
           await Deno.writeTextFile(
