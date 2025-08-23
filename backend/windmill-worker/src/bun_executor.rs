@@ -758,7 +758,7 @@ pub async fn prebundle_bun_script(
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
 async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
-    let script_hash = get_latest_hash_for_path(db, w_id, script_path).await?;
+    let script_hash = get_latest_hash_for_path(db, w_id, script_path, false).await?;
     let last_updated_at = sqlx::query_scalar!(
         "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
         w_id,
