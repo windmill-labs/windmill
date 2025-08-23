@@ -150,7 +150,6 @@
 								addContextToSelection(element)
 								close()
 							}}
-							categorize
 						/>
 					</svelte:fragment>
 				</Popover>

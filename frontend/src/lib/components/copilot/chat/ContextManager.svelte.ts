@@ -2,7 +2,7 @@ import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang 
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import type { ContextElement } from './context'
+import type { ContextElement, FlowModuleElement } from './context'
 import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
@@ -109,7 +109,7 @@ export default class ContextManager {
 				newAvailableContext.push({
 					type: 'flow_module',
 					id: module.id,
-					title: `module_[${module.id}]`,
+					title: `${module.id}`,
 					value: {
 						language: 'language' in module.value ? module.value.language : 'bunnative',
 						path: 'path' in module.value ? module.value.path : '',
@@ -290,24 +290,51 @@ export default class ContextManager {
 	}
 
 	addSelectedLinesToContext(lines: string, startLine: number, endLine: number, moduleId?: string) {
-		const title = moduleId ? `[${moduleId}] L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
+		const title = moduleId ? `${moduleId} L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
 		if (
 			!this.scriptOptions ||
-			this.selectedContext.find((c) => c.type === 'code_piece' && c.title === title)
+			this.selectedContext.find(
+				(c) =>
+					(c.type === 'code_piece' && c.title === title) ||
+					(c.type === 'flow_module_code_piece' && c.id === moduleId && c.title === title)
+			)
 		) {
 			return
 		}
-		this.selectedContext = [
-			...this.selectedContext,
-			{
-				type: 'code_piece',
-				title: title,
-				startLine,
-				endLine,
-				content: lines,
-				lang: this.scriptOptions.lang
+		if (moduleId) {
+			const module = [...this.availableContext, ...this.selectedContext].find(
+				(c) => c.type === 'flow_module' && c.id === moduleId
+			) as FlowModuleElement
+			if (!module) {
+				console.error('Module not found', moduleId)
+				return
 			}
-		]
+			this.selectedContext = [
+				...this.selectedContext,
+				{
+					type: 'flow_module_code_piece',
+					id: moduleId,
+					title: title,
+					startLine,
+					endLine,
+					content: lines,
+					lang: this.scriptOptions.lang,
+					value: module.value
+				}
+			]
+		} else {
+			this.selectedContext = [
+				...this.selectedContext,
+				{
+					type: 'code_piece',
+					title: title,
+					startLine,
+					endLine,
+					content: lines,
+					lang: this.scriptOptions.lang
+				}
+			]
+		}
 	}
 
 	setFixContext() {

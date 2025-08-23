@@ -1237,7 +1237,13 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, $relativeLineNumbers),
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1657,7 +1663,7 @@
 		files && model && untrack(() => onFileChanges())
 	})
 	$effect(() => {
-		editor?.updateOptions({ 
+		editor?.updateOptions({
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
