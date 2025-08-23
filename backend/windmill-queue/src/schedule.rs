@@ -156,6 +156,7 @@ pub async fn push_scheduled_job<'c>(
             &mut *tx,
             &schedule.workspace_id,
             &schedule.script_path,
+            true,
         )
         .await?;
 

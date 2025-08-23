@@ -926,7 +926,7 @@ pub async fn handle_ai_agent_job(
                             .await?;
                             Ok(Some(hub_script.schema))
                         } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path)
+                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path, true)
                                 .await?
                                 .0;
                             // update module definition to use a fixed hash so all tool calls match the same schema

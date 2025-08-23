@@ -169,6 +169,7 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
                     ),
                 }
             }
+
             // Cache path doesn't exist or import failed, generate the content.
             let data = Val::resolve(with.await?)?;
             // Try to export data to the file-system.

@@ -1327,8 +1327,9 @@ async fn update_workspace_user(
         eu.operator,
         eu.disabled,
         &mut tx,
-        Some(&authed)
-    ).await?;
+        Some(&authed),
+    )
+    .await?;
 
     let user_email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
@@ -1589,7 +1590,14 @@ async fn delete_workspace_user(
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
-    delete_workspace_user_internal(&w_id, &username_to_delete, &email_to_delete, &mut tx, Some(&authed)).await?;
+    delete_workspace_user_internal(
+        &w_id,
+        &username_to_delete,
+        &email_to_delete,
+        &mut tx,
+        Some(&authed),
+    )
+    .await?;
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -2172,7 +2180,9 @@ async fn get_all_runnables(
                 .collect::<Vec<_>>(),
         );
         let scripts = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1) and workspace_id = $1", workspace
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o 
+         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false) 
+         AND workspace_id = $1 and archived = false", workspace
     )
     .fetch_all(&mut *tx)
     .await?;

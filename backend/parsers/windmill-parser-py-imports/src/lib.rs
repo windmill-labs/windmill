@@ -489,8 +489,7 @@ async fn parse_python_imports_inner(
                     let code = sqlx::query_scalar!(
                         r#"
                 SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
-                workspace_id = $2)
+                AND archived = false ORDER BY created_at DESC LIMIT 1
                 "#,
                         &rpath,
                         w_id
