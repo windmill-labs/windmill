@@ -35,7 +35,7 @@
 		showOnDemandOnlyToggle = true
 	}: Props = $props()
 
-	$effect(() => {
+	$effect.pre(() => {
 		if (oneOf == undefined) {
 			oneOf = { configuration: {}, selected: '' }
 		}
@@ -70,59 +70,61 @@
 </script>
 
 <div class="p-2 border">
-	<div class="mb-2 text-sm font-semibold">
-		{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
-		{#if tooltip}
-			<Tooltip light>{tooltip}</Tooltip>
-		{/if}
-	</div>
-	<select
-		class="w-full border border-gray-300 rounded-md p-2"
-		value={oneOf.selected}
-		onchange={(e) => {
-			oneOf = { ...oneOf, selected: e?.target?.['value'] }
-		}}
-	>
-		{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
-			{#if (!disabledOptions.includes(choice) && !getValueOfDeprecated(inputSpecsConfiguration[choice])) || oneOf.selected === choice}
-				<option value={choice}>{labels?.[choice] ?? choice}</option>
+	{#if oneOf}
+		<div class="mb-2 text-sm font-semibold">
+			{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
+			{#if tooltip}
+				<Tooltip light>{tooltip}</Tooltip>
 			{/if}
-		{/each}
-	</select>
-	{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
-		<div class="mb-4"></div>
-	{/if}
-	<div class="flex flex-col gap-4">
-		{#each Object.keys(inputSpecsConfiguration?.[oneOf.selected] ?? {}) as nestedKey}
-			{@const config = {
-				...inputSpecsConfiguration?.[oneOf.selected]?.[nestedKey],
-				...oneOf.configuration?.[oneOf.selected]?.[nestedKey]
+		</div>
+		<select
+			class="w-full border border-gray-300 rounded-md p-2"
+			value={oneOf.selected}
+			onchange={(e) => {
+				oneOf = { ...oneOf, selected: e?.target?.['value'] }
 			}}
+		>
+			{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
+				{#if (!disabledOptions.includes(choice) && !getValueOfDeprecated(inputSpecsConfiguration[choice])) || oneOf.selected === choice}
+					<option value={choice}>{labels?.[choice] ?? choice}</option>
+				{/if}
+			{/each}
+		</select>
+		{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
+			<div class="mb-4"></div>
+		{/if}
+		<div class="flex flex-col gap-4">
+			{#each Object.keys(inputSpecsConfiguration?.[oneOf.selected] ?? {}) as nestedKey}
+				{@const config = {
+					...inputSpecsConfiguration?.[oneOf.selected]?.[nestedKey],
+					...oneOf.configuration?.[oneOf.selected]?.[nestedKey]
+				}}
 
-			{#if config && oneOf.configuration[oneOf.selected]}
-				<InputsSpecEditor
-					{recomputeOnInputChanged}
-					key={nestedKey}
-					bind:componentInput={oneOf.configuration[oneOf.selected][nestedKey]}
-					{id}
-					{acceptSelf}
-					userInputEnabled={false}
-					{shouldCapitalize}
-					{resourceOnly}
-					fieldType={config?.['fieldType']}
-					subFieldType={config?.['subFieldType']}
-					format={config?.['format']}
-					selectOptions={config?.['selectOptions']}
-					placeholder={config?.['placeholder']}
-					customTitle={config?.['customTitle']}
-					tooltip={config?.['tooltip']}
-					fileUpload={config?.['fileUpload']}
-					loading={config?.['loading']}
-					documentationLink={config?.['documentationLink']}
-					allowTypeChange={config?.['allowTypeChange']}
-					{showOnDemandOnlyToggle}
-				/>
-			{/if}
-		{/each}
-	</div>
+				{#if config && oneOf.configuration[oneOf.selected]}
+					<InputsSpecEditor
+						{recomputeOnInputChanged}
+						key={nestedKey}
+						bind:componentInput={oneOf.configuration[oneOf.selected][nestedKey]}
+						{id}
+						{acceptSelf}
+						userInputEnabled={false}
+						{shouldCapitalize}
+						{resourceOnly}
+						fieldType={config?.['fieldType']}
+						subFieldType={config?.['subFieldType']}
+						format={config?.['format']}
+						selectOptions={config?.['selectOptions']}
+						placeholder={config?.['placeholder']}
+						customTitle={config?.['customTitle']}
+						tooltip={config?.['tooltip']}
+						fileUpload={config?.['fileUpload']}
+						loading={config?.['loading']}
+						documentationLink={config?.['documentationLink']}
+						allowTypeChange={config?.['allowTypeChange']}
+						{showOnDemandOnlyToggle}
+					/>
+				{/if}
+			{/each}
+		</div>
+	{/if}
 </div>
