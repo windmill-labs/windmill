@@ -3,11 +3,11 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 
-import { GitSyncRepository, WriteMode } from "./types.ts";
+import { WriteMode } from "./types.ts";
 import { GitSyncSettingsConverter } from "./converter.ts";
 import { handleLegacyRepositoryMigration } from "./legacySettings.ts";
 import {
@@ -132,11 +132,9 @@ export async function pullGitSyncSettings(
     const backendSyncOptions: SyncOptions = GitSyncSettingsConverter.fromBackendFormat(selectedRepo.settings);
 
     // Check if wmill.yaml exists - create a default one if it doesn't exist
-    let wmillYamlExists = true;
-    try {
-      await Deno.stat("wmill.yaml");
-    } catch (error) {
-      wmillYamlExists = false;
+    const wmillYamlPath = getWmillYamlPath();
+    const wmillYamlExists = wmillYamlPath !== null;
+    if (!wmillYamlExists) {
       if (!opts.jsonOutput) {
         log.info(
           colors.yellow(
@@ -165,11 +163,11 @@ export async function pullGitSyncSettings(
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
-          if (!updatedConfig.git_branches) {
-            updatedConfig.git_branches = {};
+          if (!updatedConfig.gitBranches) {
+            updatedConfig.gitBranches = {};
           }
-          if (!updatedConfig.git_branches[currentBranch]) {
-            updatedConfig.git_branches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.gitBranches[currentBranch]) {
+            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
           }
         }
       }
@@ -358,16 +356,16 @@ export async function pullGitSyncSettings(
       let needsBranchStructure = false;
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
-        if (currentBranch && (!localConfig.git_branches || !localConfig.git_branches[currentBranch])) {
+        if (currentBranch && (!localConfig.gitBranches || !localConfig.gitBranches[currentBranch])) {
           needsBranchStructure = true;
 
           // Create empty branch structure
           const updatedConfig = { ...localConfig };
-          if (!updatedConfig.git_branches) {
-            updatedConfig.git_branches = {};
+          if (!updatedConfig.gitBranches) {
+            updatedConfig.gitBranches = {};
           }
-          if (!updatedConfig.git_branches[currentBranch]) {
-            updatedConfig.git_branches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.gitBranches[currentBranch]) {
+            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
           }
 
           // Write updated configuration
@@ -429,11 +427,11 @@ export async function pullGitSyncSettings(
       const currentBranch = getCurrentGitBranch();
       if (currentBranch) {
         log.info(`Detected Git repository, adding empty branch structure for: ${currentBranch}`);
-        if (!updatedConfig.git_branches) {
-          updatedConfig.git_branches = {};
+        if (!updatedConfig.gitBranches) {
+          updatedConfig.gitBranches = {};
         }
-        if (!updatedConfig.git_branches[currentBranch]) {
-          updatedConfig.git_branches[currentBranch] = { overrides: {} };
+        if (!updatedConfig.gitBranches[currentBranch]) {
+          updatedConfig.gitBranches[currentBranch] = { overrides: {} };
         }
       }
     }
