@@ -20,7 +20,7 @@
 		stepsInputArgs?.updateStepArgs(id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
 	})
 
-	const input = $derived(stepsInputArgs?.getStepArgs(id)?.value)
+	const input = $derived(stepsInputArgs?.getStepArgs(id))
 </script>
 
 <div class="p-4 pr-6 h-full overflow-y-auto">

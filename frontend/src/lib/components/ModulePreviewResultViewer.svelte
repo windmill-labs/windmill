@@ -4,12 +4,13 @@
 	import ScriptFix from './copilot/ScriptFix.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
-	import type { Script, Job, FlowModule } from '$lib/gen'
+	import { type Script, type Job, type FlowModule } from '$lib/gen'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
+	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
 	interface Props {
 		lang: Script['language']
@@ -104,6 +105,15 @@
 				tag={undefined}
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
+			/>
+		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
+			<AiAgentLogViewer
+				tools={mod.value.tools}
+				agentJob={{
+					...logJob,
+					type: 'CompletedJob'
+				}}
+				workspaceId={logJob.workspace_id}
 			/>
 		{:else}
 			<LogViewer

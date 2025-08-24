@@ -40,7 +40,7 @@
 	{/if}
 
 	{#if displayType}
-		{#if format && !format.startsWith('resource')}
+		{#if format && !format.startsWith('resource') && !format.startsWith('jsonschema-')}
 			<span class="text-xs italic ml-2 text-tertiary dark:text-indigo-400">
 				{format}
 			</span>

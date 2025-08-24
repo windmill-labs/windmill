@@ -1,11 +1,13 @@
-import { ResourceService, type ListResourceResponse, type ScriptLang } from '$lib/gen'
+import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import type { ContextElement } from './context'
+import type { ContextElement, FlowModuleElement } from './context'
+import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
 import { langToExt } from '$lib/editorLangUtils'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
@@ -16,6 +18,14 @@ export interface ScriptOptions {
 	lastSavedCode?: string
 	lastDeployedCode?: string
 	diffMode: boolean
+}
+
+export interface FlowOptions {
+	currentFlow: ExtendedOpenFlow
+	lastDeployedFlow?: Flow
+	path: string | undefined
+	modules: FlowModule[]
+	lastSavedFlow?: Flow
 }
 
 export default class ContextManager {
@@ -55,6 +65,93 @@ export default class ContextManager {
 		)
 	}
 
+	async updateAvailableContextForFlow(
+		flowOptions: FlowOptions,
+		dbSchemas: DBSchemas,
+		workspace: string,
+		toolSupport: boolean,
+		currentlySelectedContext: ContextElement[]
+	) {
+		try {
+			if (this.workspace !== workspace) {
+				await this.refreshDbResources(workspace)
+				this.workspace = workspace
+			}
+
+			let newAvailableContext: ContextElement[] = []
+
+			// Add diff context if we have a deployed flow version
+			const deployedFlowString = JSON.stringify(flowOptions.lastDeployedFlow, null, 2)
+			const savedFlowString = JSON.stringify(flowOptions.lastSavedFlow, null, 2)
+			const currentFlowString = JSON.stringify(flowOptions.currentFlow, null, 2)
+
+			if (currentFlowString && deployedFlowString && deployedFlowString !== currentFlowString) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_deployed_version',
+					content: deployedFlowString,
+					diff: diffLines(deployedFlowString, currentFlowString),
+					lang: 'graphql' // irrelevant, but needed for the diff component
+				})
+			}
+
+			if (currentFlowString && savedFlowString && savedFlowString !== currentFlowString) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_saved_draft',
+					content: savedFlowString,
+					diff: diffLines(savedFlowString, currentFlowString),
+					lang: 'graphql' // irrelevant, but needed for the diff component
+				})
+			}
+
+			for (const module of flowOptions.modules) {
+				newAvailableContext.push({
+					type: 'flow_module',
+					id: module.id,
+					title: `${module.id}`,
+					value: {
+						language: 'language' in module.value ? module.value.language : 'bunnative',
+						path: 'path' in module.value ? module.value.path : '',
+						content: 'content' in module.value ? module.value.content : '',
+						type: module.value.type
+					}
+				})
+			}
+
+			if (toolSupport) {
+				for (const d of this.dbResources) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
+
+			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
+
+			// Filter selected context to only include available items
+			newSelectedContext = newSelectedContext
+				.filter((c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title))
+				.map((c) =>
+					c.type === 'db' && dbSchemas[c.title]
+						? {
+								...c,
+								schema: dbSchemas[c.title]
+							}
+						: c
+				)
+
+			this.availableContext = newAvailableContext
+			this.selectedContext = newSelectedContext
+		} catch (err) {
+			console.error('Could not update available context for flow', err)
+		}
+	}
+
 	async updateAvailableContext(
 		scriptOptions: ScriptOptions,
 		dbSchemas: DBSchemas,
@@ -63,12 +160,10 @@ export default class ContextManager {
 		currentlySelectedContext: ContextElement[]
 	) {
 		try {
-			let firstTime = !this.workspace
 			if (this.workspace !== workspace) {
 				await this.refreshDbResources(workspace)
 				this.workspace = workspace
 			}
-			this.scriptOptions = scriptOptions
 			let newAvailableContext: ContextElement[] = [
 				{
 					type: 'code',
@@ -123,16 +218,15 @@ export default class ContextManager {
 
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 
-			if (firstTime) {
-				newSelectedContext = [
-					{
-						type: 'code',
-						title: this.getContextCodePath(scriptOptions) ?? '',
-						content: scriptOptions.code,
-						lang: scriptOptions.lang
-					}
-				]
-			}
+			newSelectedContext = [
+				{
+					type: 'code',
+					title: this.getContextCodePath(scriptOptions) ?? '',
+					content: scriptOptions.code,
+					lang: scriptOptions.lang,
+					deletable: false
+				}
+			]
 
 			const db = this.getSelectedDBSchema(scriptOptions, dbSchemas)
 			if (
@@ -160,15 +254,15 @@ export default class ContextManager {
 				.map((c) =>
 					c.type === 'code'
 						? {
-							...c,
-							content: scriptOptions.code,
-							title: this.getContextCodePath(scriptOptions)
-						}
+								...c,
+								content: scriptOptions.code,
+								title: this.getContextCodePath(scriptOptions)
+							}
 						: c.type === 'db' && dbSchemas[c.title]
 							? {
-								...c,
-								schema: dbSchemas[c.title]
-							}
+									...c,
+									schema: dbSchemas[c.title]
+								}
 							: c
 				)
 
@@ -191,26 +285,56 @@ export default class ContextManager {
 		return this.availableContext
 	}
 
-	addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+	setScriptOptions(scriptOptions: ScriptOptions) {
+		this.scriptOptions = scriptOptions
+	}
+
+	addSelectedLinesToContext(lines: string, startLine: number, endLine: number, moduleId?: string) {
+		const title = moduleId ? `${moduleId} L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
 		if (
 			!this.scriptOptions ||
 			this.selectedContext.find(
-				(c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`
+				(c) =>
+					(c.type === 'code_piece' && c.title === title) ||
+					(c.type === 'flow_module_code_piece' && c.id === moduleId && c.title === title)
 			)
 		) {
 			return
 		}
-		this.selectedContext = [
-			...this.selectedContext,
-			{
-				type: 'code_piece',
-				title: `L${startLine}-L${endLine}`,
-				startLine,
-				endLine,
-				content: lines,
-				lang: this.scriptOptions.lang
+		if (moduleId) {
+			const module = [...this.availableContext, ...this.selectedContext].find(
+				(c) => c.type === 'flow_module' && c.id === moduleId
+			) as FlowModuleElement
+			if (!module) {
+				console.error('Module not found', moduleId)
+				return
 			}
-		]
+			this.selectedContext = [
+				...this.selectedContext,
+				{
+					type: 'flow_module_code_piece',
+					id: moduleId,
+					title: title,
+					startLine,
+					endLine,
+					content: lines,
+					lang: this.scriptOptions.lang,
+					value: module.value
+				}
+			]
+		} else {
+			this.selectedContext = [
+				...this.selectedContext,
+				{
+					type: 'code_piece',
+					title: title,
+					startLine,
+					endLine,
+					content: lines,
+					lang: this.scriptOptions.lang
+				}
+			]
+		}
 	}
 
 	setFixContext() {
@@ -234,14 +358,14 @@ export default class ContextManager {
 			...(options.withCode === false ? [] : [codeContext]),
 			...(options.withDiff
 				? [
-					{
-						type: 'diff' as const,
-						title: 'diff_with_last_deployed_version',
-						content: this.scriptOptions.lastDeployedCode ?? '',
-						diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
-						lang: this.scriptOptions.lang
-					}
-				]
+						{
+							type: 'diff' as const,
+							title: 'diff_with_last_deployed_version',
+							content: this.scriptOptions.lastDeployedCode ?? '',
+							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
+							lang: this.scriptOptions.lang
+						}
+					]
 				: [])
 		]
 	}
@@ -268,15 +392,37 @@ export default class ContextManager {
 			contextElements:
 				m.role !== 'tool' && m.contextElements
 					? m.contextElements.map((c) =>
-						c.type === 'db'
-							? {
-								type: 'db',
-								title: c.title,
-								schema: dbSchemas[c.title]
-							}
-							: c
-					)
+							c.type === 'db'
+								? {
+										type: 'db',
+										title: c.title,
+										schema: dbSchemas[c.title]
+									}
+								: c
+						)
 					: undefined
 		}))
+	}
+
+	setSelectedModuleContext(
+		moduleId: string | undefined,
+		availableContext: ContextElement[] | undefined
+	) {
+		if (availableContext && moduleId) {
+			const module = availableContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
+			if (
+				module &&
+				!this.selectedContext.find((c) => c.type === 'flow_module' && c.id === moduleId)
+			) {
+				this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
+				this.selectedContext = [module, ...this.selectedContext]
+			}
+		} else if (!moduleId) {
+			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
+		}
+	}
+
+	clearContext() {
+		this.selectedContext = []
 	}
 }

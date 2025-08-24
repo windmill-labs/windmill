@@ -28,7 +28,8 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		if (
 			flowModule.value.type == 'script' ||
 			flowModule.value.type == 'rawscript' ||
-			flowModule.value.type == 'flow'
+			flowModule.value.type == 'flow' ||
+			flowModule.value.type == 'aiagent'
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
@@ -159,6 +160,17 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	const flowModuleState = await loadFlowModuleState(branchesFlowModules)
 
 	return [branchesFlowModules, flowModuleState]
+}
+
+export async function createAiAgent(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const aiAgentFlowModules: FlowModule = {
+		id,
+		value: { type: 'aiagent', tools: [], input_transforms: {} }
+	}
+
+	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)
+
+	return [aiAgentFlowModules, flowModuleState]
 }
 
 export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {

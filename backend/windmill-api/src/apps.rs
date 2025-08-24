@@ -762,20 +762,26 @@ async fn get_public_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
-    if !path.starts_with("f/app_themes/") {
-        return Err(Error::BadRequest(
-            "Only app themes are public resources".to_string(),
-        ));
-    }
-    let res = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        path.to_owned(),
-        &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten();
-    Ok(Json(res))
+
+    let res = if path.starts_with("f/app_themes/") {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'json_schema'",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    Ok(Json(res.flatten()))
 }
 
 async fn get_secret_id(
@@ -1092,6 +1098,7 @@ async fn create_app_internal<'a>(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1469,6 +1476,7 @@ async fn update_app_internal<'a>(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1782,6 +1790,7 @@ async fn execute_component(
         None,
         None,
         None,
+        false,
     )
     .await?;
     tx.commit().await?;

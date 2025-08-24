@@ -1,4 +1,4 @@
-import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
+import type { FlowModule, Job, PathScript, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
@@ -18,6 +18,7 @@ export type InsertKind =
 	| 'trigger'
 	| 'approval'
 	| 'end'
+	| 'aiagent'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -35,13 +36,14 @@ export type onSelectedIteration = (
 
 export type GraphEventHandlers = {
 	insert: (detail: {
+		agentId?: string
 		sourceId?: string
 		targetId?: string
 		branch?: { rootId: string; branch: number }
 		index: number
 		kind: string
-		inlineScript?: string
-		script?: string
+		inlineScript?: InlineScript
+		script?: PathScript
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
@@ -102,6 +104,8 @@ export type FlowNode =
 	| TriggerN
 	| AssetN
 	| AssetsOverflowedN
+	| AiToolN
+	| NewAiToolN
 
 export type InputN = {
 	type: 'input2'
@@ -295,7 +299,28 @@ export type AssetsOverflowedN = {
 	}
 }
 
-export function topologicalSort(nodes: { id: string; parentIds?: string[] }[]): { id: string; parentIds?: string[] }[] {
+export type AiToolN = {
+	type: 'aiTool'
+	data: {
+		tool: string
+		eventHandlers: GraphEventHandlers
+		moduleId: string
+		insertable: boolean
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	}
+}
+
+export type NewAiToolN = {
+	type: 'newAiTool'
+	data: {
+		eventHandlers: GraphEventHandlers
+		agentModuleId: string
+	}
+}
+
+export function topologicalSort(
+	nodes: { id: string; parentIds?: string[] }[]
+): { id: string; parentIds?: string[] }[] {
 	const nodeMap = new Map(nodes.map((n) => [n.id, n]))
 	const result: { id: string; parentIds?: string[] }[] = []
 	const visited = new Set<string>()

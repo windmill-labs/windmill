@@ -6,6 +6,7 @@
 	import {
 		setInputCat as computeInputCat,
 		debounce,
+		emptySchema,
 		emptyString,
 		getSchemaFromProperties,
 		type DynamicSelect
@@ -42,6 +43,8 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 	import { base } from '$lib/base'
+	import { workspaceStore } from '$lib/stores'
+	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 
 	interface Props {
 		label?: string
@@ -658,6 +661,47 @@
 				{appPath}
 				{computeS3ForceViewerPolicies}
 			/>
+		{:else if inputCat == 'object' && format == 'json-schema'}
+			{#await import('$lib/components/EditableSchemaForm.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					bind:schema={
+						() =>
+							value && typeof value === 'object' && !Array.isArray(value) ? value : emptySchema(),
+						(v) => {
+							value = v
+						}
+					}
+					isFlowInput
+					editTab="inputEditor"
+					noPreview
+					addPropertyInEditorTab
+				/>
+			{/await}
+		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
+				<Loader2 class="animate-spin" />
+			{:then schema}
+				{#if !schema || !schema.properties}
+					{#await import('$lib/components/JsonEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+					{/await}
+				{:else}
+					<div class="py-4 pr-2 pl-6 border rounded-md w-full">
+						<SchemaForm
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							{prettifyHeader}
+							{schema}
+							bind:args={value}
+						/>
+					</div>
+				{/if}
+			{/await}
 		{:else if inputCat == 'list' && !isListJson}
 			<div class="w-full flex gap-4">
 				<div class="w-full">

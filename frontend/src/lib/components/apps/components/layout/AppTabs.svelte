@@ -265,7 +265,7 @@
 								class={twMerge(css?.container?.class, 'wm-tabs-container')}
 								style={css?.container?.style}
 								containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
-								on:focus={() => {
+								onFocus={() => {
 									if (!$connectingInput.opened) {
 										$selectedComponent = [id]
 										handleTabSelection()
@@ -289,7 +289,7 @@
 							containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
 								? componentContainerHeight - tabHeight
 								: componentContainerHeight}
-							on:focus={() => {
+							onFocus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
 									handleTabSelection()

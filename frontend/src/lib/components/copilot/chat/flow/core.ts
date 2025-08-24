@@ -10,9 +10,21 @@ import { emptySchema, emptyString } from '$lib/utils'
 import {
 	getFormattedResourceTypes,
 	getLangContext,
-	SUPPORTED_CHAT_SCRIPT_LANGUAGES
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
+	createDbSchemaTool
 } from '../script/core'
-import { createSearchHubScriptsTool, createToolDef, type Tool, executeTestRun, buildSchemaForTool, buildTestRunArgs } from '../shared'
+import {
+	createSearchHubScriptsTool,
+	createToolDef,
+	type Tool,
+	executeTestRun,
+	buildSchemaForTool,
+	buildTestRunArgs,
+	buildContextString,
+	applyCodePiecesToFlowModules,
+	findModuleById
+} from '../shared'
+import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed'
@@ -339,8 +351,11 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
-	args: z.object({}).nullable().optional()
-	.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
+	args: z
+		.object({})
+		.nullable()
+		.optional()
+		.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -368,6 +383,7 @@ const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
+	createDbSchemaTool<FlowAIChatHelpers>(),
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -562,7 +578,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: testRunFlowToolDef,
-		fn: async function({ args, workspace, helpers, toolCallbacks, toolId }) {
+		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
@@ -577,13 +593,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			const parsedArgs = await buildTestRunArgs(args, this.def)
 			return executeTestRun({
-				jobStarter: () => JobService.runFlowPreview({
-					workspace: workspace,
-					requestBody: {
-						args: parsedArgs,
-						value: flow.value,
-					}
-				}),
+				jobStarter: () =>
+					JobService.runFlowPreview({
+						workspace: workspace,
+						requestBody: {
+							args: parsedArgs,
+							value: flow.value
+						}
+					}),
 				workspace,
 				toolCallbacks,
 				toolId,
@@ -591,7 +608,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				contextName: 'flow'
 			})
 		},
-		setSchema: async function(helpers: FlowAIChatHelpers) {
+		setSchema: async function (helpers: FlowAIChatHelpers) {
 			await buildSchemaForTool(this.def, async () => {
 				const flowInputsSchema = await helpers.getFlowInputsSchema()
 				return flowInputsSchema
@@ -622,7 +639,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Find the step in the flow
 			const modules = helpers.getModules()
-			let targetModule: FlowModule | undefined = modules.find((m) => m.id === stepId)
+			let targetModule: FlowModule | undefined = findModuleById(modules, stepId)
 
 			if (!targetModule) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -647,7 +664,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: moduleValue.content ?? '',
 								language: moduleValue.language,
-								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs
 							}
 						}),
 					workspace,
@@ -675,7 +695,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 							requestBody: {
 								content: script.content,
 								language: script.language,
-								args: module.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs } : stepArgs,
+								args:
+									module.id === 'preprocessor'
+										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
+										: stepArgs
 							}
 						}),
 					workspace,
@@ -721,6 +744,16 @@ Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
+When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
+
+## Code Markers in Flow Modules
+
+When viewing flow modules, the code content of rawscript steps may include \`[#START]\` and \`[#END]\` markers:
+- These markers indicate specific code sections that need attention
+- You MUST only modify the code between these markers when using the \`set_code\` tool
+- After modifying the code, remove the markers from your response
+- If a question is asked about the code, focus only on the code between the markers
+- The markers appear in the YAML representation of flow modules when specific code pieces are selected
 
 ## Understanding User Requests
 
@@ -802,6 +835,16 @@ For truly static values in step inputs (those not linked to previous steps or lo
 
 Both modules only support a script or rawscript step. You cannot nest modules using forloop/branchone/branchall.
 
+### Contexts
+
+You have access to the following contexts:
+- Database schemas
+- Flow diffs
+- Focused flow modules
+Database schemas give you the schema of databases the user is using.
+Flow diffs give you the diff between the current flow and the last deployed flow.
+Focused flow modules give you the ids of the flow modules the user is focused on. Your response should focus on these modules.
+
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
 If the user needs a resource as flow input, you should set the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
@@ -816,26 +859,33 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string }
+	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
+	selectedContext: ContextElement[] = []
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
 
+	// Handle context elements
+	const contextInstructions = selectedContext ? buildContextString(selectedContext) : ''
+
 	if (!flow || !selectedId) {
+		let userMessage = `## INSTRUCTIONS:
+${instructions}`
 		return {
 			role: 'user',
-			content: `## INSTRUCTIONS:
-${instructions}`
+			content: userMessage
 		}
 	}
-	return {
-		role: 'user',
-		content: `## FLOW:
+
+	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
+	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
+
+	let flowContent = `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
 flow modules:
-${YAML.stringify(flow.value.modules)}
+${flowModulesYaml}
 
 preprocessor module:
 ${YAML.stringify(flow.value.preprocessor_module)}
@@ -844,9 +894,15 @@ failure module:
 ${YAML.stringify(flow.value.failure_module)}
 
 currently selected step:
-${selectedId}
+${selectedId}`
 
-## INSTRUCTIONS:
+	flowContent += contextInstructions
+
+	flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
+
+	return {
+		role: 'user',
+		content: flowContent
 	}
 }

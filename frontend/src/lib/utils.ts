@@ -172,9 +172,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-				day: 'numeric',
-				month: 'numeric'
-			}
+					day: 'numeric',
+					month: 'numeric'
+				}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -592,6 +592,7 @@ export type InputCat =
 	| 'currency'
 	| 'oneOf'
 	| 'dynselect'
+	| 'json-schema'
 
 export namespace DynamicSelect {
 	export type HelperScript =
@@ -1025,7 +1026,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -1292,7 +1293,7 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 	if (meltItem) {
 		return meltItem(node)
 	}
-	return { destroy: () => { } }
+	return { destroy: () => {} }
 }
 
 export type Item = {
@@ -1497,9 +1498,9 @@ export type S3Uri = `s3://${string}/${string}`
 export type S3Object =
 	| S3Uri
 	| {
-		s3: string
-		storage?: string
-	}
+			s3: string
+			storage?: string
+	  }
 
 export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
 	if (typeof s3Object === 'object') return s3Object

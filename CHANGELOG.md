@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.533.1](https://github.com/windmill-labs/windmill/compare/v1.533.0...v1.533.1) (2025-08-23)
+
+
+### Bug Fixes
+
+* **app:** fix oneOf selected undefined freeze ([0ae8f44](https://github.com/windmill-labs/windmill/commit/0ae8f44773adb0576e1b63e858b506ba9a9fe7b3))
+
+## [1.533.0](https://github.com/windmill-labs/windmill/compare/v1.532.0...v1.533.0) (2025-08-23)
+
+
+### Features
+
+* CLI improvements ([#6446](https://github.com/windmill-labs/windmill/issues/6446)) ([a41b9e4](https://github.com/windmill-labs/windmill/commit/a41b9e47e233ebaa2baafb5cca1187bb85d6f8f4))
+
+
+### Bug Fixes
+
+* **frontend:** ai agent flow status + UI nits ([#6447](https://github.com/windmill-labs/windmill/issues/6447)) ([c13747c](https://github.com/windmill-labs/windmill/commit/c13747cda9449369288e8d078b60542ea79a49bf))
+
+## [1.532.0](https://github.com/windmill-labs/windmill/compare/v1.531.0...v1.532.0) (2025-08-22)
+
+
+### Features
+
+* **aichat:** allow adding contexts to flow mode ([#6424](https://github.com/windmill-labs/windmill/issues/6424)) ([73272f1](https://github.com/windmill-labs/windmill/commit/73272f16fddc355703b04f2c3458520753d1e19c))
+* json schema resource ([#6433](https://github.com/windmill-labs/windmill/issues/6433)) ([7da79a8](https://github.com/windmill-labs/windmill/commit/7da79a8bc525fc6b89748ad0af25c2bac4ca2ef3))
+
+## [1.531.0](https://github.com/windmill-labs/windmill/compare/v1.530.0...v1.531.0) (2025-08-22)
+
+
+### Features
+
+* ai agent steps ([#6393](https://github.com/windmill-labs/windmill/issues/6393)) ([958e8af](https://github.com/windmill-labs/windmill/commit/958e8af78290cf859f98c45c012ed41e3bada39e))
+* bump Go version from 1.22.0 to 1.25.0 [#6415](https://github.com/windmill-labs/windmill/issues/6415)  ([c92bfe6](https://github.com/windmill-labs/windmill/commit/c92bfe6601fd96f6d74860f52f9307e02961ac21))
+
+
+### Bug Fixes
+
+* **app:** fix ctrl drag for insertion into subgrids ([51ea947](https://github.com/windmill-labs/windmill/commit/51ea9473ef23c6871699e69bbe79772a4d50d3b8))
+* **frontend:** graph cache of ai agent step tools ([#6431](https://github.com/windmill-labs/windmill/issues/6431)) ([28f1d61](https://github.com/windmill-labs/windmill/commit/28f1d611643459d42531fa217c185408eb97d6d1))
+* make relevant sidebar menu items a instead of button ([06d078e](https://github.com/windmill-labs/windmill/commit/06d078ebfa8f70b66bc764eae70d33c8c57b4012))
+* s3 result presigned not working with list ([9df008b](https://github.com/windmill-labs/windmill/commit/9df008b9f8fe58692463e4b9da0538935e458b10))
+
+## [1.530.0](https://github.com/windmill-labs/windmill/compare/v1.529.0...v1.530.0) (2025-08-20)
+
+
+### Features
+
+* **mcp:** add script preview testing tool ([#6417](https://github.com/windmill-labs/windmill/issues/6417)) ([ae49737](https://github.com/windmill-labs/windmill/commit/ae497376769f5cd49a41c22cf558a9f052d5b56e))
+
+
+### Bug Fixes
+
+* aggrid newchange to point to correct idx ([#6425](https://github.com/windmill-labs/windmill/issues/6425)) ([511ff5e](https://github.com/windmill-labs/windmill/commit/511ff5e9f794c29c3c8a5fc0480675a1258fb056))
+* fix preprocessor preview ([47e49b2](https://github.com/windmill-labs/windmill/commit/47e49b243d8cf6d29fa5a59918a2168b87111352))
+* improve flow editor log streaming for individual tests ([ac066ab](https://github.com/windmill-labs/windmill/commit/ac066abb980501577cc96330a4a5f1309aa35661))
+
 ## [1.529.0](https://github.com/windmill-labs/windmill/compare/v1.528.0...v1.529.0) (2025-08-19)
 
 
