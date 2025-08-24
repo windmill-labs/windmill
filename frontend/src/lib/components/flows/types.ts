@@ -1,4 +1,4 @@
-import type { OpenFlow } from '$lib/gen'
+import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -97,3 +97,16 @@ export type FlowGraphAssetContext = StateStore<{
 	additionalAssetsMap: Record<string, AssetWithAccessType[]>
 	computeAssetsCount: (asset: Asset) => number
 }>
+
+export type OutputViewerJob =
+	| ((
+			| Job
+			| {
+					id: string
+					result: unknown
+					type: 'CompletedJob'
+					workspace_id: string
+					success: boolean
+			  }
+	  ) & { result_stream?: string; result?: unknown })
+	| undefined

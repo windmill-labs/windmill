@@ -145,7 +145,6 @@
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
-	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
 
@@ -184,6 +183,7 @@
 	let testRunDropdownOpen = $state(false)
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
 </script>
 
 {#if deletable && id && editId}
@@ -447,7 +447,6 @@
 							{path}
 							{loopStatus}
 							rightMargin
-							bind:derivedHistoryOpen={historyOpen}
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
 							isLoading={testIsLoading ||

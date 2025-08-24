@@ -7,7 +7,7 @@
 	import { type Script, type Job, type FlowModule } from '$lib/gen'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
@@ -46,17 +46,17 @@
 
 	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let selectedJob: Job | undefined = $state(undefined)
 	let jobProgressReset: () => void = $state(() => {})
-
-	let forceJson = $state(false)
-
-	const logJob = $derived(testJob ?? selectedJob)
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	export function getOutputPickerInner() {
 		return outputPickerInner
 	}
+	let selectedJob: OutputViewerJob = $derived.by(
+		() => outputPickerInner?.getSelectedJob?.() ?? undefined
+	)
+
+	const logJob = $derived(testJob ?? selectedJob)
 
 	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
 </script>
@@ -80,8 +80,6 @@
 			getLogs
 			{onUpdateMock}
 			mock={mod.mock}
-			bind:forceJson
-			bind:selectedJob
 			isLoading={testIsLoading || loadingJob}
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
@@ -115,7 +113,7 @@
 				}}
 				workspaceId={logJob.workspace_id}
 			/>
-		{:else}
+		{:else if logJob && 'logs' in logJob && 'tag' in logJob}
 			<LogViewer
 				small
 				jobId={logJob?.id}
