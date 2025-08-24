@@ -501,6 +501,7 @@
 						{#key renderCount}
 							<div bind:clientHeight={schemaHeight} class="min-h-[40vh]">
 								<SchemaForm
+									noVariablePicker
 									compact
 									schema={flowStore.val.schema}
 									bind:args={previewArgs.val}
