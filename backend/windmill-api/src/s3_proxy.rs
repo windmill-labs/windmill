@@ -14,7 +14,6 @@ use futures::StreamExt;
 use http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use object_store::PutMultipartOpts;
 use windmill_common::{
-    db::UserDB,
     error::{to_anyhow, Error, Result},
     jwt,
     s3_helpers::{
@@ -25,11 +24,10 @@ use windmill_common::{
 use crate::{
     auth::AuthCache,
     db::DB,
-    job_helpers_ee::{get_large_file_storage, upload_file_from_req},
-    job_helpers_oss::{
-        delete_s3_file_internal, get_workspace_s3_resource_from_lfs, read_object_streamable,
-        DeleteS3FileQuery,
+    job_helpers_ee::{
+        get_large_file_storage, get_workspace_s3_resource_and_check_paths, upload_file_from_req,
     },
+    job_helpers_oss::{delete_s3_file_internal, read_object_streamable, DeleteS3FileQuery},
 };
 
 pub fn workspaced_unauthed_service() -> Router {
@@ -141,7 +139,6 @@ async fn post_object(
 
 async fn delete_object(
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path((w_id, storage_str, object_key)): Path<(String, String, String)>,
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     req: Request<Body>,
@@ -164,7 +161,6 @@ async fn delete_object(
     delete_s3_file_internal(
         &authed,
         &db,
-        Some(user_db),
         &token,
         &w_id,
         DeleteS3FileQuery { file_key: object_key, storage },
@@ -450,13 +446,16 @@ async fn get_object_store_resource(
         _ => Some(storage_str.to_string()),
     };
 
-    let lfs = get_large_file_storage(&db, &w_id, storage)
-        .await?
-        .ok_or_else(|| Error::InternalErr(format!("Large file storage not found")))?;
-    check_lfs_object_path_permissions(&lfs, &object_key, &authed.clone().into())?;
-    // UserDB is None because we don't expose the credentials and we check permissions separately
-    let (_, s3_resource) =
-        get_workspace_s3_resource_from_lfs(&authed, &db, None, &token, &w_id, lfs).await?;
+    let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
+        &authed,
+        &db,
+        None,
+        &token,
+        &w_id,
+        storage.clone(),
+        &[object_key],
+    )
+    .await?;
     let s3_resource = s3_resource.ok_or_else(|| {
         Error::InternalErr(format!(
             "Storage {} not found at the workspace level",

@@ -149,7 +149,6 @@ pub async fn read_object_streamable(
 pub async fn delete_s3_file_internal(
     authed: &ApiAuthed,
     db: &DB,
-    UserDB: Option<UserDB>,
     token: &str,
     w_id: &str,
     query: DeleteS3FileQuery,
