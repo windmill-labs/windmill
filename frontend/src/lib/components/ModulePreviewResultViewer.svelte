@@ -52,12 +52,11 @@
 	export function getOutputPickerInner() {
 		return outputPickerInner
 	}
-	let selectedJob: OutputViewerJob = $derived.by(
+
+	const selectedJob: OutputViewerJob = $derived.by(
 		() => outputPickerInner?.getSelectedJob?.() ?? undefined
 	)
-
 	const logJob = $derived(testJob ?? selectedJob)
-
 	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
 </script>
 
@@ -95,7 +94,7 @@
 		</OutputPickerInner>
 	</Pane>
 	<Pane size={35} minSize={10}>
-		{#if (mod.mock?.enabled && preview !== 'job') || preview === 'mock'}
+		{#if (mod.mock?.enabled && preview !== 'job' && testJob?.type !== 'QueuedJob') || preview === 'mock'}
 			<LogViewer
 				small
 				content={undefined}
@@ -113,15 +112,15 @@
 				}}
 				workspaceId={logJob.workspace_id}
 			/>
-		{:else if logJob && 'logs' in logJob && 'tag' in logJob}
+		{:else if logJob}
 			<LogViewer
 				small
 				jobId={logJob?.id}
 				duration={logJob?.['duration_ms']}
 				mem={logJob?.['mem_peak']}
-				content={logJob?.logs}
+				content={logJob?.['logs']}
 				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
-				tag={logJob?.tag}
+				tag={logJob?.['tag']}
 				{tagLabel}
 			/>
 		{/if}

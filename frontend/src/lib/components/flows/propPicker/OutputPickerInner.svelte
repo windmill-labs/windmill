@@ -118,18 +118,18 @@
 	function selectJob(nJob: OutputViewerJob | undefined) {
 		if (nJob && (nJob.result_stream || nJob.type == 'CompletedJob')) {
 			selectedJob = nJob
-		} else if (job && (job.result_stream || job.type == 'CompletedJob')) {
-			selectedJob = job
+		} else if (lastJob && (lastJob.result_stream || lastJob.type == 'CompletedJob')) {
+			selectedJob = lastJob
 		} else {
 			selectedJob = undefined
 		}
 	}
 
 	$effect(() => {
-		if (!job || !(job.result_stream || job.type == 'CompletedJob')) {
+		if (!lastJob || !(lastJob.result_stream || lastJob.type == 'CompletedJob')) {
 			return
 		}
-		selectJob(job)
+		selectJob(lastJob)
 	})
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
@@ -222,7 +222,7 @@
 		} as Job & { result_stream?: string } & { preview?: boolean }
 	}
 
-	const job = $derived.by(updateLastJob)
+	const lastJob = $derived.by(updateLastJob)
 
 	export function setJobPreview() {
 		if (mock?.enabled) {
@@ -264,8 +264,11 @@
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
+	// If a test job is running, we override the preview to show the test job
+	const executingTestJob = $derived(testJob && testJob.type === 'QueuedJob')
+
 	const isLoadingAndNotMock = $derived(
-		isLoading && job?.result_stream === undefined && (!mock?.enabled || preview === 'job')
+		isLoading && lastJob?.result_stream === undefined && (!mock?.enabled || executingTestJob)
 	)
 
 	const copilot_fix_render = $derived(copilot_fix)
@@ -291,7 +294,7 @@
 			togglePreview('mock')
 			return
 		}
-		if (detail.id === job?.id && !mock?.enabled) {
+		if (detail.id === lastJob?.id && !mock?.enabled) {
 			togglePreview(undefined)
 			return
 		}
@@ -348,14 +351,24 @@
 			)}
 		>
 			<div class="flex flex-row items-center gap-0.5">
+				<!-- History picker -->
 				{#if !disableHistory}
 					{@render historyPicker()}
 				{/if}
-				{#if !isLoadingAndNotMock || mock?.enabled}
+				<!-- Badge-->
+				{#if executingTestJob}
+					<OutputBadge
+						job={testJob}
+						class={twMerge(
+							'min-w-16 min-h-[23px] text-secondary',
+							preview ? 'bg-surface shadow-sm' : ''
+						)}
+					/>
+				{:else if !isLoadingAndNotMock || mock?.enabled}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
-							preview || selectedJob?.id !== job?.id ? 'p-[2px] bg-surface-secondary' : ''
+							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
 						)}
 					>
 						{#if loopStatus?.type === 'self'}
@@ -391,7 +404,7 @@
 								job={selectedJob}
 								class={twMerge(
 									'min-w-16 text-secondary',
-									preview || selectedJob?.id !== job?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
 								)}
 							/>
 						{/if}
@@ -409,16 +422,9 @@
 							>
 						{/if}
 					</div>
-				{:else if testJob}
-					<OutputBadge
-						job={testJob}
-						class={twMerge(
-							'min-w-16 text-secondary',
-							preview || testJob?.id !== job?.id ? 'bg-surface shadow-sm h-[23px]' : ''
-						)}
-					/>
 				{/if}
 
+				<!-- Pin button -->
 				{#if !disableMock && !isLoadingAndNotMock}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
@@ -447,6 +453,7 @@
 				{/if}
 
 				{#if jsonView}
+					<!-- Save button -->
 					<Button
 						size="xs2"
 						color="green"
@@ -467,6 +474,7 @@
 						}}
 						disabled={!!error || !tmpMock}
 					/>
+					<!-- Cancel button -->
 					<Button
 						size="xs2"
 						color="red"
@@ -478,7 +486,8 @@
 							tmpMock = undefined
 						}}
 					/>
-				{:else if mock?.enabled && !preview}
+				{:else if mock?.enabled && !preview && !executingTestJob}
+					<!-- Edit pin button -->
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							size="xs2"
@@ -630,7 +639,7 @@
 						class="h-full"
 					/>
 				{/await}
-			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+			{:else if (mock?.enabled || preview == 'mock') && preview != 'job' && !executingTestJob}
 				<!-- Display data for mock data -->
 				{#if fullResult}
 					<div class="break-words relative h-full">
@@ -692,7 +701,7 @@
 						pureViewer={false}
 					/>
 				{/if}
-			{:else if !job}
+			{:else if !lastJob}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						{customEmptyJobMessage ?? 'Test this step to see results'}{#if !disableMock}
