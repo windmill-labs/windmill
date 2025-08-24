@@ -221,7 +221,7 @@
 	}
 
 	function updateLastJob() {
-		if (testJob && testJob.type === 'QueuedJob') {
+		if (testJob) {
 			return testJob
 		}
 		if (

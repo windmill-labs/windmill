@@ -34,7 +34,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
-		runTest(stepsInputArgs.getStepArgs(mod.id)?.value)
+		runTest(stepsInputArgs.getStepArgs(mod.id))
 	}
 
 	export function loadArgsAndRunTest() {
