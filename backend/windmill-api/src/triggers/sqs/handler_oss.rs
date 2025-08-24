@@ -1,13 +1,13 @@
-#[allow(unused)]
 #[cfg(feature = "private")]
+#[allow(unused)]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{EditSqsConfig, NewSqsConfig, SqsConfig, SqsTrigger, TestSqsConfig},
+    super::{SqsConfig, SqsTrigger, TestSqsConfig},
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+        triggers::{Trigger, TriggerCrud, TriggerData},
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -21,8 +21,7 @@ use {
 impl TriggerCrud for SqsTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = SqsConfig;
-    type EditTriggerConfig = EditSqsConfig;
-    type NewTriggerConfig = NewSqsConfig;
+    type TriggerConfigRequest = ();
     type TestConnectionConfig = TestSqsConfig;
 
     const TABLE_NAME: &'static str = "";
@@ -41,30 +40,13 @@ impl TriggerCrud for SqsTrigger {
         vec![]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
-        Err(Error::BadRequest(
-            "SQS triggers are not available in open source version".to_string(),
-        ))
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        _edit: &Self::EditTriggerConfig,
-    ) -> Result<()> {
-        Err(Error::BadRequest(
-            "SQS triggers are not available in open source version".to_string(),
-        ))
-    }
-
     async fn create_trigger(
         &self,
         _db: &DB,
         _tx: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
-        _trigger: CreateTrigger<Self::NewTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "SQS triggers are not available in open source version".to_string(),
@@ -78,7 +60,7 @@ impl TriggerCrud for SqsTrigger {
         _authed: &ApiAuthed,
         _workspace_id: &str,
         _path: &str,
-        _trigger: EditTrigger<Self::EditTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "SQS triggers are not available in open source version".to_string(),

@@ -1,6 +1,6 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{CreateTrigger, EditTrigger, StandardTriggerQuery},
+    triggers::{StandardTriggerQuery, TriggerData},
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
@@ -66,8 +66,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + Sync
         + Unpin;
 
-    type EditTriggerConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
-    type NewTriggerConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
+    type TriggerConfigRequest: Debug + DeserializeOwned + Serialize + Send + Sync;
     type TestConnectionConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
 
     const TABLE_NAME: &'static str;
@@ -80,7 +79,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn get_deployed_object(path: String) -> DeployedObject;
 
-    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
+    async fn validate_new(
+        &self,
+        _workspace_id: &str,
+        _new: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -92,7 +95,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         &self,
         _workspace_id: &str,
         _path: &str,
-        _edit: &Self::EditTriggerConfig,
+        _edit: &Self::TriggerConfigRequest,
     ) -> Result<()> {
         Ok(())
     }
@@ -107,7 +110,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
-        trigger: CreateTrigger<Self::NewTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()>;
 
     async fn update_trigger(
@@ -117,7 +120,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         authed: &ApiAuthed,
         workspace_id: &str,
         path: &str,
-        trigger: EditTrigger<Self::EditTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()>;
 
     async fn test_connection(
@@ -341,26 +344,8 @@ async fn create_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    raw_body: String,
+    Json(new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
-    // Log the raw JSON payload
-    tracing::info!(
-        "Creating {} trigger with raw JSON payload: {}",
-        T::TRIGGER_TYPE,
-        raw_body
-    );
-
-    // Manually deserialize to get better error context
-    let new_trigger: CreateTrigger<T::NewTriggerConfig> =
-        serde_json::from_str(&raw_body).map_err(|e| {
-            tracing::error!(
-                "Failed to deserialize {} trigger JSON: {} - Raw payload: {}",
-                T::TRIGGER_TYPE,
-                e,
-                raw_body
-            );
-            error::Error::BadRequest(format!("Failed to deserialize JSON: {}", e))
-        })?;
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
@@ -458,7 +443,7 @@ async fn update_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-    Json(edit_trigger): Json<EditTrigger<T::EditTriggerConfig>>,
+    Json(edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || {

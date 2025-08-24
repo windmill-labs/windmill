@@ -130,7 +130,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaseEditTrigger {
+pub struct BaseTriggerData {
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
@@ -138,29 +138,9 @@ pub struct BaseEditTrigger {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditTrigger<T> {
+pub struct TriggerData<T: Debug> {
     #[serde(flatten)]
-    pub base: BaseEditTrigger,
-
-    #[serde(flatten)]
-    pub error_handling: TriggerErrorHandling,
-
-    #[serde(flatten)]
-    pub config: T,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaseCreateTrigger {
-    pub path: String,
-    pub script_path: String,
-    pub is_flow: bool,
-    pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateTrigger<T: Debug> {
-    #[serde(flatten)]
-    pub base: BaseCreateTrigger,
+    pub base: BaseTriggerData,
 
     #[serde(flatten)]
     pub config: T,

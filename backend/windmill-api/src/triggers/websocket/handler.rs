@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::{
     db::{ApiAuthed, DB},
-    triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+    triggers::{Trigger, TriggerCrud, TriggerData},
 };
 use axum::async_trait;
 use itertools::Itertools;
@@ -16,16 +16,15 @@ use windmill_common::{
 use windmill_git_sync::DeployedObject;
 
 use super::{
-    get_url_from_runnable_value, EditWebsocketConfig, NewWebsocketConfig, TestWebsocketConfig,
-    WebsocketConfig, WebsocketTrigger,
+    get_url_from_runnable_value, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
+    WebsocketTrigger,
 };
 
 #[async_trait]
 impl TriggerCrud for WebsocketTrigger {
     type TriggerConfig = WebsocketConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
-    type EditTriggerConfig = EditWebsocketConfig;
-    type NewTriggerConfig = NewWebsocketConfig;
+    type TriggerConfigRequest = WebsocketConfigRequest;
     type TestConnectionConfig = TestWebsocketConfig;
 
     const TABLE_NAME: &'static str = "websocket_trigger";
@@ -50,7 +49,11 @@ impl TriggerCrud for WebsocketTrigger {
         ]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, new: &Self::NewTriggerConfig) -> Result<()> {
+    async fn validate_new(
+        &self,
+        _workspace_id: &str,
+        new: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
         if new.url.trim().is_empty() {
             return Err(Error::BadRequest(
                 "WebSocket URL cannot be empty".to_string(),
@@ -78,7 +81,7 @@ impl TriggerCrud for WebsocketTrigger {
         &self,
         _workspace_id: &str,
         _path: &str,
-        edit: &Self::EditTriggerConfig,
+        edit: &Self::TriggerConfigRequest,
     ) -> Result<()> {
         if edit.url.trim().is_empty() {
             return Err(Error::BadRequest(
@@ -109,7 +112,7 @@ impl TriggerCrud for WebsocketTrigger {
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
-        trigger: CreateTrigger<Self::NewTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let filters = trigger
             .config
@@ -178,7 +181,7 @@ impl TriggerCrud for WebsocketTrigger {
         authed: &ApiAuthed,
         w_id: &str,
         path: &str,
-        trigger: EditTrigger<Self::EditTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let filters = trigger
             .config

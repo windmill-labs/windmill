@@ -61,16 +61,7 @@ pub struct SqsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewSqsConfig {
-    pub queue_url: String,
-    pub aws_resource_path: String,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    pub message_attributes: Option<Vec<String>>,
-    pub aws_auth_resource_type: AwsAuthResourceType,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditSqsConfig {
+pub struct SqsConfigRequest {
     pub queue_url: String,
     pub aws_resource_path: String,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -110,6 +101,7 @@ pub struct AuthManager {
     oidc: OidcAuth,
 }
 
+#[allow(unused)]
 async fn get_sqs_client(
     access_key_id: String,
     secret_access_key: String,
@@ -139,6 +131,7 @@ async fn get_sqs_client(
     client
 }
 
+#[allow(unused)]
 async fn get_oidc_authentication_data(
     oidc: &OidcAuth,
     id_token: &IdToken,
@@ -178,6 +171,7 @@ async fn get_oidc_authentication_data(
     Ok(assume_role_with_web_identity_output)
 }
 
+#[allow(unused)]
 async fn get_sqs_auth_data(
     authed: &ApiAuthed,
     db: &DB,

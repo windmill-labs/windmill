@@ -40,10 +40,6 @@ impl TriggerJobArgs for PostgresTrigger {
     fn v1_payload_fn(payload: &HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
         payload.to_owned()
     }
-
-    fn v2_payload_fn(payload: &HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
-        payload.to_owned()
-    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -56,19 +52,13 @@ pub struct PostgresConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewPostgresConfig {
+pub struct PostgresConfigRequest {
     postgres_resource_path: String,
-    replication_slot_name: Option<String>,
-    publication_name: Option<String>,
+    #[serde(default)]
+    replication_slot_name: String,
+    #[serde(default)]
+    publication_name: String,
     publication: Option<PublicationData>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditPostgresConfig {
-    pub postgres_resource_path: String,
-    pub replication_slot_name: String,
-    pub publication_name: String,
-    pub publication: Option<PublicationData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

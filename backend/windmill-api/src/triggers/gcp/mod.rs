@@ -99,7 +99,7 @@ pub struct CreateUpdateConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewGcpConfig {
+pub struct GcpConfigRequest {
     pub gcp_resource_path: String,
     pub topic_id: String,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -110,20 +110,6 @@ pub struct NewGcpConfig {
     #[serde(flatten)]
     pub create_update_config: Option<CreateUpdateConfig>,
     pub auto_acknowledge_msg: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditGcpConfig {
-    pub gcp_resource_path: String,
-    pub topic_id: String,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    subscription_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    pub base_endpoint: Option<String>,
-    pub subscription_mode: GcpSubscriptionMode,
-    #[serde(flatten)]
-    pub create_update_config: Option<CreateUpdateConfig>,
-    auto_acknowledge_msg: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

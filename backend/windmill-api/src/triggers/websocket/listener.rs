@@ -244,7 +244,9 @@ impl Listener for WebsocketTrigger {
             }
         }
 
-        let (return_message_channels, message_sender_handle) = if listening_trigger.trigger_mode {
+        let (return_message_channels, message_sender_handle) = if listening_trigger.trigger_mode
+            && listening_trigger.trigger_config.can_return_message
+        {
             let (send_message_tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
             let w_id = listening_trigger.workspace_id.clone();
             let url = url.clone();
@@ -482,7 +484,7 @@ impl Clone for ReturnMessageChannels {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 enum InitialMessage {
     #[serde(rename = "raw_message")]
     RawMessage(String),

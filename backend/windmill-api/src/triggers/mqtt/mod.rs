@@ -131,17 +131,7 @@ pub struct MqttConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewMqttConfig {
-    pub mqtt_resource_path: String,
-    pub subscribe_topics: Vec<SubscribeTopic>,
-    pub v3_config: Option<MqttV3Config>,
-    pub v5_config: Option<MqttV5Config>,
-    pub client_id: Option<String>,
-    pub client_version: Option<MqttClientVersion>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditMqttConfig {
+pub struct MqttConfigRequest {
     pub mqtt_resource_path: String,
     pub subscribe_topics: Vec<SubscribeTopic>,
     pub v3_config: Option<MqttV3Config>,

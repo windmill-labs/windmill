@@ -21,15 +21,15 @@ use windmill_git_sync::DeployedObject;
 
 use crate::{
     db::{ApiAuthed, DB},
-    triggers::{postgres::PostgresTrigger, CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+    triggers::{postgres::PostgresTrigger, Trigger, TriggerCrud, TriggerData},
 };
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
     create_pg_publication, drop_publication, generate_random_string, get_default_pg_connection,
     mapper::{Mapper, MappingInfo},
-    EditPostgresConfig, NewPostgresConfig, PostgresConfig, PostgresPublicationReplication,
-    PublicationData, Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
+    PostgresConfig, PostgresConfigRequest, PostgresPublicationReplication, PublicationData,
+    Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
     ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 
@@ -42,8 +42,7 @@ lazy_static! {
 impl TriggerCrud for PostgresTrigger {
     type TriggerConfig = PostgresConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
-    type EditTriggerConfig = EditPostgresConfig;
-    type NewTriggerConfig = NewPostgresConfig;
+    type TriggerConfigRequest = PostgresConfigRequest;
     type TestConnectionConfig = TestPostgresConfig;
 
     const TABLE_NAME: &'static str = "postgres_trigger";
@@ -73,43 +72,45 @@ impl TriggerCrud for PostgresTrigger {
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
-        trigger: CreateTrigger<Self::NewTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let Self::NewTriggerConfig {
+        let Self::TriggerConfigRequest {
             postgres_resource_path,
             publication_name,
             replication_slot_name,
             publication,
         } = trigger.config;
 
-        let (pub_name, slot_name) = if publication_name.is_none() && replication_slot_name.is_none()
-        {
-            if publication.is_none() {
-                return Err(Error::BadRequest("publication must be set".to_string()));
-            }
+        let (pub_name, slot_name) =
+            if publication_name.is_empty() && replication_slot_name.is_empty() {
+                if publication.is_none() {
+                    return Err(Error::BadRequest("publication must be set".to_string()));
+                }
 
-            let PostgresPublicationReplication { publication_name, replication_slot_name } =
-                create_custom_slot_and_publication_inner(
-                    authed.clone(),
-                    UserDB::new(db.clone()),
-                    &db,
-                    &postgres_resource_path,
-                    &w_id,
-                    &publication.unwrap(),
-                )
-                .await?;
+                let PostgresPublicationReplication { publication_name, replication_slot_name } =
+                    create_custom_slot_and_publication_inner(
+                        authed.clone(),
+                        UserDB::new(db.clone()),
+                        &db,
+                        &postgres_resource_path,
+                        &w_id,
+                        &publication.unwrap(),
+                    )
+                    .await?;
 
-            (publication_name, replication_slot_name)
-        } else {
-            if publication_name.is_none() {
-                return Err(Error::BadRequest("Missing publication name".to_string()));
-            } else if replication_slot_name.is_none() {
-                return Err(Error::BadRequest(
-                    "Missing replication slot name".to_string(),
-                ));
-            }
-            (publication_name.unwrap(), replication_slot_name.unwrap())
-        };
+                (publication_name, replication_slot_name)
+            } else {
+                if publication_name.is_empty() {
+                    return Err(Error::BadRequest(
+                        "Publication name must not be empty".to_string(),
+                    ));
+                } else if replication_slot_name.is_empty() {
+                    return Err(Error::BadRequest(
+                        "Replication slot name must not be empty".to_string(),
+                    ));
+                }
+                (publication_name, replication_slot_name)
+            };
 
         sqlx::query!(
             r#"
@@ -158,9 +159,9 @@ impl TriggerCrud for PostgresTrigger {
         authed: &ApiAuthed,
         w_id: &str,
         path: &str,
-        trigger: EditTrigger<Self::EditTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let Self::EditTriggerConfig {
+        let Self::TriggerConfigRequest {
             replication_slot_name,
             publication_name,
             postgres_resource_path,

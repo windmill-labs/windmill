@@ -11,7 +11,7 @@ use crate::{
     },
     triggers::{
         http::{increase_trigger_version, refresh_routers, RouteExists},
-        CreateTrigger, EditTrigger, Trigger, TriggerCrud,
+        Trigger, TriggerCrud, TriggerData,
     },
     users::fetch_api_authed,
     utils::ExpiringCacheEntry,
@@ -47,8 +47,8 @@ use {
 };
 
 use super::{
-    generate_route_path_key, route_path_key_exists, validate_authentication_method, EditHttpConfig,
-    HttpConfig, NewHttpConfig, VALID_ROUTE_PATH_RE,
+    generate_route_path_key, route_path_key_exists, validate_authentication_method, HttpConfig,
+    HttpConfigRequest, VALID_ROUTE_PATH_RE,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -75,7 +75,7 @@ pub async fn exists_route(
 }
 
 fn check_no_duplicates<'trigger>(
-    new_http_triggers: &[CreateTrigger<NewHttpConfig>],
+    new_http_triggers: &[TriggerData<HttpConfigRequest>],
     route_path_key: &[String],
 ) -> Result<()> {
     let mut seen = HashSet::with_capacity(new_http_triggers.len());
@@ -96,194 +96,16 @@ fn check_no_duplicates<'trigger>(
     Ok(())
 }
 
-pub async fn create_many_http_triggers(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<CreateTrigger<NewHttpConfig>>>,
-) -> Result<(StatusCode, String)> {
+pub async fn insert_new_trigger_into_db(
+    authed: &ApiAuthed,
+    tx: &mut PgConnection,
+    w_id: &str,
+    trigger: &TriggerData<HttpConfigRequest>,
+) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
+    let route_path_key = generate_route_path_key(&trigger.config.route_path);
 
-    let handler = HttpTrigger;
-
-    let error_wrapper = |route_path: &str, error: Error| -> Error {
-        anyhow::anyhow!(
-            "Error occurred for HTTP route at route path: {}, error: {}",
-            route_path,
-            error
-        )
-        .into()
-    };
-
-    let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
-
-    for new_http_trigger in new_http_triggers.iter() {
-        handler
-            .validate_new(&w_id, &new_http_trigger.config)
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
-
-        let route_path_key = generate_route_path_key(&new_http_trigger.config.route_path);
-
-        let exists = route_path_key_exists(
-            &route_path_key,
-            &new_http_trigger.config.http_method,
-            &w_id,
-            None,
-            new_http_trigger.config.workspaced_route,
-            &db,
-        )
-        .await
-        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
-
-        if exists {
-            return Err(error_wrapper(
-                &new_http_trigger.config.route_path,
-                Error::BadRequest("A route already exists with this path".to_string()),
-            ));
-        }
-
-        route_path_keys.push(route_path_key.clone());
-    }
-
-    check_no_duplicates(&new_http_triggers, &route_path_keys)?;
-
-    let mut tx = user_db.begin(&authed).await?;
-
-    for (new_http_trigger, _route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter())
-    {
-        handler
-            .create_trigger(&db, &mut *tx, &authed, &w_id, new_http_trigger.clone())
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
-
-        audit_log(
-            &mut *tx,
-            &authed,
-            "http_trigger.create",
-            ActionKind::Create,
-            &w_id,
-            Some(&new_http_trigger.base.path),
-            None,
-        )
-        .await
-        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
-
-        increase_trigger_version(&mut tx)
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
-    }
-
-    tx.commit().await?;
-
-    for http_trigger in new_http_triggers.into_iter() {
-        handle_deployment_metadata(
-            &authed.email,
-            &authed.username,
-            &db,
-            &w_id,
-            windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.base.path.clone() },
-            Some(format!("HTTP trigger '{}' created", http_trigger.base.path)),
-            true,
-        )
-        .await
-        .map_err(|err| error_wrapper(&http_trigger.config.route_path, err.into()))?;
-    }
-    Ok((StatusCode::CREATED, "Created all HTTP routes".to_string()))
-}
-
-pub struct HttpTrigger;
-
-#[async_trait]
-impl TriggerCrud for HttpTrigger {
-    type TriggerConfig = HttpConfig;
-    type Trigger = Trigger<Self::TriggerConfig>;
-    type EditTriggerConfig = EditHttpConfig;
-    type NewTriggerConfig = NewHttpConfig;
-    type TestConnectionConfig = ();
-
-    const TABLE_NAME: &'static str = "http_trigger";
-    const TRIGGER_TYPE: &'static str = "http";
-    const SUPPORTS_ENABLED: bool = false;
-    const SUPPORTS_SERVER_STATE: bool = false;
-    const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/http_triggers";
-    const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
-
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::HttpTrigger { path }
-    }
-
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "route_path",
-            "route_path_key",
-            "is_async",
-            "authentication_method",
-            "http_method",
-            "summary",
-            "description",
-            "static_asset_config",
-            "is_static_website",
-            "authentication_resource_path",
-            "workspaced_route",
-            "wrap_body",
-            "raw_string",
-        ]
-    }
-
-    fn additional_routes(&self) -> Router {
-        Router::new()
-            .route("/create_many", post(create_many_http_triggers))
-            .route("/route_exists", post(exists_route))
-    }
-
-    async fn validate_new(&self, _workspace_id: &str, new: &Self::NewTriggerConfig) -> Result<()> {
-        if *CLOUD_HOSTED && (new.is_static_website || new.static_asset_config.is_some()) {
-            return Err(Error::BadRequest(
-                "Static website and static asset are not supported on cloud".to_string(),
-            ));
-        }
-
-        if !VALID_ROUTE_PATH_RE.is_match(&new.route_path) {
-            return Err(Error::BadRequest("Invalid route path".to_string()));
-        }
-
-        validate_authentication_method(new.authentication_method, new.raw_string)?;
-
-        Ok(())
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        edit: &Self::EditTriggerConfig,
-    ) -> Result<()> {
-        if *CLOUD_HOSTED && (edit.is_static_website || edit.static_asset_config.is_some()) {
-            return Err(Error::BadRequest(
-                "Static website and static asset are not supported on cloud".to_string(),
-            ));
-        }
-
-        validate_authentication_method(edit.authentication_method, edit.raw_string)?;
-
-        Ok(())
-    }
-
-    async fn create_trigger(
-        &self,
-        _db: &DB,
-        tx: &mut PgConnection,
-        authed: &ApiAuthed,
-        w_id: &str,
-        trigger: CreateTrigger<Self::NewTriggerConfig>,
-    ) -> Result<()> {
-        require_admin(authed.is_admin, &authed.username)?;
-        let route_path_key = generate_route_path_key(&trigger.config.route_path);
-
-        sqlx::query!(
+    sqlx::query!(
             r#"
             INSERT INTO http_trigger (
                 workspace_id, 
@@ -337,8 +159,200 @@ impl TriggerCrud for HttpTrigger {
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
         )
-        .execute(tx)
+        .execute(&mut *tx)
         .await?;
+    Ok(())
+}
+
+pub async fn create_many_http_triggers(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
+) -> Result<(StatusCode, String)> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let handler = HttpTrigger;
+
+    let error_wrapper = |route_path: &str, error: Error| -> Error {
+        anyhow::anyhow!(
+            "Error occurred for HTTP route at route path: {}, error: {}",
+            route_path,
+            error
+        )
+        .into()
+    };
+
+    let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
+
+    for new_http_trigger in new_http_triggers.iter() {
+        handler
+            .validate_new(&w_id, &new_http_trigger.config)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
+        let route_path_key = generate_route_path_key(&new_http_trigger.config.route_path);
+
+        let exists = route_path_key_exists(
+            &route_path_key,
+            &new_http_trigger.config.http_method,
+            &w_id,
+            None,
+            new_http_trigger.config.workspaced_route,
+            &db,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
+        if exists {
+            return Err(error_wrapper(
+                &new_http_trigger.config.route_path,
+                Error::BadRequest("A route already exists with this path".to_string()),
+            ));
+        }
+
+        route_path_keys.push(route_path_key.clone());
+    }
+
+    check_no_duplicates(&new_http_triggers, &route_path_keys)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    for (new_http_trigger, _route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter())
+    {
+        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
+        audit_log(
+            &mut *tx,
+            &authed,
+            "http_trigger.create",
+            ActionKind::Create,
+            &w_id,
+            Some(&new_http_trigger.base.path),
+            None,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
+
+        increase_trigger_version(&mut tx)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
+    }
+
+    tx.commit().await?;
+
+    for http_trigger in new_http_triggers.into_iter() {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.base.path.clone() },
+            Some(format!("HTTP trigger '{}' created", http_trigger.base.path)),
+            true,
+        )
+        .await
+        .map_err(|err| error_wrapper(&http_trigger.config.route_path, err.into()))?;
+    }
+    Ok((StatusCode::CREATED, "Created all HTTP routes".to_string()))
+}
+
+pub struct HttpTrigger;
+
+#[async_trait]
+impl TriggerCrud for HttpTrigger {
+    type TriggerConfig = HttpConfig;
+    type Trigger = Trigger<Self::TriggerConfig>;
+    type TriggerConfigRequest = HttpConfigRequest;
+    type TestConnectionConfig = ();
+
+    const TABLE_NAME: &'static str = "http_trigger";
+    const TRIGGER_TYPE: &'static str = "http";
+    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_SERVER_STATE: bool = false;
+    const SUPPORTS_TEST_CONNECTION: bool = false;
+    const ROUTE_PREFIX: &'static str = "/http_triggers";
+    const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
+
+    fn get_deployed_object(path: String) -> DeployedObject {
+        DeployedObject::HttpTrigger { path }
+    }
+
+    fn additional_select_fields(&self) -> Vec<&'static str> {
+        vec![
+            "route_path",
+            "route_path_key",
+            "is_async",
+            "authentication_method",
+            "http_method",
+            "summary",
+            "description",
+            "static_asset_config",
+            "is_static_website",
+            "authentication_resource_path",
+            "workspaced_route",
+            "wrap_body",
+            "raw_string",
+        ]
+    }
+
+    fn additional_routes(&self) -> Router {
+        Router::new()
+            .route("/create_many", post(create_many_http_triggers))
+            .route("/route_exists", post(exists_route))
+    }
+
+    async fn validate_new(
+        &self,
+        _workspace_id: &str,
+        new: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
+        if *CLOUD_HOSTED && (new.is_static_website || new.static_asset_config.is_some()) {
+            return Err(Error::BadRequest(
+                "Static website and static asset are not supported on cloud".to_string(),
+            ));
+        }
+
+        if !VALID_ROUTE_PATH_RE.is_match(&new.route_path) {
+            return Err(Error::BadRequest("Invalid route path".to_string()));
+        }
+
+        validate_authentication_method(new.authentication_method, new.raw_string)?;
+
+        Ok(())
+    }
+
+    async fn validate_edit(
+        &self,
+        _workspace_id: &str,
+        _path: &str,
+        edit: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
+        if *CLOUD_HOSTED && (edit.is_static_website || edit.static_asset_config.is_some()) {
+            return Err(Error::BadRequest(
+                "Static website and static asset are not supported on cloud".to_string(),
+            ));
+        }
+
+        validate_authentication_method(edit.authentication_method, edit.raw_string)?;
+
+        Ok(())
+    }
+
+    async fn create_trigger(
+        &self,
+        _db: &DB,
+        tx: &mut PgConnection,
+        authed: &ApiAuthed,
+        w_id: &str,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
+    ) -> Result<()> {
+        insert_new_trigger_into_db(authed, tx, w_id, &trigger).await?;
+
+        increase_trigger_version(tx).await?;
 
         Ok(())
     }
@@ -350,18 +364,19 @@ impl TriggerCrud for HttpTrigger {
         authed: &ApiAuthed,
         workspace_id: &str,
         path: &str,
-        trigger: EditTrigger<Self::EditTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         if authed.is_admin {
-            let Some(route_path) = trigger.config.route_path else {
+            if trigger.config.route_path.is_empty() {
                 return Err(Error::BadRequest("route_path is required".to_string()));
             };
 
-            if !VALID_ROUTE_PATH_RE.is_match(&route_path) {
+            let route_path = &trigger.config.route_path;
+            if !VALID_ROUTE_PATH_RE.is_match(route_path) {
                 return Err(Error::BadRequest("Invalid route path".to_string()));
             }
 
-            let route_path_key = generate_route_path_key(&route_path);
+            let route_path_key = generate_route_path_key(route_path);
 
             let exists = route_path_key_exists(
                 &route_path_key,

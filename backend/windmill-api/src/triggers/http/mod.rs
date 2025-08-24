@@ -111,24 +111,9 @@ pub struct HttpConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewHttpConfig {
+pub struct HttpConfigRequest {
+    #[serde(default)]
     pub route_path: String,
-    pub is_async: bool,
-    pub authentication_method: AuthenticationMethod,
-    pub http_method: HttpMethod,
-    pub summary: Option<String>,
-    pub description: Option<String>,
-    pub static_asset_config: Option<SqlxJson<S3Object>>,
-    pub is_static_website: bool,
-    pub authentication_resource_path: Option<String>,
-    pub workspaced_route: Option<bool>,
-    pub wrap_body: Option<bool>,
-    pub raw_string: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditHttpConfig {
-    pub route_path: Option<String>,
     pub is_async: bool,
     pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
@@ -171,7 +156,6 @@ pub fn validate_authentication_method(
     }
 }
         
-
 pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')")
         .fetch_one(tx)

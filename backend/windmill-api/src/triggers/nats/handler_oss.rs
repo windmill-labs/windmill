@@ -1,4 +1,3 @@
-#[allow(unused)]
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
@@ -7,7 +6,7 @@ use {
     super::NatsTrigger,
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
+        triggers::{TriggerCrud, TriggerData},
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -20,8 +19,7 @@ use {
 impl TriggerCrud for NatsTrigger {
     type Trigger = ();
     type TriggerConfig = ();
-    type EditTriggerConfig = ();
-    type NewTriggerConfig = ();
+    type TriggerConfigRequest = ();
     type TestConnectionConfig = ();
 
     const TABLE_NAME: &'static str = "";
@@ -40,30 +38,13 @@ impl TriggerCrud for NatsTrigger {
         vec![]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
-        Err(Error::BadRequest(
-            "NATS triggers are not available in open source version".to_string(),
-        ))
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        _edit: &Self::EditTriggerConfig,
-    ) -> Result<()> {
-        Err(Error::BadRequest(
-            "NATS triggers are not available in open source version".to_string(),
-        ))
-    }
-
     async fn create_trigger(
         &self,
         _db: &DB,
         _executor: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
-        _trigger: CreateTrigger<Self::NewTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "NATS triggers are not available in open source version".to_string(),
@@ -77,7 +58,7 @@ impl TriggerCrud for NatsTrigger {
         _authed: &ApiAuthed,
         _workspace_id: &str,
         _path: &str,
-        _trigger: EditTrigger<Self::EditTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "NATS triggers are not available in open source version".to_string(),

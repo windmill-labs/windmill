@@ -123,16 +123,7 @@ pub struct NatsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewNatsConfig {
-    pub nats_resource_path: String,
-    pub subjects: Vec<String>,
-    pub stream_name: Option<String>,
-    pub consumer_name: Option<String>,
-    pub use_jetstream: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditNatsConfig {
+pub struct NatsConfigRequest {
     pub nats_resource_path: String,
     pub subjects: Vec<String>,
     pub stream_name: Option<String>,

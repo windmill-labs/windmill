@@ -41,16 +41,7 @@ pub struct WebsocketConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewWebsocketConfig {
-    url: String,
-    filters: Vec<serde_json::Value>,
-    initial_messages: Option<Vec<serde_json::Value>>,
-    url_runnable_args: Option<serde_json::Value>,
-    can_return_message: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditWebsocketConfig {
+pub struct WebsocketConfigRequest {
     url: String,
     filters: Vec<serde_json::Value>,
     initial_messages: Option<Vec<serde_json::Value>>,

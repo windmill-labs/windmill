@@ -1,7 +1,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     resources::try_get_resource_from_db_as,
-    triggers::{CreateTrigger, EditTrigger, Trigger, TriggerCrud},
+    triggers::{Trigger, TriggerCrud, TriggerData},
 };
 use axum::async_trait;
 use itertools::Itertools;
@@ -14,16 +14,15 @@ use windmill_common::{
 use windmill_git_sync::DeployedObject;
 
 use super::{
-    EditMqttConfig, MqttClientBuilder, MqttClientVersion, MqttConfig, MqttResource, MqttTrigger,
-    MqttV3Config, MqttV5Config, NewMqttConfig, SubscribeTopic, TestMqttConfig,
+    MqttClientBuilder, MqttClientVersion, MqttConfig, MqttConfigRequest, MqttResource, MqttTrigger,
+    MqttV3Config, MqttV5Config, SubscribeTopic, TestMqttConfig,
 };
 
 #[async_trait]
 impl TriggerCrud for MqttTrigger {
     type TriggerConfig = MqttConfig;
     type Trigger = Trigger<Self::TriggerConfig>;
-    type EditTriggerConfig = EditMqttConfig;
-    type NewTriggerConfig = NewMqttConfig;
+    type TriggerConfigRequest = MqttConfigRequest;
     type TestConnectionConfig = TestMqttConfig;
 
     const TABLE_NAME: &'static str = "mqtt_trigger";
@@ -49,7 +48,11 @@ impl TriggerCrud for MqttTrigger {
         ]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, new: &Self::NewTriggerConfig) -> Result<()> {
+    async fn validate_new(
+        &self,
+        _workspace_id: &str,
+        new: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
         if new.mqtt_resource_path.trim().is_empty() {
             return Err(Error::BadRequest(
                 "MQTT resource path cannot be empty".to_string(),
@@ -75,7 +78,7 @@ impl TriggerCrud for MqttTrigger {
         &self,
         _workspace_id: &str,
         _path: &str,
-        edit: &Self::EditTriggerConfig,
+        edit: &Self::TriggerConfigRequest,
     ) -> Result<()> {
         if edit.mqtt_resource_path.trim().is_empty() {
             return Err(Error::BadRequest(
@@ -98,7 +101,7 @@ impl TriggerCrud for MqttTrigger {
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
-        trigger: CreateTrigger<Self::NewTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let subscribe_topics = trigger
             .config
@@ -162,7 +165,7 @@ impl TriggerCrud for MqttTrigger {
         authed: &ApiAuthed,
         workspace_id: &str,
         path: &str,
-        trigger: EditTrigger<Self::EditTriggerConfig>,
+        trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let subscribe_topics = trigger
             .config

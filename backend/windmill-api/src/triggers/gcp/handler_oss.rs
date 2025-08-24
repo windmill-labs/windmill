@@ -6,7 +6,7 @@ use {
     super::GcpTrigger,
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
+        triggers::{TriggerCrud, TriggerData},
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -19,8 +19,7 @@ use {
 impl TriggerCrud for GcpTrigger {
     type Trigger = ();
     type TriggerConfig = ();
-    type EditTriggerConfig = ();
-    type NewTriggerConfig = ();
+    type TriggerConfigRequest = ();
     type TestConnectionConfig = ();
 
     const TABLE_NAME: &'static str = "";
@@ -39,30 +38,13 @@ impl TriggerCrud for GcpTrigger {
         vec![]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
-        Err(Error::BadRequest(
-            "GCP triggers are not available in open source version".to_string(),
-        ))
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        _edit: &Self::EditTriggerConfig,
-    ) -> Result<()> {
-        Err(Error::BadRequest(
-            "GCP triggers are not available in open source version".to_string(),
-        ))
-    }
-
     async fn create_trigger(
         &self,
         _db: &DB,
         _executor: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
-        _trigger: CreateTrigger<Self::NewTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "GCP triggers are not available in open source version".to_string(),
@@ -76,7 +58,7 @@ impl TriggerCrud for GcpTrigger {
         _authed: &ApiAuthed,
         _workspace_id: &str,
         _path: &str,
-        _trigger: EditTrigger<Self::EditTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "GCP triggers are not available in open source version".to_string(),

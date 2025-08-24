@@ -36,8 +36,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     //to use in next PR to add job trigger kind to eow
     #[allow(unused)]
     const JOB_TRIGGER_KIND: JobTriggerKind;
-    const EXTRA_TRIGGER_WHERE_CLAUSE: &[&'static str] = &[];
-    const EXTRA_CAPTURE_WHERE_CLAUSE: &[&'static str] = &[];
+    const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
+    const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];
 
     async fn get_consumer(
         &self,
@@ -81,7 +81,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "(last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
         );
 
-        for where_clause in Self::EXTRA_TRIGGER_WHERE_CLAUSE {
+        for where_clause in Self::EXTRA_TRIGGER_AND_WHERE_CLAUSE {
             sqlb.and_where(where_clause);
         }
 
@@ -132,7 +132,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 "(last_server_ping IS NULL OR last_server_ping < NOW() - INTERVAL '15 seconds')",
             );
 
-        for where_clause in Self::EXTRA_CAPTURE_WHERE_CLAUSE {
+        for where_clause in Self::EXTRA_CAPTURE_AND_WHERE_CLAUSE {
             sqlb.and_where(where_clause);
         }
 
@@ -594,10 +594,10 @@ async fn listening<T: Listener>(
                         Ok(Some(consumer)) => {
                             listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
                             let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer).await;
-                            println!("Stop consumming");
+                            tracing::debug!("Stopping consumer for trigger");
                         }
                         Err(error) => {
-                            println!("Disable");
+                            tracing::warn!("Disabling trigger due to consumer error: {}", error);
                             listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
                         }
                         _ => {}
@@ -814,7 +814,6 @@ pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, val
     let mut w = lock.write().await;
     *w = value;
 }
-
 
 #[allow(unused)]
 fn listen_to<T: Copy + Listener>(

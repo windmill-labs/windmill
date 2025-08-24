@@ -48,7 +48,7 @@ impl TriggerJobArgs for KafkaTrigger {
     }
 }
 
-// Kafka Configuration structs for the trait
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct KafkaConfig {
     pub kafka_resource_path: String,
@@ -59,14 +59,7 @@ pub struct KafkaConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewKafkaConfig {
-    pub kafka_resource_path: String,
-    pub group_id: String,
-    pub topics: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditKafkaConfig {
+pub struct KafkaConfigRequest {
     pub kafka_resource_path: String,
     pub group_id: String,
     pub topics: Vec<String>,
@@ -201,6 +194,8 @@ pub struct TestKafkaConfig {
     connection: KafkaTriggerConfigConnection,
 }
 
+
+#[allow(unused)]
 async fn fetch_metadata(
     consumer: StreamConsumer<DefaultConsumerContext>,
     timeout: std::time::Duration,
@@ -219,6 +214,7 @@ async fn fetch_metadata(
     Ok(result)
 }
 
+#[allow(unused)]
 fn create_consumer_config(
     brokers: &[String],
     security: KafkaResourceSecurity,

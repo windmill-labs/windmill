@@ -1,3 +1,6 @@
+#[cfg(not(feature = "private"))]
+use crate::triggers::TriggerData;
+
 #[allow(unused)]
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
@@ -7,7 +10,7 @@ use {
     super::KafkaTrigger,
     crate::{
         db::{ApiAuthed, DB},
-        triggers::{CreateTrigger, EditTrigger, TriggerCrud},
+        triggers::TriggerCrud,
     },
     axum::async_trait,
     sqlx::PgConnection,
@@ -20,8 +23,7 @@ use {
 impl TriggerCrud for KafkaTrigger {
     type Trigger = ();
     type TriggerConfig = ();
-    type EditTriggerConfig = ();
-    type NewTriggerConfig = ();
+    type TriggerConfigRequest = ();
     type TestConnectionConfig = ();
 
     const TABLE_NAME: &'static str = "";
@@ -40,30 +42,13 @@ impl TriggerCrud for KafkaTrigger {
         vec!["kafka_resource_path", "group_id", "topics"]
     }
 
-    async fn validate_new(&self, _workspace_id: &str, _new: &Self::NewTriggerConfig) -> Result<()> {
-        Err(Error::BadRequest(
-            "Kafka triggers are not available in open source version".to_string(),
-        ))
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        _edit: &Self::EditTriggerConfig,
-    ) -> Result<()> {
-        Err(Error::BadRequest(
-            "Kafka triggers are not available in open source version".to_string(),
-        ))
-    }
-
     async fn create_trigger(
         &self,
         _db: &DB,
         _tx: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
-        _trigger: CreateTrigger<Self::NewTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "Kafka triggers are not available in open source version".to_string(),
@@ -77,7 +62,7 @@ impl TriggerCrud for KafkaTrigger {
         _authed: &ApiAuthed,
         _workspace_id: &str,
         _path: &str,
-        _trigger: EditTrigger<Self::EditTriggerConfig>,
+        _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "Kafka triggers are not available in open source version".to_string(),
