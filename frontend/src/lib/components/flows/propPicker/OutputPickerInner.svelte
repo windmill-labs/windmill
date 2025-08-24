@@ -299,10 +299,7 @@
 			return
 		}
 
-		// Create a timeout to show loading state after 200ms
-		const loadingTimeout = setTimeout(() => {
-			isLoading = true
-		}, 200)
+		isLoading = true
 
 		try {
 			const fullJob = await detail.getFullJob()
@@ -311,8 +308,6 @@
 				togglePreview('job')
 			}
 		} finally {
-			// Clear the timeout if operation completed before 200ms
-			clearTimeout(loadingTimeout)
 			isLoading = false
 		}
 	}
