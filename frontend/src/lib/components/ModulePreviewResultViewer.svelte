@@ -112,7 +112,7 @@
 				}}
 				workspaceId={logJob.workspace_id}
 			/>
-		{:else if logJob}
+		{:else}
 			<LogViewer
 				small
 				jobId={logJob?.id}
