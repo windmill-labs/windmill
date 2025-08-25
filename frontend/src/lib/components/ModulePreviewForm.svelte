@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 
-	import { allTrue, sendUserToast } from '$lib/utils'
+	import { allTrue } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
-	import { getContext, onMount, untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
 	import type { FlowModule } from '$lib/gen'
@@ -98,70 +98,78 @@
 
 	loadResourceTypes()
 
-	onMount(() => {
-		if (!testSteps) {
-			sendUserToast('testSteps module not initialized. Preview will not work.', true)
+	let initialized = $state(false)
+
+	$effect.pre(() => {
+		if (!initialized) {
+			if (testSteps) {
+				testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+				initialized = true
+			}
 		}
-		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
 	})
 </script>
 
 <div class="w-full pt-2" data-popover>
-	{#if keys.length > 0}
-		{#each keys as argName, i (argName)}
-			{#if Object.keys(schema.properties ?? {}).includes(argName)}
-				<div
-					class={twMerge(
-						'flex gap-2',
-						animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
-					)}
-					data-arg={argName}
-				>
-					{#if schema?.properties?.[argName]}
-						<ArgInput
-							{resourceTypes}
-							minW={false}
-							autofocus={autofocus && !focusArg && i == 0}
-							label={argName}
-							description={schema.properties[argName].description}
-							bind:value={
-								() => testSteps?.getStepInputArgs(mod.id, argName),
-								(v) => testSteps?.setStepInputArgs(mod.id, argName, v)
-							}
-							type={schema.properties[argName].type}
-							oneOf={schema.properties[argName].oneOf}
-							required={schema?.required?.includes(argName)}
-							pattern={schema.properties[argName].pattern}
-							bind:editor={editor[argName]}
-							bind:valid={inputCheck[argName]}
-							defaultValue={schema.properties[argName].default}
-							enum_={schema.properties[argName].enum}
-							format={schema.properties[argName].format}
-							contentEncoding={schema.properties[argName].contentEncoding}
-							properties={schema.properties[argName].properties}
-							nestedRequired={schema.properties[argName].required}
-							itemsType={schema.properties[argName].items}
-							extra={schema.properties[argName]}
-							nullable={schema.properties[argName].nullable}
-							title={schema.properties[argName].title}
-							placeholder={schema.properties[argName].placeholder}
-						/>
-					{/if}
-					{#if testSteps?.isArgManuallySet(mod.id, argName)}
-						<div class="pt-6 mt-0.5">
-							<Button
-								on:click={() => {
-									plugIt(argName)
-								}}
-								size="sm"
-								variant="border"
-								color="light"
-								title="Re-evaluate input step"><RefreshCw size={14} /></Button
-							>
-						</div>
-					{/if}
-				</div>
-			{/if}
-		{/each}
+	{#if initialized}
+		{#if keys.length > 0}
+			{#each keys as argName, i (argName)}
+				{#if Object.keys(schema.properties ?? {}).includes(argName)}
+					<div
+						class={twMerge(
+							'flex gap-2',
+							animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
+						)}
+						data-arg={argName}
+					>
+						{#if schema?.properties?.[argName]}
+							<ArgInput
+								{resourceTypes}
+								minW={false}
+								autofocus={autofocus && !focusArg && i == 0}
+								label={argName}
+								description={schema.properties[argName].description}
+								bind:value={
+									() => testSteps?.getStepInputArgs(mod.id, argName),
+									(v) => testSteps?.setStepInputArgs(mod.id, argName, v)
+								}
+								type={schema.properties[argName].type}
+								oneOf={schema.properties[argName].oneOf}
+								required={schema?.required?.includes(argName)}
+								pattern={schema.properties[argName].pattern}
+								bind:editor={editor[argName]}
+								bind:valid={inputCheck[argName]}
+								defaultValue={schema.properties[argName].default}
+								enum_={schema.properties[argName].enum}
+								format={schema.properties[argName].format}
+								contentEncoding={schema.properties[argName].contentEncoding}
+								properties={schema.properties[argName].properties}
+								nestedRequired={schema.properties[argName].required}
+								itemsType={schema.properties[argName].items}
+								extra={schema.properties[argName]}
+								nullable={schema.properties[argName].nullable}
+								title={schema.properties[argName].title}
+								placeholder={schema.properties[argName].placeholder}
+							/>
+						{/if}
+						{#if testSteps?.isArgManuallySet(mod.id, argName)}
+							<div class="pt-6 mt-0.5">
+								<Button
+									on:click={() => {
+										plugIt(argName)
+									}}
+									size="sm"
+									variant="border"
+									color="light"
+									title="Re-evaluate input step"><RefreshCw size={14} /></Button
+								>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			{/each}
+		{/if}
+	{:else}
+		<div class="text-center text-sm text-tertiary"> Loading test step arguments... </div>
 	{/if}
 </div>

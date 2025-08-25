@@ -22,11 +22,10 @@ function create_context_function_template(eval_string: string, context: Record<s
 	return `
 return function (context) {
 "use strict";
-${
-	Object.keys(context).length > 0
-		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
-		: ``
-}
+${Object.keys(context).length > 0
+			? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
+			: ``
+		}
 return ${eval_string}
 }`
 }
@@ -62,6 +61,9 @@ export function evalValue(
 			}
 			v = undefined
 		}
+	}
+	if (v === NEVER_TESTED_THIS_FAR) {
+		v = undefined
 	}
 	return v
 }
