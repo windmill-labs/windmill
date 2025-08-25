@@ -70,7 +70,19 @@
 	{#if !$userStore?.operator}
 		{#if $workerTags && $workerTags?.length > 0}
 			<div class="w-full">
-				<select placeholder="Worker group" bind:value={overrideTag}>
+				<select
+					placeholder="Worker group"
+					bind:value={
+						() => overrideTag ?? '',
+						(v) => {
+							if (v == '') {
+								overrideTag = undefined
+							} else {
+								overrideTag = v
+							}
+						}
+					}
+				>
 					{#if overrideTag}
 						<option value="">reset to default</option>
 					{:else}
