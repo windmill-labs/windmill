@@ -290,8 +290,8 @@
 			{#if containsLabel}
 				<div class="w-[30%] text-xs font-semibold">Label</div>
 			{/if}
-			<div class="w-[20%] text-xs font-semibold">Triggered by</div>
-			<div class="w-[15%] text-xs font-semibold">Tags</div>
+			<div class="w-[30%] text-xs font-semibold">Triggered by</div>
+			<div class="w-[5%] text-xs font-semibold">Tag</div>
 			<div class="w-[5%]"></div>
 		</div>
 	</div>

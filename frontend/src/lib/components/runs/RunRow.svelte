@@ -33,7 +33,6 @@
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
-	import RunBadges from './RunBadges.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -280,7 +279,7 @@
 		</div>
 	{/if}
 	<!-- Author and schedule-->
-	<div class="w-[20%] flex justify-start pr-4 text-secondary">
+	<div class="w-[30%] flex justify-start pr-4 text-secondary">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1 w-full -ml-2">
 				<Button
@@ -341,8 +340,10 @@
 		{/if}
 	</div>
 
-	<div class="w-[15%] flex justify-start gap-1">
-		<RunBadges {job} showScriptHash={false} verySmall />
+	<div class="w-[5%] flex justify-start gap-1">
+		{#if job.tag}
+			<span class="text-xs text-secondary truncate">{job.tag}</span>
+		{/if}
 	</div>
 
 	<!-- Job link-->
