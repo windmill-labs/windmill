@@ -16,7 +16,7 @@ use crate::db::{CustomMigrator, DB};
 use sqlx::migrate::Migrate;
 use sqlx::Executor;
 
-pub async fn custom_migrations(
+pub async fn custom_migrations_old(
     migrator: &mut CustomMigrator,
     db: &DB,
 ) -> Result<Option<JoinHandle<()>>, Error> {
@@ -86,7 +86,7 @@ async fn fix_flow_versioning_migration(
             .unwrap_or(false);
 
             if !has_done_migration {
-                let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
+                let query = include_str!("../../migrations/custom/fix_flow_versioning_2.sql");
                 tracing::info!("Applying fix_flow_versioning_2.sql");
                 let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
                 tx.execute(query).await?;

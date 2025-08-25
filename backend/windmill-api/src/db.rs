@@ -32,25 +32,25 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
 
 lazy_static::lazy_static! {
     pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
-                        "../../custom_migrations/create_workspace_without_md5.sql"
+                        "../../migrations/custom/create_workspace_without_md5.sql"
                     ).to_string()),
                     (20240216100535, include_str!(
-                        "../../migrations/20240216100535_improve_policies.up.sql"
+                        "../../migrations/old/20240216100535_improve_policies.up.sql"
                     ).replace("public.", "")),
                     (20240403083110, include_str!(
-                        "../../migrations/20240403083110_remove_team_id_constraint.up.sql"
+                        "../../migrations/old/20240403083110_remove_team_id_constraint.up.sql"
                     ).replace("public.", "")),
                     (20240613150524, include_str!(
-                        "../../migrations/20240613150524_add_job_perms.up.sql"
+                        "../../migrations/old/20240613150524_add_job_perms.up.sql"
                     ).replace("public.", "")),
                     (20250102145420, include_str!(
-                        "../../migrations/20250102145420_more_captures.up.sql"
+                        "../../migrations/old/20250102145420_more_captures.up.sql"
                     ).replace("public.", "")),
                     (20250429211554, include_str!(
-                        "../../migrations/20250429211554_create_indices_on_queue.up.sql"
+                        "../../migrations/old/20250429211554_create_indices_on_queue.up.sql"
                     ).replace("public.", "")),
                     (20241006144414, include_str!(
-                        "../../custom_migrations/grant_all_current_schema.sql"
+                        "../../migrations/custom/grant_all_current_schema.sql"
                     ).to_string()),
                     (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
                     (20221123151919, "".to_string()),
@@ -197,51 +197,100 @@ impl Migrate for CustomMigrator {
     }
 }
 
+const MORE_MIGRATIONS_MSG: &str = "Database had been applied more migrations than this container.
+This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
+Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change.";
+
 pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
-    }
-
-    // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
-    }
-
-    // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
-    if let Err(err) = sqlx::query!(
-        "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+    let (has_done_first_old_migration, has_done_latest_old_migration) = sqlx::query!(
+        r#"
+        SELECT
+            EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = 20220123221901) as "has_first_old!",
+            EXISTS(SELECT 1 FROM windmill_migrations WHERE name = 'v2_script_lock_index') as "has_latest_old!"
+        "#
     )
-    .execute(db)
+    .fetch_one(db)
     .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
-    }
+    .map(|res| (res.has_first_old, res.has_latest_old))
+    .unwrap_or((false, false));
 
+    let jh = if has_done_first_old_migration && !has_done_latest_old_migration {
+        if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
+            .execute(db)
+            .await
+        {
+            tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
+        }
+
+        // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
+        if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
+            .execute(db)
+            .await
+        {
+            tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
+        }
+
+        // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
+        if let Err(err) = sqlx::query!(
+            "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+        )
+        .execute(db)
+        .await
+        {
+            tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
+        }
+
+        match sqlx::migrate!("../migrations/old")
+            .run_direct(&mut custom_migrator)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
+                tracing::error!(
+                    "{MORE_MIGRATIONS_MSG}
+Version missing: {e:#}"
+                );
+                custom_migrator.unlock().await?;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }?;
+        crate::live_migrations::custom_migrations_old(&mut custom_migrator, db).await;
+    } else if !has_done_first_old_migration {
+        match sqlx::migrate!("../migrations/old_snapshot")
+            .run_direct(&mut custom_migrator)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err),
+        }?;
+        sqlx::query!(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+            VALUES (20250814114112, 'fake latest old migration', true, '0', 0),
+            (20220123221901, 'fake first old migration', true, '0', 0)"
+        )
+        .execute(db)
+        .await?;
+        return Ok(None);
+    };
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
     {
         Ok(_) => Ok(()),
         Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!("Database had been applied more migrations than this container.
-            This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
-            Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
+            tracing::error!(
+                "{MORE_MIGRATIONS_MSG}
+Version missing: {e:#}"
+            );
             custom_migrator.unlock().await?;
             Ok(())
         }
         Err(err) => Err(err),
     }?;
-
-    return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
