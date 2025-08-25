@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap,
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
@@ -475,6 +475,43 @@
 				refreshStateStore(flowStore)
 			}
 
+			setModuleStatus(id, 'modified')
+		},
+		setForLoopOptions: async (id, opts) => {
+			const module = getModule(id)
+			if (!module) {
+				throw new Error('Module not found')
+			}
+			if (module.value.type !== 'forloopflow') {
+				throw new Error('Module is not a forloopflow')
+			}
+
+			// Apply skip_failures if provided
+			if (typeof opts.skip_failures === 'boolean') {
+				module.value.skip_failures = opts.skip_failures
+			}
+
+			// Apply parallel if provided
+			if (typeof opts.parallel === 'boolean') {
+				module.value.parallel = opts.parallel
+			}
+
+			// Handle parallelism
+			if (opts.parallel === false) {
+				// If parallel is disabled, clear parallelism
+				module.value.parallelism = undefined
+			} else if (opts.parallelism !== undefined) {
+				if (opts.parallelism === null) {
+					// Explicitly clear parallelism
+					module.value.parallelism = undefined
+				} else if (module.value.parallel || opts.parallel === true) {
+					// Only set parallelism if parallel is enabled
+					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
+					module.value.parallelism = n
+				}
+			}
+
+			refreshStateStore(flowStore)
 			setModuleStatus(id, 'modified')
 		}
 	}

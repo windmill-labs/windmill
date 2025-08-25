@@ -57,6 +57,10 @@ export interface FlowAIChatHelpers {
 	addBranch: (id: string) => Promise<void>
 	removeBranch: (id: string, branchIndex: number) => Promise<void>
 	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
+	setForLoopOptions: (
+		id: string,
+		opts: { skip_failures?: boolean; parallel?: boolean; parallelism?: number | null }
+	) => Promise<void>
 	setCode: (id: string, code: string) => Promise<void>
 }
 
@@ -194,6 +198,25 @@ const setForLoopIteratorExpressionToolDef = createToolDef(
 	setForLoopIteratorExpressionSchema,
 	'set_forloop_iterator_expression',
 	'Set the iterator JavaScript expression for the given forloop step'
+)
+
+const setForLoopOptionsSchema = z.object({
+	id: z.string().describe('The id of the forloop step to configure'),
+	skip_failures: z.boolean().optional().describe('Whether to skip failures in the loop'),
+	parallel: z.boolean().optional().describe('Whether to run iterations in parallel'),
+	parallelism: z
+		.number()
+		.int()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe('Maximum number of parallel iterations (null to clear)')
+})
+
+const setForLoopOptionsToolDef = createToolDef(
+	setForLoopOptionsSchema,
+	'set_forloop_options',
+	'Set advanced options for a forloop step: skip_failures, parallel, and parallelism'
 )
 
 const setBranchPredicateSchema = z.object({
@@ -559,6 +582,31 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
+		def: setForLoopOptionsToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setForLoopOptionsSchema.parse(args)
+			await helpers.setForLoopOptions(parsedArgs.id, {
+				skip_failures: parsedArgs.skip_failures,
+				parallel: parsedArgs.parallel,
+				parallelism: parsedArgs.parallelism
+			})
+			helpers.selectStep(parsedArgs.id)
+
+			const optionsSet: string[] = []
+			if (parsedArgs.skip_failures !== undefined)
+				optionsSet.push(`skip_failures: ${parsedArgs.skip_failures}`)
+			if (parsedArgs.parallel !== undefined) optionsSet.push(`parallel: ${parsedArgs.parallel}`)
+			if (parsedArgs.parallelism !== undefined)
+				optionsSet.push(`parallelism: ${parsedArgs.parallelism}`)
+
+			const message = `Set forloop '${parsedArgs.id}' options`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message
+			})
+			return message
+		}
+	},
+	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
@@ -790,7 +838,9 @@ When creating new steps, follow this process for EACH step:
 
 ### Special Step Types
 For special step types, follow these additional steps:
-- For forloop steps: Set the iterator expression using set_forloop_iterator_expression
+- For forloop steps: 
+  - Set the iterator expression using set_forloop_iterator_expression
+  - Set advanced options (parallel, parallelism, skip_failures) using set_forloop_options
 - For branchone steps: Set the predicates for each branch using set_branch_predicate
 - For branchall steps: No additional setup needed
 
@@ -821,6 +871,12 @@ For step inputs, forloop iterator expressions and branch predicates, use JavaScr
 Note: These variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They must be passed as script arguments using the set_step_inputs tool.
 
 For truly static values in step inputs (those not linked to previous steps or loop iterations), prefer using flow inputs by default unless explicitly specified otherwise. This makes the flow more configurable and reusable. For example, instead of hardcoding an email address in a step input, create a flow input for it.
+
+### For Loop Advanced Options
+When configuring for-loop steps, consider these options:
+- **parallel: true** - Run iterations in parallel for independent operations (significantly faster for I/O bound tasks)
+- **parallelism: N** - Limit concurrent iterations (only applies when parallel=true). Use to prevent overwhelming external APIs
+- **skip_failures: true** - Continue processing remaining iterations even if some fail. Failed iterations return error objects as results
 
 ### Special Modules
 - Preprocessor: Runs before the first step when triggered externally
