@@ -1,25 +1,19 @@
-import { uiIntentStore, type UiIntentEnvelope } from './uiIntents'
-import { onMount } from 'svelte'
+import { uiIntentStore, type UiIntent } from './uiIntents'
+import { onDestroy } from 'svelte'
 
 type Handlers = {
 	openTab?: (tab: string) => void
 	highlight?: (section: string, field?: string) => void
 }
 
-export function useUiIntent(moduleId: string, handlers: Handlers) {
-	let lastHandled: string | undefined
+export function useUiIntent(componentId: string, handlers: Handlers) {
+	const unsub = uiIntentStore.subscribe((intent: UiIntent | null) => {
+		if (!intent || intent.componentId !== componentId) return
 
-	const unsub = uiIntentStore.subscribe((env: UiIntentEnvelope | null) => {
-		if (!env || env.id === lastHandled) return
-		const i = env.intent
-		if ('id' in i && i.id !== moduleId) return
+		if (intent.kind === 'open_module_tab') handlers.openTab?.(intent.tab)
+		if (intent.kind === 'highlight_setting') handlers.highlight?.(intent.section, intent.field)
 
-		if (i.kind === 'open_module_tab') handlers.openTab?.(i.tab)
-		if (i.kind === 'highlight_setting') handlers.highlight?.(i.section, i.field)
-
-		lastHandled = env.id
-		if (env.once !== false) uiIntentStore.set(null)
+		uiIntentStore.set(null)
 	})
-
-	onMount(() => () => unsub())
+	onDestroy(() => unsub())
 }

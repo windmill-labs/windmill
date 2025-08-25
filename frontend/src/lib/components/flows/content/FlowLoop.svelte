@@ -52,7 +52,7 @@
 	let selected: string = $state('early-stop')
 
 	// UI Intent handling for AI tool control
-	useUiIntent(mod.id, {
+	useUiIntent(`forloop-${mod.id}`, {
 		openTab: (tab) => {
 			selected = tab
 		}

@@ -676,7 +676,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Emit UI intent to show early-stop tab when stop_after_if is configured
 			if (parsedArgs.stop_after_if !== undefined) {
-				emitUiIntent({ kind: 'open_module_tab', id: parsedArgs.id, tab: 'early-stop' })
+				emitUiIntent({
+					kind: 'open_module_tab',
+					componentId: `forloop-${parsedArgs.id}`,
+					tab: 'early-stop'
+				})
 			}
 
 			const optionsSet: string[] = []
