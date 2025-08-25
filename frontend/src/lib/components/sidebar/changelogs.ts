@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Call Windmill API through MCP',
+		href: 'https://www.windmill.dev/changelog/mcp-api-endpoints',
+		date: '2025-08-08'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
