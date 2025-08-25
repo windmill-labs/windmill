@@ -53,10 +53,20 @@ export class StepsInputArgs {
 	}
 
 	isArgManuallySet(moduleId: string, argName: string): boolean {
-		return (
-			JSON.stringify(this.#steps[moduleId]?.[argName]) !==
-			JSON.stringify(this.#stepsEvaluated[moduleId]?.[argName])
-		)
+		try {
+			const stepsValue = this.#steps[moduleId]?.[argName]
+			const evaluatedValue = this.#stepsEvaluated[moduleId]?.[argName]
+
+			const stepsStr = JSON.stringify(stepsValue)
+			const evaluatedStr = JSON.stringify(evaluatedValue)
+			return stepsStr !== evaluatedStr
+		} catch (error) {
+			console.warn(
+				`Error in isArgManuallySet for moduleId: ${moduleId}, argName: ${argName}`,
+				error
+			)
+			return this.#steps[moduleId]?.[argName] !== this.#stepsEvaluated[moduleId]?.[argName]
+		}
 	}
 
 	getManuallyEditedArgs(moduleId: string): string[] {
