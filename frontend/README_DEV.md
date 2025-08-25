@@ -15,44 +15,45 @@ That's it! You are ready to go.
 > Using **direnv** is highly recommended, since it can load shell automatically based on your CWD. It also can give you hints.
 
 ### Development
+
 ```bash
 # enter a dev shell containing all necessary packages. `direnv allow` if direnv is installed.
-nix develop 
+nix develop
 ## or ignore if you have `direnv`
 
 # Start db (if not started already)
-sudo docker compose up db -d 
+sudo docker compose up db -d
 
 # run the frontend.
 wm
 
 # In an other shell:
 #
-nix develop 
+nix develop
 ## or ignore if you have `direnv`
 
 cd backend
 # You don't need to install anything extra. All dependencies are already in place!
-cargo run --features all_languages 
+cargo run --features all_languages
 ```
 
 The default proxy is setup to use the local backend: <http://localhost:8000>.
 
-### wm-* Commands
+### wm-\* Commands
 
 Nix shell provides you with several helper commands prefixed with `wm-`
 
 ```bash
 # Start minio server (implements S3)
-wm-minio 
-# Note: You will need access to EE private repo in order to compile, don't forget "enterprise" and "parquet" freatures as well. 
+wm-minio
+# Note: You will need access to EE private repo in order to compile, don't forget "enterprise" and "parquet" freatures as well.
 
 # Generate keys for local dev.
-wm-minio-keys 
+wm-minio-keys
 # Minio data as well as generated keys are stored in `backend/.minio-data`
 ```
 
-You can read about all others commands individually in [flake.nix](../flake.nix). 
+You can read about all others commands individually in [flake.nix](../flake.nix).
 
 ### dev.nu
 
@@ -106,7 +107,7 @@ REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
 
 Sometimes it is important to build docker image for your branch locally. It is crucial part of testing, since local environment may differ from the containerized one.
 
-That's why we provide [docker/dev.nu](../docker/dev.nu). It is helper that can build images locally and execute them. 
+That's why we provide [docker/dev.nu](../docker/dev.nu). It is helper that can build images locally and execute them.
 
 it can build the image and run on local repository.
 
@@ -150,7 +151,7 @@ If you develop wasm parser for new language you can also pass `--wasm-pkg <langu
 In the root folder:
 
 ```bash
-docker-compose up db
+./start-dev-db.sh
 ```
 
 In the backend folder:
@@ -218,6 +219,7 @@ nix flake update # update the lock file.
 ```
 
 Some cargo dependencies use fixed git revisions, which are also fixed in `flake.nix`:
+
 ```nix
 outputHashes = {
   "php-parser-rs-0.1.3" = "sha256-ZeI3KgUPmtjlRfq6eAYveqt8Ay35gwj6B9iOQRjQa9A=";
@@ -226,6 +228,7 @@ outputHashes = {
 ```
 
 When updating a revision, replace the incorrect `sha256` with `pkgs.lib.fakeHash`:
+
 ```diff
 -            "php-parser-rs-0.1.3" = "sha256-ZeI3KgUPmtjlRfq6eAYveqt8Ay35gwj6B9iOQRjQa9A=";
 +            "php-parser-rs-0.1.3" = pkgs.lib.fakeHash;

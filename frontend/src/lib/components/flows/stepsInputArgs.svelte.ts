@@ -12,7 +12,7 @@ export class StepsInputArgs {
 	#stepsEvaluated = $state<Record<string, Record<string, any>>>({})
 	#steps = $state<Record<string, Record<string, any>>>({})
 
-	constructor() {}
+	constructor() { }
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
 		this.#steps[moduleId] = args
