@@ -40,13 +40,12 @@ import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { copilotInfo, copilotSessionModel, type DBSchemas } from '$lib/stores'
+import { getCurrentModel, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
-import { get } from 'svelte/store'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
@@ -124,11 +123,7 @@ class AIChatManager {
 			}
 			return acc
 		}, 0)
-		const model =
-			get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
-		if (!model) {
-			throw new Error('No model selected')
-		}
+		const model = getCurrentModel()
 		const modelContextWindow = getModelContextWindow(model.model)
 		return (
 			estimatedTokens >
