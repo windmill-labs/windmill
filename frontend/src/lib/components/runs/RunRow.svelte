@@ -165,7 +165,7 @@
 
 	<!-- Job path-->
 	<div class="w-[35%] flex justify-start flex-col pr-4">
-		<div class="flex flex-row text-sm">
+		<div class="flex flex-row text-sm grow min-h-2">
 			{#if job === undefined}
 				No job found
 			{:else}
@@ -233,9 +233,9 @@
 
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<div class="flex flex-row gap-1 items-center">
-					<BarsStaggered class="text-secondary" size={14} />
-					<span class="mx-1 text-xs">
+				<div class="flex flex-row gap-1 items-center -mt-2 text-tertiary">
+					<BarsStaggered size={10} />
+					<span class="mx-1 text-2xs">
 						Step of flow <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 6)}
 						</a>
