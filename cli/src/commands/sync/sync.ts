@@ -2003,6 +2003,17 @@ export async function push(
                 );
               }
               const obj = parseFromPath(change.path, change.content);
+
+              // Determine the actual local file path for this change
+              // For branch-specific items, we read from branch-specific files but push to base server paths
+              let localFilePath = change.path;
+              if (specificItems && isSpecificItem(change.path, specificItems)) {
+                const branchSpecificPath = getBranchSpecificPath(change.path, specificItems);
+                if (branchSpecificPath) {
+                  localFilePath = branchSpecificPath;
+                }
+              }
+
               await pushObj(
                 workspace.workspaceId,
                 change.path,
@@ -2010,7 +2021,8 @@ export async function push(
                 obj,
                 opts.plainSecrets ?? false,
                 [],
-                opts.message
+                opts.message,
+                localFilePath  // Pass the actual local file path
               );
 
               if (stateTarget) {

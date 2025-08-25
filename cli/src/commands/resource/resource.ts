@@ -120,7 +120,8 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    filePath  // Pass the local file path for branch-specific inline content resolution
   );
   log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }
