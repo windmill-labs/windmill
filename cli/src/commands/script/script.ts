@@ -15,6 +15,8 @@ import {
 } from "../../../deps.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import * as specificItems from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
 
 import {
   defaultScriptMetadata,
@@ -106,8 +108,6 @@ export async function findResourceFile(path: string) {
   let contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
 
   // Check for branch-specific metadata files first
-  const specificItems = await import("../../core/specific_items.ts");
-  const { getCurrentGitBranch } = await import("../../utils/git.ts");
   const currentBranch = getCurrentGitBranch();
 
   const candidates = [contentBasePathJSON, contentBasePathYAML];

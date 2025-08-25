@@ -11,6 +11,8 @@ import { colors, Command, log, SEP, Table } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
+import { isBranchSpecificFile } from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
 
 export interface ResourceFile {
   value: any;
@@ -42,8 +44,6 @@ export async function pushResource(
       const basePath = localResource.value["content"].split(" ")[1];
 
       // If we're processing a branch-specific metadata file, read from branch-specific resource file
-      const { isBranchSpecificFile } = await import("../../core/specific_items.ts");
-      const { getCurrentGitBranch } = await import("../../utils/git.ts");
 
       let pathToRead = basePath;
 
