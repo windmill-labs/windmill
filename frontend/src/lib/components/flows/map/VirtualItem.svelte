@@ -146,7 +146,7 @@
 					{selected}
 					{hover}
 					id={id ?? ''}
-					isConnectingCandidate={true}
+					isConnectingCandidate={nodeKind !== 'result'}
 					variant="virtual"
 					type={outputType}
 					{darkMode}
