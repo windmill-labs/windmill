@@ -558,17 +558,17 @@
 				$currentEditor.showDiffMode()
 				$currentEditor.setDiffButtons?.([
 					{
-						text: 'Reject Changes',
-						onClick: () => {
-							flowHelpers.revertModuleAction($selectedId)
-							$currentEditor?.hideDiffMode()
-						}
-					},
-					{
 						text: 'Accept Changes',
 						color: 'green',
 						onClick: () => {
 							flowHelpers.acceptModuleAction($selectedId)
+							$currentEditor?.hideDiffMode()
+						}
+					},
+					{
+						text: 'Reject Changes',
+						onClick: () => {
+							flowHelpers.revertModuleAction($selectedId)
 							$currentEditor?.hideDiffMode()
 						}
 					}
