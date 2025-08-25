@@ -23,7 +23,8 @@ export async function pushResource(
   workspace: string,
   remotePath: string,
   resource: ResourceFile | Resource | undefined,
-  localResource: ResourceFile
+  localResource: ResourceFile,
+  originalLocalPath?: string
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -35,14 +36,41 @@ export async function pushResource(
     // flow doesn't exist
   }
 
-  if (localResource.value["content"]?.startsWith("!inline ")) {
-    const basePath = localResource.value["content"].split(" ")[1];
-    localResource.value["content"] = readInlinePathSync(basePath);
-  }
+  // Helper function to resolve inline content
+  const resolveInlineContent = async () => {
+    if (localResource.value["content"]?.startsWith("!inline ")) {
+      const basePath = localResource.value["content"].split(" ")[1];
+
+      // If we're processing a branch-specific metadata file, read from branch-specific resource file
+      const { isBranchSpecificFile } = await import("../../core/specific_items.ts");
+      const { getCurrentGitBranch } = await import("../../utils/git.ts");
+
+      let pathToRead = basePath;
+
+      if (originalLocalPath && isBranchSpecificFile(originalLocalPath)) {
+        const currentBranch = getCurrentGitBranch();
+        if (currentBranch) {
+          // Directly construct branch-specific resource file path
+          const resourcePathSegments = basePath.split(".");
+          if (resourcePathSegments.length >= 4 && resourcePathSegments[resourcePathSegments.length - 3] === "resource" && resourcePathSegments[resourcePathSegments.length - 2] === "file") {
+            const fileBaseParts = resourcePathSegments.slice(0, -3);
+            const fileExt = resourcePathSegments.slice(-3);
+            pathToRead = [...fileBaseParts, currentBranch, ...fileExt].join(".");
+          }
+        }
+      }
+
+      localResource.value["content"] = readInlinePathSync(pathToRead);
+    }
+  };
+
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
     }
+
+    // Only resolve inline content if we're actually updating
+    await resolveInlineContent();
 
     await wmill.updateResource({
       workspace: workspace,
@@ -50,6 +78,9 @@ export async function pushResource(
       requestBody: { ...localResource },
     });
   } else {
+    // New resource - resolve inline content
+    await resolveInlineContent();
+
     if (localResource.is_oauth) {
       log.info(
         colors.yellow(

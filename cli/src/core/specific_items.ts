@@ -75,6 +75,16 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
     return specificItems.resources ? matchesPatterns(path, specificItems.resources) : false;
   }
 
+  // Check for resource files (e.g., .resource.file.ini, .resource.file.txt, etc.)
+  if (path.includes('.resource.file.')) {
+    // Extract the base path without the file extension to match against patterns
+    const basePathMatch = path.match(/^(.+?)\.resource\.file\./);
+    if (basePathMatch && specificItems.resources) {
+      const basePath = basePathMatch[1] + '.resource.yaml';
+      return matchesPatterns(basePath, specificItems.resources);
+    }
+  }
+
   return false;
 }
 
@@ -82,14 +92,25 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
  * Convert a base path to a branch-specific path
  */
 export function toBranchSpecificPath(basePath: string, branchName: string): string {
-  // Extract the extension (e.g., ".variable.yaml" or ".resource.yaml")
-  const extensionMatch = basePath.match(/(\.(variable|resource)\.yaml)$/);
-  if (!extensionMatch) {
-    return basePath; // Return unchanged if no recognized extension
-  }
+  // Check for resource file pattern (e.g., .resource.file.ini)
+  const resourceFileMatch = basePath.match(/^(.+?)(\.resource\.file\..+)$/);
 
-  const extension = extensionMatch[1];
-  const pathWithoutExtension = basePath.substring(0, basePath.length - extension.length);
+  let extension: string;
+  let pathWithoutExtension: string;
+
+  if (resourceFileMatch) {
+    // Handle resource files
+    extension = resourceFileMatch[2];
+    pathWithoutExtension = resourceFileMatch[1];
+  } else {
+    // Extract the extension (e.g., ".variable.yaml" or ".resource.yaml")
+    const extensionMatch = basePath.match(/(\.(variable|resource)\.yaml)$/);
+    if (!extensionMatch) {
+      return basePath; // Return unchanged if no recognized extension
+    }
+    extension = extensionMatch[1];
+    pathWithoutExtension = basePath.substring(0, basePath.length - extension.length);
+  }
 
   // Sanitize branch name to be filesystem-safe
   const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|.]/g, '_');
@@ -108,17 +129,30 @@ export function toBranchSpecificPath(basePath: string, branchName: string): stri
 export function fromBranchSpecificPath(branchSpecificPath: string, branchName: string): string {
   // Sanitize branch name the same way as in toBranchSpecificPath
   const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|.]/g, '_');
-
-  // Pattern: path.sanitizedBranchName.extension
   const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`\\.${escapedBranchName}(\\.(variable|resource)\\.yaml)$`);
-  const match = branchSpecificPath.match(pattern);
 
-  if (!match) {
+  // Check for resource file pattern first
+  const resourceFilePattern = new RegExp(`\\.${escapedBranchName}(\\.resource\\.file\\..+)$`);
+  const resourceFileMatch = branchSpecificPath.match(resourceFilePattern);
+
+  if (resourceFileMatch) {
+    const extension = resourceFileMatch[1];
+    const pathWithoutBranchAndExtension = branchSpecificPath.substring(
+      0,
+      branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
+    );
+    return `${pathWithoutBranchAndExtension}${extension}`;
+  }
+
+  // Pattern for regular yaml files: path.sanitizedBranchName.extension
+  const yamlPattern = new RegExp(`\\.${escapedBranchName}(\\.(variable|resource)\\.yaml)$`);
+  const yamlMatch = branchSpecificPath.match(yamlPattern);
+
+  if (!yamlMatch) {
     return branchSpecificPath; // Return unchanged if not a branch-specific path
   }
 
-  const extension = match[1];
+  const extension = yamlMatch[1];
   const pathWithoutBranchAndExtension = branchSpecificPath.substring(
     0,
     branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
@@ -166,10 +200,16 @@ export function isCurrentBranchFile(path: string): boolean {
     return false;
   }
 
+  // Sanitize branch name to match what would be used in file naming
+  const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
+  const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   // Use cached pattern or create and cache new one
   let pattern = branchPatternCache.get(currentBranch);
   if (!pattern) {
-    pattern = new RegExp(`\\.${currentBranch}\\.(variable|resource)\\.yaml$`);
+    // Match branch-specific files: *.{branch}.(variable|resource).yaml OR *.{branch}.resource.file.{ext}
+    // Examples: file.dev.variable.yaml, config.main.resource.yaml, cert.dev2.resource.file.pem
+    pattern = new RegExp(`\\.${escapedBranchName}\\.(variable|resource)\\.yaml$|\\.${escapedBranchName}\\.resource\\.file\\..+$`);
     branchPatternCache.set(currentBranch, pattern);
   }
 
@@ -181,6 +221,8 @@ export function isCurrentBranchFile(path: string): boolean {
  * Used to identify and skip files from other branches during sync operations
  */
 export function isBranchSpecificFile(path: string): boolean {
-  // Pattern: *.branchName.variable.yaml or *.branchName.resource.yaml
-  return /\.[^.]+\.(variable|resource)\.yaml$/.test(path);
+  // Match any branch-specific file pattern using generic branch name matching
+  // Pattern matches: *.{anyBranch}.(variable|resource).yaml OR *.{anyBranch}.resource.file.{ext}
+  // [^.]+ captures any branch name (non-dot characters), examples: dev, main, feature_branch
+  return /\.[^.]+\.(variable|resource)\.yaml$|\.[^.]+\.resource\.file\..+$/.test(path);
 }
