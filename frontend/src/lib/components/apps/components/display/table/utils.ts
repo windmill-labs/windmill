@@ -3,7 +3,7 @@
  * See: https://stackoverflow.com/a/72608215
  */
 import type { ColDef, ColGroupDef, ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
-import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
+import { ColumnIdentity } from '../dbtable/utils'
 import type { TableAction } from '$lib/components/apps/editor/component'
 import { mount, unmount } from 'svelte'
 import { Button } from '$lib/components/common'
@@ -125,7 +125,7 @@ export function transformColumnDefs({
 	onDelete,
 	onInvalidColumnDefs
 }: {
-	columnDefs: ColumnDef[]
+	columnDefs: any[]
 	actions?: TableAction[]
 	customActionsHeader?: string
 	wrapActions?: boolean
@@ -145,6 +145,16 @@ export function transformColumnDefs({
 	}
 
 	let r: any[] = columnDefs?.filter((x) => x && !x.ignored) ?? []
+
+	// Allow an explicit "actions" placeholder in columnDefs so users can manage it like any column.
+	// When present, replace it with the computed actions colDef. When not present but actions exist,
+	// we will append the actions column after validation below (legacy behavior).
+	const actionsIndex = r.findIndex((c) => {
+		// Support multiple ways to mark it as actions: field === '__actions__', type === 'actions', or actions: true
+		return (
+			c?.field === '__actions__' || c?.type === 'actions' || c?.actions === true || c?.isActions === true
+		)
+	})
 
 	if (onDelete) {
 		r.push({
@@ -189,16 +199,37 @@ export function transformColumnDefs({
 	}
 
 	if (actions?.length) {
-		r.push({
+		const computedActionsCol = {
+			field: '__actions__',
 			headerName: customActionsHeader ?? 'Actions',
 			cellRenderer: tableActionsFactory,
 			autoHeight: true,
 			cellStyle: { textAlign: 'center' },
 			cellClass: 'grid-cell-centered',
 			lockPosition: 'right',
-
+			// Respect user-specified overrides when placeholder present
+			...(
+				actionsIndex > -1
+					? {
+						// keep width/pin/flex/align from placeholder when provided
+						...(['width', 'minWidth', 'maxWidth', 'flex', 'pinned', 'headerName', 'cellStyle', 'cellClass', 'autoHeight']
+							.reduce((acc, key) => {
+								if (r[actionsIndex] && r[actionsIndex][key] !== undefined) acc[key] = r[actionsIndex][key]
+								return acc
+							}, {} as any))
+					}
+					: {}
+			),
 			...(!wrapActions ? { minWidth: 130 * actions?.length } : {})
-		})
+		}
+
+		if (actionsIndex > -1) {
+			// Replace the placeholder with computed column
+			r.splice(actionsIndex, 1, computedActionsCol)
+		} else {
+			// Backward compatible: append if not explicitly placed
+			r.push(computedActionsCol)
+		}
 	}
 
 	return r.map((fields) => {
@@ -210,7 +241,7 @@ export function transformColumnDefs({
 	})
 }
 
-export function validateColumnDefs(columnDefs: ColumnDef[]): {
+export function validateColumnDefs(columnDefs: any[]): {
 	isValid: boolean
 	errors: string[]
 } {

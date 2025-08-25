@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -14,6 +14,8 @@
 		result?: Array<any> | undefined
 		allowColumnDefsActions?: boolean
 		children?: import('svelte').Snippet
+		actionsPresent?: boolean
+		customActionsHeader?: string | undefined
 	}
 
 	let {
@@ -21,10 +23,81 @@
 		columnDefs = [],
 		result = [],
 		allowColumnDefsActions = true,
-		children
+		children,
+		actionsPresent = false,
+		customActionsHeader = undefined
 	}: Props = $props()
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
+	function hasActionsPlaceholder(cols: any[] | undefined) {
+		if (!Array.isArray(cols)) return false
+		return (
+			cols.findIndex(
+				(c) => c?.field === '__actions__' || c?.type === 'actions' || c?.actions === true || c?.isActions === true
+			) > -1
+		)
+	}
+
+	function addActionsPlaceholder(cols: any[] | undefined): any[] {
+		const hdr = customActionsHeader ?? 'Actions'
+		const placeholder = { field: '__actions__', type: 'actions', headerName: hdr }
+		if (!Array.isArray(cols)) return [placeholder]
+		return [...cols, placeholder]
+	}
+
+	function removeActionsPlaceholder(cols: any[] | undefined): any[] {
+		if (!Array.isArray(cols)) return []
+		return cols.filter(
+			(c) => !(c?.field === '__actions__' || c?.type === 'actions' || c?.actions === true || c?.isActions === true)
+		)
+	}
+
+	async function ensureActionsColumn() {
+		// Only act in editor (DND) mode
+		if ($mode !== 'dnd') return
+		const gridItem = findGridItem($app, id)
+		if (!gridItem) return
+
+		const conf: any = (gridItem.data.configuration as any)?.columnDefs
+		if (!conf) return
+
+		let currentColumns: any[] | undefined
+		if (conf.type === 'static') {
+			currentColumns = Array.isArray(conf.value) ? conf.value : []
+		} else if (conf.type === 'evalv2') {
+			try {
+				currentColumns = JSON.parse(conf.expr ?? '[]')
+			} catch (e) {
+				currentColumns = []
+			}
+		}
+
+		const hasPlaceholder = hasActionsPlaceholder(currentColumns)
+		const needsAdd = actionsPresent && !hasPlaceholder
+		const needsRemove = !actionsPresent && hasPlaceholder
+
+		if (!needsAdd && !needsRemove) return
+
+		let nextColumns = currentColumns
+		if (needsAdd) nextColumns = addActionsPlaceholder(currentColumns)
+		if (needsRemove) nextColumns = removeActionsPlaceholder(currentColumns)
+
+		if (conf.type === 'static') {
+			(gridItem.data.configuration as any).columnDefs.value = nextColumns
+		} else if (conf.type === 'evalv2') {
+			(gridItem.data.configuration as any).columnDefs.expr = JSON.stringify(nextColumns)
+		}
+
+		await updateConfiguration()
+	}
+
+	$effect(() => {
+		// Re-run when inputs change; guarded by equality checks to avoid loops
+		actionsPresent
+		columnDefs
+		untrack(() => ensureActionsColumn())
+	})
 
 	async function syncColumns() {
 		let gridItem = findGridItem($app, id)

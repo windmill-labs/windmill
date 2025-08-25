@@ -40,7 +40,7 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
-	import { cellRendererFactory, defaultCellRenderer } from './utils'
+	import { cellRendererFactory, transformColumnDefs } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -251,11 +251,12 @@
 			['AppEditorContext', editorContext]
 		])
 
+		const availableActions = lastActions ?? actions
 		const sortedActions: TableAction[] | undefined = computedOrder
 			? (computedOrder
-					.map((key) => actions?.find((a) => a.id === key))
+					.map((key) => availableActions?.find((a) => a.id === key))
 					.filter(Boolean) as TableAction[])
-			: actions
+			: availableActions
 
 		const taComponent = withProps(AppAggridTableActions, {
 			p,
@@ -303,6 +304,13 @@
 				taComponent.props.rowIndex = params.node.rowIndex ?? 0
 				taComponent.props.row = params.data
 				taComponent.props.p = params
+				const available = lastActions ?? actions
+				const nextActions: TableAction[] | undefined = computedOrder
+					? (computedOrder
+							.map((key) => available?.find((a) => a.id === key))
+							.filter(Boolean) as TableAction[])
+					: available
+				taComponent.props.actions = nextActions
 			}
 		}
 	})
@@ -317,36 +325,25 @@
 		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
-				let columnDefs =
-					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
-						: []
-
-				// Add the action column if actions are defined
-				if (actions && actions.length > 0) {
-					columnDefs.push({
-						headerName: resolvedConfig?.customActionsHeader
-							? resolvedConfig?.customActionsHeader
-							: 'Actions',
-						cellRenderer: tableActionsFactory,
-						autoHeight: true,
-						cellStyle: { textAlign: 'center' },
-						cellClass: 'grid-cell-centered',
-						...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
-					})
-				}
+				const agColumnDefs = transformColumnDefs({
+					columnDefs:
+						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+							? [...resolvedConfig?.columnDefs]
+							: [],
+					actions: lastActions ?? actions,
+					customActionsHeader: resolvedConfig?.customActionsHeader,
+					wrapActions: resolvedConfig?.wrapActions,
+					tableActionsFactory,
+					onInvalidColumnDefs: (errors) => {
+						sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+					}
+				})
 
 				createGrid(
 					eGui,
 					{
 						rowData: value,
-						columnDefs: columnDefs.map((fields) => {
-							let cr = defaultCellRenderer(fields.cellRendererType)
-							return {
-								...fields,
-								...(cr ? { cellRenderer: cr } : {})
-							}
-						}),
+						columnDefs: agColumnDefs,
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
@@ -476,34 +473,23 @@
 
 	function updateOptions() {
 		try {
-			const columnDefs =
-				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-					? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
-					: []
-
-			// Add the action column if actions are defined
-			if (actions && actions.length > 0) {
-				columnDefs.push({
-					headerName: resolvedConfig?.customActionsHeader
-						? resolvedConfig?.customActionsHeader
-						: 'Actions',
-					cellRenderer: tableActionsFactory,
-					autoHeight: true,
-					cellStyle: { textAlign: 'center' },
-					cellClass: 'grid-cell-centered',
-					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
-				})
-			}
+			const agColumnDefs = transformColumnDefs({
+				columnDefs:
+					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+						? [...resolvedConfig?.columnDefs]
+						: [],
+				actions: lastActions ?? actions,
+				customActionsHeader: resolvedConfig?.customActionsHeader,
+				wrapActions: resolvedConfig?.wrapActions,
+				tableActionsFactory,
+				onInvalidColumnDefs: (errors) => {
+					sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+				}
+			})
 
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs: columnDefs.map((fields) => {
-					let cr = defaultCellRenderer(fields.cellRendererType)
-					return {
-						...fields,
-						...(cr ? { cellRenderer: cr } : {})
-					}
-				}),
+				columnDefs: agColumnDefs,
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
@@ -523,6 +509,8 @@
 					...resolvedConfig?.extraConfig?.['defaultColDef']
 				}
 			})
+			// Force refresh to re-render cell renderers after actions change
+			api?.refreshCells({ force: true })
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
@@ -609,7 +597,13 @@
 	bind:loading
 	hideRefreshButton={true}
 >
-	<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result}>
+	<SyncColumnDefs
+		{id}
+		columnDefs={resolvedConfig.columnDefs}
+		{result}
+		actionsPresent={Array.isArray(actions) && actions.length > 0}
+		customActionsHeader={resolvedConfig?.customActionsHeader}
+	>
 		<div
 			class={twMerge(
 				'flex flex-col h-full component-wrapper divide-y',
