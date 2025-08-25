@@ -40,7 +40,7 @@ import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { copilotSessionModel, type DBSchemas } from '$lib/stores'
+import { copilotInfo, copilotSessionModel, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
@@ -124,7 +124,12 @@ class AIChatManager {
 			}
 			return acc
 		}, 0)
-		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		const model =
+			get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
+		if (!model) {
+			throw new Error('No model selected')
+		}
+		const modelContextWindow = getModelContextWindow(model.model)
 		return (
 			estimatedTokens >
 			modelContextWindow -
