@@ -524,16 +524,24 @@
 
 			// Handle stop_after_if
 			if (opts.stop_after_if !== undefined && opts.stop_after_if !== null) {
-				module.stop_after_if = {
-					expr: opts.stop_after_if_expr ?? '',
-					skip_if_stopped: opts.stop_after_if
+				if (opts.stop_after_if === false) {
+					module.stop_after_if = undefined
+				} else {
+					module.stop_after_if = {
+						expr: opts.stop_after_if_expr ?? '',
+						skip_if_stopped: opts.stop_after_if
+					}
 				}
 			}
 
 			// Handle skip_if
 			if (opts.skip_if !== undefined && opts.skip_if !== null) {
-				module.skip_if = {
-					expr: opts.skip_if_expr ?? ''
+				if (opts.skip_if === false) {
+					module.skip_if = undefined
+				} else {
+					module.skip_if = {
+						expr: opts.skip_if_expr ?? ''
+					}
 				}
 			}
 
