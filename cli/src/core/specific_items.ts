@@ -1,5 +1,6 @@
 import { minimatch } from "../../deps.ts";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
+import { isFileResource } from "../utils/utils.ts";
 import { SyncOptions } from "./conf.ts";
 
 export interface SpecificItemsConfig {
@@ -75,9 +76,9 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
     return specificItems.resources ? matchesPatterns(path, specificItems.resources) : false;
   }
 
-  // Check for resource files (e.g., .resource.file.ini, .resource.file.txt, etc.)
-  if (path.includes('.resource.file.')) {
-    // Extract the base path without the file extension to match against patterns
+  // Check for resource files using the standard detection function
+  if (isFileResource(path)) {
+    // Extract the base path without the file extension to match against patterns  
     const basePathMatch = path.match(/^(.+?)\.resource\.file\./);
     if (basePathMatch && specificItems.resources) {
       const basePath = basePathMatch[1] + '.resource.yaml';
