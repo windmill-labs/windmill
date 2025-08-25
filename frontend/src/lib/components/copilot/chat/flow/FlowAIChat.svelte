@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap,
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
@@ -138,6 +138,43 @@
 			const currentModule = id === 'Input' ? flowStore.val.schema : getModule(id)
 
 			if (moduleLastSnapshot && currentModule) {
+				// Prefer inline diff when the module is a rawscript
+				if (
+					id !== 'Input' &&
+					currentModule &&
+					typeof currentModule === 'object' &&
+					'value' in currentModule &&
+					(currentModule as FlowModule).value?.type === 'rawscript' &&
+					moduleLastSnapshot &&
+					typeof moduleLastSnapshot === 'object' &&
+					'value' in moduleLastSnapshot &&
+					(moduleLastSnapshot as FlowModule).value?.type === 'rawscript'
+				) {
+					const snapshotRawScript = (moduleLastSnapshot as FlowModule).value as {
+						type: 'rawscript'
+						content: string
+					}
+
+					// If this step isn't selected, select it first, then defer opening the diff
+					if ($currentEditor?.stepId !== id) {
+						$selectedId = id
+						setTimeout(() => {
+							if ($currentEditor?.type === 'script' && $currentEditor.stepId === id) {
+								$currentEditor.showDiffMode()
+								$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
+							}
+						})
+						return
+					}
+					// Already on this step: open inline diff immediately
+					if ($currentEditor?.type === 'script') {
+						$currentEditor.showDiffMode()
+						$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
+						return
+					}
+				}
+
+				// Fallback: use the drawer diff for non-rawscript or if no inline editor is present
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'simple',

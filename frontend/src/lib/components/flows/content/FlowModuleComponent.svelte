@@ -297,7 +297,10 @@
 				showDiffMode,
 				hideDiffMode,
 				diffMode,
-				lastDeployedCode
+				lastDeployedCode,
+				setDiffOriginal: (code: string) => {
+					diffEditor?.setOriginal(code ?? '')
+				}
 			})
 	})
 

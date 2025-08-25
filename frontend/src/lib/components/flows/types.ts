@@ -37,31 +37,32 @@ export type ExtendedOpenFlow = OpenFlow & {
 
 export type FlowInputEditorState = {
 	selectedTab:
-	| 'inputEditor'
-	| 'history'
-	| 'savedInputs'
-	| 'json'
-	| 'captures'
-	| 'firstStepInputs'
-	| undefined
+		| 'inputEditor'
+		| 'history'
+		| 'savedInputs'
+		| 'json'
+		| 'captures'
+		| 'firstStepInputs'
+		| undefined
 	editPanelSize: number | undefined
 	payloadData: Record<string, any> | undefined
 }
 
 export type CurrentEditor =
 	| ((
-		| {
-			type: 'script'
-			editor: Editor
-			showDiffMode: () => void
-			hideDiffMode: () => void
-			diffMode: boolean
-			lastDeployedCode: string | undefined
-		}
-		| { type: 'iterator'; editor: SimpleEditor }
-	) & {
-		stepId: string
-	})
+			| {
+					type: 'script'
+					editor: Editor
+					showDiffMode: () => void
+					hideDiffMode: () => void
+					diffMode: boolean
+					lastDeployedCode: string | undefined
+					setDiffOriginal?: (code: string) => void
+			  }
+			| { type: 'iterator'; editor: SimpleEditor }
+	  ) & {
+			stepId: string
+	  })
 	| undefined
 
 export type FlowEditorContext = {
