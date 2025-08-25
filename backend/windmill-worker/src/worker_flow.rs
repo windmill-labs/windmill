@@ -1164,12 +1164,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
 
-        let should_retry = if !success
-            && !unrecoverable
-            && !skip_seq_branch_failure
-            && !skip_loop_failures
-            && !continue_on_error
-        {
+        let should_retry = async move || -> error::Result<bool> {
             let default_retry = Retry::default();
             let retry_config = match module_step {
                 Step::PreprocessorStep => flow_value
@@ -1188,7 +1183,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             .unwrap_or(&default_retry);
 
-            evaluate_retry(
+            let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
                 result.clone(),
@@ -1198,9 +1193,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                 Some(db),
             )
             .await?
-            .is_some()
-        } else {
-            false
+            .is_some();
+
+            Ok(should_retry)
         };
 
         let should_continue_flow = match success {
@@ -1211,7 +1206,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
-            false if should_retry => true,
+            false if should_retry().await? => true,
             false
                 if !is_failure_step
                     && !has_triggered_error_handler

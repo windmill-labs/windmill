@@ -22,20 +22,24 @@
 	}
 
 	let {
+		flowModule = $bindable(),
 		flowModuleRetry = $bindable(),
-		disabled = false,
-		flowModule = $bindable()
+		disabled = false
 	}: Props = $props()
 
-	const { flowStateStore, flowStore, previewArgs } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, flowStore, previewArgs } = flowEditorContext || {
+		flowStateStore: null,
+		flowStore: null,
+		previewArgs: null
+	}
 
 	let delayType = $state() as 'disabled' | 'constant' | 'exponential' | undefined
 	let loaded = $state(false)
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
-		flowModule
+		flowModule && flowStateStore?.val && flowStore?.val && previewArgs?.val
 			? getStepPropPicker(
 					flowStateStore.val,
 					undefined,
@@ -50,8 +54,8 @@
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
 	let result = $derived(
-		flowModule
-			? (flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+		flowModule && flowStateStore?.val
+			? (flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 			: NEVER_TESTED_THIS_FAR
 	)
 
@@ -123,7 +127,7 @@
 		{/snippet}
 	</ToggleButtonGroup>
 
-	{#if (delayType === 'constant' || delayType === 'exponential') && flowModule && stepPropPicker}
+	{#if delayType === 'constant' || delayType === 'exponential'}
 		<Section label="Retry Condition" class="w-full">
 			{#snippet header()}
 				<Tooltip>
@@ -145,7 +149,7 @@
 						flowModuleRetry = {
 							...flowModuleRetry,
 							retry_if: {
-								expr: 'result.error && result.error.name !== "PERMANENT_FAILURE"'
+								expr: 'error && error.name !== "PERMANENT_FAILURE"'
 							}
 						}
 					}
@@ -166,24 +170,34 @@
 						>Expression should return true to retry, false to skip retry</span
 					>
 					<div class="border w-full">
-						<PropPickerWrapper
-							notSelectable
-							pickableProperties={stepPropPicker.pickableProperties}
-							{result}
-							on:select={({ detail }) => {
-								editor?.insertAtCursor(detail)
-								editor?.focus()
-							}}
-						>
+						{#if stepPropPicker}
+							<PropPickerWrapper
+								notSelectable
+								pickableProperties={stepPropPicker.pickableProperties}
+								{result}
+								on:select={({ detail }) => {
+									editor?.insertAtCursor(detail)
+									editor?.focus()
+								}}
+							>
+								<SimpleEditor
+									bind:this={editor}
+									lang="javascript"
+									bind:code={flowModuleRetry.retry_if.expr}
+									class="few-lines-editor"
+									extraLib={`declare const result = ${JSON.stringify(result)};` +
+										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
+								/>
+							</PropPickerWrapper>
+						{:else}
 							<SimpleEditor
 								bind:this={editor}
 								lang="javascript"
 								bind:code={flowModuleRetry.retry_if.expr}
 								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(result)};` +
-									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
+								extraLib={`declare const result = ${JSON.stringify(result)};`}
 							/>
-						</PropPickerWrapper>
+						{/if}
 					</div>
 				{:else}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
