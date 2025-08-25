@@ -476,8 +476,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		? ChatCompletionCreateParamsStreaming
 		: ChatCompletionCreateParamsNonStreaming
 } {
-	const model = getCurrentModel()
-	const modelProvider = forceModelProvider ?? model
+	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
 	const processedMessages = prepareMessages(modelProvider.provider, messages)
 	return {
