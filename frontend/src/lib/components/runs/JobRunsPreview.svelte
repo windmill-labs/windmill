@@ -165,8 +165,6 @@
 			<span class="text-sm">{job?.id ?? ''}</span>
 		</a>
 
-		<span class="font-semibold text-xs leading-6">Arguments</span>
-
 		<div class="w-full">
 			<JobArgs
 				id={job?.id}
@@ -174,10 +172,6 @@
 				args={job?.args}
 			/>
 		</div>
-
-		{#if job?.type === 'CompletedJob'}
-			<span class="font-semibold text-xs leading-6">Results</span>
-		{/if}
 
 		{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
 			<div class="text-sm font-semibold text-tertiary mb-1">
