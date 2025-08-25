@@ -550,17 +550,12 @@
 			if (
 				moduleLastSnapshot &&
 				currentModule &&
-				currentModule.value?.type === 'rawscript' &&
-				moduleLastSnapshot.value?.type === 'rawscript'
+				currentModule.value.type === 'rawscript' &&
+				moduleLastSnapshot.value.type === 'rawscript'
 			) {
-				const snapshotRawScript = (moduleLastSnapshot as FlowModule).value as {
-					type: 'rawscript'
-					content: string
-				}
-
 				// Show diff mode automatically
+				$currentEditor.setDiffOriginal?.(moduleLastSnapshot.value.content ?? '')
 				$currentEditor.showDiffMode()
-				$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
 				$currentEditor.setDiffButtons?.([
 					{
 						text: 'Reject Changes',
