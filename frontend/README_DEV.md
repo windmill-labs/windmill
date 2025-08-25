@@ -22,7 +22,7 @@ nix develop
 ## or ignore if you have `direnv`
 
 # Start db (if not started already)
-sudo docker compose up db -d
+./start-dev-db.sh
 
 # run the frontend.
 wm
