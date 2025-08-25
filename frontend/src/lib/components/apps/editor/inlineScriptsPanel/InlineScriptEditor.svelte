@@ -423,7 +423,7 @@
 				<DiffEditor
 					open={false}
 					bind:this={diffEditor}
-					class="h-full"
+					className="h-full"
 					automaticLayout
 					fixedOverflowWidgets
 					defaultLang={scriptLangToEditorLang(inlineScript?.language)}
