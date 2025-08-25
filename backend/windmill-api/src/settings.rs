@@ -575,7 +575,7 @@ async fn databases_exist(
     Json(database_names): Json<Vec<String>>,
 ) -> JsonResult<Vec<String>> {
     let result = sqlx::query_scalar!(
-        r#"SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem)
+        r#"SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem) AS e
         WHERE elem NOT IN (SELECT datname FROM pg_catalog.pg_database);"#,
         database_names.as_slice()
     )
