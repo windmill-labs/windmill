@@ -96,11 +96,10 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 						}
 					]
 				},
-				system_prompt: {
-					type: 'string',
-					default: 'You are a helpful assistant'
-				},
 				user_message: {
+					type: 'string'
+				},
+				system_prompt: {
 					type: 'string'
 				},
 				max_completion_tokens: {
@@ -110,13 +109,13 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'number'
 				}
 			},
-			required: ['provider', 'model', 'system_prompt', 'user_message'],
+			required: ['provider', 'model', 'user_message'],
 			type: 'object',
 			order: [
 				'provider',
 				'model',
-				'system_prompt',
 				'user_message',
+				'system_prompt',
 				'max_completion_tokens',
 				'temperature'
 			]

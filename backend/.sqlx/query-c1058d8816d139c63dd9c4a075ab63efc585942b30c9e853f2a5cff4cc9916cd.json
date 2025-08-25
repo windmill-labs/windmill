@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE INDEX CONCURRENTLY IF NOT EXISTS script_not_archived ON script (workspace_id, path, created_at DESC) where archived = false;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c1058d8816d139c63dd9c4a075ab63efc585942b30c9e853f2a5cff4cc9916cd"
+}

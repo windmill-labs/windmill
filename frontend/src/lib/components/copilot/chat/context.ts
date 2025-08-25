@@ -48,7 +48,7 @@ export interface CodePieceElement {
 	lang: ScriptLang | 'bunnative'
 }
 
-export interface FlowModule {
+export interface FlowModuleElement {
 	type: 'flow_module'
 	id: string
 	title: string
@@ -61,13 +61,20 @@ export interface FlowModule {
 	}
 }
 
+export interface FlowModuleCodePieceElement extends Omit<CodePieceElement, 'type'> {
+	type: 'flow_module_code_piece'
+	id: string
+	value: FlowModuleElement['value']
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
 	| DBElement
 	| DiffElement
 	| CodePieceElement
-	| FlowModule
+	| FlowModuleElement
+	| FlowModuleCodePieceElement
 ) & {
 	deletable?: boolean
 }

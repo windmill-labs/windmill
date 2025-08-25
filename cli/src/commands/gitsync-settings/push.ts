@@ -3,7 +3,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, validateBranchConfiguration, getEffectiveSettings } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, validateBranchConfiguration, getEffectiveSettings, getWmillYamlPath } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 
 import { GitSyncRepository } from "./types.ts";
@@ -44,9 +44,8 @@ export async function pushGitSyncSettings(
 
   try {
     // Check if wmill.yaml exists - require it for git-sync settings commands
-    try {
-      await Deno.stat("wmill.yaml");
-    } catch (error) {
+    const wmillYamlPath = getWmillYamlPath();
+    if (!wmillYamlPath) {
       log.error(
         colors.red(
           "No wmill.yaml file found. Please run 'wmill init' first to create the configuration file.",

@@ -4,8 +4,8 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
-import type { CodePieceElement, ContextElement } from './context'
-import { copilotSessionModel, workspaceStore } from '$lib/stores'
+import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import { workspaceStore, getCurrentModel } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -21,6 +21,24 @@ export interface ContextStringResult {
 	hasDb: boolean
 	hasDiff: boolean
 	hasFlowModule: boolean
+}
+
+export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
+	return modules.flatMap((m) => {
+		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
+			return [m, ...extractAllModules(m.value.modules)]
+		}
+		if (m.value.type === 'branchall') {
+			return [m, ...extractAllModules(m.value.branches.flatMap((b) => b.modules))]
+		}
+		if (m.value.type === 'branchone') {
+			return [
+				m,
+				...extractAllModules([...m.value.branches.flatMap((b) => b.modules), ...m.value.default])
+			]
+		}
+		return [m]
+	})
 }
 
 export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
@@ -68,22 +86,16 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 }
 
 export function applyCodePiecesToFlowModules(
-	codePieces: CodePieceElement[],
+	codePieces: FlowModuleCodePieceElement[],
 	flowModules: FlowModule[]
 ): string {
-	// Parse code piece titles to extract module IDs
-	// Format: "[id] L3-L5"
-	const moduleCodePieces = new Map<string, CodePieceElement[]>()
-
+	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
 	for (const codePiece of codePieces) {
-		const match = codePiece.title.match(/\[([^\]]+)\]\s+L\d+-L\d+/)
-		if (match) {
-			const moduleId = match[1]
-			if (!moduleCodePieces.has(moduleId)) {
-				moduleCodePieces.set(moduleId, [])
-			}
-			moduleCodePieces.get(moduleId)!.push(codePiece)
+		const moduleId = codePiece.id
+		if (!moduleCodePieces.has(moduleId)) {
+			moduleCodePieces.set(moduleId, [])
 		}
+		moduleCodePieces.get(moduleId)!.push(codePiece)
 	}
 
 	// Clone modules to avoid mutation
@@ -93,7 +105,10 @@ export function applyCodePiecesToFlowModules(
 	for (const [moduleId, pieces] of moduleCodePieces) {
 		const module = findModuleById(modifiedModules, moduleId)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
-			module.value.content = applyCodePieceToCodeContext(pieces, module.value.content)
+			module.value.content = applyCodePieceToCodeContext(
+				pieces as unknown as CodePieceElement[],
+				module.value.content
+			)
 		}
 	}
 
@@ -440,8 +455,8 @@ export async function buildSchemaForTool(
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-		const model = get(copilotSessionModel)?.provider
-		if (model === 'openai' || model === 'azure_openai') {
+		const model = getCurrentModel()
+		if (model.provider === 'openai' || model.provider === 'azure_openai') {
 			toolDef.function.strict = false
 		}
 		return true

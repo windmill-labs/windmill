@@ -19,6 +19,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
+	import { extractAllModules } from '../copilot/chat/shared'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -57,6 +58,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		previewOpen: boolean
 	}
 
 	let {
@@ -90,7 +92,8 @@
 		job,
 		suspendStatus,
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
+		previewOpen
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -110,7 +113,7 @@
 			lastDeployedFlow: savedFlow,
 			lastSavedFlow: savedFlow?.draft,
 			path: savedFlow?.path,
-			modules: flowStore.val.value.modules
+			modules: extractAllModules(flowStore.val.value.modules)
 		}
 		aiChatManager.flowOptions = options
 	})
@@ -205,6 +208,7 @@
 					{isOwner}
 					{suspendStatus}
 					onOpenDetails={onOpenPreview}
+					{previewOpen}
 				/>
 			{/if}
 		</Pane>
