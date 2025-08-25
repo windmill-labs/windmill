@@ -563,17 +563,17 @@
 				$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
 				$currentEditor.setDiffButtons?.([
 					{
-						text: 'Accept Changes',
-						color: 'green',
+						text: 'Reject Changes',
 						onClick: () => {
-							flowHelpers.acceptModuleAction($selectedId)
+							flowHelpers.revertModuleAction($selectedId)
 							$currentEditor?.hideDiffMode()
 						}
 					},
 					{
-						text: 'Reject Changes',
+						text: 'Accept Changes',
+						color: 'green',
 						onClick: () => {
-							flowHelpers.revertModuleAction($selectedId)
+							flowHelpers.acceptModuleAction($selectedId)
 							$currentEditor?.hideDiffMode()
 						}
 					}
