@@ -3,6 +3,7 @@ use crate::{
     triggers::{StandardTriggerQuery, TriggerData},
 };
 use async_trait::async_trait;
+use quick_cache::sync::Cache;
 use serde::{de::DeserializeOwned, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
@@ -31,6 +32,12 @@ use windmill_common::{
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
+
+lazy_static::lazy_static! {
+    //8 represent the number of trigger
+    static ref GET_TRIGGER_QUERY_CACHE: Cache<&'static str, Arc<String>> = Cache::new(8);
+    static ref LIST_TRIGGER_QUERY_CACHE: Cache<&'static str, Arc<String>> = Cache::new(8);
+}
 
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
@@ -127,29 +134,47 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<Self::Trigger> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-        ];
+        let sql = GET_TRIGGER_QUERY_CACHE
+            .get_or_insert_with(&Self::TABLE_NAME, || {
+                let mut fields = vec![
+                    "workspace_id",
+                    "path",
+                    "script_path",
+                    "is_flow",
+                    "edited_by",
+                    "email",
+                    "edited_at",
+                    "extra_perms",
+                ];
 
-        if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
-        }
+                if Self::SUPPORTS_SERVER_STATE {
+                    fields.extend_from_slice(&[
+                        "enabled",
+                        "server_id",
+                        "last_server_ping",
+                        "error",
+                    ]);
+                }
 
-        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
+                fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+                fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
-        let sql = format!(
-            "SELECT {} FROM {} WHERE workspace_id = $1 AND path = $2",
-            fields.join(", "),
-            Self::TABLE_NAME
-        );
+                let sql = format!(
+                    r#"SELECT 
+                {} 
+            FROM 
+                {} 
+            WHERE 
+                workspace_id = $1 AND 
+                path = $2
+            "#,
+                    fields.join(", "),
+                    Self::TABLE_NAME
+                );
+
+                Ok::<_, ()>(Arc::new(sql))
+            })
+            .unwrap();
 
         sqlx::query_as(&sql)
             .bind(workspace_id)
@@ -247,50 +272,55 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
     ) -> Result<Vec<Self::Trigger>> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-        ];
+        let sql = LIST_TRIGGER_QUERY_CACHE.get_or_insert_with(&Self::TABLE_NAME, || {
+            let mut fields = vec![
+                "workspace_id",
+                "path",
+                "script_path",
+                "is_flow",
+                "edited_by",
+                "email",
+                "edited_at",
+                "extra_perms",
+            ];
 
-        if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
-        }
-
-        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
-
-        let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
-
-        sqlb.fields(&fields)
-            .order_by("edited_at", true)
-            .and_where("workspace_id = ?".bind(&workspace_id));
-
-        if let Some(query) = query {
-            let (per_page, offset) =
-                paginate(Pagination { per_page: query.per_page, page: query.page });
-            if let Some(path) = &query.path {
-                sqlb.and_where_eq("script_path", "?".bind(path));
+            if Self::SUPPORTS_SERVER_STATE {
+                fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
             }
 
-            if let Some(is_flow) = query.is_flow {
-                sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+            fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+            fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
+
+            let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
+
+            sqlb.fields(&fields)
+                .order_by("edited_at", true)
+                .and_where("workspace_id = ?".bind(&workspace_id));
+
+            if let Some(query) = query {
+                let (per_page, offset) =
+                    paginate(Pagination { per_page: query.per_page, page: query.page });
+                if let Some(path) = &query.path {
+                    sqlb.and_where_eq("script_path", "?".bind(path));
+                }
+
+                if let Some(is_flow) = query.is_flow {
+                    sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+                }
+
+                if let Some(path_start) = &query.path_start {
+                    sqlb.and_where_like_left("path", path_start);
+                }
+
+                sqlb.offset(offset).limit(per_page);
             }
 
-            if let Some(path_start) = &query.path_start {
-                sqlb.and_where_like_left("path", path_start);
-            }
+            let sql = sqlb
+                .sql()
+                .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
-            sqlb.offset(offset).limit(per_page);
-        }
-        let sql = sqlb
-            .sql()
-            .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
+            Ok::<_, Error>(Arc::new(sql))
+        })?;
 
         let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
 
