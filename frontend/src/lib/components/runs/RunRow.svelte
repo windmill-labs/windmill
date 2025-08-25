@@ -8,19 +8,23 @@
 		truncateRev,
 		isScriptPreview,
 		isJobSelectable,
-		msToReadableTime
+		msToReadableTime,
+		isFlowPreview
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
+		Bot,
 		Calendar,
 		Check,
+		Code,
 		ExternalLink,
 		FastForward,
 		Hourglass,
 		ListFilterPlus,
+		Package,
 		Play,
 		ShieldQuestion,
 		X
@@ -34,6 +38,8 @@
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import { Tooltip } from '../meltComponents'
+	import { GitIcon } from '../icons'
 
 	const dispatch = createEventDispatcher()
 
@@ -58,6 +64,30 @@
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
 	let isExternal = $derived(job && job.id === '-')
+
+	function getJobKindIcon(jobKind: Job['job_kind']) {
+		if (jobKind === 'flow' || isFlowPreview(jobKind)) {
+			return BarsStaggered
+		} else if (jobKind === 'deploymentcallback') {
+			return GitIcon
+		} else if (
+			jobKind === 'dependencies' ||
+			jobKind === 'appdependencies' ||
+			jobKind === 'flowdependencies'
+		) {
+			return Package
+		} else if (
+			jobKind === 'script' ||
+			isScriptPreview(jobKind) ||
+			jobKind === 'script_hub' ||
+			jobKind === 'singlescriptflow'
+		) {
+			return Code
+		} else if (jobKind === 'aiagent') {
+			return Bot
+		}
+		return Code
+	}
 </script>
 
 <Portal name="run-row">
@@ -168,7 +198,35 @@
 			{#if job === undefined}
 				No job found
 			{:else}
-				<div class="flex flex-row gap-1 min-w-0">
+				{@const JobKindIcon = getJobKindIcon(job.job_kind)}
+				<div class="flex flex-row gap-3 min-w-0 items-center h-full">
+					<Tooltip class="h-full">
+						<div class="relative">
+							{#if job && job.parent_job}
+								<span class="absolute -top-1 -right-1 text-xs text-blue-500">*</span>
+							{/if}
+							<JobKindIcon size={14} />
+						</div>
+						{#snippet text()}
+							<span>
+								{#if job && job.job_kind}
+									{job.job_kind}
+								{/if}
+								{#if job && job.is_flow_step && job.parent_job}
+									<br /> Step of flow
+									<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+										{truncateRev(job.parent_job, 10)}
+									</a>
+								{:else if job && job.parent_job}
+									<br /> Parent
+									<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+										{truncateRev(job.parent_job, 10)}
+									</a>
+								{/if}
+							</span>
+						{/snippet}
+					</Tooltip>
+
 					<div class="whitespace-nowrap text-xs text-secondary truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
@@ -229,27 +287,6 @@
 				</div>
 			{/if}
 		</div>
-
-		{#if job && job.parent_job}
-			{#if job.is_flow_step}
-				<div class="flex flex-row gap-1 items-center -mt-2 text-tertiary">
-					<BarsStaggered size={10} />
-					<span class="mx-1 text-2xs">
-						Step of flow <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-							{truncateRev(job.parent_job, 6)}
-						</a>
-					</span>
-				</div>
-			{:else}
-				<div class="flex flex-row gap-1 items-center">
-					<span class="text-2xs text-tertiary truncate">
-						parent <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-							{truncateRev(job.parent_job, 10)}
-						</a>
-					</span>
-				</div>
-			{/if}
-		{/if}
 	</div>
 	{#if containsLabel}
 		<div class="w-3/12 flex justify-start px-0.5">
