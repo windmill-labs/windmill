@@ -489,10 +489,18 @@
 												automaticLayout
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
-												class="h-full"
-												showButtons={diffMode}
-												showHistoryButton={false}
-												on:hideDiffMode={hideDiffMode}
+												className="h-full"
+												buttons={diffMode
+													? [
+															{
+																text: 'Quit diff mode',
+																onClick: () => {
+																	hideDiffMode()
+																},
+																color: 'red'
+															}
+														]
+													: []}
 											/>
 										{/key}
 									{/if}
