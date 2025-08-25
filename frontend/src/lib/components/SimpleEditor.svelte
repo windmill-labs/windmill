@@ -267,7 +267,7 @@
 		}
 	})
 	$effect(() => {
-		editor?.updateOptions({ 
+		editor?.updateOptions({
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
@@ -377,9 +377,14 @@
 			return
 		}
 		try {
-			console.log('fixedOverflowWidgets', fixedOverflowWidgets)
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, $relativeLineNumbers),
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
 				model,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,

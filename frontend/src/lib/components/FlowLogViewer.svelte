@@ -45,6 +45,7 @@
 		) => Promise<void>
 		getSelectedIteration: (stepId: string) => number
 		flowSummary?: string
+		mode?: 'flow' | 'aiagent'
 	}
 
 	let {
@@ -63,7 +64,8 @@
 		flowId = 'root',
 		onSelectedIteration,
 		getSelectedIteration,
-		flowSummary
+		flowSummary,
+		mode = 'flow'
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -96,16 +98,18 @@
 	function getStepProgress(job: RootJobData, totalSteps: number): string {
 		if (totalSteps === 0) return ''
 
+		const stepWord = mode === 'aiagent' ? 'action' : 'step'
+
 		// If flow is completed, show total steps
 		if (job.type === 'CompletedJob') {
-			return ` (${totalSteps} step${totalSteps === 1 ? '' : 's'})`
+			return ` (${totalSteps} ${stepWord}${totalSteps === 1 ? '' : 's'})`
 		}
 
 		// If flow is running, use flow_status.step if available (like JobStatus.svelte)
 		if (job.type === 'QueuedJob') {
 			if (job.flow_status?.step !== undefined) {
 				const currentStep = (job.flow_status.step ?? 0) + 1
-				return ` (step ${currentStep} of ${totalSteps})`
+				return ` (${stepWord} ${currentStep} of ${totalSteps})`
 			}
 
 			return ''
@@ -317,7 +321,7 @@
 
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-mono">
-								{level == 0 ? 'Flow' : 'Subflow'}
+								{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
 								{#if flowInfo.label}
 									: {flowInfo.label}
 								{/if}
@@ -450,20 +454,26 @@
 													<div class="flex items-center gap-2">
 														<span class="text-xs font-mono">
 															<b>
-																{module.id}
+																{mode === 'aiagent'
+																	? module.summary
+																		? 'Tool call'
+																		: 'Message'
+																	: module.id}
 															</b>
-															{#if module.value.type === 'forloopflow'}
-																For loop
-															{:else if module.value.type === 'whileloopflow'}
-																While loop
-															{:else if module.value.type === 'branchall'}
-																Branch to all
-															{:else if module.value.type === 'branchone'}
-																Branch to one
-															{:else if module.value.type === 'flow'}
-																Subflow
-															{:else}
-																Step
+															{#if mode === 'flow'}
+																{#if module.value.type === 'forloopflow'}
+																	For loop
+																{:else if module.value.type === 'whileloopflow'}
+																	While loop
+																{:else if module.value.type === 'branchall'}
+																	Branch to all
+																{:else if module.value.type === 'branchone'}
+																	Branch to one
+																{:else if module.value.type === 'flow'}
+																	Subflow
+																{:else}
+																	Step
+																{/if}
 															{/if}
 															{#if module.summary}
 																: {module.summary}
@@ -507,14 +517,16 @@
 
 												{#if isLeafStep}
 													{@const jobId = localModuleStates[module.id]?.job_id}
-													<a
-														href={getJobLink(jobId ?? '')}
-														class="text-xs text-primary hover:underline font-mono"
-														target="_blank"
-														rel="noopener noreferrer"
-													>
-														{truncateRev(jobId ?? '', 6)}
-													</a>
+													{#if jobId}
+														<a
+															href={getJobLink(jobId ?? '')}
+															class="text-xs text-primary hover:underline font-mono"
+															target="_blank"
+															rel="noopener noreferrer"
+														>
+															{truncateRev(jobId ?? '', 6)}
+														</a>
+													{/if}
 												{/if}
 											</div>
 

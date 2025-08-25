@@ -18,6 +18,8 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
+	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
+	import { extractAllModules } from '../copilot/chat/shared'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -103,11 +105,24 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
+	$effect(() => {
+		const options: FlowOptions = {
+			currentFlow: flowStore.val,
+			lastDeployedFlow: savedFlow,
+			lastSavedFlow: savedFlow?.draft,
+			path: savedFlow?.path,
+			modules: extractAllModules(flowStore.val.value.modules)
+		}
+		aiChatManager.flowOptions = options
+	})
+
 	onMount(() => {
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
 	onDestroy(() => {
+		aiChatManager.flowOptions = undefined
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>

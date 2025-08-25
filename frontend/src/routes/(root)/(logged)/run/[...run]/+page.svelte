@@ -837,7 +837,7 @@
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
-				{#if job?.workflow_as_code_status}
+				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
 					<div class="mt-10"></div>
 					<WorkflowTimeline
 						flow_status={asWorkflowStatus(job.workflow_as_code_status)}

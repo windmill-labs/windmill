@@ -592,6 +592,7 @@ export type InputCat =
 	| 'currency'
 	| 'oneOf'
 	| 'dynselect'
+	| 'json-schema'
 
 export namespace DynamicSelect {
 	export type HelperScript =

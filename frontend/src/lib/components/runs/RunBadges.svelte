@@ -28,7 +28,7 @@
 	}: Props = $props()
 </script>
 
-{#if job.script_hash && showScriptHash}
+{#if job.script_hash && showScriptHash && job.job_kind !== 'aiagent'}
 	{#if job.job_kind == 'script'}
 		<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 			><Badge color="gray" {verySmall}>{truncateHash(job.script_hash)}</Badge></a

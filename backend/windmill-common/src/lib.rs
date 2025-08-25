@@ -627,10 +627,11 @@ pub fn get_latest_flow_version_info_for_path<
     }
 }
 
-pub async fn get_latest_hash_for_path<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
     w_id: &str,
     script_path: &str,
+    require_locked: bool,
 ) -> error::Result<(
     scripts::ScriptHash,
     Option<Tag>,
@@ -646,13 +647,14 @@ pub async fn get_latest_hash_for_path<'c>(
     String,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script where path = $1 AND workspace_id = $2 AND
-    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-    deleted = false AND archived = false)",
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+         WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
+         ORDER BY created_at DESC LIMIT 1",
         script_path,
-        w_id
+        w_id,
+        require_locked
     )
-    .fetch_optional(&mut **db)
+    .fetch_optional(db)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;

@@ -68,7 +68,8 @@
                 "singlescriptflow",
                 "flowscript",
                 "flownode",
-                "appscript"
+                "appscript",
+                "aiagent"
               ]
             }
           }
