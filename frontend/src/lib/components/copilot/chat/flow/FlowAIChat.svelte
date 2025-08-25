@@ -138,43 +138,6 @@
 			const currentModule = id === 'Input' ? flowStore.val.schema : getModule(id)
 
 			if (moduleLastSnapshot && currentModule) {
-				// Prefer inline diff when the module is a rawscript
-				if (
-					id !== 'Input' &&
-					currentModule &&
-					typeof currentModule === 'object' &&
-					'value' in currentModule &&
-					(currentModule as FlowModule).value?.type === 'rawscript' &&
-					moduleLastSnapshot &&
-					typeof moduleLastSnapshot === 'object' &&
-					'value' in moduleLastSnapshot &&
-					(moduleLastSnapshot as FlowModule).value?.type === 'rawscript'
-				) {
-					const snapshotRawScript = (moduleLastSnapshot as FlowModule).value as {
-						type: 'rawscript'
-						content: string
-					}
-
-					// If this step isn't selected, select it first, then defer opening the diff
-					if ($currentEditor?.stepId !== id) {
-						$selectedId = id
-						setTimeout(() => {
-							if ($currentEditor?.type === 'script' && $currentEditor.stepId === id) {
-								$currentEditor.showDiffMode()
-								$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
-							}
-						})
-						return
-					}
-					// Already on this step: open inline diff immediately
-					if ($currentEditor?.type === 'script') {
-						$currentEditor.showDiffMode()
-						$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
-						return
-					}
-				}
-
-				// Fallback: use the drawer diff for non-rawscript or if no inline editor is present
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'simple',
@@ -560,6 +523,39 @@
 	$effect(() => {
 		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
 		return cleanup
+	})
+
+	// Automatically show diff mode when selecting a rawscript module with pending changes
+	$effect(() => {
+		if (
+			$currentEditor?.type === 'script' &&
+			$selectedId &&
+			affectedModules[$selectedId] &&
+			lastSnapshot
+		) {
+			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+			const currentModule = getModule($selectedId)
+
+			if (
+				moduleLastSnapshot &&
+				currentModule &&
+				typeof currentModule === 'object' &&
+				'value' in currentModule &&
+				(currentModule as FlowModule).value?.type === 'rawscript' &&
+				typeof moduleLastSnapshot === 'object' &&
+				'value' in moduleLastSnapshot &&
+				(moduleLastSnapshot as FlowModule).value?.type === 'rawscript'
+			) {
+				const snapshotRawScript = (moduleLastSnapshot as FlowModule).value as {
+					type: 'rawscript'
+					content: string
+				}
+
+				// Show diff mode automatically
+				$currentEditor.showDiffMode()
+				$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
+			}
+		}
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
