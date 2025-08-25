@@ -1,7 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
-	copilotInfo,
-	copilotSessionModel,
 	getCurrentModel,
 	workspaceStore,
 	type DBSchema,
