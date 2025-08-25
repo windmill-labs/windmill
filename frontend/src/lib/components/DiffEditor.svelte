@@ -11,12 +11,13 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { ButtonType } from './common'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
 	export interface ButtonProp {
 		text: string
-		color?: 'red' | 'green' | 'blue' | 'yellow' | 'purple' | 'orange' | 'pink' | 'gray' | 'black'
+		color?: ButtonType.Color
 		onClick: () => void
 	}
 

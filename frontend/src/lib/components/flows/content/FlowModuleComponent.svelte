@@ -467,7 +467,7 @@
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 												className="h-full"
-												buttons={diffMode ? [...diffButtons] : []}
+												buttons={diffMode ? diffButtons : []}
 											/>
 										{/key}
 									{/if}
