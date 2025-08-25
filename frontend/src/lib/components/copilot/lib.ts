@@ -1,7 +1,6 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
-	copilotInfo,
-	copilotSessionModel,
+	getCurrentModel,
 	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
@@ -23,7 +22,16 @@ import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-const OPENAI_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
+const OPENAI_MODELS = [
+	'gpt-5',
+	'gpt-5-mini',
+	'gpt-5-nano',
+	'gpt-4o',
+	'gpt-4o-mini',
+	'o4-mini',
+	'o3',
+	'o3-mini'
+]
 
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
@@ -468,18 +476,9 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		? ChatCompletionCreateParamsStreaming
 		: ChatCompletionCreateParamsNonStreaming
 } {
-	let info = get(copilotInfo)
-	const modelProvider =
-		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
-
-	if (!modelProvider) {
-		throw new Error('No model selected')
-	}
-
+	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
-
 	const processedMessages = prepareMessages(modelProvider.provider, messages)
-
 	return {
 		provider: modelProvider.provider,
 		config: {

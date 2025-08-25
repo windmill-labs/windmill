@@ -212,7 +212,7 @@
 										<Module.default
 											open={true}
 											automaticLayout
-											class="h-full"
+											className="h-full"
 											defaultLang={lang}
 											defaultModifiedLang={data.current.lang}
 											defaultOriginal={content}
@@ -227,7 +227,7 @@
 										<Module.default
 											open={true}
 											automaticLayout
-											class="h-full"
+											className="h-full"
 											defaultLang="yaml"
 											defaultOriginal={metadata}
 											defaultModified={data.current.metadata}

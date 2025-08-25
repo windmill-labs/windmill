@@ -34,6 +34,7 @@
 		isOwner?: boolean
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
+		previewOpen?: boolean
 	}
 
 	let {
@@ -49,7 +50,8 @@
 		job,
 		isOwner,
 		suspendStatus,
-		onOpenDetails
+		onOpenDetails,
+		previewOpen = false
 	}: Props = $props()
 
 	const {
@@ -95,6 +97,7 @@
 		}}
 		on:applyArgs
 		{onTestFlow}
+		{previewOpen}
 	/>
 {:else if $selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />

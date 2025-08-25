@@ -4,13 +4,194 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
-import type { ContextElement } from './context'
-import { copilotSessionModel, workspaceStore } from '$lib/stores'
+import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import { workspaceStore, getCurrentModel } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
-import { ScriptService, JobService, type CompletedJob } from '$lib/gen'
+import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
+import { scriptLangToEditorLang } from '$lib/scripts'
+import YAML from 'yaml'
+
+export interface ContextStringResult {
+	dbContext: string
+	diffContext: string
+	flowModuleContext: string
+	hasDb: boolean
+	hasDiff: boolean
+	hasFlowModule: boolean
+}
+
+export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
+	return modules.flatMap((m) => {
+		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
+			return [m, ...extractAllModules(m.value.modules)]
+		}
+		if (m.value.type === 'branchall') {
+			return [m, ...extractAllModules(m.value.branches.flatMap((b) => b.modules))]
+		}
+		if (m.value.type === 'branchone') {
+			return [
+				m,
+				...extractAllModules([...m.value.branches.flatMap((b) => b.modules), ...m.value.default])
+			]
+		}
+		return [m]
+	})
+}
+
+export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
+	for (const module of modules) {
+		if (module.id === moduleId) {
+			return module
+		}
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			const found = findModuleById(module.value.modules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+		if (module.value.type === 'branchall') {
+			const allModules = module.value.branches.flatMap((b) => b.modules)
+			const found = findModuleById(allModules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+		if (module.value.type === 'branchone') {
+			const allModules = [
+				...module.value.branches.flatMap((b) => b.modules),
+				...module.value.default
+			]
+			const found = findModuleById(allModules, moduleId)
+			if (found) {
+				return found
+			}
+		}
+	}
+	return undefined
+}
+
+const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
+	let code = codeContext.split('\n')
+	let shiftOffset = 0
+	codePieces.sort((a, b) => a.startLine - b.startLine)
+	for (const codePiece of codePieces) {
+		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
+		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
+		shiftOffset += 2
+	}
+	return code.join('\n')
+}
+
+export function applyCodePiecesToFlowModules(
+	codePieces: FlowModuleCodePieceElement[],
+	flowModules: FlowModule[]
+): string {
+	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
+	for (const codePiece of codePieces) {
+		const moduleId = codePiece.id
+		if (!moduleCodePieces.has(moduleId)) {
+			moduleCodePieces.set(moduleId, [])
+		}
+		moduleCodePieces.get(moduleId)!.push(codePiece)
+	}
+
+	// Clone modules to avoid mutation
+	const modifiedModules = JSON.parse(JSON.stringify(flowModules))
+
+	// Apply code pieces to each module
+	for (const [moduleId, pieces] of moduleCodePieces) {
+		const module = findModuleById(modifiedModules, moduleId)
+		if (module && module.value.type === 'rawscript' && module.value.content) {
+			module.value.content = applyCodePieceToCodeContext(
+				pieces as unknown as CodePieceElement[],
+				module.value.content
+			)
+		}
+	}
+
+	return YAML.stringify(modifiedModules)
+}
+
+export function buildContextString(selectedContext: ContextElement[]): string {
+	const dbTemplate = `- {title}: SCHEMA: \n{schema}\n`
+	const codeTemplate = `
+	- {title}:
+	\`\`\`{language}
+	{code}
+	\`\`\`
+	`
+
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let flowModuleContext = 'FOCUSED FLOW MODULES IDS:\n'
+	let codeContext = 'CODE:\n'
+	let errorContext = `
+	ERROR:
+	{error}
+	`
+	let hasCode = false
+	let hasDb = false
+	let hasDiff = false
+	let hasFlowModule = false
+	let hasError = false
+
+	let result = '\n\n'
+	for (const context of selectedContext) {
+		if (context.type === 'code') {
+			hasCode = true
+			codeContext += codeTemplate
+				.replace('{title}', context.title)
+				.replace('{language}', scriptLangToEditorLang(context.lang))
+				.replace(
+					'{code}',
+					applyCodePieceToCodeContext(
+						selectedContext.filter((c) => c.type === 'code_piece'),
+						context.content
+					)
+				)
+		} else if (context.type === 'error') {
+			if (hasError) {
+				throw new Error('Multiple error contexts provided')
+			}
+			hasError = true
+			errorContext = errorContext.replace('{error}', context.content)
+		} else if (context.type === 'db') {
+			hasDb = true
+			dbContext += dbTemplate
+				.replace('{title}', context.title)
+				.replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
+			dbContext += '\n'
+		} else if (context.type === 'diff') {
+			hasDiff = true
+			const diff = JSON.stringify(context.diff)
+			diffContext += (diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff) + '\n'
+		} else if (context.type === 'flow_module') {
+			hasFlowModule = true
+			flowModuleContext += `${context.id}\n`
+		}
+	}
+
+	if (hasCode) {
+		result += '\n' + codeContext
+	}
+	if (hasError) {
+		result += '\n' + errorContext
+	}
+	if (hasDb) {
+		result += '\n' + dbContext
+	}
+	if (hasDiff) {
+		result += '\n' + diffContext
+	}
+	if (hasFlowModule) {
+		result += '\n' + flowModuleContext
+	}
+
+	return result
+}
 
 type BaseDisplayMessage = {
 	content: string
@@ -89,11 +270,13 @@ export async function processToolCall<T>({
 
 		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(tool?.requiresConfirmation ? { content: tool.confirmationMessage ?? "Waiting for confirmation..." } : {}),
+			...(tool?.requiresConfirmation
+				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
+				: {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails,
+			showDetails: tool?.showDetails
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -254,12 +437,17 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
-export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuilder: () => Promise<FunctionParameters>): Promise<boolean> {
+export async function buildSchemaForTool(
+	toolDef: ChatCompletionTool,
+	schemaBuilder: () => Promise<FunctionParameters>
+): Promise<boolean> {
 	try {
 		const schema = await schemaBuilder()
 
 		// if schema properties contains values different from '^[a-zA-Z0-9_.-]{1,64}$'
-		const invalidProperties = Object.keys(schema.properties ?? {}).filter((key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key))
+		const invalidProperties = Object.keys(schema.properties ?? {}).filter(
+			(key) => !/^[a-zA-Z0-9_.-]{1,64}$/.test(key)
+		)
 		if (invalidProperties.length > 0) {
 			console.warn(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
 			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
@@ -267,15 +455,23 @@ export async function buildSchemaForTool(toolDef: ChatCompletionTool, schemaBuil
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-		const model = get(copilotSessionModel)?.provider
-		if (model === 'openai' || model === 'azure_openai') {
+		const model = getCurrentModel()
+		if (model.provider === 'openai' || model.provider === 'azure_openai') {
 			toolDef.function.strict = false
 		}
 		return true
 	} catch (error) {
 		console.error('Error building schema for tool', error)
 		// fallback to schema with args as a JSON string
-		toolDef.function.parameters = { type: 'object', properties: { args: { type: 'string', description: 'JSON string containing the arguments for the tool' } }, additionalProperties: false, strict: false, required: ['args'] }
+		toolDef.function.parameters = {
+			type: 'object',
+			properties: {
+				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['args']
+		}
 		return false
 	}
 }
@@ -393,7 +589,10 @@ function getErrorMessage(result: unknown): string {
 export async function buildTestRunArgs(args: any, toolDef: ChatCompletionTool): Promise<any> {
 	let parsedArgs = args
 	// if the schema is the fallback schema, parse the args as a JSON string
-	if ((toolDef.function.parameters as any).properties?.args?.description === 'JSON string containing the arguments for the tool') {
+	if (
+		(toolDef.function.parameters as any).properties?.args?.description ===
+		'JSON string containing the arguments for the tool'
+	) {
 		try {
 			parsedArgs = JSON.parse(args.args)
 		} catch (error) {

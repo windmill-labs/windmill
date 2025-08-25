@@ -269,6 +269,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
@@ -625,16 +626,28 @@
 						{args}
 					/>
 					<DiffEditor
-						class="h-full"
+						className="h-full"
 						bind:this={diffEditor}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						showButtons={diffMode}
-						on:hideDiffMode={hideDiffMode}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
+						buttons={diffMode
+							? [
+									{
+										text: 'See changes history',
+										onClick: () => {
+											showHistoryDrawer = true
+										}
+									},
+									{
+										text: 'Quit diff mode',
+										onClick: () => {
+											hideDiffMode()
+										},
+										color: 'red'
+									}
+								]
+							: []}
 					/>
 				{/key}
 			</div>

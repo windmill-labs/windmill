@@ -14,6 +14,7 @@
 		testIsLoading?: boolean
 		noEditor?: boolean
 		scriptProgress?: any
+		onJobDone?: () => void
 	}
 
 	let {
@@ -21,10 +22,11 @@
 		testJob = $bindable(undefined),
 		testIsLoading = $bindable(false),
 		noEditor = false,
-		scriptProgress = $bindable(undefined)
+		scriptProgress = $bindable(undefined),
+		onJobDone
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs, modulesTestStates } =
+	const { flowStore, flowStateStore, pathStore, stepsInputArgs, previewArgs, modulesTestStates } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -32,12 +34,12 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
-		runTest(testSteps.getStepArgs(mod.id))
+		runTest(stepsInputArgs.getStepArgs(mod.id))
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
-		runTest(testSteps.getStepArgs(mod.id))
+		stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+		runTest(stepsInputArgs.getStepArgs(mod.id))
 	}
 
 	export async function runTest(args: any) {
@@ -138,6 +140,7 @@
 		if (modulesTestStates.states[mod.id]) {
 			modulesTestStates.states[mod.id].testJob = testJob
 		}
+		onJobDone?.()
 	}
 
 	export function cancelJob() {
@@ -179,7 +182,10 @@
 			}
 		}
 	}
-	bind:job={modulesTestStates.states[mod.id].testJob}
+	bind:job={
+		() => modulesTestStates.states[mod.id]?.testJob,
+		(v) => modulesTestStates.states[mod.id] && (modulesTestStates.states[mod.id].testJob = v)
+	}
 	loadPlaceholderJobOnStart={{
 		type: 'QueuedJob',
 		id: '',

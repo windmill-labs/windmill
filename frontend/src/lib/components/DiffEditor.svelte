@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { onMount } from 'svelte'
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
@@ -10,24 +10,47 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { ButtonType } from './common'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
-	export let automaticLayout = true
-	export let fixedOverflowWidgets = true
-	export let defaultLang: string | undefined = undefined
-	export let defaultModifiedLang: string | undefined = undefined
-	export let defaultOriginal: string | undefined = undefined
-	export let defaultModified: string | undefined = undefined
-	export let readOnly = false
-	export let showButtons = false
-	export let showHistoryButton: boolean = true
+	export interface ButtonProp {
+		text: string
+		color?: ButtonType.Color
+		onClick: () => void
+	}
 
-	let diffEditor: meditor.IStandaloneDiffEditor | undefined
-	let diffDivEl: HTMLDivElement | null = null
-	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
+	interface Props {
+		open?: boolean
+		className?: string
+		automaticLayout?: boolean
+		fixedOverflowWidgets?: boolean
+		defaultLang?: string
+		defaultModifiedLang?: string
+		defaultOriginal?: string
+		defaultModified?: string
+		readOnly?: boolean
+		buttons?: ButtonProp[]
+	}
 
-	export let open = false
+	let {
+		open = false,
+		className = '',
+		automaticLayout = true,
+		fixedOverflowWidgets = true,
+		defaultLang,
+		defaultModifiedLang,
+		defaultOriginal = undefined,
+		defaultModified = undefined,
+		readOnly = false,
+		buttons = []
+	}: Props = $props()
+
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
+	let diffDivEl: HTMLDivElement | null = $state(null)
+	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
+
 	async function loadDiffEditor() {
 		await initializeVscode()
 
@@ -105,9 +128,15 @@
 		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
 	}
 
-	$: onWidthChange(editorWidth)
+	$effect(() => {
+		if (open && diffDivEl) {
+			loadDiffEditor()
+		}
+	})
 
-	$: open && diffDivEl && loadDiffEditor()
+	$effect(() => {
+		onWidthChange(editorWidth)
+	})
 
 	onMount(() => {
 		if (BROWSER) {
@@ -116,32 +145,24 @@
 			}
 		}
 	})
-
-	const dispatch = createEventDispatcher<{
-		hideDiffMode: void
-		seeHistory: void
-	}>()
 </script>
 
 {#if open}
 	<EditorTheme />
 	<div
 		bind:this={diffDivEl}
-		class="{$$props.class} editor nonmain-editor"
+		class={twMerge('editor nonmain-editor', className)}
 		bind:clientWidth={editorWidth}
 	></div>
-	{#if showButtons}
+	{#if buttons.length > 0}
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
 		>
-			{#if showHistoryButton}
-				<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
-					>See changes history</Button
+			{#each buttons as button}
+				<Button on:click={button.onClick} variant="contained" size="sm" color={button.color}
+					>{button.text}</Button
 				>
-			{/if}
-			<Button on:click={() => dispatch('hideDiffMode')} variant="contained" size="sm" color="red"
-				>Quit diff mode</Button
-			>
+			{/each}
 		</div>
 	{/if}
 {/if}

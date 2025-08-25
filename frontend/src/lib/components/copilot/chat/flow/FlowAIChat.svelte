@@ -6,7 +6,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow } from '$lib/gen'
+	import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { AIModuleAction, FlowAIChatHelpers } from './core'
 	import {
@@ -174,6 +174,17 @@
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
+
+						// Apply the old code to the editor and hide diff editor if the reverted module is a rawscript
+						if (
+							newModule.value.type === 'rawscript' &&
+							$currentEditor?.type === 'script' &&
+							$currentEditor.stepId === id
+						) {
+							$currentEditor.editor.setCode((oldModule.value as RawScript).content)
+							$currentEditor.hideDiffMode()
+						}
+
 						newModule.value = oldModule.value
 					}
 
@@ -523,6 +534,47 @@
 	$effect(() => {
 		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
 		return cleanup
+	})
+
+	// Automatically show diff mode when selecting a rawscript module with pending changes
+	$effect(() => {
+		if (
+			$currentEditor?.type === 'script' &&
+			$selectedId &&
+			affectedModules[$selectedId] &&
+			lastSnapshot
+		) {
+			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+			const currentModule = getModule($selectedId)
+
+			if (
+				moduleLastSnapshot &&
+				currentModule &&
+				currentModule.value.type === 'rawscript' &&
+				moduleLastSnapshot.value.type === 'rawscript'
+			) {
+				// Show diff mode automatically
+				$currentEditor.setDiffOriginal?.(moduleLastSnapshot.value.content ?? '')
+				$currentEditor.showDiffMode()
+				$currentEditor.setDiffButtons?.([
+					{
+						text: 'Accept Changes',
+						color: 'green',
+						onClick: () => {
+							flowHelpers.acceptModuleAction($selectedId)
+							$currentEditor?.hideDiffMode()
+						}
+					},
+					{
+						text: 'Reject Changes',
+						onClick: () => {
+							flowHelpers.revertModuleAction($selectedId)
+							$currentEditor?.hideDiffMode()
+						}
+					}
+				])
+			}
+		}
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
