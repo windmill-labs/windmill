@@ -1,4 +1,5 @@
 import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
+import { emitUiIntent } from './uiIntents'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -672,6 +673,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				skip_if_expr: parsedArgs.skip_if_expr
 			})
 			helpers.selectStep(parsedArgs.id)
+
+			// Emit UI intent to show early-stop tab when stop_after_if is configured
+			if (parsedArgs.stop_after_if !== undefined) {
+				emitUiIntent({ kind: 'open_module_tab', id: parsedArgs.id, tab: 'early-stop' })
+			}
 
 			const optionsSet: string[] = []
 			if (parsedArgs.stop_after_if !== undefined && parsedArgs.stop_after_if !== null) {
