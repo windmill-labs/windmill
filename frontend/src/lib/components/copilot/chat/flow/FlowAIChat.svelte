@@ -174,6 +174,16 @@
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
+
+						// Hide diff editor if the reverted module is a rawscript and currently selected
+						// if (
+						// 	$currentEditor?.type === 'script' &&
+						// 	$currentEditor.stepId === id &&
+						// 	$currentEditor.diffMode
+						// ) {
+						// 	$currentEditor.hideDiffMode()
+						// }
+
 						newModule.value = oldModule.value
 					}
 
@@ -539,12 +549,8 @@
 			if (
 				moduleLastSnapshot &&
 				currentModule &&
-				typeof currentModule === 'object' &&
-				'value' in currentModule &&
-				(currentModule as FlowModule).value?.type === 'rawscript' &&
-				typeof moduleLastSnapshot === 'object' &&
-				'value' in moduleLastSnapshot &&
-				(moduleLastSnapshot as FlowModule).value?.type === 'rawscript'
+				currentModule.value?.type === 'rawscript' &&
+				moduleLastSnapshot.value?.type === 'rawscript'
 			) {
 				const snapshotRawScript = (moduleLastSnapshot as FlowModule).value as {
 					type: 'rawscript'
@@ -554,6 +560,24 @@
 				// Show diff mode automatically
 				$currentEditor.showDiffMode()
 				$currentEditor.setDiffOriginal?.(snapshotRawScript.content ?? '')
+				$currentEditor.setDiffButtons?.([
+					{
+						text: 'Accept Changes',
+						color: 'green',
+						onClick: () => {
+							flowHelpers.acceptModuleAction($selectedId)
+							$currentEditor?.hideDiffMode()
+						}
+					},
+					{
+						text: 'Reject Changes',
+						color: 'red',
+						onClick: () => {
+							flowHelpers.revertModuleAction($selectedId)
+							$currentEditor?.hideDiffMode()
+						}
+					}
+				])
 			}
 		}
 	})

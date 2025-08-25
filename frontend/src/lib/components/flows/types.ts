@@ -13,6 +13,7 @@ import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
+import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -58,6 +59,7 @@ export type CurrentEditor =
 					diffMode: boolean
 					lastDeployedCode: string | undefined
 					setDiffOriginal?: (code: string) => void
+					setDiffButtons?: (buttons: ButtonProp[]) => void
 			  }
 			| { type: 'iterator'; editor: SimpleEditor }
 	  ) & {

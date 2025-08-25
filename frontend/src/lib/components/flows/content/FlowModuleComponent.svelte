@@ -36,7 +36,7 @@
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
-	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import DiffEditor, { type ButtonProp } from '$lib/components/DiffEditor.svelte'
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -102,6 +102,15 @@
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
+	let diffButtons = $state<ButtonProp[]>([
+		{
+			text: 'Quit diff mode',
+			color: 'red',
+			onClick: () => {
+				hideDiffMode()
+			}
+		}
+	])
 
 	let editor: Editor | undefined = $state()
 	let diffEditor: DiffEditor | undefined = $state()
@@ -300,6 +309,9 @@
 				lastDeployedCode,
 				setDiffOriginal: (code: string) => {
 					diffEditor?.setOriginal(code ?? '')
+				},
+				setDiffButtons: (buttons: ButtonProp[]) => {
+					diffButtons = buttons
 				}
 			})
 	})
@@ -490,17 +502,7 @@
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 												className="h-full"
-												buttons={diffMode
-													? [
-															{
-																text: 'Quit diff mode',
-																onClick: () => {
-																	hideDiffMode()
-																},
-																color: 'red'
-															}
-														]
-													: []}
+												buttons={diffMode ? [...diffButtons] : []}
 											/>
 										{/key}
 									{/if}

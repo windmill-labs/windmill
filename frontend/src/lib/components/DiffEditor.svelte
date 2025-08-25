@@ -14,7 +14,7 @@
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
-	interface ButtonProp {
+	export interface ButtonProp {
 		text: string
 		color?: 'red' | 'green' | 'blue' | 'yellow' | 'purple' | 'orange' | 'pink' | 'gray' | 'black'
 		onClick: () => void
