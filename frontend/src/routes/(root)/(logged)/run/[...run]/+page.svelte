@@ -896,7 +896,7 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && (job.result || job.result_stream)}
+							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
 									result_stream={job.result_stream}
