@@ -6,7 +6,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow } from '$lib/gen'
+	import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { AIModuleAction, FlowAIChatHelpers } from './core'
 	import {
@@ -175,14 +175,15 @@
 							throw new Error('Module not found')
 						}
 
-						// Hide diff editor if the reverted module is a rawscript and currently selected
-						// if (
-						// 	$currentEditor?.type === 'script' &&
-						// 	$currentEditor.stepId === id &&
-						// 	$currentEditor.diffMode
-						// ) {
-						// 	$currentEditor.hideDiffMode()
-						// }
+						// Apply the old code to the editor and hide diff editor if the reverted module is a rawscript
+						if (
+							newModule.value.type === 'rawscript' &&
+							$currentEditor?.type === 'script' &&
+							$currentEditor.stepId === id
+						) {
+							$currentEditor.editor.setCode((oldModule.value as RawScript).content)
+							$currentEditor.hideDiffMode()
+						}
 
 						newModule.value = oldModule.value
 					}
@@ -571,7 +572,6 @@
 					},
 					{
 						text: 'Reject Changes',
-						color: 'red',
 						onClick: () => {
 							flowHelpers.revertModuleAction($selectedId)
 							$currentEditor?.hideDiffMode()
