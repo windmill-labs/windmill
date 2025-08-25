@@ -85,6 +85,7 @@ pub enum JobKind {
     FlowScript,
     FlowNode,
     AppScript,
+    AIAgent,
 }
 
 impl JobKind {
@@ -412,6 +413,9 @@ pub enum JobPayload {
     },
     Identity,
     Noop,
+    AIAgent {
+        path: String,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]

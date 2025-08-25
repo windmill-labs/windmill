@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -68,7 +68,7 @@
 	})
 
 	let initialCode = JSON.stringify(flowStore, null, 4)
-	const flowStateStore = writable({} as FlowState)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)

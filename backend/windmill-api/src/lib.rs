@@ -98,8 +98,8 @@ mod inkeep_ee;
 mod inkeep_oss;
 mod inputs;
 mod integration;
-
 pub mod openapi;
+mod live_migrations;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -357,7 +357,6 @@ pub async fn run_server(
         triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
     }
 
-    // Generate all trigger routes using the new centralized function
     let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {

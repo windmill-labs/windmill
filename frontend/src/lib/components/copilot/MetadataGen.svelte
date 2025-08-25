@@ -12,6 +12,7 @@
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -24,6 +25,7 @@
 		description: PromptConfig
 		flowSummary: PromptConfig
 		flowDescription: PromptConfig
+		agentToolFunctionName: PromptConfig
 	} = {
 		summary: {
 			system: `
@@ -76,6 +78,18 @@ Do not include line breaks.
 Generate a description for the flow below:
 {flow}`,
 			placeholderName: 'flow'
+		},
+		agentToolFunctionName: {
+			system: `
+You are a helpful AI assistant. You generate function names from scripts.
+These function names will be used by an AI agent to call this tool.
+It has to respect the following regex: /[a-zA-Z0-9_]+/
+Examples: generate_image, classify_image, summarize_text, etc.
+`,
+			user: `
+Generate a function name for the script below:
+{code}`,
+			placeholderName: 'code'
 		}
 	}
 
@@ -294,7 +308,12 @@ Generate a description for the flow below:
 			bind:this={el}
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
-			class={active ? '!indent-[3.5rem]' : ''}
+			class={twMerge(
+				active ? '!indent-[3.5rem]' : '',
+				promptConfigName === 'agentToolFunctionName' &&
+					!validateToolName(content ?? '') &&
+					'!border-red-400'
+			)}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}
 		/>

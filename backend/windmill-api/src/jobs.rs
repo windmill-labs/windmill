@@ -177,12 +177,14 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run_wait_result/preview", post(run_wait_result_preview_script))
         .route(
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run_wait_result/preview_flow", post(run_wait_result_preview_flow))
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -3883,6 +3885,7 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -3977,6 +3980,7 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -4072,6 +4076,7 @@ pub async fn run_script_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4220,6 +4225,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
 
@@ -4750,6 +4756,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4900,6 +4907,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5014,6 +5022,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5131,6 +5140,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5200,11 +5210,34 @@ async fn run_preview_script(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(preview): Json<Preview>,
+) -> error::Result<Response> {
+
+    let (_status_code, uuid) = run_preview_script(
+        authed.clone(), 
+        Extension(db.clone()), 
+        Extension(user_db.clone()), 
+        Path(w_id.clone()), 
+        Query(run_query.clone()), 
+        Json(preview)
+    ).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 async fn run_bundle_preview_script(
@@ -5288,6 +5321,7 @@ async fn run_bundle_preview_script(
                 None,
                 None,
                 Some(&authed.clone().into()),
+                false,
             )
             .await?;
             job_id = Some(uuid);
@@ -5453,6 +5487,7 @@ async fn run_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5518,6 +5553,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5858,11 +5894,26 @@ async fn run_preview_flow_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_flow(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(raw_flow): Json<PreviewFlow>,
+) -> error::Result<Response> {
+    let (_status_code, uuid) = run_preview_flow_job(authed.clone(), Extension(db.clone()), Extension(user_db.clone()), Path(w_id.clone()), Query(run_query.clone()), Json(raw_flow)).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 pub async fn run_job_by_hash(
@@ -5983,6 +6034,7 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.527.0
+  version: 1.533.1
   title: Windmill API
 
   contact:
@@ -7193,6 +7193,36 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run_wait_result/preview:
+    post:
+      summary: run script preview and wait for result
+      operationId: runScriptPreviewAndWaitResult
+      x-mcp-tool: true
+      x-mcp-instructions: Allows testing a script before deploying it. For typescript code, the language to send is either bun or deno. By default, send bun if no deno specific code is detected.
+      x-mcp-required-fields:
+        - content
+        - language
+        - args
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Preview"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/workflow_as_code/{job_id}/{entrypoint}:
     post:
       summary: run code-workflow task
@@ -7301,6 +7331,30 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/run_wait_result/preview_flow:
+    post:
+      summary: run flow preview and wait for result
+      operationId: runFlowPreviewAndWaitResult
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowPreview"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs/queue/list:
     get:
@@ -11502,6 +11556,22 @@ paths:
                 additionalProperties:
                   type: integer
 
+  /workers/queue_running_counts:
+    get:
+      summary: get counts of currently running jobs per tag
+      operationId: getCountsOfRunningJobsPerTag
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue running counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -11614,6 +11684,22 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
+
+  /configs/native_kubernetes_autoscaling_healthcheck:
+    get:
+      summary: Check Kubernetes autoscaling health for a worker group
+      operationId: nativeKubernetesAutoscalingHealthcheck
+      tags:
+        - config
+      responses:
+        "200":
+          description: Kubernetes autoscaling is healthy
+        "400":
+          description: Error
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /configs/list_available_python_versions:
     get:
@@ -13929,6 +14015,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
     BranchAll:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
+    AiAgent:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:
@@ -14411,6 +14499,7 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
             ]
         schedule_path:
           type: string
@@ -14520,6 +14609,7 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
             ]
         schedule_path:
           type: string
@@ -15138,10 +15228,13 @@ components:
       properties:
         content:
           type: string
+          description: The code to run
         path:
           type: string
+          description: The path to the script
         script_hash:
           type: string
+          description: The hash of the script
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:

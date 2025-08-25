@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type JavascriptTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
+	import { loadSchemaFromModule } from './flows/flowInfers'
 
 	interface Props {
 		mod: FlowModule
@@ -31,18 +32,17 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
-		runTest(testSteps.getStepArgs(mod.id)?.value)
+		runTest(testSteps.getStepArgs(mod.id))
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
-		runTest(testSteps.getStepArgs(mod.id)?.value)
+		testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+		runTest(testSteps.getStepArgs(mod.id))
 	}
 
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
-
 		if (modulesTestStates.states[mod.id]) {
 			modulesTestStates.states[mod.id].cancel = async () => {
 				await jobLoader?.cancelJob()
@@ -85,6 +85,39 @@
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
+		} else if (val.type == 'aiagent') {
+			const { schema } = await loadSchemaFromModule(mod)
+
+			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
+				Object.keys(args).map((key) => [
+					key,
+					{
+						expr: `flow_input.${key}`,
+						type: 'javascript'
+					}
+				])
+			)
+
+			await jobLoader?.runFlowPreview(
+				args,
+				{
+					value: {
+						modules: [
+							{
+								...mod,
+								value: {
+									type: 'aiagent',
+									tools: mod.value.type == 'aiagent' ? mod.value.tools : [],
+									input_transforms: inputTransforms
+								}
+							}
+						]
+					},
+					summary: '',
+					schema
+				},
+				callbacks
+			)
 		} else {
 			throw Error('Not supported module type')
 		}
@@ -92,16 +125,19 @@
 
 	function jobDone(testJob: Job & { result?: any }) {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
-			if ($flowStateStore[mod.id]) {
-				$flowStateStore[mod.id].previewResult = testJob.result
-				$flowStateStore[mod.id].previewSuccess = testJob.success
-				$flowStateStore[mod.id].previewJobId = testJob.id
-				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
-				$flowStateStore = $flowStateStore
+			if (flowStateStore.val[mod.id]) {
+				flowStateStore.val[mod.id] = {
+					...flowStateStore.val[mod.id],
+					previewResult: testJob.result,
+					previewSuccess: testJob.success,
+					previewJobId: testJob.id
+				}
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
 		}
-		modulesTestStates.states[mod.id].testJob = undefined
+		if (modulesTestStates.states[mod.id]) {
+			modulesTestStates.states[mod.id].testJob = testJob
+		}
 	}
 
 	export function cancelJob() {
@@ -110,16 +146,16 @@
 
 	$effect(() => {
 		// Update testIsLoading to read the state from parent components
-		testIsLoading = modulesTestStates.states[mod.id]?.loading ?? false
+		testIsLoading = modulesTestStates.states?.[mod.id]?.loading ?? false
 	})
 
 	$effect(() => {
 		// Update testJob to read the state from parent components
-		testJob = modulesTestStates.states[mod.id]?.testJob
+		testJob = modulesTestStates.states?.[mod.id]?.testJob
 	})
 
 	modulesTestStates.states[mod.id] = {
-		...(modulesTestStates.states[mod.id] ?? { loading: false }),
+		...(modulesTestStates.states?.[mod.id] ?? { loading: false }),
 		loading: testIsLoading,
 		testJob: testJob
 	}
@@ -134,13 +170,29 @@
 		() => modulesTestStates.states[mod.id]?.loading ?? false,
 		(v) => {
 			let newLoading = v ?? false
-			if (modulesTestStates.states[mod.id]?.loading !== newLoading) {
+			if (modulesTestStates.states && modulesTestStates.states?.[mod.id]?.loading !== newLoading) {
 				modulesTestStates.states[mod.id] = {
-					...(modulesTestStates.states[mod.id] ?? {}),
-					loading: newLoading
+					...(modulesTestStates.states?.[mod.id] ?? {}),
+					loading: newLoading,
+					hiddenInGraph: false
 				}
 			}
 		}
 	}
-	bind:job={modulesTestStates.states[mod.id].testJob}
+	bind:job={
+		() => modulesTestStates.states[mod.id]?.testJob,
+		(v) => modulesTestStates.states[mod.id] && (modulesTestStates.states[mod.id].testJob = v)
+	}
+	loadPlaceholderJobOnStart={{
+		type: 'QueuedJob',
+		id: '',
+		running: false,
+		canceled: false,
+		job_kind: 'preview',
+		permissioned_as: '',
+		is_flow_step: false,
+		email: '',
+		visible_to_owner: true,
+		tag: ''
+	}}
 />

@@ -642,6 +642,12 @@ pub struct PythonAnnotations {
     pub py313: bool,
 }
 
+#[derive(Copy, Clone)]
+#[annotations("//")]
+pub struct GoAnnotations {
+    pub go1_22_compat: bool,
+}
+
 #[annotations("//")]
 pub struct TypeScriptAnnotations {
     pub npm: bool,

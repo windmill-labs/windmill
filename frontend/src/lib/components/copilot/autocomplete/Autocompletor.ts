@@ -174,17 +174,17 @@ export class Autocompletor {
 								additionalTextEdits:
 									endsWithNewLine && !multiline
 										? [
-												{
-													range: toEol,
-													text: ''
-												}
-											]
+											{
+												range: toEol,
+												text: ''
+											}
+										]
 										: []
 							}
 						]
 					}
 				},
-				freeInlineCompletions: () => {}
+				disposeInlineCompletions: () => { },
 			}
 		)
 

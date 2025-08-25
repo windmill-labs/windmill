@@ -65,6 +65,7 @@ export type EditorBarUi = {
 	multiplayer?: boolean
 	autoformatting?: boolean
 	vimMode?: boolean
+	relativeLineNumbers?: boolean
 	aiGen?: boolean
 	aiCompletion?: boolean
 	library?: boolean
@@ -110,6 +111,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
+		tagEdit?: boolean
 	}
 	settingsPanel?: SettingsPanelUi
 	disableTooltips?: boolean

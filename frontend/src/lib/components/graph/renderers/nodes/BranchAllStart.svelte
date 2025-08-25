@@ -15,7 +15,7 @@
 	let { data }: Props = $props()
 
 	let borderStatus = $derived(
-		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleStates?.[data.id])
+		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleState)
 	)
 </script>
 

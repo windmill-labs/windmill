@@ -44,7 +44,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 						: {
 								type: 'static',
 								value: undefined
-						  })
+							})
 				accu[key] = nv
 				return accu
 			}, {})
@@ -53,6 +53,83 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		return {
 			input_transforms: input_transforms,
 			schema: schema ?? emptySchema()
+		}
+	} else if (mod.type === 'aiagent') {
+		const schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties: {
+				provider: {
+					type: 'object',
+					oneOf: [
+						{
+							type: 'object',
+							title: 'OpenAI',
+							properties: {
+								kind: { type: 'string', enum: ['OpenAI'] },
+								resource: {
+									type: 'object',
+									format: 'resource-openai'
+								},
+
+								model: {
+									type: 'string',
+									enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
+								}
+							},
+							required: ['kind', 'resource', 'model']
+						},
+						{
+							type: 'object',
+							title: 'Anthropic',
+							properties: {
+								kind: { type: 'string', enum: ['Anthropic'] },
+								resource: {
+									type: 'object',
+									format: 'resource-anthropic'
+								},
+								model: {
+									type: 'string',
+									enum: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest']
+								}
+							},
+							required: ['kind', 'resource', 'model']
+						}
+					]
+				},
+				user_message: {
+					type: 'string'
+				},
+				system_prompt: {
+					type: 'string'
+				},
+				max_completion_tokens: {
+					type: 'number'
+				},
+				temperature: {
+					type: 'number'
+				}
+			},
+			required: ['provider', 'model', 'user_message'],
+			type: 'object',
+			order: [
+				'provider',
+				'model',
+				'user_message',
+				'system_prompt',
+				'max_completion_tokens',
+				'temperature'
+			]
+		}
+		let input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(schema?.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? {
+					type: 'static',
+					value: undefined
+				}
+				return accu
+			}, {}),
+			schema
 		}
 	}
 

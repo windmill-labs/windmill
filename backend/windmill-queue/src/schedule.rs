@@ -153,9 +153,10 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of_email,
             created_by,
         ) = windmill_common::get_latest_hash_for_path(
-            &mut tx,
+            &mut *tx,
             &schedule.workspace_id,
             &schedule.script_path,
+            true,
         )
         .await?;
 
@@ -302,6 +303,7 @@ pub async fn push_scheduled_job<'c>(
         None,
         None,
         push_authed,
+        false,
     )
     .await?;
 

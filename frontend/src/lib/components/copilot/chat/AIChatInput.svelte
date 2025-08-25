@@ -45,23 +45,25 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		if (!isFirstMessage) {
+			return 'Ask followup'
+		}
+
 		if (placeholder) {
-			// If a custom placeholder is provided, use it
 			return placeholder
 		}
-		
-		// Generate placeholder based on current AI mode
+
 		switch (aiChatManager.mode) {
 			case AIMode.SCRIPT:
-				return 'Modify this script, fix errors, or generate new code...'
+				return 'Modify this script...'
 			case AIMode.FLOW:
-				return 'Edit this flow, add steps, or modify workflow logic...'
+				return 'Modify this flow...'
 			case AIMode.NAVIGATOR:
-				return 'Help me navigate Windmill or find features...'
+				return 'Navigate the app...'
 			case AIMode.API:
-				return 'Make API calls to fetch data or manage resources...'
+				return 'Make API calls...'
 			case AIMode.ASK:
-				return 'Ask questions about Windmill features and documentation...'
+				return 'Ask questions about Windmill...'
 			default:
 				return 'Ask anything'
 		}
@@ -72,7 +74,7 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		if (aiChatManager.mode === AIMode.SCRIPT) {
+		if (aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -130,7 +132,7 @@
 </script>
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === AIMode.SCRIPT}
+	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
@@ -155,7 +157,7 @@
 					<ContextElementBadge
 						contextElement={element}
 						deletable
-						on:delete={() => {
+						onDelete={() => {
 							selectedContext = selectedContext?.filter(
 								(c) => c.type !== element.type || c.title !== element.title
 							)

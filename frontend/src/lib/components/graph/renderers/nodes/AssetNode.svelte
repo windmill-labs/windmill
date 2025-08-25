@@ -8,16 +8,23 @@
 	export const assetDisplaysAsOutputInFlowGraph = (a: AssetWithAltAccessType) =>
 		getAccessType(a) === 'w' || getAccessType(a) === 'rw'
 
-	let computeAssetNodesCache:
-		| [(Node & NodeLayout)[], ReturnType<typeof computeAssetNodes>]
-		| undefined
+	let computeAssetNodesCache: [NodeDep[], ReturnType<typeof computeAssetNodes>] | undefined
 
-	export function computeAssetNodes(
-		nodes: (Node & NodeLayout)[],
-		edges: Edge[]
-	): [(Node & NodeLayout)[], Edge[]] {
-		if (nodes === computeAssetNodesCache?.[0]) return computeAssetNodesCache[1]
+	type NodeDep = {
+		data: object & { assets?: AssetWithAltAccessType[] | undefined }
+		id: string
+		position: { x: number; y: number }
+	}
 
+	export function computeAssetNodes(nodes: NodeDep[]): {
+		newAssetNodes: (Node & NodeLayout)[]
+		newAssetEdges: Edge[]
+		// Nodes need to be offset on the y axis to make space for the asset nodes
+		newNodePositions: Record<string, { x: number; y: number }>
+	} {
+		if (computeAssetNodesCache && deepEqual(nodes, computeAssetNodesCache[0])) {
+			return computeAssetNodesCache[1]
+		}
 		const MAX_ASSET_ROW_WIDTH = 300
 		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
 		const allAssetNodes: (Node & NodeLayout)[] = []
@@ -26,8 +33,8 @@
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			if (node.type !== 'module' && node.type !== 'input2') continue
 			const assets = node.data.assets ?? []
+			if (!assets.length) continue
 
 			// Each asset can be displayed at the top and bottom
 			// i.e once (R or W) or twice (RW)
@@ -179,7 +186,10 @@
 		}
 
 		// Shift all nodes to make space for the new asset nodes
-		const sortedNewNodes = clone(nodes.sort((a, b) => a.position.y - b.position.y))
+		const sortedNewNodes = nodes
+			.map((n) => ({ position: { ...n.position }, id: n.id }))
+			.sort((a, b) => a.position.y - b.position.y)
+
 		let currentYOffset = 0
 		let prevYPos = NaN
 		for (const node of sortedNewNodes) {
@@ -191,10 +201,11 @@
 			node.position.y += currentYOffset
 		}
 
-		let ret: ReturnType<typeof computeAssetNodes> = [
-			[...sortedNewNodes, ...allAssetNodes],
-			[...edges, ...allAssetEdges]
-		]
+		let ret: ReturnType<typeof computeAssetNodes> = {
+			newAssetNodes: allAssetNodes,
+			newAssetEdges: allAssetEdges,
+			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
+		}
 		computeAssetNodesCache = [nodes, ret]
 		return ret
 	}
@@ -215,12 +226,13 @@
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { clone, pluralize } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { NODE } from '../../util'
 	import { userStore } from '$lib/stores'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		data: AssetN['data']

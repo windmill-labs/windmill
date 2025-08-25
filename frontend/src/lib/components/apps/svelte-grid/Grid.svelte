@@ -16,7 +16,7 @@
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, getContext } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -33,8 +33,6 @@
 		subGridIndexKey,
 		type GridShadow
 	} from '../editor/appUtils'
-
-	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
 
@@ -55,6 +53,20 @@
 		parentWidth?: number | undefined
 		disableMove?: boolean
 		children?: import('svelte').Snippet<[any]>
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
+		onRedraw?: (grid: FilledItem<T>[]) => void
+		onResize?: (e: {
+			cols: number
+			xPerPx: number
+			yPerPx: number
+			width: number | undefined
+		}) => void
+		onMounted?: (e: {
+			cols: number
+			xPerPx: number
+			yPerPx: number
+			width: number | undefined
+		}) => void
 	}
 
 	let {
@@ -71,7 +83,11 @@
 		root = false,
 		parentWidth = undefined,
 		disableMove = false,
-		children
+		children,
+		onDropped,
+		onRedraw,
+		onResize,
+		onMounted
 	}: Props = $props()
 	const cols = columnConfiguration
 
@@ -83,10 +99,10 @@
 	let xPerPx = $state(0)
 	let yPerPx = rowHeight
 
-	const onResize = throttle(() => {
+	const onResizeThrottled = throttle(() => {
 		if (!getComputedCols) return
 		sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
-		dispatch('resize', {
+		onResize?.({
 			cols: getComputedCols,
 			xPerPx,
 			yPerPx,
@@ -116,13 +132,14 @@
 				if (!containerWidth && getComputedCols) {
 					sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 
-					dispatch('mount', {
+					onMounted?.({
 						cols: getComputedCols,
 						xPerPx,
-						yPerPx // same as rowHeight
+						yPerPx,
+						width
 					})
 				} else {
-					onResize()
+					onResizeThrottled()
 				}
 
 				containerWidth = width
@@ -162,8 +179,7 @@
 				})
 			: []
 	}
-	const updateMatrix = ({ detail }) => {
-		let isPointerUp = detail.isPointerUp
+	const updateMatrix = ({ isPointerUp, id, activate }) => {
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
 			if (initItems == undefined) {
@@ -179,8 +195,8 @@
 			citems = smartCopy(initItems)
 		}
 		let nselectedIds = selectedIds ?? []
-		if (detail.id && !selectedIds?.includes(detail.id)) {
-			nselectedIds = [detail.id, ...(selectedIds ?? [])]
+		if (id && !selectedIds?.includes(id)) {
+			nselectedIds = [id, ...(selectedIds ?? [])]
 		}
 		for (let id of nselectedIds) {
 			let activeItem = getItemById(id, citems)
@@ -235,13 +251,13 @@
 		}
 
 		for (let id of nselectedIds ?? []) {
-			if (detail.activate) {
+			if (activate) {
 				moveResizes?.[id]?.inActivate()
 			}
 		}
 
 		if (isPointerUp && getComputedCols) {
-			dispatch('redraw', sortGridItemsPosition(smartCopy(sortedItems), getComputedCols))
+			onRedraw?.(sortGridItemsPosition(smartCopy(sortedItems), getComputedCols))
 		}
 	}
 
@@ -259,11 +275,11 @@
 		  }
 		| undefined = $state(undefined)
 
-	const handleRepaint = ({ detail }) => {
-		if (!detail.isPointerUp) {
-			throttleMatrix({ detail })
+	const handleRepaint = ({ isPointerUp, id, activate }) => {
+		if (!isPointerUp) {
+			throttleMatrix({ isPointerUp, id, activate })
 		} else {
-			updateMatrix({ detail })
+			updateMatrix({ isPointerUp, id, activate })
 		}
 
 		/**
@@ -488,19 +504,19 @@
 				{/if}
 				<MoveResize
 					{mounted}
-					on:initmove={() => handleInitMove(item.id)}
+					onInitMove={() => handleInitMove(item.id)}
 					onMove={handleMove}
 					bind:shadow={shadows[item.id]}
 					bind:this={moveResizes[item.id]}
-					on:repaint={handleRepaint}
-					on:resizeStart={() => (resizing = true)}
-					on:resizeEnd={() => (resizing = false)}
+					onRepaint={handleRepaint}
+					onResizeStart={() => (resizing = true)}
+					onResizeEnd={() => (resizing = false)}
 					onTop={Boolean(allIdsInPath?.includes(item.id))}
 					id={item.id}
 					{xPerPx}
 					{yPerPx}
 					fakeShadow={$fakeShadowStore}
-					on:dropped={(e) => {
+					onDropped={({ id, overlapped, x, y }) => {
 						$componentDraggedIdStore = undefined
 						$componentDraggedParentIdStore = undefined
 						$overlappedStore = undefined
@@ -510,8 +526,7 @@
 						if ($moveMode === 'move') {
 							return
 						}
-
-						dispatch('dropped', e.detail)
+						onDropped?.({ id, overlapped, x, y })
 					}}
 					width={xPerPx == 0
 						? 0

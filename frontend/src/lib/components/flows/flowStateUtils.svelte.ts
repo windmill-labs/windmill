@@ -11,7 +11,7 @@ import {
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
-import { get, type Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 import { emptyFlowModuleState } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
@@ -28,7 +28,8 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		if (
 			flowModule.value.type == 'script' ||
 			flowModule.value.type == 'rawscript' ||
-			flowModule.value.type == 'flow'
+			flowModule.value.type == 'flow' ||
+			flowModule.value.type == 'aiagent'
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
@@ -161,6 +162,17 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	return [branchesFlowModules, flowModuleState]
 }
 
+export async function createAiAgent(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const aiAgentFlowModules: FlowModule = {
+		id,
+		value: { type: 'aiagent', tools: [], input_transforms: {} }
+	}
+
+	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)
+
+	return [aiAgentFlowModules, flowModuleState]
+}
+
 export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const flowFlowModules: FlowModule = {
 		id,
@@ -260,11 +272,8 @@ export async function createScriptFromInlineScript(
 	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
-export function deleteFlowStateById(id: string, flowStateStore: Writable<FlowState>) {
-	flowStateStore.update((fss) => {
-		delete fss[id]
-		return fss
-	})
+export function deleteFlowStateById(id: string, flowStateStore: StateStore<FlowState>) {
+	delete flowStateStore.val[id]
 }
 
 export function sliceModules(
@@ -298,7 +307,7 @@ export function sliceModules(
 
 export async function insertNewPreprocessorModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: Writable<FlowState>,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 	},
@@ -323,15 +332,12 @@ export async function insertNewPreprocessorModule(
 
 	flowStore.val.value.preprocessor_module = module
 
-	flowStateStore.update((fss) => {
-		fss[module.id] = state
-		return fss
-	})
+	flowStateStore.val[module.id] = state
 }
 
 export async function insertNewFailureModule(
 	flowStore: StateStore<ExtendedOpenFlow>,
-	flowStateStore: Writable<FlowState>,
+	flowStateStore: StateStore<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
 		subkind: 'pgsql' | 'flow'
@@ -361,8 +367,5 @@ export async function insertNewFailureModule(
 
 	flowStore.val.value.failure_module = module
 
-	flowStateStore.update((fss) => {
-		fss[module.id] = state
-		return fss
-	})
+	flowStateStore.val[module.id] = state
 }

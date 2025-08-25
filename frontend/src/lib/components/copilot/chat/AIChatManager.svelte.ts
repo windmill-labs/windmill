@@ -1,5 +1,5 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
-import type { ScriptOptions } from './ContextManager.svelte'
+import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
 	prepareFlowSystemMessage,
@@ -8,7 +8,15 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { extractCodeFromMarkdown, getLatestAssistantMessage, processToolCall, type DisplayMessage, type Tool, type ToolCallbacks, type ToolDisplayMessage } from './shared'
+import {
+	extractCodeFromMarkdown,
+	getLatestAssistantMessage,
+	processToolCall,
+	type DisplayMessage,
+	type Tool,
+	type ToolCallbacks,
+	type ToolDisplayMessage
+} from './shared'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -80,7 +88,10 @@ class AIChatManager {
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(undefined)
+	flowOptions = $state<FlowOptions | undefined>(undefined)
+	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
+		undefined
+	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
@@ -90,7 +101,7 @@ class AIChatManager {
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.scriptEditorOptions !== undefined,
+		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
@@ -615,7 +626,7 @@ class AIChatManager {
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
-			if (this.mode === AIMode.SCRIPT) {
+			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
@@ -638,7 +649,10 @@ class AIChatManager {
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
+					contextElements:
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+							? oldSelectedContext
+							: undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
@@ -660,7 +674,11 @@ class AIChatManager {
 			}
 			switch (this.mode) {
 				case AIMode.FLOW:
-					userMessage = prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
+					userMessage = prepareFlowUserMessage(
+						oldInstructions,
+						this.flowAiChatHelpers!.getFlowAndSelectedId(),
+						oldSelectedContext
+					)
 					break
 				case AIMode.NAVIGATOR:
 					userMessage = prepareNavigatorUserMessage(oldInstructions)
@@ -733,8 +751,8 @@ class AIChatManager {
 						} else {
 							// Create new tool message with metadata
 							const newMessage: ToolDisplayMessage = {
-								role: 'tool', 
-								tool_call_id: id, 
+								role: 'tool',
+								tool_call_id: id,
 								content: metadata?.content ?? metadata?.error ?? '',
 								...(metadata || {})
 							}
@@ -810,12 +828,19 @@ class AIChatManager {
 		this.sendRequest()
 	}
 
-	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number) => {
+	addSelectedLinesToContext = (
+		lines: string,
+		startLine: number,
+		endLine: number,
+		moduleId?: string
+	) => {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		this.changeMode(AIMode.SCRIPT)
-		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		if (!moduleId) {
+			this.changeMode(AIMode.SCRIPT)
+		}
+		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine, moduleId)
 		this.focusInput()
 	}
 
@@ -856,12 +881,12 @@ class AIChatManager {
 		})
 	}
 
-	listenForScriptEditorContextChange = (
+	listenForContextChange = (
 		dbSchemas: DBSchemas,
 		workspaceStore: string | undefined,
 		copilotSessionModel: AIProviderModel | undefined
 	) => {
-		if (this.scriptEditorOptions) {
+		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
 				dbSchemas,
@@ -869,6 +894,18 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
+		} else if (this.mode === AIMode.FLOW && this.flowOptions) {
+			this.contextManager.updateAvailableContextForFlow(
+				this.flowOptions,
+				dbSchemas,
+				workspaceStore ?? '',
+				!copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => this.contextManager.getSelectedContext())
+			)
+		}
+
+		if (this.scriptEditorOptions) {
+			this.contextManager.setScriptOptions(this.scriptEditorOptions)
 		}
 	}
 
@@ -962,6 +999,13 @@ class AIChatManager {
 		} else {
 			this.scriptEditorOptions = undefined
 		}
+
+		untrack(() =>
+			this.contextManager?.setSelectedModuleContext(
+				selectedId,
+				untrack(() => this.contextManager.getAvailableContext())
+			)
+		)
 
 		return () => {
 			this.scriptEditorOptions = undefined
