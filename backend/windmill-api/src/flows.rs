@@ -1653,9 +1653,7 @@ mod tests {
                     "multiplier": 1,
                     "seconds": 0
                   },
-                  "retry_if": {
-                    "expr": null
-                  }
+                  "retry_if": null
                 }
                 "#
             )
