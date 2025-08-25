@@ -2,7 +2,16 @@ export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', '
 
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type Color = string
+	export type Color =
+		| 'blue'
+		| 'red'
+		| 'dark'
+		| 'light'
+		| 'green'
+		| 'gray'
+		| 'none'
+		| 'marine'
+		| 'nord'
 	export type Variant = 'contained' | 'border' | 'divider'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
