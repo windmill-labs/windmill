@@ -1,3 +1,4 @@
+#[allow(unused)]
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
@@ -27,15 +28,11 @@ impl TriggerCrud for NatsTrigger {
     const SUPPORTS_ENABLED: bool = false;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "";
+    const ROUTE_PREFIX: &'static str = "/nats_triggers";
     const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::NatsTrigger { path }
-    }
-
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![]
     }
 
     async fn create_trigger(

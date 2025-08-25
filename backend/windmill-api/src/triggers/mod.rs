@@ -1,7 +1,6 @@
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
 use windmill_common::{error::JsonResult, DB};
@@ -92,7 +91,7 @@ pub struct TriggerErrorHandling {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    pub error_handler_args: Option<SqlxJson<HashMap<String, serde_json::Value>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }

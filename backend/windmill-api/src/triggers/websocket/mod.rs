@@ -32,11 +32,13 @@ impl TriggerJobArgs for WebsocketTrigger {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct WebsocketConfig {
     pub url: String,
+    #[serde(default)]
     pub filters: Vec<SqlxJson<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
+    #[serde(default)]
     pub can_return_message: bool,
 }
 

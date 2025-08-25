@@ -276,28 +276,26 @@ impl TriggerCrud for HttpTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
     const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
+    const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
+        "route_path",
+        "route_path_key",
+        "is_async",
+        "authentication_method",
+        "http_method",
+        "summary",
+        "description",
+        "static_asset_config",
+        "is_static_website",
+        "authentication_resource_path",
+        "workspaced_route",
+        "wrap_body",
+        "raw_string",
+    ];
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::HttpTrigger { path }
     }
 
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "route_path",
-            "route_path_key",
-            "is_async",
-            "authentication_method",
-            "http_method",
-            "summary",
-            "description",
-            "static_asset_config",
-            "is_static_website",
-            "authentication_resource_path",
-            "workspaced_route",
-            "wrap_body",
-            "raw_string",
-        ]
-    }
 
     fn additional_routes(&self) -> Router {
         Router::new()

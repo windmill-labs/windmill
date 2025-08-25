@@ -52,19 +52,17 @@ impl TriggerCrud for PostgresTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/postgres_triggers";
     const DEPLOYMENT_NAME: &'static str = "PostgreSQL trigger";
+    const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
+        "postgres_resource_path",
+        "replication_slot_name",
+        "publication_name",
+        "NULL::text AS basic_mode",
+    ];
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::PostgresTrigger { path }
     }
 
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "postgres_resource_path",
-            "replication_slot_name",
-            "publication_name",
-            "NULL::text AS basic_mode",
-        ]
-    }
 
     async fn create_trigger(
         &self,

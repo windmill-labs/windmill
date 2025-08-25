@@ -32,23 +32,6 @@ use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
 
-#[cfg(all(feature = "gcp_trigger", feature = "enterprise"))]
-use crate::triggers::gcp::GcpTrigger;
-#[cfg(feature = "http_trigger")]
-use crate::triggers::http::handler::HttpTrigger;
-#[cfg(all(feature = "kafka", feature = "enterprise"))]
-use crate::triggers::kafka::KafkaTrigger;
-#[cfg(feature = "mqtt_trigger")]
-use crate::triggers::mqtt::MqttTrigger;
-#[cfg(all(feature = "nats", feature = "enterprise"))]
-use crate::triggers::nats::NatsTrigger;
-#[cfg(feature = "postgres_trigger")]
-use crate::triggers::postgres::PostgresTrigger;
-#[cfg(all(feature = "sqs_trigger", feature = "enterprise"))]
-use crate::triggers::sqs::SqsTrigger;
-#[cfg(feature = "websocket")]
-use crate::triggers::websocket::WebsocketTrigger;
-
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
     type Trigger: Serialize
@@ -76,6 +59,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str;
     const DEPLOYMENT_NAME: &'static str;
+    const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
 
     fn get_deployed_object(path: String) -> DeployedObject;
 
@@ -98,10 +82,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
         _edit: &Self::TriggerConfigRequest,
     ) -> Result<()> {
         Ok(())
-    }
-
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![]
     }
 
     async fn create_trigger(
@@ -163,7 +143,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-        fields.extend(self.additional_select_fields());
+        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let sql = format!(
             "SELECT {} FROM {} WHERE workspace_id = $1 AND path = $2",
@@ -283,7 +263,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-        fields.extend(self.additional_select_fields());
+        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
 
@@ -627,6 +607,8 @@ pub fn generate_trigger_routers() -> Router {
 
     #[cfg(feature = "http_trigger")]
     {
+        use crate::triggers::http::handler::HttpTrigger;
+
         router = router.nest(
             HttpTrigger::ROUTE_PREFIX,
             complete_trigger_routes(HttpTrigger),
@@ -635,22 +617,28 @@ pub fn generate_trigger_routers() -> Router {
 
     #[cfg(feature = "websocket")]
     {
+        use crate::triggers::websocket::WebsocketTrigger;
+
         router = router.nest(
             WebsocketTrigger::ROUTE_PREFIX,
             complete_trigger_routes(WebsocketTrigger),
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
     {
+        use crate::triggers::kafka::KafkaTrigger;
+
         router = router.nest(
             KafkaTrigger::ROUTE_PREFIX,
             complete_trigger_routes(KafkaTrigger),
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
     {
+        use crate::triggers::nats::NatsTrigger;
+
         router = router.nest(
             NatsTrigger::ROUTE_PREFIX,
             complete_trigger_routes(NatsTrigger),
@@ -659,22 +647,28 @@ pub fn generate_trigger_routers() -> Router {
 
     #[cfg(feature = "mqtt_trigger")]
     {
+        use crate::triggers::mqtt::MqttTrigger;
+
         router = router.nest(
             MqttTrigger::ROUTE_PREFIX,
             complete_trigger_routes(MqttTrigger),
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     {
+        use crate::triggers::sqs::SqsTrigger;
+
         router = router.nest(
             SqsTrigger::ROUTE_PREFIX,
             complete_trigger_routes(SqsTrigger),
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     {
+        use crate::triggers::gcp::GcpTrigger;
+
         router = router.nest(
             GcpTrigger::ROUTE_PREFIX,
             complete_trigger_routes(GcpTrigger),
@@ -683,6 +677,8 @@ pub fn generate_trigger_routers() -> Router {
 
     #[cfg(feature = "postgres_trigger")]
     {
+        use crate::triggers::postgres::PostgresTrigger;
+
         router = router.nest(
             PostgresTrigger::ROUTE_PREFIX,
             complete_trigger_routes(PostgresTrigger),

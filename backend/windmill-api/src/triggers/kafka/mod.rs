@@ -9,7 +9,7 @@ use rdkafka::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, FromRow};
+use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -48,14 +48,11 @@ impl TriggerJobArgs for KafkaTrigger {
     }
 }
 
-
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct KafkaConfig {
     pub kafka_resource_path: String,
     pub group_id: String,
     pub topics: Vec<String>,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub connection: Option<Json<KafkaTriggerConfigConnection>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,8 +127,8 @@ impl KafkaTriggerConfigConnection {
                     authed,
                     Some(UserDB::new(db.clone())),
                     db,
-                    w_id,
                     kafka_resource_path,
+                    w_id,
                 )
                 .await?;
 
@@ -193,7 +190,6 @@ impl KafkaTriggerConfigConnection {
 pub struct TestKafkaConfig {
     connection: KafkaTriggerConfigConnection,
 }
-
 
 #[allow(unused)]
 async fn fetch_metadata(

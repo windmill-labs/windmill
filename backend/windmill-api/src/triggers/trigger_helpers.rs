@@ -3,6 +3,7 @@ use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sqlx::types::Json;
 use std::collections::HashMap;
 use std::future::Future;
 use uuid::Uuid;
@@ -478,9 +479,18 @@ async fn trigger_runnable_inner(
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
 ) -> Result<(Uuid, Option<bool>)> {
+    let error_handler_args = error_handler_args.map(|args| {
+        let args = args
+            .0
+            .iter()
+            .map(|(key, value)| (key.to_owned(), to_raw_value(&value)))
+            .collect::<HashMap<String, Box<RawValue>>>();
+        Json(args)
+    });
+
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
     let (uuid, delete_after_use) = if is_flow {
         let run_query = RunJobQuery::default();
@@ -506,7 +516,7 @@ async fn trigger_runnable_inner(
             args,
             retry,
             error_handler_path,
-            error_handler_args,
+            error_handler_args.as_ref(),
             trigger_path,
         )
         .await?
@@ -526,7 +536,7 @@ pub async fn trigger_runnable(
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
 ) -> Result<axum::response::Response> {
     let (uuid, _) = trigger_runnable_inner(
@@ -557,7 +567,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
@@ -596,7 +606,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
 ) -> Result<Box<RawValue>> {
     let username = authed.username.clone();

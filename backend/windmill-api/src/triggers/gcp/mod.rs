@@ -129,7 +129,7 @@ struct TriggerPushData {
     delivery_config: Option<SqlxJson<PushConfig>>,
     retry: Option<SqlxJson<windmill_common::flows::Retry>>,
     error_handler_path: Option<String>,
-    error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<SqlxJson<HashMap<String, serde_json::Value>>>,
 }
 
 #[derive(Debug, Deserialize)]

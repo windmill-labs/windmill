@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use async_nats::{Client, ConnectOptions, ServerAddr};
 use base64::{engine, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, FromRow};
+use sqlx::FromRow;
 use windmill_common::{db::UserDB, error::Result, triggers::TriggerKind, worker::to_raw_value, DB};
 
 use crate::{
@@ -79,8 +80,8 @@ impl NatsTriggerConfigConnection {
                     authed,
                     Some(UserDB::new(db.clone())),
                     db,
-                    w_id,
                     nats_resource_path,
+                    w_id,
                 )
                 .await?;
 
@@ -118,8 +119,6 @@ pub struct NatsConfig {
     pub stream_name: Option<String>,
     pub consumer_name: Option<String>,
     pub use_jetstream: bool,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub connection: Option<Json<NatsTriggerConfigConnection>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,11 +130,6 @@ pub struct NatsConfigRequest {
     pub use_jetstream: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestNatsConfig {
-    pub nats_resource_path: String,
-}
-
 // Utility functions
 pub fn validate_nats_resource_path(path: &str) -> windmill_common::error::Result<()> {
     if path.trim().is_empty() {
@@ -144,6 +138,46 @@ pub fn validate_nats_resource_path(path: &str) -> windmill_common::error::Result
         ));
     }
     Ok(())
+}
+
+#[allow(unused)]
+async fn connect(
+    servers: &Vec<String>,
+    auth: NatsResourceAuth,
+    require_tls: bool,
+) -> anyhow::Result<Client> {
+    let mut options = ConnectOptions::new();
+
+    if require_tls {
+        options = options.require_tls(true)
+    }
+
+    match auth {
+        NatsResourceAuth::Token { token } => options = options.token(token),
+        NatsResourceAuth::UserPass { user, password } => {
+            options = options.user_and_password(user, password)
+        }
+        NatsResourceAuth::NKey { seed } => options = options.nkey(seed),
+        NatsResourceAuth::JWT { jwt, seed } => {
+            let key_pair = Arc::new(nkeys::KeyPair::from_seed(seed.as_str())?);
+            options = options.jwt(jwt, move |nonce| {
+                let key_pair = key_pair.clone();
+                async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }
+            })
+        }
+        _ => {}
+    }
+
+    let client = options
+        .connect(
+            servers
+                .iter()
+                .map(|s| s.parse())
+                .collect::<std::result::Result<Vec<ServerAddr>, _>>()?,
+        )
+        .await?;
+
+    Ok(client)
 }
 
 pub fn validate_subjects(subjects: &[String]) -> windmill_common::error::Result<()> {

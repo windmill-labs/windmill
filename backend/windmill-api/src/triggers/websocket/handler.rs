@@ -34,20 +34,18 @@ impl TriggerCrud for WebsocketTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
     const DEPLOYMENT_NAME: &'static str = "WebSocket trigger";
+    const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
+        "url",
+        "filters",
+        "initial_messages",
+        "url_runnable_args",
+        "can_return_message",
+    ];
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::WebsocketTrigger { path }
     }
 
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "url",
-            "filters",
-            "initial_messages",
-            "url_runnable_args",
-            "can_return_message",
-        ]
-    }
 
     async fn validate_new(
         &self,

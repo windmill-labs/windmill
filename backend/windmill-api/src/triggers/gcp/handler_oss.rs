@@ -27,15 +27,11 @@ impl TriggerCrud for GcpTrigger {
     const SUPPORTS_ENABLED: bool = false;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "";
+    const ROUTE_PREFIX: &'static str = "/gcp_triggers";
     const DEPLOYMENT_NAME: &'static str = "";
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::GcpTrigger { path }
-    }
-
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![]
     }
 
     async fn create_trigger(

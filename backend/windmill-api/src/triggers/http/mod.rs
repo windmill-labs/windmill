@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow, PgConnection};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
@@ -47,7 +46,7 @@ pub struct TriggerRoute {
     wrap_body: bool,
     raw_string: bool,
     error_handler_path: Option<String>,
-    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     retry: Option<sqlx::types::Json<Retry>>,
 }
 
@@ -155,7 +154,7 @@ pub fn validate_authentication_method(
         _ => Ok(()),
     }
 }
-        
+
 pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')")
         .fetch_one(tx)

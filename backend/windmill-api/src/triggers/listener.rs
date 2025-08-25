@@ -73,7 +73,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
         }
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-        fields.extend(self.additional_select_fields());
+        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
 

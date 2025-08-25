@@ -32,20 +32,17 @@ impl TriggerCrud for MqttTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/mqtt_triggers";
     const DEPLOYMENT_NAME: &'static str = "MQTT trigger";
+    const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
+        "mqtt_resource_path",
+        "subscribe_topics",
+        "v3_config",
+        "v5_config",
+        "client_id",
+        "client_version",
+    ];
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::MqttTrigger { path }
-    }
-
-    fn additional_select_fields(&self) -> Vec<&'static str> {
-        vec![
-            "mqtt_resource_path",
-            "subscribe_topics",
-            "v3_config",
-            "v5_config",
-            "client_id",
-            "client_version",
-        ]
     }
 
     async fn validate_new(
