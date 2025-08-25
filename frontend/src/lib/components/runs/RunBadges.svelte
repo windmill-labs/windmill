@@ -57,7 +57,7 @@
 		<Badge color="blue" {verySmall}>priority: {job.priority}</Badge>
 	</div>
 {/if}
-{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency', 'ruby'].includes(job.tag)}
+{#if job.tag}
 	<!-- for related places search: ADD_NEW_LANG -->
 	<div>
 		<Badge color="indigo" {verySmall}>Tag: {job.tag}</Badge>
