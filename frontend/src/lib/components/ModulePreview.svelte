@@ -18,6 +18,7 @@
 		noEditor?: boolean
 		scriptProgress?: any
 		focusArg?: string
+		onJobDone?: () => void
 	}
 
 	let {
@@ -28,7 +29,8 @@
 		testIsLoading = $bindable(false),
 		noEditor = false,
 		scriptProgress = $bindable(undefined),
-		focusArg = undefined
+		focusArg = undefined,
+		onJobDone
 	}: Props = $props()
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -46,6 +48,7 @@
 	bind:testIsLoading
 	bind:scriptProgress
 	bind:this={moduleTest}
+	{onJobDone}
 />
 
 <div class="p-4">

@@ -32,7 +32,7 @@
 		focusArg = undefined
 	}: Props = $props()
 
-	const { testSteps, flowStateStore, flowStore, previewArgs } =
+	const { stepsInputArgs, flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -45,12 +45,12 @@
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			untrack(() => testSteps?.removeExtraKey(mod.id, keys))
+			untrack(() => stepsInputArgs?.removeExtraKey(mod.id, keys))
 		}
 	})
 
 	function plugIt(argName: string) {
-		testSteps?.setEvaluatedStepArg(
+		stepsInputArgs?.setEvaluatedStepArg(
 			mod.id,
 			argName,
 			$state.snapshot(evalValue(argName, mod, pickableProperties, true))
@@ -102,8 +102,8 @@
 
 	$effect.pre(() => {
 		if (!initialized) {
-			if (testSteps) {
-				testSteps?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+			if (stepsInputArgs) {
+				stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
 				initialized = true
 			}
 		}
@@ -130,8 +130,8 @@
 								label={argName}
 								description={schema.properties[argName].description}
 								bind:value={
-									() => testSteps?.getStepInputArgs(mod.id, argName),
-									(v) => testSteps?.setStepInputArgs(mod.id, argName, v)
+									() => stepsInputArgs?.getStepInputArgs(mod.id, argName),
+									(v) => stepsInputArgs?.setStepInputArgs(mod.id, argName, v)
 								}
 								type={schema.properties[argName].type}
 								oneOf={schema.properties[argName].oneOf}
@@ -152,7 +152,7 @@
 								placeholder={schema.properties[argName].placeholder}
 							/>
 						{/if}
-						{#if testSteps?.isArgManuallySet(mod.id, argName)}
+						{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
 							<div class="pt-6 mt-0.5">
 								<Button
 									on:click={() => {

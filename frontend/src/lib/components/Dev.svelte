@@ -48,7 +48,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { TestSteps } from './flows/testSteps.svelte'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
 
@@ -457,7 +457,7 @@
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 	const selectedIdStore = writable('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const modulesTestStates = new ModulesTestStates((moduleId) => {
@@ -481,7 +481,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -806,7 +806,7 @@
 								noEditor
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
-										testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 										$selectedIdStore = 'preprocessor'
 									} else {
 										previewArgsStore.val = ev.detail.args ?? {}
@@ -818,6 +818,7 @@
 								isOwner={flowPreviewContent?.getIsOwner()}
 								{suspendStatus}
 								onOpenDetails={flowPreviewButtons?.openPreview}
+								previewOpen={flowPreviewButtons?.getPreviewOpen()}
 							/>
 						{/key}
 					</Pane>
