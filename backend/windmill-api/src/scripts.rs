@@ -45,6 +45,7 @@ use windmill_worker::process_relative_imports;
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    scripts::hash_script,
     worker::CLOUD_HOSTED,
 };
 
@@ -376,12 +377,6 @@ async fn get_top_hub_scripts(
     )
     .await?;
     Ok::<_, Error>((status_code, headers, response))
-}
-
-fn hash_script(ns: &NewScript) -> i64 {
-    let mut dh = DefaultHasher::new();
-    ns.hash(&mut dh);
-    dh.finish() as i64
 }
 
 async fn create_snapshot_script(

@@ -17,7 +17,7 @@ use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
@@ -251,6 +251,16 @@ pub async fn handle_dependency_job(
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+
+    let triggered_by_relative_import = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("triggered_by_relative_import")
+                .is_some_and(|y| y.to_string().as_str() == "true")
+        })
+        .unwrap_or(false);
+
     let npm_mode = if job
         .script_lang
         .as_ref()
@@ -340,21 +350,109 @@ pub async fn handle_dependency_job(
 
             let hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
-            sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                &content,
-                &hash.0,
-                w_id
-            )
-            .execute(db)
-            .await?;
+            let (deployment_message, parent_path) =
+                get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
+            if triggered_by_relative_import {
+                // This entire section exists to solve following problem:
+                //
+                // 2 workers, one script that depend on another in python
+                // run the original script on both workers
+                // you update the dependenecy of a relative import,
+                // run it again until you ran it on both, normally it should fail on one of those
+                //
+                // It happens because every worker has cached their own script versions.
+                // However usual dependency job does not update hash of the script -> cache is keyed by the hash.
+                // This logical branch will create new script which will update the hash and automatically invalidate cache.
+                let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
+                    "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
+                )
+                .bind(&hash.0)
+                .bind(w_id)
+                .fetch_one(db)
+                .await?;
+
+                let ns = NewScript {
+                    path: script_info.path,
+                    parent_hash: Some(hash),
+                    summary: script_info.summary,
+                    description: script_info.description,
+                    content: script_info.content,
+                    schema: script_info.schema,
+                    is_template: Some(script_info.is_template),
+                    // TODO: Make it either None everywhere (particularely when raw reqs are calculated)
+                    // Or handle this case and conditionally make Some (only with raw reqs)
+                    lock: None,
+                    language: script_info.language,
+                    kind: Some(script_info.kind),
+                    tag: script_info.tag,
+                    draft_only: script_info.draft_only,
+                    envs: script_info.envs,
+                    concurrent_limit: script_info.concurrent_limit,
+                    concurrency_time_window_s: script_info.concurrency_time_window_s,
+                    cache_ttl: script_info.cache_ttl,
+                    dedicated_worker: script_info.dedicated_worker,
+                    ws_error_handler_muted: script_info.ws_error_handler_muted,
+                    priority: script_info.priority,
+                    timeout: script_info.timeout,
+                    delete_after_use: script_info.delete_after_use,
+                    restart_unless_cancelled: script_info.restart_unless_cancelled,
+                    deployment_message: deployment_message.clone(),
+                    concurrency_key: script_info.concurrency_key,
+                    visible_to_runner_only: script_info.visible_to_runner_only,
+                    no_main_func: script_info.no_main_func,
+                    codebase: script_info.codebase,
+                    has_preprocessor: script_info.has_preprocessor,
+                    on_behalf_of_email: script_info.on_behalf_of_email,
+                    assets: script_info.assets,
+                };
+
+                let new_hash = hash_script(&ns);
+
+                sqlx::query!("
+    INSERT INTO script
+    (workspace_id, hash, path, parent_hashes, summary, description, content, \
+    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+    delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) 
+
+    SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+            content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets 
+
+    FROM script WHERE hash = $2 AND workspace_id = $3;
+            ",
+                new_hash, hash.0, w_id, &content).execute(db).await?;
+
+                // Archive current
+                sqlx::query!(
+                    "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
+                    hash.0,
+                    w_id
+                )
+                .execute(db)
+                .await?;
+            } else {
+                // Patching existing script lock
+                sqlx::query!(
+                    "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &content,
+                    &hash.0,
+                    w_id
+                )
+                .execute(db)
+                .await?;
+            };
 
             // `lock` has been updated; invalidate the cache.
             cache::script::invalidate(hash);
 
-            let (deployment_message, parent_path) =
-                get_deployment_msg_and_parent_path_from_args(job.args.clone());
-
+            // TODO
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
                 &job.created_by,
@@ -502,10 +600,12 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
-async fn trigger_dependents_to_recompute_dependencies(
+pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
+    // TODO
     deployment_message: Option<String>,
+    // TODO
     parent_path: Option<String>,
     email: &str,
     created_by: &str,
@@ -535,6 +635,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = parent_path {
+            // TODO: What is this?
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
@@ -542,6 +643,12 @@ async fn trigger_dependents_to_recompute_dependencies(
             "already_visited".to_string(),
             to_raw_value(&already_visited),
         );
+
+        args.insert(
+            "triggered_by_relative_import".to_string(),
+            to_raw_value(&true),
+        );
+
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
