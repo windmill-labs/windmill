@@ -59,7 +59,20 @@ export interface FlowAIChatHelpers {
 	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
 	setForLoopOptions: (
 		id: string,
-		opts: { skip_failures?: boolean; parallel?: boolean; parallelism?: number | null }
+		opts: {
+			skip_failures?: boolean | null
+			parallel?: boolean | null
+			parallelism?: number | null
+		}
+	) => Promise<void>
+	setModuleControlOptions: (
+		id: string,
+		opts: {
+			stop_after_if?: boolean | null
+			stop_after_if_expr?: string | null
+			skip_if?: boolean | null
+			skip_if_expr?: string | null
+		}
 	) => Promise<void>
 	setCode: (id: string, code: string) => Promise<void>
 }
@@ -202,21 +215,63 @@ const setForLoopIteratorExpressionToolDef = createToolDef(
 
 const setForLoopOptionsSchema = z.object({
 	id: z.string().describe('The id of the forloop step to configure'),
-	skip_failures: z.boolean().optional().describe('Whether to skip failures in the loop'),
-	parallel: z.boolean().optional().describe('Whether to run iterations in parallel'),
+	skip_failures: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Whether to skip failures in the loop (null to not change)'),
+	parallel: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Whether to run iterations in parallel (null to not change)'),
 	parallelism: z
 		.number()
 		.int()
 		.min(1)
 		.nullable()
 		.optional()
-		.describe('Maximum number of parallel iterations (null to clear)')
+		.describe('Maximum number of parallel iterations (null to not change)')
 })
 
 const setForLoopOptionsToolDef = createToolDef(
 	setForLoopOptionsSchema,
 	'set_forloop_options',
 	'Set advanced options for a forloop step: skip_failures, parallel, and parallelism'
+)
+
+const setModuleControlOptionsSchema = z.object({
+	id: z.string().describe('The id of the module to configure'),
+	stop_after_if: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Early stop condition (true to set, false to clear, null to not change)'),
+	stop_after_if_expr: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'JavaScript expression for early stop condition. Can use `flow_input` or `result`. `result` is the result of the step. `results.<step_id>` is not supported, do not use it. Only used if stop_after_if is true. Example: `flow_input.x > 10` or `result === "failure"`'
+		),
+	skip_if: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Skip condition (true to set, false to clear, null to not change)'),
+	skip_if_expr: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'JavaScript expression for skip condition. Can use `flow_input` or `results.<step_id>`. Only used if skip_if is true. Exemple: `flow_input.x > 10` or `results.a === "failure"`'
+		)
+})
+
+const setModuleControlOptionsToolDef = createToolDef(
+	setModuleControlOptionsSchema,
+	'set_module_control_options',
+	'Set control options for any module: stop_after_if (early stop) and skip_if (conditional skip)'
 )
 
 const setBranchPredicateSchema = z.object({
@@ -603,7 +658,34 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: message
 			})
-			return message
+			return message + (optionsSet.length > 0 ? ': ' + optionsSet.join(', ') : '')
+		}
+	},
+	{
+		def: setModuleControlOptionsToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setModuleControlOptionsSchema.parse(args)
+			await helpers.setModuleControlOptions(parsedArgs.id, {
+				stop_after_if: parsedArgs.stop_after_if,
+				stop_after_if_expr: parsedArgs.stop_after_if_expr,
+				skip_if: parsedArgs.skip_if,
+				skip_if_expr: parsedArgs.skip_if_expr
+			})
+			helpers.selectStep(parsedArgs.id)
+
+			const optionsSet: string[] = []
+			if (parsedArgs.stop_after_if !== undefined && parsedArgs.stop_after_if !== null) {
+				optionsSet.push(`stop_after_if: ${parsedArgs.stop_after_if_expr ?? 'false'}`)
+			}
+			if (parsedArgs.skip_if !== undefined && parsedArgs.skip_if !== null) {
+				optionsSet.push(`skip_if: ${parsedArgs.skip_if_expr ?? 'false'}`)
+			}
+
+			const message = `Set module '${parsedArgs.id}' control options`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message
+			})
+			return message + (optionsSet.length > 0 ? ': ' + optionsSet.join(', ') : '')
 		}
 	},
 	{
@@ -843,6 +925,11 @@ For special step types, follow these additional steps:
   - Set advanced options (parallel, parallelism, skip_failures) using set_forloop_options
 - For branchone steps: Set the predicates for each branch using set_branch_predicate
 - For branchall steps: No additional setup needed
+
+### Module Control Options
+For any module type, you can set control flow options using set_module_control_options:
+- **stop_after_if**: Early stop condition - stops the module if expression evaluates to true. Can use "flow_input" or "result". "result" is the result of the step. "results.<step_id>" is not supported, do not use it. Example: "flow_input.x > 10" or "result === "failure""
+- **skip_if**: Skip condition - skips the module entirely if expression evaluates to true. Can use "flow_input" or "results.<step_id>". Example: "flow_input.x > 10" or "results.a === "failure""
 
 ### Step Insertion Rules
 When adding steps, carefully consider the execution order:

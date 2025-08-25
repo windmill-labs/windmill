@@ -513,6 +513,32 @@
 
 			refreshStateStore(flowStore)
 			setModuleStatus(id, 'modified')
+		},
+		setModuleControlOptions: async (id, opts) => {
+			const module = getModule(id)
+			if (!module) {
+				throw new Error('Module not found')
+			}
+
+			console.log('here ', opts)
+
+			// Handle stop_after_if
+			if (opts.stop_after_if !== undefined && opts.stop_after_if !== null) {
+				module.stop_after_if = {
+					expr: opts.stop_after_if_expr ?? '',
+					skip_if_stopped: opts.stop_after_if
+				}
+			}
+
+			// Handle skip_if
+			if (opts.skip_if !== undefined && opts.skip_if !== null) {
+				module.skip_if = {
+					expr: opts.skip_if_expr ?? ''
+				}
+			}
+
+			refreshStateStore(flowStore)
+			setModuleStatus(id, 'modified')
 		}
 	}
 
