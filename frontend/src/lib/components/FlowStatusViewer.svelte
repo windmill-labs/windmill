@@ -1,7 +1,7 @@
 <script lang="ts">
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 	import type { FlowState } from './flows/flowState'
-	import { setContext, untrack } from 'svelte'
+	import { setContext, untrack, type Snippet } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -33,6 +33,7 @@
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
 		onDone?: ({ job }: { job: CompletedJob }) => void
+		assets?: Snippet
 	}
 
 	let {
@@ -58,7 +59,8 @@
 		customUi,
 		onStart,
 		onJobsLoaded,
-		onDone
+		onDone,
+		assets
 	}: Props = $props()
 
 	let lastJobId: string = jobId
@@ -170,4 +172,5 @@
 			}
 		}
 	}}
+	{assets}
 />

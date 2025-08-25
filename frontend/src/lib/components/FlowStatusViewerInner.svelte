@@ -16,7 +16,7 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
-	import { getContext, setContext, tick, untrack } from 'svelte'
+	import { getContext, setContext, tick, untrack, type Snippet } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -124,6 +124,7 @@
 			isToolCallToBeLoaded: (storeKey: string) => boolean
 			addToolCallToLoad: (storeKey: string) => void
 		}
+		assets?: Snippet
 	}
 
 	let {
@@ -164,7 +165,8 @@
 		onStart = undefined,
 		onJobsLoaded = undefined,
 		onDone = undefined,
-		toolCallStore
+		toolCallStore,
+		assets
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1048,7 +1050,11 @@
 			}
 		}
 	})
-	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
+	let selected = $derived(isListJob ? 'sequence' : 'graph') as
+		| 'sequence'
+		| 'graph'
+		| 'logs'
+		| 'assets'
 
 	let animateLogsTab = $state(false)
 
@@ -1154,6 +1160,9 @@
 							: ''}><span class="font-semibold">Logs</span></Tab
 					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
+					{#if assets}
+						<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
+					{/if}
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1517,6 +1526,11 @@
 				{onSelectedIteration}
 			/>
 		</div>
+		{#if selected == 'assets' && render && assets}
+			<div class="p-2">
+				{@render assets()}
+			</div>
+		{/if}
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}

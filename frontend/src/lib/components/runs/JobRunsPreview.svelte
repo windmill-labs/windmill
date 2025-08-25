@@ -189,26 +189,28 @@
 			{/if}
 
 			{#if job?.type === 'CompletedJob'}
-				<Tabs bind:selected={viewTab}>
-					<Tab size="xs" value="result">Result</Tab>
-					<Tab size="xs" value="logs">Logs</Tab>
-					<Tab size="xs" value="assets">Assets</Tab>
-					{#if isScriptPreview(job?.job_kind)}
-						<Tab size="xs" value="code">Code</Tab>
-					{/if}
-				</Tabs>
+				{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
+					<div class="w-full mt-8 mb-20">
+						<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} wideResults>
+							{#snippet assets()}
+								{#if job}
+									<JobAssetsViewer {job} />
+								{/if}
+							{/snippet}
+						</FlowStatusViewer>
+					</div>
+				{:else}
+					<Tabs bind:selected={viewTab}>
+						<Tab size="xs" value="result">Results</Tab>
+						<Tab size="xs" value="logs">Logs</Tab>
+						<Tab size="xs" value="assets">Assets</Tab>
+						{#if isScriptPreview(job?.job_kind)}
+							<Tab size="xs" value="code">Code</Tab>
+						{/if}
+					</Tabs>
 
-				<Skeleton loading={!job} layout={[[5]]} />
-				{#if job}
-					{#if viewTab == 'result' && (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind))}
-						<div class="flex flex-col gap-2">
-							<div class="w-full mt-10 mb-20">
-								<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
-							</div>
-						</div>
-					{:else if viewTab == 'assets'}
-						<JobAssetsViewer {job} />
-					{:else}
+					<Skeleton loading={!job} layout={[[5]]} />
+					{#if job}
 						<div class="flex flex-col border rounded-md p-2 mt-2 h-full overflow-auto">
 							{#if viewTab == 'logs'}
 								<div class="w-full">
@@ -221,6 +223,8 @@
 										tag={job?.tag}
 									/>
 								</div>
+							{:else if viewTab == 'assets'}
+								<JobAssetsViewer {job} />
 							{:else if viewTab == 'code'}
 								{#if job && 'raw_code' in job && job.raw_code}
 									<div class="text-xs">
