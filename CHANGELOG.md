@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.534.0](https://github.com/windmill-labs/windmill/compare/v1.533.1...v1.534.0) (2025-08-25)
+
+
+### Features
+
+* **backend:** support unencrypted  connection to mssql ([#6453](https://github.com/windmill-labs/windmill/issues/6453)) ([8d31c2a](https://github.com/windmill-labs/windmill/commit/8d31c2ab0d34036dc8057611857a5d72aad8598f))
+
+
+### Bug Fixes
+
+* **aichat:** fix wrong current model logic ([#6451](https://github.com/windmill-labs/windmill/issues/6451)) ([e951c89](https://github.com/windmill-labs/windmill/commit/e951c896b865df48d331968953c9e44848236516))
+* **flow:** test this step preload step input evaluation ([1073eb0](https://github.com/windmill-labs/windmill/commit/1073eb0e682e7bd253c6d62225361b487d7f6d2f))
+
 ## [1.533.1](https://github.com/windmill-labs/windmill/compare/v1.533.0...v1.533.1) (2025-08-23)
 
 
