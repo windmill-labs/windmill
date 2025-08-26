@@ -12,6 +12,7 @@
 		isLoading?: boolean
 		selectionCount: number
 		selectionMode: RunsSelectionMode | false
+		small?: boolean
 		onSetSelectionMode: (mode: RunsSelectionMode | false) => void
 		onCancelSelectedJobs: () => void
 		onCancelFilteredJobs: () => void
@@ -23,6 +24,7 @@
 		isLoading = false,
 		selectionCount,
 		selectionMode,
+		small = false,
 		onSetSelectionMode,
 		onCancelSelectedJobs,
 		onCancelFilteredJobs,
@@ -98,7 +100,9 @@
 				class="px-2 h-[30px] border flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md gap-2"
 			>
 				<SquareMousePointer size={16} />
-				<span class="text-xs min-w-[5rem]">Batch actions</span>
+				{#if !small}
+					<span class="text-xs min-w-[5rem]">Batch actions</span>
+				{/if}
 				<ChevronDown size={16} />
 			</div>
 		{/snippet}

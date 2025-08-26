@@ -1136,91 +1136,98 @@
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
-							class="flex flex-row gap-4 items-center pl-4 pr-2 py-1 grow-0"
+							class="flex flex-row gap-4 items-center px-4 py-1 grow-0 justify-between"
 							bind:clientWidth={tableTopBarWidth}
 						>
-							{#if selectionMode && selectableJobCount}
-								<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
-									<div class="px-2">
-										<input
-											onfocus={bubble('focus')}
-											type="checkbox"
-											checked={allSelected}
-											id="select-all"
-											class={twMerge(
-												'cursor-pointer',
-												allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-												'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
-											)}
-											onclick={selectAll}
-										/>
+							<div class="flex flex-row gap-4 items-center">
+								{#if selectionMode && selectableJobCount}
+									<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
+										<div class="px-2">
+											<input
+												onfocus={bubble('focus')}
+												type="checkbox"
+												checked={allSelected}
+												id="select-all"
+												class={twMerge(
+													'cursor-pointer',
+													allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+													'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
+												)}
+												onclick={selectAll}
+											/>
+										</div>
+										<label class="cursor-pointer" for="select-all">Select all</label>
 									</div>
-									<label class="cursor-pointer" for="select-all">Select all</label>
+								{/if}
+
+								<RunsBatchActionsDropdown
+									isLoading={loadingSelectedIds}
+									{selectionMode}
+									selectionCount={selectedIds.length}
+									{onSetSelectionMode}
+									{onCancelFilteredJobs}
+									{onCancelSelectedJobs}
+									{onReRunFilteredJobs}
+									{onReRunSelectedJobs}
+									small={tableTopBarWidth < 800}
+								/>
+							</div>
+
+							<div class="flex flex-row gap-4 items-center">
+								<div class="flex flex-row gap-1 items-center">
+									<Toggle
+										id="cron-schedules"
+										size="xs"
+										bind:checked={showSchedules}
+										on:change={() => {
+											localStorage.setItem(
+												'show_schedules_in_run',
+												showSchedules ? 'true' : 'false'
+											)
+										}}
+										options={tableTopBarWidth < 800 ? {} : { right: 'CRON Schedules' }}
+									/>
+									<span title="CRON Schedules">
+										<Calendar size="16" />
+									</span>
 								</div>
-							{/if}
 
-							<RunsBatchActionsDropdown
-								isLoading={loadingSelectedIds}
-								{selectionMode}
-								selectionCount={selectedIds.length}
-								{onSetSelectionMode}
-								{onCancelFilteredJobs}
-								{onCancelSelectedJobs}
-								{onReRunFilteredJobs}
-								{onReRunSelectedJobs}
-							/>
-
-							<div class="flex flex-row gap-1 items-center">
-								<ManuelDatePicker
-									on:loadJobs={() => {
-										lastFetchWentToEnd = false
-										jobsLoader?.loadJobs(minTs, maxTs, true)
-									}}
-									bind:minTs
-									bind:maxTs
-									bind:selectedManualDate
-									{loading}
-									bind:this={manualDatePicker}
-								/>
-								<Toggle
-									size="xs"
-									bind:checked={autoRefresh}
-									on:change={() => {
-										localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-									}}
-									options={{ right: 'Auto-refresh' }}
-									textClass="whitespace-nowrap"
-								/>
-							</div>
-
-							<div class="flex flex-row gap-1 items-center">
-								<Toggle
-									id="cron-schedules"
-									size="xs"
-									bind:checked={showSchedules}
-									on:change={() => {
-										localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
-									}}
-									options={tableTopBarWidth > 800 ? { right: 'CRON Schedules' } : {}}
-								/>
-								<span title="CRON Schedules">
-									<Calendar size="16" />
-								</span>
-							</div>
-
-							<div class="flex flex-row gap-1 items-center">
-								<Toggle
-									size="xs"
-									bind:checked={showFutureJobs}
-									on:change={() => {
-										localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
-									}}
-									id="planned-later"
-									options={tableTopBarWidth > 800 ? { right: 'Planned later' } : {}}
-								/>
-								<span title="Planned later">
-									<Clock size={16} />
-								</span>
+								<div class="flex flex-row gap-1 items-center">
+									<Toggle
+										size="xs"
+										bind:checked={showFutureJobs}
+										on:change={() => {
+											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
+										}}
+										id="planned-later"
+										options={tableTopBarWidth < 800 ? {} : { right: 'Planned later' }}
+									/>
+									<span title="Planned later">
+										<Clock size={16} />
+									</span>
+								</div>
+								<div class="flex flex-row gap-1 items-center">
+									<ManuelDatePicker
+										on:loadJobs={() => {
+											lastFetchWentToEnd = false
+											jobsLoader?.loadJobs(minTs, maxTs, true)
+										}}
+										bind:minTs
+										bind:maxTs
+										bind:selectedManualDate
+										{loading}
+										bind:this={manualDatePicker}
+									/>
+									<Toggle
+										size="xs"
+										bind:checked={autoRefresh}
+										on:change={() => {
+											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+										}}
+										options={{ right: 'Auto-refresh' }}
+										textClass="whitespace-nowrap"
+									/>
+								</div>
 							</div>
 						</div>
 
