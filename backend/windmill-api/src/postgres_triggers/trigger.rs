@@ -9,10 +9,9 @@ use crate::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
             ReplicationMessage,
         },
-        run_job,
     },
     resources::try_get_resource_from_db_as,
-    trigger_helpers::TriggerJobArgs,
+    trigger_helpers::{trigger_runnable, TriggerJobArgs},
     users::fetch_api_authed,
 };
 
@@ -36,10 +35,9 @@ use windmill_common::{
 };
 
 use super::{
-    drop_publication, get_default_pg_connection, get_raw_postgres_connection,
-    handler::{drop_logical_replication_slot, Postgres, PostgresTrigger},
-    replication_message::PrimaryKeepAliveBody,
-    Error, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    drop_logical_replication_slot, drop_publication, get_default_pg_connection,
+    get_raw_postgres_connection, replication_message::PrimaryKeepAliveBody, Error, Postgres,
+    PostgresTrigger, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 
 pub struct LogicalReplicationSettings {
@@ -348,6 +346,48 @@ impl TriggerJobArgs<HashMap<String, Box<RawValue>>> for PostgresTrigger {
     fn trigger_kind() -> TriggerKind {
         TriggerKind::Postgres
     }
+}
+
+async fn run_job(
+    payload: HashMap<String, Box<RawValue>>,
+    db: &DB,
+    trigger: &PostgresTrigger,
+) -> anyhow::Result<()> {
+    let args = PostgresTrigger::build_job_args(
+        &trigger.script_path,
+        trigger.is_flow,
+        &trigger.workspace_id,
+        db,
+        payload,
+        HashMap::new(),
+    )
+    .await?;
+
+    let authed = fetch_api_authed(
+        trigger.edited_by.clone(),
+        trigger.email.clone(),
+        &trigger.workspace_id,
+        db,
+        Some(format!("postgres-{}", trigger.path)),
+    )
+    .await?;
+
+    trigger_runnable(
+        db,
+        None,
+        authed,
+        &trigger.workspace_id,
+        &trigger.script_path,
+        trigger.is_flow,
+        args,
+        trigger.retry.as_ref(),
+        trigger.error_handler_path.as_deref(),
+        trigger.error_handler_args.as_ref(),
+        format!("postgres_trigger/{}", trigger.path),
+    )
+    .await?;
+
+    Ok(())
 }
 
 struct PgInfo<'a> {

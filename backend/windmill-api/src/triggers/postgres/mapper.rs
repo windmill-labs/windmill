@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rust_postgres::types::Type;
 
-use super::handler::Language;
+use super::Language;
 
 fn postgres_to_typescript_type(postgres_type: Option<Type>) -> String {
     let data_type = match postgres_type {

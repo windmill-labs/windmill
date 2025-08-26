@@ -8,16 +8,16 @@
 
 #[cfg(feature = "http_trigger")]
 use {
-    crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs},
+    crate::triggers::http::{http_trigger_args::RawHttpTriggerArgs, HttpMethod},
     axum::response::{IntoResponse, Response},
     std::collections::HashMap,
 };
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use {
-    crate::gcp_triggers_oss::{
+    crate::triggers::gcp::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
-        CreateUpdateConfig, SubscriptionMode,
+        CreateUpdateConfig, GcpSubscriptionMode,
     },
     axum::extract::Request,
     http::HeaderMap,
@@ -46,16 +46,16 @@ use serde::de::DeserializeOwned;
 use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_oss::NatsTriggerConfigConnection;
+use crate::triggers::nats::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
+use crate::triggers::postgres::{
     create_logical_replication_slot, create_pg_publication, generate_random_string,
     get_default_pg_connection, PublicationData,
 };
@@ -168,7 +168,7 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    pub subscription_mode: SubscriptionMode,
+    pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -392,7 +392,7 @@ async fn set_gcp_trigger_config(
     )
     .await?;
     gcp_config.create_update = Some(config);
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
+    gcp_config.subscription_mode = GcpSubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
@@ -908,7 +908,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::triggers::{gcp::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
@@ -931,9 +931,9 @@ async fn gcp_payload(
     )
     .await?;
 
-    let (payload, gcp) = process_google_push_request(headers, request).await?;
+    let (payload, trigger_info) = process_google_push_request(headers, request).await?;
 
-    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(payload, gcp);
+    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(&payload, trigger_info);
 
     let _ = insert_capture_payload(
         &db,
