@@ -668,11 +668,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			helpers.selectStep(parsedArgs.id)
 
 			// Emit UI intent to show early-stop tab when stop_after_if is configured
-			const module = helpers.getModules().find((m) => m.id === parsedArgs.id)
-			const moduleType = module?.value?.type ?? ''
-			if (!moduleType) {
+			const modules = helpers.getModules()
+			const module = findModuleById(modules, parsedArgs.id)
+			if (!module) {
 				throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
 			}
+			const moduleType = module?.value.type
 			const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
 			const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
 			if (typeof parsedArgs.stop_after_if === 'boolean') {
