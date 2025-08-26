@@ -1,8 +1,6 @@
 import { writable, type Writable } from 'svelte/store'
 
-export type UiIntent =
-	| { kind: 'open_module_tab'; componentId: string; tab: string }
-	| { kind: 'highlight_setting'; componentId: string; section: string; field?: string }
+export type UiIntent = { kind: 'open_module_tab'; componentId: string; tab: string }
 
 export const uiIntentStore: Writable<UiIntent | null> = writable(null)
 
