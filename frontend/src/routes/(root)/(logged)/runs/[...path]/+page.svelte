@@ -44,6 +44,8 @@
 	import RunOption from '$lib/components/runs/RunOption.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 	import DropownSelect from '$lib/components/DropownSelect.svelte'
+	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import { createBubbler } from 'svelte/legacy'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -767,6 +769,28 @@
 			extended.jobs.length + extended.obscured_jobs.length >= 1000
 		)
 	})
+
+	const bubble = createBubbler()
+
+	function selectAll() {
+		if (!selectionMode) return
+		if (allSelected) {
+			allSelected = false
+			selectedIds = []
+		} else {
+			allSelected = true
+			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
+		}
+	}
+
+	let allSelected = $derived.by(() => {
+		return selectionMode && selectedIds.length === selectableJobCount
+	})
+
+	const selectableJobCount = $derived.by(() => {
+		if (!selectionMode) return 0
+		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
+	})
 </script>
 
 <JobsLoader
@@ -852,11 +876,11 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Filters -->
-		<div class="px-4 py-2 flex items-start gap-x-6 gap-y-4 flex-row flex-wrap border-b">
+		<div class="flex flex-row items-start w-full border-b px-4">
 			<div class="flex flex-row gap-1 items-center mr-8">
 				<h1
 					class={twMerge(
-						'!text-2xl font-semibold leading-6 tracking-tight',
+						'!text-2xl font-semibold leading-6 tracking-tight pt-4',
 						$userStore?.operator ? 'pl-10' : ''
 					)}
 				>
@@ -871,138 +895,123 @@
 				</Tooltip>
 			</div>
 
-			<div class="flex flex-row gap-8">
-				<RunsQueue
-					{success}
-					{queue_count}
-					{suspended_count}
-					on:jobs_waiting={() => {
-						jobsFilter('waiting')
-					}}
-					on:jobs_suspended={() => {
-						jobsFilter('suspended')
-					}}
-				/>
+			<div
+				class="py-2 flex items-start gap-x-4 gap-y-2 flex-row flex-wrap grow min-w-0 justify-end"
+			>
+				<!-- Queue -->
+				<div class="flex flex-row gap-4">
+					<RunsQueue
+						{success}
+						{queue_count}
+						{suspended_count}
+						on:jobs_waiting={() => {
+							jobsFilter('waiting')
+						}}
+						on:jobs_suspended={() => {
+							jobsFilter('suspended')
+						}}
+					/>
+				</div>
+
+				<!-- Dates -->
+				<div class="flex flex-row gap-1">
+					<RunOption label="Min datetimes" for="min-datetimes">
+						<input
+							type="text"
+							value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
+							disabled
+							class="min-w-[200px] relative"
+							name="min-datetimes"
+						/>
+
+						<CalendarPicker
+							clearable={true}
+							date={minTs}
+							label="Min datetimes"
+							on:change={async ({ detail }) => {
+								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								minTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+						/>
+					</RunOption>
+
+					<RunOption label="Max datetimes" for="max-datetimes">
+						<input
+							type="text"
+							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+							name="max-datetimes"
+							class="min-w-[200px]"
+							disabled
+						/>
+						<CalendarPicker
+							clearable={true}
+							date={maxTs}
+							label="Max datetimes"
+							on:change={async ({ detail }) => {
+								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+						/>
+					</RunOption>
+
+					<RunOption label="Reset" for="reset" noLabel>
+						<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
+					</RunOption>
+				</div>
+
+				<!-- Filters 1 -->
+				<div class="flex flex-row gap-4">
+					<RunsFilter
+						bind:allowWildcards
+						bind:isSkipped
+						bind:user
+						bind:folder
+						bind:label
+						bind:concurrencyKey
+						bind:tag
+						bind:worker
+						bind:path
+						bind:success
+						bind:argFilter
+						bind:resultFilter
+						bind:argError
+						bind:resultError
+						bind:jobKindsCat
+						bind:allWorkspaces
+						bind:schedulePath
+						on:change={reloadJobsWithoutFilterError}
+						on:successChange={(e) => {
+							if (e.detail == 'running' && maxTs != undefined) {
+								maxTs = undefined
+							}
+						}}
+						{usernames}
+						{folders}
+						{paths}
+						mobile={innerWidth < 900}
+					/>
+				</div>
 			</div>
-			<!-- Dates -->
-			<div class="flex flex-row gap-1">
-				<RunOption label="Min datetimes" for="min-datetimes">
-					<input
-						type="text"
-						value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
-						disabled
-						class="min-w-[200px] relative"
-						name="min-datetimes"
-					/>
-
-					<CalendarPicker
-						clearable={true}
-						date={minTs}
-						label="Min datetimes"
-						on:change={async ({ detail }) => {
-							minTs = new Date(detail).toISOString()
-							calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-							calendarChangeTimeout = setTimeout(() => {
-								jobsLoader?.loadJobs(minTs, maxTs, true)
-							}, 1000)
-						}}
-						on:clear={async () => {
-							minTs = undefined
-							calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-							calendarChangeTimeout = setTimeout(() => {
-								jobsLoader?.loadJobs(minTs, maxTs, true)
-							}, 1000)
-						}}
-					/>
-				</RunOption>
-
-				<RunOption label="Max datetimes" for="max-datetimes">
-					<input
-						type="text"
-						value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
-						name="max-datetimes"
-						class="min-w-[200px]"
-						disabled
-					/>
-					<CalendarPicker
-						clearable={true}
-						date={maxTs}
-						label="Max datetimes"
-						on:change={async ({ detail }) => {
-							maxTs = new Date(detail).toISOString()
-							calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-							calendarChangeTimeout = setTimeout(() => {
-								jobsLoader?.loadJobs(minTs, maxTs, true)
-							}, 1000)
-						}}
-						on:clear={async () => {
-							maxTs = undefined
-							calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-							calendarChangeTimeout = setTimeout(() => {
-								jobsLoader?.loadJobs(minTs, maxTs, true)
-							}, 1000)
-						}}
-					/>
-				</RunOption>
-
-				<RunOption label="Reset" for="reset" noLabel>
-					<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
-				</RunOption>
-			</div>
-
-			<RunOption label="CRON Schedules" for="cron-schedules">
-				<Toggle
-					id="cron-schedules"
-					size="xs"
-					bind:checked={showSchedules}
-					on:change={() => {
-						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
-					}}
-				/>
-				<Calendar size="16" />
-			</RunOption>
-			<RunOption label="Planned later" for="planned-later">
-				<Toggle
-					size="xs"
-					bind:checked={showFutureJobs}
-					on:change={() => {
-						localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
-					}}
-					id="planned-later"
-				/>
-				<Clock size={16} />
-			</RunOption>
-
-			<!-- Filters 1 -->
-			<RunsFilter
-				bind:allowWildcards
-				bind:isSkipped
-				bind:user
-				bind:folder
-				bind:label
-				bind:concurrencyKey
-				bind:tag
-				bind:worker
-				bind:path
-				bind:success
-				bind:argFilter
-				bind:resultFilter
-				bind:argError
-				bind:resultError
-				bind:jobKindsCat
-				bind:allWorkspaces
-				bind:schedulePath
-				on:change={reloadJobsWithoutFilterError}
-				on:successChange={(e) => {
-					if (e.detail == 'running' && maxTs != undefined) {
-						maxTs = undefined
-					}
-				}}
-				{usernames}
-				{folders}
-				{paths}
-				mobile={innerWidth < 900}
-			/>
 		</div>
 
 		<!-- Graph -->
@@ -1120,35 +1129,40 @@
 		<div class="grow min-h-0">
 			<Splitpanes>
 				<Pane size={60} minSize={40}>
-					{#if jobs}
-						<RunsTable
-							{jobs}
-							externalJobs={externalJobs ?? []}
-							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-							showExternalJobs={!graphIsRunsChart}
-							activeLabel={label}
-							{selectionMode}
-							bind:selectedIds
-							bind:selectedWorkspace
-							bind:lastFetchWentToEnd
-							on:loadExtra={loadExtra}
-							on:filterByPath={filterByPath}
-							on:filterByUser={filterByUser}
-							on:filterByFolder={filterByFolder}
-							on:filterByLabel={filterByLabel}
-							on:filterByConcurrencyKey={filterByConcurrencyKey}
-							on:filterByTag={filterByTag}
-							on:filterBySchedule={filterBySchedule}
-							on:filterByWorker={filterByWorker}
-							{loadingSelectedIds}
-							{onSetSelectionMode}
-							{onCancelFilteredJobs}
-							{onCancelSelectedJobs}
-							{onReRunFilteredJobs}
-							{onReRunSelectedJobs}
-							bind:this={runsTable}
-						>
-							{#snippet manualJobPicker()}
+					<div class="flex flex-col h-full">
+						<div class="flex flex-row gap-4 items-center px-2 py-1">
+							{#if selectionMode && selectableJobCount}
+								<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
+									<div class="px-2">
+										<input
+											onfocus={bubble('focus')}
+											type="checkbox"
+											checked={allSelected}
+											id="select-all"
+											class={twMerge(
+												'cursor-pointer',
+												allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+												'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
+											)}
+											onclick={selectAll}
+										/>
+									</div>
+									<label class="cursor-pointer" for="select-all">Select all</label>
+								</div>
+							{/if}
+
+							<RunsBatchActionsDropdown
+								isLoading={loadingSelectedIds}
+								{selectionMode}
+								selectionCount={selectedIds.length}
+								{onSetSelectionMode}
+								{onCancelFilteredJobs}
+								{onCancelSelectedJobs}
+								{onReRunFilteredJobs}
+								{onReRunSelectedJobs}
+							/>
+
+							<div class="flex flex-row gap-1 items-center">
 								<ManuelDatePicker
 									on:loadJobs={() => {
 										lastFetchWentToEnd = false
@@ -1169,15 +1183,64 @@
 									options={{ right: 'Auto-refresh' }}
 									textClass="whitespace-nowrap"
 								/>
-							{/snippet}
-						</RunsTable>
-					{:else}
-						<div class="gap-1 flex flex-col">
-							{#each new Array(8) as _}
-								<Skeleton layout={[[3]]} />
-							{/each}
+							</div>
+
+							<div class="flex flex-row gap-1 items-center">
+								<Toggle
+									id="cron-schedules"
+									size="xs"
+									bind:checked={showSchedules}
+									on:change={() => {
+										localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
+									}}
+									options={{ right: 'CRON Schedules' }}
+								/>
+								<Calendar size="16" />
+							</div>
+
+							<div class="flex flex-row gap-1 items-center">
+								<Toggle
+									size="xs"
+									bind:checked={showFutureJobs}
+									on:change={() => {
+										localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
+									}}
+									id="planned-later"
+									options={{ right: 'Planned later' }}
+								/>
+								<Clock size={16} />
+							</div>
 						</div>
-					{/if}
+						{#if jobs}
+							<RunsTable
+								{jobs}
+								externalJobs={externalJobs ?? []}
+								omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+								showExternalJobs={!graphIsRunsChart}
+								activeLabel={label}
+								{selectionMode}
+								bind:selectedIds
+								bind:selectedWorkspace
+								bind:lastFetchWentToEnd
+								on:loadExtra={loadExtra}
+								on:filterByPath={filterByPath}
+								on:filterByUser={filterByUser}
+								on:filterByFolder={filterByFolder}
+								on:filterByLabel={filterByLabel}
+								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByTag={filterByTag}
+								on:filterBySchedule={filterBySchedule}
+								on:filterByWorker={filterByWorker}
+								bind:this={runsTable}
+							></RunsTable>
+						{:else}
+							<div class="gap-1 flex flex-col">
+								{#each new Array(8) as _}
+									<Skeleton layout={[[3]]} />
+								{/each}
+							</div>
+						{/if}
+					</div>
 				</Pane>
 				<Pane size={40} minSize={15} class="flex flex-col">
 					{#if selectionMode === 're-run'}

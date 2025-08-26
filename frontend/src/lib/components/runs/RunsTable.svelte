@@ -1,19 +1,13 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import { createEventDispatcher, onMount, type Snippet } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { twMerge } from 'tailwind-merge'
-	import { isJobSelectable } from '$lib/utils'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
-	import RunsBatchActionsDropdown from './RunsBatchActionsDropdown.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -27,13 +21,6 @@
 		activeLabel?: string | null
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
-		loadingSelectedIds?: boolean
-		onSetSelectionMode: (mode: RunsSelectionMode | false) => void
-		onCancelSelectedJobs: () => void
-		onCancelFilteredJobs: () => void
-		onReRunSelectedJobs: () => void
-		onReRunFilteredJobs: () => void
-		manualJobPicker?: Snippet
 	}
 
 	let {
@@ -45,14 +32,7 @@
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
-		lastFetchWentToEnd = $bindable(false),
-		loadingSelectedIds = false,
-		onSetSelectionMode,
-		onCancelFilteredJobs,
-		onCancelSelectedJobs,
-		onReRunFilteredJobs,
-		onReRunSelectedJobs,
-		manualJobPicker
+		lastFetchWentToEnd = $bindable(false)
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
@@ -153,25 +133,6 @@
 	}
 	*/
 
-	let selectableJobCount = $derived.by(() => {
-		if (!selectionMode) return 0
-		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
-	})
-	let allSelected = $derived.by(() => {
-		return selectionMode && selectedIds.length === selectableJobCount
-	})
-
-	function selectAll() {
-		if (!selectionMode) return
-		if (allSelected) {
-			allSelected = false
-			selectedIds = []
-		} else {
-			allSelected = true
-			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
-		}
-	}
-
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
 			return ''
@@ -238,39 +199,6 @@
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
-		<div class="flex flex-row items-center gap-2 h-9 px-2 border-b">
-			{#if selectionMode && selectableJobCount}
-				<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
-					<div class="px-2">
-						<input
-							onfocus={bubble('focus')}
-							type="checkbox"
-							checked={allSelected}
-							id="select-all"
-							class={twMerge(
-								'cursor-pointer',
-								allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-								'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
-							)}
-							onclick={selectAll}
-						/>
-					</div>
-					<label class="cursor-pointer" for="select-all">Select all</label>
-				</div>
-			{/if}
-			<RunsBatchActionsDropdown
-				isLoading={loadingSelectedIds}
-				{selectionMode}
-				selectionCount={selectedIds.length}
-				{onSetSelectionMode}
-				{onCancelFilteredJobs}
-				{onCancelSelectedJobs}
-				{onReRunFilteredJobs}
-				{onReRunSelectedJobs}
-			/>
-
-			{@render manualJobPicker?.()}
-		</div>
 		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2 pr-4">
 			<div class="w-[25%] text-2xs pl-2 flex flex-row items-center gap-2 -my-2">
 				{#if showExternalJobs && externalJobs.length > 0}
