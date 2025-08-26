@@ -27,20 +27,20 @@ use chrono::Utc;
 
 use regex::Regex;
 
+use hex;
+use sha2::{Digest, Sha256};
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
+use windmill_common::scripts::{NewScript, ScriptKind, ScriptLang};
 use windmill_common::users::username_to_permissioned_as;
+use windmill_common::variables::ExportableListableVariable;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::scripts::{NewScript, ScriptLang, ScriptKind};
-use windmill_common::variables::ExportableListableVariable;
-use std::collections::{HashMap, hash_map::DefaultHasher};
-use std::hash::{Hash, Hasher};
-use sha2::{Sha256, Digest};
-use hex;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
@@ -2326,44 +2326,92 @@ async fn clone_workspace_data(
     db: &DB,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
-    update_workspace_settings(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    update_workspace_settings(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
-    
-    // Clone folders (skip default ones)
-    clone_folders(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
-    // Clone groups (skip default 'all' group)
+
+    // Clone folders
+    clone_folders(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
-    
+
     // Clone resource types
-    clone_resource_types(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    clone_resource_types(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    clone_resources(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone variables with re-encryption
     clone_variables(tx, source_workspace_id, target_workspace_id, db).await?;
-    
+
     // Clone scripts with new hashes
-    let script_hash_mapping = clone_scripts(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    let script_hash_mapping = clone_scripts(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone flows with new versions
-    clone_flows(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    clone_flows(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone flow nodes
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
-    
+
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, target_username).await?;
-    
+    let _app_id_mapping = clone_apps(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
-    
+
     // Clone workspace runnable dependencies with updated mappings
-    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id, &script_hash_mapping).await?;
-    
+    clone_workspace_dependencies(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        &script_hash_mapping,
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -2373,34 +2421,58 @@ async fn update_workspace_settings(
     target_workspace_id: &str,
     _target_username: &str,
 ) -> Result<()> {
+    // sqlx::query!(
+    //     r#"
+    //     UPDATE workspace_settings
+    //     SET slack_team_id = source_ws.slack_team_id,
+    //         slack_name = source_ws.slack_name,
+    //         slack_command_script = source_ws.slack_command_script,
+    //         slack_email = source_ws.slack_email,
+    //         auto_invite_domain = source_ws.auto_invite_domain,
+    //         auto_invite_operator = source_ws.auto_invite_operator,
+    //         customer_id = source_ws.customer_id,
+    //         plan = source_ws.plan,
+    //         webhook = source_ws.webhook,
+    //         deploy_to = source_ws.deploy_to,
+    //         error_handler = source_ws.error_handler,
+    //         ai_config = source_ws.ai_config,
+    //         error_handler_extra_args = source_ws.error_handler_extra_args,
+    //         error_handler_muted_on_cancel = source_ws.error_handler_muted_on_cancel,
+    //         large_file_storage = source_ws.large_file_storage,
+    //         git_sync = source_ws.git_sync,
+    //         default_app = source_ws.default_app,
+    //         auto_add = source_ws.auto_add,
+    //         default_scripts = source_ws.default_scripts,
+    //         deploy_ui = source_ws.deploy_ui,
+    //         mute_critical_alerts = source_ws.mute_critical_alerts,
+    //         operator_settings = source_ws.operator_settings,
+    //         teams_command_script = source_ws.teams_command_script,
+    //         teams_team_id = source_ws.teams_team_id,
+    //         teams_team_name = source_ws.teams_team_name,
+    //         git_app_installations = source_ws.git_app_installations
+    //     FROM workspace_settings source_ws
+    //     WHERE source_ws.workspace_id = $1
+    //     AND workspace_settings.workspace_id = $2
+    //     "#,
+    //     source_workspace_id,
+    //     target_workspace_id,
+    // )
+    // .execute(&mut **tx)
+    // .await?;
+
     sqlx::query!(
         r#"
         UPDATE workspace_settings 
-        SET slack_team_id = source_ws.slack_team_id,
-            slack_name = source_ws.slack_name,
-            slack_command_script = source_ws.slack_command_script,
-            slack_email = source_ws.slack_email,
-            auto_invite_domain = source_ws.auto_invite_domain,
-            auto_invite_operator = source_ws.auto_invite_operator,
+        SET
             customer_id = source_ws.customer_id,
             plan = source_ws.plan,
-            webhook = source_ws.webhook,
-            deploy_to = source_ws.deploy_to,
-            error_handler = source_ws.error_handler,
             ai_config = source_ws.ai_config,
-            error_handler_extra_args = source_ws.error_handler_extra_args,
-            error_handler_muted_on_cancel = source_ws.error_handler_muted_on_cancel,
             large_file_storage = source_ws.large_file_storage,
-            git_sync = source_ws.git_sync,
             default_app = source_ws.default_app,
             auto_add = source_ws.auto_add,
             default_scripts = source_ws.default_scripts,
-            deploy_ui = source_ws.deploy_ui,
             mute_critical_alerts = source_ws.mute_critical_alerts,
             operator_settings = source_ws.operator_settings,
-            teams_command_script = source_ws.teams_command_script,
-            teams_team_id = source_ws.teams_team_id,
-            teams_team_name = source_ws.teams_team_name,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws 
         WHERE source_ws.workspace_id = $1
@@ -2408,6 +2480,37 @@ async fn update_workspace_settings(
         "#,
         source_workspace_id,
         target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let current_git_sync_settings = sqlx::query!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let mut git_sync_settings = if let Some(row) = current_git_sync_settings {
+        if let Some(git_sync) = row.git_sync {
+            serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync)
+                .map_err(|err| Error::internal_err(err.to_string()))?
+        } else {
+            WorkspaceGitSyncSettings::default()
+        }
+    } else {
+        WorkspaceGitSyncSettings::default()
+    };
+
+    git_sync_settings.repositories.retain(|r| !r.skip_workspace_fork_tracking.unwrap_or(false));
+
+    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        target_workspace_id
     )
     .execute(&mut **tx)
     .await?;
@@ -2443,9 +2546,8 @@ async fn clone_folders(
     sqlx::query!(
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by)
          SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, $3
-         FROM folder 
-         WHERE workspace_id = $1 
-         AND name NOT IN ('app_themes', 'app_custom', 'app_groups')",
+         FROM folder
+         WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
         target_username,
@@ -2464,9 +2566,8 @@ async fn clone_groups(
     sqlx::query!(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms)
          SELECT $2, name, summary, extra_perms
-         FROM group_ 
-         WHERE workspace_id = $1 
-         AND name != 'all'",
+         FROM group_
+         WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
@@ -2507,8 +2608,7 @@ async fn clone_resources(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
          SELECT $2, path, value, description, resource_type, extra_perms, edited_at, $3
          FROM resource 
-         WHERE workspace_id = $1
-         AND path NOT LIKE 'f/app_themes/%'",
+         WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
         target_username,
@@ -2547,7 +2647,7 @@ async fn clone_variables(
     )
     .fetch_one(db)
     .await?;
-    
+
     let target_key = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
         target_workspace_id
@@ -2567,7 +2667,7 @@ async fn clone_variables(
     } else {
         target_key
     };
-    
+
     let source_mc = magic_crypt::new_magic_crypt!(source_crypt_key, 256);
     let target_mc = magic_crypt::new_magic_crypt!(target_crypt_key, 256);
 
@@ -2643,7 +2743,7 @@ async fn clone_scripts(
             ScriptKind::Approval => ScriptKind::Approval,
             ScriptKind::Preprocessor => ScriptKind::Preprocessor,
         };
-        
+
         // Create NewScript for hash computation - simplified approach
         let new_script = NewScript {
             path: script.path.clone(),
@@ -2680,10 +2780,10 @@ async fn clone_scripts(
 
         // Generate new hash
         let new_hash = hash_script(&new_script);
-        
+
         // Store mapping for later reference updates
         script_hash_mapping.insert(script.hash, new_hash);
-        
+
         // Insert script with new hash - direct copy most fields
         sqlx::query!(
             r#"INSERT INTO script (
@@ -2798,10 +2898,10 @@ async fn clone_flows(
         )
         .fetch_one(&mut **tx)
         .await?;
-        
+
         // Update flow to include this version
         sqlx::query!(
-            "UPDATE flow 
+            "UPDATE flow
              SET versions = array_append(versions, $1)
              WHERE workspace_id = $2 AND path = $3",
             new_version_id,
@@ -2871,7 +2971,7 @@ async fn clone_apps(
         )
         .fetch_one(&mut **tx)
         .await?;
-        
+
         app_id_mapping.insert(app.id, new_app_id);
     }
 
@@ -3020,22 +3120,10 @@ async fn create_ephemeral_workspace(
         require_super_admin(&db, &authed.email).await?;
     }
 
-    #[cfg(not(feature = "enterprise"))]
-    _check_nb_of_workspaces(&db).await?;
-
     if *CLOUD_HOSTED {
-        let nb_workspaces = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
-            authed.email
-        )
-        .fetch_one(&db)
-        .await?;
-        if nb_workspaces.unwrap_or(0) >= 10 {
-            return Err(Error::BadRequest(
-                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
-                    .to_string(),
-            ));
-        }
+        return Err(Error::BadRequest(format!(
+            "Forking workspaces is not available on Cloud"
+        )));
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
@@ -3057,6 +3145,7 @@ async fn create_ephemeral_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
     sqlx::query!(
         "INSERT INTO workspace_settings
             (workspace_id, color)
@@ -3110,55 +3199,6 @@ async fn create_ephemeral_workspace(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "INSERT INTO group_
-            VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
-        ephemeral_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO usr_to_group
-            VALUES ($1, 'all', $2)",
-        ephemeral_id,
-        username
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        ephemeral_id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        ephemeral_id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        ephemeral_id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
-        ephemeral_id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // Insert ephemeral workspace parent relationship
     sqlx::query!(
         "INSERT INTO ephemeral_workspace (ephemeral_workspace_id, parent_workspace_id) VALUES ($1, $2)",
@@ -3169,12 +3209,30 @@ async fn create_ephemeral_workspace(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &ephemeral_id, &username, &db).await?;
+    clone_workspace_data(
+        &mut tx,
+        &nw.parent_workspace_id,
+        &ephemeral_id,
+        &username,
+        &db,
+    )
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
+           SELECT $1, email, is_admin, operator
+           FROM usr
+         WHERE workspace_id = $2",
+        &ephemeral_id,
+        &nw.parent_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
         &authed,
-        "workspaces.create_ephemeral",
+        "workspaces.create_fork",
         ActionKind::Create,
         &ephemeral_id,
         Some(nw.name.as_str()),
