@@ -675,12 +675,37 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			helpers.selectStep(parsedArgs.id)
 
 			// Emit UI intent to show early-stop tab when stop_after_if is configured
-			if (parsedArgs.stop_after_if !== undefined) {
-				emitUiIntent({
-					kind: 'open_module_tab',
-					componentId: `forloop-${parsedArgs.id}`,
-					tab: 'early-stop'
-				})
+			const module = helpers.getModules().find((m) => m.id === parsedArgs.id)
+			if (typeof parsedArgs.stop_after_if === 'boolean') {
+				if (module?.value?.type === 'forloopflow') {
+					emitUiIntent({
+						kind: 'open_module_tab',
+						componentId: `forloop-${parsedArgs.id}`,
+						tab: 'early-stop'
+					})
+				} else {
+					emitUiIntent({
+						kind: 'open_module_tab',
+						componentId: `flow-${parsedArgs.id}`,
+						tab: 'early-stop'
+					})
+				}
+			}
+
+			if (typeof parsedArgs.skip_if === 'boolean') {
+				if (module?.value?.type === 'forloopflow') {
+					emitUiIntent({
+						kind: 'open_module_tab',
+						componentId: `forloop-${parsedArgs.id}`,
+						tab: 'skip'
+					})
+				} else {
+					emitUiIntent({
+						kind: 'open_module_tab',
+						componentId: `flow-${parsedArgs.id}`,
+						tab: 'skip'
+					})
+				}
 			}
 
 			const optionsSet: string[] = []

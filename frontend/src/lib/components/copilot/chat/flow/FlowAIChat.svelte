@@ -174,7 +174,7 @@
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
-						newModule.value = oldModule.value
+						Object.assign(newModule, oldModule)
 					}
 
 					refreshStateStore(flowStore)
@@ -523,7 +523,7 @@
 			console.log('here ', opts)
 
 			// Handle stop_after_if
-			if (opts.stop_after_if !== undefined && opts.stop_after_if !== null) {
+			if (typeof opts.stop_after_if === 'boolean') {
 				if (opts.stop_after_if === false) {
 					module.stop_after_if = undefined
 				} else {
@@ -535,7 +535,7 @@
 			}
 
 			// Handle skip_if
-			if (opts.skip_if !== undefined && opts.skip_if !== null) {
+			if (typeof opts.skip_if === 'boolean') {
 				if (opts.skip_if === false) {
 					module.skip_if = undefined
 				} else {
