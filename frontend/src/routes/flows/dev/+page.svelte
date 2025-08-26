@@ -24,7 +24,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
-	import { TestSteps } from '$lib/components/flows/testSteps.svelte'
+	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
@@ -75,7 +75,7 @@
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 	const selectedIdStore = writable('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
@@ -94,7 +94,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -292,7 +292,7 @@
 						noEditor
 						on:applyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
-								testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+								stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 								$selectedIdStore = 'preprocessor'
 							} else {
 								previewArgsStore.val = ev.detail.args ?? {}
