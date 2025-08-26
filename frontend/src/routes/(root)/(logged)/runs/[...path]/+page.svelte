@@ -793,6 +793,9 @@
 	})
 
 	let tableTopBarWidth = $state(0)
+
+	const smallScreenWidth = 1920
+	const verySmallScreenWidth = 1200
 </script>
 
 <JobsLoader
@@ -910,7 +913,7 @@
 					on:jobs_suspended={() => {
 						jobsFilter('suspended')
 					}}
-					small={innerWidth < 1500}
+					small={innerWidth < smallScreenWidth}
 				/>
 			</div>
 
@@ -1008,7 +1011,8 @@
 						{usernames}
 						{folders}
 						{paths}
-						mobile={innerWidth < 1200}
+						mobile={innerWidth < verySmallScreenWidth}
+						small={innerWidth < smallScreenWidth}
 					/>
 				</div>
 			</div>

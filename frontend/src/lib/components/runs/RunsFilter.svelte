@@ -51,6 +51,7 @@
 			| 'worker'
 			| 'tag'
 			| 'schedulePath'
+		small?: boolean
 	}
 
 	let {
@@ -75,7 +76,8 @@
 		usernames = [],
 		folders = [],
 		allWorkspaces = $bindable(false),
-		filterBy = $bindable('path')
+		filterBy = $bindable('path'),
+		small = false
 	}: Props = $props()
 
 	let copyArgFilter = $state(argFilter)
@@ -463,51 +465,87 @@
 
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
-		<DropownSelect
-			btnClasses="min-w-24"
-			items={[
-				{
-					displayName: 'All',
-					action: () => {
-						jobKindsCat = 'all'
+		{#if small}
+			<DropownSelect
+				btnClasses="min-w-24"
+				items={[
+					{
+						displayName: 'All',
+						action: () => {
+							jobKindsCat = 'all'
+						},
+						id: 'all'
 					},
-					id: 'all'
-				},
-				{
-					displayName: 'Runs',
-					action: () => {
-						jobKindsCat = 'runs'
+					{
+						displayName: 'Runs',
+						action: () => {
+							jobKindsCat = 'runs'
+						},
+						id: 'runs',
+						extra: runsTooltip
 					},
-					id: 'runs',
-					extra: runsTooltip
-				},
-				{
-					displayName: 'Previews',
-					action: () => {
-						jobKindsCat = 'previews'
+					{
+						displayName: 'Previews',
+						action: () => {
+							jobKindsCat = 'previews'
+						},
+						id: 'previews',
+						extra: previewsTooltip
 					},
-					id: 'previews',
-					extra: previewsTooltip
-				},
-				{
-					displayName: 'Deps',
-					action: () => {
-						jobKindsCat = 'dependencies'
+					{
+						displayName: 'Deps',
+						action: () => {
+							jobKindsCat = 'dependencies'
+						},
+						id: 'dependencies',
+						extra: dependenciesTooltip
 					},
-					id: 'dependencies',
-					extra: dependenciesTooltip
-				},
-				{
-					displayName: 'Sync',
-					action: () => {
-						jobKindsCat = 'deploymentcallbacks'
-					},
-					id: 'deploymentcallbacks',
-					extra: syncTooltip
-				}
-			]}
-			selected={jobKindsCat}
-		/>
+					{
+						displayName: 'Sync',
+						action: () => {
+							jobKindsCat = 'deploymentcallbacks'
+						},
+						id: 'deploymentcallbacks',
+						extra: syncTooltip
+					}
+				]}
+				selected={jobKindsCat}
+			/>
+		{:else}
+			<ToggleButtonGroup bind:selected={jobKindsCat}>
+				{#snippet children({ item })}
+					<ToggleButton value="all" label="All" {item} />
+					<ToggleButton
+						value="runs"
+						label="Runs"
+						showTooltipIcon
+						tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+						{item}
+					/>
+					<ToggleButton
+						value="previews"
+						label="Previews"
+						showTooltipIcon
+						tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+						{item}
+					/>
+					<ToggleButton
+						value="dependencies"
+						label="Deps"
+						showTooltipIcon
+						tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+						{item}
+					/>
+					<ToggleButton
+						value="deploymentcallbacks"
+						label="Sync"
+						showTooltipIcon
+						tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		{/if}
 	</RunOption>
 	<!-- Status -->
 	<RunOption label="Status" for="status">
