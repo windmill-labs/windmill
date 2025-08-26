@@ -469,13 +469,15 @@
 												moduleId={flowModule.id}
 											/>
 											<DiffEditor
-												readOnly={true}
 												open={false}
 												bind:this={diffEditor}
 												automaticLayout
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 												className="h-full"
+												onCodeChange={(code) => {
+													editor?.setCode(code)
+												}}
 												buttons={diffMode ? diffButtons : []}
 											/>
 										{/key}

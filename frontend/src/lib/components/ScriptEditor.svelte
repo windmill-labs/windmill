@@ -627,11 +627,13 @@
 					/>
 					<DiffEditor
 						className="h-full"
-						readOnly={true}
 						bind:this={diffEditor}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
+						onCodeChange={(newCode: string) => {
+							editor?.setCode(newCode)
+						}}
 						buttons={diffMode
 							? [
 									{

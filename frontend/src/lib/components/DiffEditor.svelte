@@ -32,6 +32,7 @@
 		defaultModified?: string
 		readOnly?: boolean
 		buttons?: ButtonProp[]
+		onCodeChange?: (code: string) => void
 	}
 
 	let {
@@ -44,12 +45,26 @@
 		defaultOriginal = undefined,
 		defaultModified = undefined,
 		readOnly = false,
-		buttons = []
+		buttons = [],
+		onCodeChange
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
 	let diffDivEl: HTMLDivElement | null = $state(null)
 	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
+	let onChangeListener: { dispose: () => void } | undefined = $state(undefined)
+
+	function addOnChangeListener() {
+		if (onChangeListener) {
+			onChangeListener.dispose()
+		}
+		const model = diffEditor?.getModel()?.modified
+		if (model) {
+			onChangeListener = model.onDidChangeContent(() => {
+				onCodeChange?.(getModified())
+			})
+		}
+	}
 
 	async function loadDiffEditor() {
 		await initializeVscode()
@@ -97,6 +112,7 @@
 		if (modified) {
 			setModified(modified)
 		}
+		addOnChangeListener()
 	}
 
 	export function setOriginal(code: string) {
@@ -141,6 +157,7 @@
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
+				onChangeListener?.dispose?.()
 				diffEditor?.dispose()
 			}
 		}

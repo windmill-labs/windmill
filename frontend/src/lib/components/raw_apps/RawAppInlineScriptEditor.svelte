@@ -206,7 +206,6 @@
 				/>
 
 				<DiffEditor
-					readOnly={true}
 					open={false}
 					bind:this={diffEditor}
 					className="h-full"
