@@ -348,12 +348,17 @@ pub async fn handle_dependency_job(
                 ));
             }
 
-            let hash = job.runnable_id.unwrap_or(ScriptHash(0));
+            let current_hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            if triggered_by_relative_import {
+            // The hash of the script that needs lock be updated
+            // Either current_hash or new one derived from NewScript with current_hash as parent_hash
+            // TODO: Test for other languages
+            // TODO: Test with empty lockfile
+            let update_hash = if triggered_by_relative_import {
+                let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
                 // 2 workers, one script that depend on another in python
@@ -367,14 +372,14 @@ pub async fn handle_dependency_job(
                 let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
                     "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
                 )
-                .bind(&hash.0)
+                .bind(&current_hash.0)
                 .bind(w_id)
-                .fetch_one(db)
+                .fetch_one(&mut *tx)
                 .await?;
 
                 let ns = NewScript {
                     path: script_info.path,
-                    parent_hash: Some(hash),
+                    parent_hash: dbg!(Some(current_hash)),
                     summary: script_info.summary,
                     description: script_info.description,
                     content: script_info.content,
@@ -407,7 +412,7 @@ pub async fn handle_dependency_job(
                     assets: script_info.assets,
                 };
 
-                let new_hash = hash_script(&ns);
+                let new_hash = dbg!(hash_script(&ns));
 
                 sqlx::query!("
     INSERT INTO script
@@ -427,30 +432,40 @@ pub async fn handle_dependency_job(
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ",
-                new_hash, hash.0, w_id, &content).execute(db).await?;
+                new_hash, current_hash.0, w_id, &content).execute(db).await?;
 
                 // Archive current
                 sqlx::query!(
                     "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
-                    hash.0,
+                    current_hash.0,
                     w_id
                 )
-                .execute(db)
+                .execute(&mut *tx)
                 .await?;
+
+                tx.commit().await?;
+                ScriptHash(new_hash)
             } else {
-                // Patching existing script lock
-                sqlx::query!(
-                    "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                    &content,
-                    &hash.0,
-                    w_id
-                )
-                .execute(db)
-                .await?;
+                // We do not create new row for this update
+                // That means we can keep current hash and just update lock
+                current_hash
             };
 
+            // Patching script lock
+            // Why not do as a single run in the big query above?:
+            // We can't update the lock by inserting it, it needs to be UPDATE.
+            // Otherwise configured pg trigger will not work and will not invalidate cache.
+            sqlx::query!(
+                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                &content,
+                &update_hash.0,
+                w_id
+            )
+            .execute(db)
+            .await?;
+
             // `lock` has been updated; invalidate the cache.
-            cache::script::invalidate(hash);
+            cache::script::invalidate(current_hash);
 
             // TODO
             if let Err(e) = handle_deployment_metadata(
@@ -459,8 +474,10 @@ pub async fn handle_dependency_job(
                 &db,
                 &w_id,
                 DeployedObject::Script {
-                    hash,
+                    // TODO:
+                    hash: current_hash,
                     path: script_path.to_string(),
+                    // TODO:
                     parent_path: parent_path.clone(),
                 },
                 deployment_message.clone(),
@@ -635,7 +652,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = parent_path {
-            // TODO: What is this?
+            // TODO: What is this used for?
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
@@ -644,6 +661,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&already_visited),
         );
 
+        // TODO: Could this affect the things we don't want this affect?
+        // TODO: Are the arguments being blindly forwarded? Can this be passed to dependency job that has no dependencies update
         args.insert(
             "triggered_by_relative_import".to_string(),
             to_raw_value(&true),
