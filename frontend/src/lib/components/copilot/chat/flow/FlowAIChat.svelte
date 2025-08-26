@@ -193,9 +193,8 @@
 							$currentEditor.hideDiffMode()
 						}
 
-						const cloned = structuredClone($state.snapshot(oldModule))
 						Object.keys(newModule).forEach((k) => delete newModule[k])
-						Object.assign(newModule, cloned)
+						Object.assign(newModule, $state.snapshot(oldModule))
 					}
 
 					refreshStateStore(flowStore)
