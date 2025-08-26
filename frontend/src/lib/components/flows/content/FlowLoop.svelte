@@ -27,6 +27,7 @@
 	import PropPickerWrapper, { CONNECT } from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -49,6 +50,13 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let selected: string = $state('early-stop')
+
+	// UI Intent handling for AI tool control
+	useUiIntent(`forloopflow-${mod.id}`, {
+		openTab: (tab) => {
+			selected = tab
+		}
+	})
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	flowPropPickerConfig.set(undefined)
