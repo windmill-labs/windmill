@@ -38,6 +38,9 @@ use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
 
+// TODO:
+// Add fallback to disable relative imports schema
+
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
 
@@ -242,6 +245,7 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
+    dbg!(&job);
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
@@ -357,7 +361,7 @@ pub async fn handle_dependency_job(
             // Either current_hash or new one derived from NewScript with current_hash as parent_hash
             // TODO: Test for other languages
             // TODO: Test with empty lockfile
-            let update_hash = if triggered_by_relative_import {
+            if triggered_by_relative_import {
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -444,28 +448,21 @@ pub async fn handle_dependency_job(
                 .await?;
 
                 tx.commit().await?;
-                ScriptHash(new_hash)
             } else {
                 // We do not create new row for this update
                 // That means we can keep current hash and just update lock
-                current_hash
+                sqlx::query!(
+                    "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &content,
+                    &current_hash.0,
+                    w_id
+                )
+                .execute(db)
+                .await?;
+
+                // `lock` has been updated; invalidate the cache.
+                cache::script::invalidate(current_hash);
             };
-
-            // Patching script lock
-            // Why not do as a single run in the big query above?:
-            // We can't update the lock by inserting it, it needs to be UPDATE.
-            // Otherwise configured pg trigger will not work and will not invalidate cache.
-            sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                &content,
-                &update_hash.0,
-                w_id
-            )
-            .execute(db)
-            .await?;
-
-            // `lock` has been updated; invalidate the cache.
-            cache::script::invalidate(current_hash);
 
             // TODO
             if let Err(e) = handle_deployment_metadata(
@@ -476,6 +473,8 @@ pub async fn handle_dependency_job(
                 DeployedObject::Script {
                     // TODO:
                     hash: current_hash,
+                    // hash: current_hash,
+                    // hash: ScriptHash(0),
                     path: script_path.to_string(),
                     // TODO:
                     parent_path: parent_path.clone(),
