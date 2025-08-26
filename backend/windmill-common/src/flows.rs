@@ -12,6 +12,7 @@ use std::{
     u8,
 };
 
+use anyhow::Context;
 use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::types::Json;
@@ -137,6 +138,65 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
+impl FlowValue {
+    pub fn get_flow_module_at_step(&self, step: Step) -> anyhow::Result<&FlowModule> {
+        let flow_module = match step {
+            Step::PreprocessorStep => self
+                .preprocessor_module
+                .as_deref()
+                .with_context(|| format!("no preprocessor module")),
+            Step::Step(i) => self
+                .modules
+                .get(i)
+                .with_context(|| format!("no module found at index: {i}")),
+            Step::FailureStep => self
+                .failure_module
+                .as_deref()
+                .with_context(|| format!("no failure module")),
+        };
+
+        flow_module
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Step {
+    Step(usize),
+    PreprocessorStep,
+    FailureStep,
+}
+
+impl Step {
+    pub fn from_i32_and_len(step: i32, len: usize) -> Self {
+        if step < 0 {
+            Step::PreprocessorStep
+        } else if (step as usize) < len {
+            Step::Step(step as usize)
+        } else {
+            Step::FailureStep
+        }
+    }
+
+    pub fn get_step_index(&self) -> Option<usize> {
+        match self {
+            Step::Step(index) => Some(*index),
+            _ => None,
+        }
+    }
+
+    pub fn is_index_step(&self) -> bool {
+        matches!(self, Step::Step(_))
+    }
+
+    pub fn is_preprocessor_step(&self) -> bool {
+        matches!(self, Step::PreprocessorStep)
+    }
+
+    pub fn is_failure_step(&self) -> bool {
+        matches!(self, Step::FailureStep)
+    }
+}
+
 #[derive(Default, Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
@@ -145,10 +205,17 @@ pub struct StopAfterIf {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+pub struct RetryIf {
+    pub expr: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Retry {
     pub constant: ConstantDelay,
     pub exponential: ExponentialDelay,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_if: Option<RetryIf>,
 }
 
 impl Retry {
@@ -156,7 +223,7 @@ impl Retry {
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
     pub fn interval(&self, previous_attempts: u32, silent: bool) -> Option<Duration> {
-        let Self { constant, exponential } = self;
+        let Self { constant, exponential, .. } = self;
 
         if previous_attempts < constant.attempts {
             Some(Duration::from_secs(constant.seconds as u64))
