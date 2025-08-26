@@ -74,11 +74,16 @@
 	let showLoading = $state(false)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 	let natsResourcePath = $state('')
-	let subjects = $state([''])
-	let useJetstream = $state(false)
-	let streamName = $state('')
-	let consumerName = $state('')
 	let initialConfig: Record<string, any> | undefined = undefined
+	let natsCfg: {
+		subjects: string[]
+		use_jetstream: boolean
+		stream_name?: string
+		consumer_name?: string
+	} = $state({
+		subjects: [],
+		use_jetstream: false
+	})
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
@@ -140,10 +145,13 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			natsResourcePath = nDefaultValues?.nats_resource_path ?? ''
-			subjects = nDefaultValues?.subjects ?? ['']
-			useJetstream = nDefaultValues?.use_jetstream ?? false
-			streamName = useJetstream ? (nDefaultValues?.stream_name ?? '') : undefined
-			consumerName = useJetstream ? (nDefaultValues?.consumer_name ?? '') : undefined
+			const useJetstream = nDefaultValues?.use_jetstream ?? false
+			natsCfg = {
+				subjects: nDefaultValues?.subjects ?? [''],
+				use_jetstream: useJetstream,
+				stream_name: useJetstream ? (nDefaultValues?.stream_name ?? '') : undefined,
+				consumer_name: useJetstream ? (nDefaultValues?.consumer_name ?? '') : undefined
+			}
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -169,10 +177,13 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		natsResourcePath = cfg?.nats_resource_path
-		streamName = cfg?.stream_name
-		consumerName = cfg?.consumer_name
-		subjects = cfg?.subjects || ['']
-		useJetstream = cfg?.use_jetstream || false
+		const useJetstream = cfg?.use_jetstream || false
+		natsCfg = {
+			subjects: cfg?.subjects || [''],
+			use_jetstream: useJetstream,
+			stream_name: useJetstream ? cfg?.stream_name || '' : undefined,
+			consumer_name: useJetstream ? cfg?.consumer_name || '' : undefined
+		}
 		enabled = cfg?.enabled
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
@@ -201,10 +212,10 @@
 			is_flow,
 			enabled,
 			nats_resource_path: natsResourcePath,
-			stream_name: streamName,
-			consumer_name: consumerName,
-			subjects,
-			use_jetstream: useJetstream,
+			stream_name: natsCfg.stream_name,
+			consumer_name: natsCfg.consumer_name,
+			subjects: natsCfg.subjects,
+			use_jetstream: natsCfg.use_jetstream,
 			error_handler_path,
 			error_handler_args,
 			retry
@@ -390,10 +401,7 @@
 			<NatsTriggersConfigSection
 				{path}
 				bind:natsResourcePath
-				bind:subjects
-				bind:useJetstream
-				bind:streamName
-				bind:consumerName
+				bind:natsCfg
 				on:valid-config={({ detail }) => {
 					isValid = detail
 				}}
