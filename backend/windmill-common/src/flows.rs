@@ -20,11 +20,11 @@ use sqlx::types::JsonRawValue;
 use crate::{
     assets::AssetWithAltAccessType,
     cache,
+    db::DB,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
-    DB,
 };
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
