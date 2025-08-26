@@ -937,33 +937,26 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								const selectedObj = oneOf?.find((o) => o.title == detail)
-								const prevValueKeys = Object.keys(selectedObj?.properties ?? {})
+								const selectedObjProperties =
+									oneOf?.find((o) => o.title == detail)?.properties ?? {}
+								const newValueKeys = Object.keys(selectedObjProperties)
 								const toKeep = {}
-								for (const key of prevValueKeys) {
+								for (const key of newValueKeys) {
+									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
+									if (
+										selectedObjProperties[key]?.enum &&
+										value &&
+										value[key] !== undefined &&
+										!selectedObjProperties[key].enum.includes(value[key])
+									) {
+										continue
+									}
 									toKeep[key] = value[key]
 								}
 								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 									? 'kind'
 									: 'label'
 								value = { ...toKeep, [tagKey]: detail }
-
-								// Check if there is a select (enum) in the newly selected oneOf
-								if (selectedObj && selectedObj.properties) {
-									for (const [key, prop] of Object.entries(selectedObj.properties)) {
-										if (
-											!['kind', 'label'].includes(key) &&
-											prop &&
-											prop.enum &&
-											Array.isArray(prop.enum)
-										) {
-											// If the current value for this key is not in the enum, reset it
-											if (value && value[key] !== undefined && !prop.enum.includes(value[key])) {
-												value[key] = undefined
-											}
-										}
-									}
-								}
 							}}
 						>
 							{#snippet children({ item })}
