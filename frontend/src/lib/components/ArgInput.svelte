@@ -937,9 +937,8 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								const prevValueKeys = Object.keys(
-									oneOf?.find((o) => o.title == detail)?.properties ?? {}
-								)
+								const selectedObj = oneOf?.find((o) => o.title == detail)
+								const prevValueKeys = Object.keys(selectedObj?.properties ?? {})
 								const toKeep = {}
 								for (const key of prevValueKeys) {
 									toKeep[key] = value[key]
@@ -948,6 +947,23 @@
 									? 'kind'
 									: 'label'
 								value = { ...toKeep, [tagKey]: detail }
+
+								// Check if there is a select (enum) in the newly selected oneOf
+								if (selectedObj && selectedObj.properties) {
+									for (const [key, prop] of Object.entries(selectedObj.properties)) {
+										if (
+											!['kind', 'label'].includes(key) &&
+											prop &&
+											prop.enum &&
+											Array.isArray(prop.enum)
+										) {
+											// If the current value for this key is not in the enum, reset it
+											if (value && value[key] !== undefined && !prop.enum.includes(value[key])) {
+												value[key] = undefined
+											}
+										}
+									}
+								}
 							}}
 						>
 							{#snippet children({ item })}
