@@ -571,6 +571,7 @@ pub async fn install_go_dependencies(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env("PATH", PATH_ENV.as_str())
         .env("GOPATH", {
             #[cfg(unix)]
             {
