@@ -15,6 +15,8 @@
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import RunOption from './RunOption.svelte'
+	import DropownSelect from '../DropownSelect.svelte'
+	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 
 	interface Props {
 		// Filters
@@ -117,6 +119,39 @@
 			untrack(() => autosetFilter())
 	})
 </script>
+
+{#snippet runsTooltip()}
+	<TooltipV2 placement="right">
+		{#snippet text()}
+			'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they
+			start), they have been triggered through the UI, a schedule or webhook'
+		{/snippet}
+	</TooltipV2>
+{/snippet}
+{#snippet previewsTooltip()}
+	<TooltipV2 placement="right">
+		{#snippet text()}
+			'Previews are jobs that have been started in the editor as "Tests"'
+		{/snippet}
+	</TooltipV2>
+{/snippet}
+{#snippet dependenciesTooltip()}
+	<TooltipV2 placement="right">
+		{#snippet text()}
+			'Deploying a script, flow or an app launch a dependency job that create and then attach the
+			lockfile to the deployed item. This mechanism ensure that logic is always executed with the
+			exact same direct and indirect dependencies.'
+		{/snippet}
+	</TooltipV2>
+{/snippet}
+{#snippet syncTooltip()}
+	<TooltipV2 placement="right">
+		{#snippet text()}
+			'Sync jobs that are triggered on every script deployment to sync the workspace with the Git
+			repository configured in the the workspace settings'
+		{/snippet}
+	</TooltipV2>
+{/snippet}
 
 {#if !mobile}
 	{#if $workspaceStore == 'admins'}
@@ -428,39 +463,51 @@
 
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
-		<ToggleButtonGroup bind:selected={jobKindsCat}>
-			{#snippet children({ item })}
-				<ToggleButton value="all" label="All" {item} />
-				<ToggleButton
-					value="runs"
-					label="Runs"
-					showTooltipIcon
-					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-					{item}
-				/>
-				<ToggleButton
-					value="previews"
-					label="Previews"
-					showTooltipIcon
-					tooltip="Previews are jobs that have been started in the editor as 'Tests'"
-					{item}
-				/>
-				<ToggleButton
-					value="dependencies"
-					label="Deps"
-					showTooltipIcon
-					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-					{item}
-				/>
-				<ToggleButton
-					value="deploymentcallbacks"
-					label="Sync"
-					showTooltipIcon
-					tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
-					{item}
-				/>
-			{/snippet}
-		</ToggleButtonGroup>
+		<DropownSelect
+			btnClasses="min-w-24"
+			items={[
+				{
+					displayName: 'All',
+					action: () => {
+						jobKindsCat = 'all'
+					},
+					id: 'all'
+				},
+				{
+					displayName: 'Runs',
+					action: () => {
+						jobKindsCat = 'runs'
+					},
+					id: 'runs',
+					extra: runsTooltip
+				},
+				{
+					displayName: 'Previews',
+					action: () => {
+						jobKindsCat = 'previews'
+					},
+					id: 'previews',
+					extra: previewsTooltip
+				},
+				{
+					displayName: 'Deps',
+					action: () => {
+						jobKindsCat = 'dependencies'
+					},
+					id: 'dependencies',
+					extra: dependenciesTooltip
+				},
+				{
+					displayName: 'Sync',
+					action: () => {
+						jobKindsCat = 'deploymentcallbacks'
+					},
+					id: 'deploymentcallbacks',
+					extra: syncTooltip
+				}
+			]}
+			selected={jobKindsCat}
+		/>
 	</RunOption>
 	<!-- Status -->
 	<RunOption label="Status" for="status">
@@ -537,9 +584,8 @@
 					size="xs"
 					nonCaptureEvent={true}
 					startIcon={{ icon: ListFilterPlus }}
-				>
-					More filters
-				</Button>
+					iconOnly
+				></Button>
 			{/snippet}
 
 			{#snippet content()}

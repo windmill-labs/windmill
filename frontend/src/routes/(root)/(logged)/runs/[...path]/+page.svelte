@@ -851,9 +851,9 @@
 	</div>
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- Header -->
-		<div class="py-2 px-4 flex flex-row gap-4 border-b justify-between">
-			<div class="flex flex-row gap-1 items-center">
+		<!-- Filters -->
+		<div class="px-4 py-2 flex items-start gap-x-6 gap-y-4 flex-row flex-wrap border-b">
+			<div class="flex flex-row gap-1 items-center mr-8">
 				<h1
 					class={twMerge(
 						'!text-2xl font-semibold leading-6 tracking-tight',
@@ -884,10 +884,6 @@
 					}}
 				/>
 			</div>
-		</div>
-
-		<!-- Filters -->
-		<div class="px-4 py-2 flex items-start gap-x-8 gap-y-2 flex-row flex-wrap border-b">
 			<!-- Dates -->
 			<div class="flex flex-row gap-1">
 				<RunOption label="Min datetimes" for="min-datetimes">
@@ -895,7 +891,7 @@
 						type="text"
 						value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
 						disabled
-						class="min-w-[300px] relative"
+						class="min-w-[200px] relative"
 						name="min-datetimes"
 					/>
 
@@ -925,7 +921,7 @@
 						type="text"
 						value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 						name="max-datetimes"
-						class="min-w-[300px]"
+						class="min-w-[200px]"
 						disabled
 					/>
 					<CalendarPicker
@@ -1012,7 +1008,7 @@
 		<!-- Graph -->
 		<div class="p-2 px-4 pt-12 w-full border-b">
 			<div class="relative z-10">
-				<div class="absolute left-0 -top-10 flex flex-row gap-2 items-center">
+				<div class="absolute left-0 -top-10 flex flex-row gap-2 items-center min-w-24">
 					<DropownSelect
 						items={[
 							{

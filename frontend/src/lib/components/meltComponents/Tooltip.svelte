@@ -22,7 +22,8 @@
 		states: { open }
 	} = createTooltip({
 		positioning: {
-			placement
+			placement,
+			gutter: 32
 		},
 		openDelay,
 		closeDelay,
