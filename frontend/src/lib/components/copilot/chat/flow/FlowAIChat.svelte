@@ -98,6 +98,14 @@
 				if (affectedModule.action === 'removed') {
 					deleteStep(id)
 				}
+				// Hide diff editor if the module is a rawscript
+				if (
+					affectedModule.action === 'modified' &&
+					$currentEditor?.type === 'script' &&
+					$currentEditor.stepId === id
+				) {
+					$currentEditor.hideDiffMode()
+				}
 			}
 			affectedModules = {}
 		},
