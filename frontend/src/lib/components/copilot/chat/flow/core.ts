@@ -648,18 +648,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			helpers.selectStep(parsedArgs.id)
 
-			const optionsSet: string[] = []
-			if (parsedArgs.skip_failures !== undefined)
-				optionsSet.push(`skip_failures: ${parsedArgs.skip_failures}`)
-			if (parsedArgs.parallel !== undefined) optionsSet.push(`parallel: ${parsedArgs.parallel}`)
-			if (parsedArgs.parallelism !== undefined)
-				optionsSet.push(`parallelism: ${parsedArgs.parallelism}`)
-
 			const message = `Set forloop '${parsedArgs.id}' options`
 			toolCallbacks.setToolStatus(toolId, {
 				content: message
 			})
-			return message + (optionsSet.length > 0 ? ': ' + optionsSet.join(', ') : '')
+			return `${message}: ${JSON.stringify(parsedArgs)}`
 		}
 	},
 	{
@@ -676,51 +669,33 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Emit UI intent to show early-stop tab when stop_after_if is configured
 			const module = helpers.getModules().find((m) => m.id === parsedArgs.id)
+			const moduleType = module?.value?.type ?? ''
+			if (!moduleType) {
+				throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
+			}
+			const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
+			const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
 			if (typeof parsedArgs.stop_after_if === 'boolean') {
-				if (module?.value?.type === 'forloopflow') {
-					emitUiIntent({
-						kind: 'open_module_tab',
-						componentId: `forloop-${parsedArgs.id}`,
-						tab: 'early-stop'
-					})
-				} else {
-					emitUiIntent({
-						kind: 'open_module_tab',
-						componentId: `flow-${parsedArgs.id}`,
-						tab: 'early-stop'
-					})
-				}
+				emitUiIntent({
+					kind: 'open_module_tab',
+					componentId: `${prefix}-${parsedArgs.id}`,
+					tab: 'early-stop'
+				})
 			}
 
 			if (typeof parsedArgs.skip_if === 'boolean') {
-				if (module?.value?.type === 'forloopflow') {
-					emitUiIntent({
-						kind: 'open_module_tab',
-						componentId: `forloop-${parsedArgs.id}`,
-						tab: 'skip'
-					})
-				} else {
-					emitUiIntent({
-						kind: 'open_module_tab',
-						componentId: `flow-${parsedArgs.id}`,
-						tab: 'skip'
-					})
-				}
-			}
-
-			const optionsSet: string[] = []
-			if (parsedArgs.stop_after_if !== undefined && parsedArgs.stop_after_if !== null) {
-				optionsSet.push(`stop_after_if: ${parsedArgs.stop_after_if_expr ?? 'false'}`)
-			}
-			if (parsedArgs.skip_if !== undefined && parsedArgs.skip_if !== null) {
-				optionsSet.push(`skip_if: ${parsedArgs.skip_if_expr ?? 'false'}`)
+				emitUiIntent({
+					kind: 'open_module_tab',
+					componentId: `${prefix}-${parsedArgs.id}`,
+					tab: 'skip'
+				})
 			}
 
 			const message = `Set module '${parsedArgs.id}' control options`
 			toolCallbacks.setToolStatus(toolId, {
 				content: message
 			})
-			return message + (optionsSet.length > 0 ? ': ' + optionsSet.join(', ') : '')
+			return `${message}: ${JSON.stringify(parsedArgs)}`
 		}
 	},
 	{

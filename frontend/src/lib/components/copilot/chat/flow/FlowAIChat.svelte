@@ -174,7 +174,7 @@
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
-						Object.assign(newModule, oldModule)
+						Object.assign(newModule, $state.snapshot(oldModule))
 					}
 
 					refreshStateStore(flowStore)
@@ -519,8 +519,6 @@
 			if (!module) {
 				throw new Error('Module not found')
 			}
-
-			console.log('here ', opts)
 
 			// Handle stop_after_if
 			if (typeof opts.stop_after_if === 'boolean') {
