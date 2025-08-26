@@ -112,7 +112,9 @@
 		if (modified) {
 			setModified(modified)
 		}
-		addOnChangeListener()
+		if (onCodeChange) {
+			addOnChangeListener()
+		}
 	}
 
 	export function setOriginal(code: string) {
