@@ -627,6 +627,7 @@
 					/>
 					<DiffEditor
 						className="h-full"
+						readOnly={true}
 						bind:this={diffEditor}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}

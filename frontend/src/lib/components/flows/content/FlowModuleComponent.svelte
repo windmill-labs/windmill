@@ -469,6 +469,7 @@
 												moduleId={flowModule.id}
 											/>
 											<DiffEditor
+												readOnly={true}
 												open={false}
 												bind:this={diffEditor}
 												automaticLayout
