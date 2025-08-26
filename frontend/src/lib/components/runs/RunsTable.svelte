@@ -200,7 +200,7 @@
 >
 	<div bind:clientHeight={headerHeight}>
 		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2 pr-4">
-			<div class="w-[25%] text-2xs pl-2 flex flex-row items-center gap-2 -my-2">
+			<div class="w-[25%] text-2xs pl-4 flex flex-row items-center gap-2">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -252,7 +252,7 @@
 
 						{#if jobOrDate}
 							{#if jobOrDate?.type === 'date'}
-								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-4">
 									{jobOrDate.date}
 								</div>
 							{:else}

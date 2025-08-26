@@ -109,7 +109,7 @@
 	}}
 >
 	<!-- Flow status-->
-	<div class="w-[5%] flex justify-center">
+	<div class="w-[8%] flex justify-start pl-4">
 		{#if selectionMode && isJobSelectable(selectionMode)(job)}
 			<div class="px-2">
 				<input type="checkbox" checked={selected} />
@@ -157,7 +157,7 @@
 	</div>
 
 	<!-- Job time-->
-	<div class="w-[20%] flex justify-start pr-4">
+	<div class="w-[17%] flex justify-start pr-4">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -194,99 +194,97 @@
 
 	<!-- Job path-->
 	<div class="w-[35%] flex justify-start flex-col pr-4">
-		<div class="flex flex-row text-sm grow min-h-2">
-			{#if job === undefined}
-				No job found
-			{:else}
-				{@const JobKindIcon = getJobKindIcon(job.job_kind)}
-				<div class="flex flex-row gap-3 min-w-0 items-center h-full">
-					<Tooltip class="h-full">
-						<div class="relative">
-							{#if job && job.parent_job}
-								<span class="absolute -top-1 -right-1 text-xs text-blue-500">*</span>
-							{/if}
-							<JobKindIcon size={14} />
-						</div>
-						{#snippet text()}
-							<span>
-								{#if job && job.job_kind}
-									{job.job_kind}
-								{/if}
-								{#if job && job.is_flow_step && job.parent_job}
-									<br /> Step of flow
-									<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-										{truncateRev(job.parent_job, 10)}
-									</a>
-								{:else if job && job.parent_job}
-									<br /> Parent
-									<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-										{truncateRev(job.parent_job, 10)}
-									</a>
-								{/if}
-							</span>
-						{/snippet}
-					</Tooltip>
-
-					<div class="whitespace-nowrap text-xs text-secondary truncate">
-						{#if job.script_path}
-							<div class="flex flex-row gap-1 items-center">
-								{#if isExternal}
-									<span class="w-30 justify-center">-</span>
-								{:else}
-									<span class="truncate w-30">
-										{job.script_path}
-									</span>
-								{/if}
-								{#if !isExternal || job.script_path?.startsWith('f/')}
-									{@const isFolder = job.script_path?.startsWith('f/')}
-									<DropdownV2
-										items={() => {
-											const items = isExternal
-												? []
-												: [
-														{
-															displayName: `Filter by path: ${job.script_path}`,
-															action: () => dispatch('filterByPath', job.script_path),
-															disabled: isExternal
-														}
-													]
-											if (isFolder) {
-												const folder = job.script_path?.split('/')[1]
-												return [
-													{
-														displayName: `Filter by folder: ${folder}`,
-														action: () => dispatch('filterByFolder', folder)
-													},
-													...items
-												]
-											}
-											return items
-										}}
-										class="w-fit"
-									>
-										{#snippet buttonReplacement()}
-											<div
-												class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
-											>
-												<ListFilterPlus size={14} />
-											</div>
-										{/snippet}
-									</DropdownV2>
-								{/if}
-							</div>
-						{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
-						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
-								lock deps of {truncateHash(job.script_hash ?? '')}
-							</a>
-						{:else if 'job_kind' in job && job.job_kind == 'identity'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
+		{#if job === undefined}
+			No job found
+		{:else}
+			{@const JobKindIcon = getJobKindIcon(job.job_kind)}
+			<div class="flex flex-row gap-3 min-w-0 items-center h-full">
+				<Tooltip class="h-full">
+					<div class="relative">
+						{#if job && job.parent_job}
+							<span class="absolute -top-1 -right-1 text-xs text-blue-500">*</span>
 						{/if}
+						<JobKindIcon size={14} />
 					</div>
+					{#snippet text()}
+						<span>
+							{#if job && job.job_kind}
+								{job.job_kind}
+							{/if}
+							{#if job && job.is_flow_step && job.parent_job}
+								<br /> Step of flow
+								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+									{truncateRev(job.parent_job, 10)}
+								</a>
+							{:else if job && job.parent_job}
+								<br /> Parent
+								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+									{truncateRev(job.parent_job, 10)}
+								</a>
+							{/if}
+						</span>
+					{/snippet}
+				</Tooltip>
+
+				<div class="whitespace-nowrap text-xs text-secondary truncate">
+					{#if job.script_path}
+						<div class="flex flex-row gap-1 items-center">
+							{#if isExternal}
+								<span class="w-30 justify-center">-</span>
+							{:else}
+								<span class="truncate w-30">
+									{job.script_path}
+								</span>
+							{/if}
+							{#if !isExternal || job.script_path?.startsWith('f/')}
+								{@const isFolder = job.script_path?.startsWith('f/')}
+								<DropdownV2
+									items={() => {
+										const items = isExternal
+											? []
+											: [
+													{
+														displayName: `Filter by path: ${job.script_path}`,
+														action: () => dispatch('filterByPath', job.script_path),
+														disabled: isExternal
+													}
+												]
+										if (isFolder) {
+											const folder = job.script_path?.split('/')[1]
+											return [
+												{
+													displayName: `Filter by folder: ${folder}`,
+													action: () => dispatch('filterByFolder', folder)
+												},
+												...items
+											]
+										}
+										return items
+									}}
+									class="w-fit"
+								>
+									{#snippet buttonReplacement()}
+										<div
+											class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+										>
+											<ListFilterPlus size={14} />
+										</div>
+									{/snippet}
+								</DropdownV2>
+							{/if}
+						</div>
+					{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
+						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
+					{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
+						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
+							lock deps of {truncateHash(job.script_hash ?? '')}
+						</a>
+					{:else if 'job_kind' in job && job.job_kind == 'identity'}
+						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
+					{/if}
 				</div>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 	{#if containsLabel}
 		<div class="w-3/12 flex justify-start px-0.5">

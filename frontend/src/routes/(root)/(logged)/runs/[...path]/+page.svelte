@@ -791,6 +791,8 @@
 		if (!selectionMode) return 0
 		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
 	})
+
+	let tableTopBarWidth = $state(0)
 </script>
 
 <JobsLoader
@@ -875,44 +877,44 @@
 	</div>
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- Filters -->
-		<div class="flex flex-row items-start w-full border-b px-4">
-			<div class="flex flex-row gap-1 items-center mr-8">
-				<h1
-					class={twMerge(
-						'!text-2xl font-semibold leading-6 tracking-tight pt-4',
-						$userStore?.operator ? 'pl-10' : ''
-					)}
-				>
-					Runs
-				</h1>
+		<!-- Header and filters -->
+		<div class="flex flex-row items-start w-full border-b px-4 gap-8">
+			<div class="flex flex-row items-center h-full gap-6">
+				<div class="flex flex-row items-center gap-1">
+					<h1
+						class={twMerge(
+							'!text-2xl font-semibold leading-6 tracking-tight',
+							$userStore?.operator ? 'pl-10' : ''
+						)}
+					>
+						Runs
+					</h1>
 
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-				>
-					All past and schedule executions of scripts and flows, including previews. You only see
-					your own runs or runs of groups you belong to unless you are an admin.
-				</Tooltip>
-			</div>
-
-			<div
-				class="py-2 flex items-start gap-x-4 gap-y-2 flex-row flex-wrap grow min-w-0 justify-end"
-			>
-				<!-- Queue -->
-				<div class="flex flex-row gap-4">
-					<RunsQueue
-						{success}
-						{queue_count}
-						{suspended_count}
-						on:jobs_waiting={() => {
-							jobsFilter('waiting')
-						}}
-						on:jobs_suspended={() => {
-							jobsFilter('suspended')
-						}}
-					/>
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+					>
+						All past and schedule executions of scripts and flows, including previews. You only see
+						your own runs or runs of groups you belong to unless you are an admin.
+					</Tooltip>
 				</div>
 
+				<!-- Queue -->
+
+				<RunsQueue
+					{success}
+					{queue_count}
+					{suspended_count}
+					on:jobs_waiting={() => {
+						jobsFilter('waiting')
+					}}
+					on:jobs_suspended={() => {
+						jobsFilter('suspended')
+					}}
+					small={innerWidth < 1500}
+				/>
+			</div>
+
+			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
 				<div class="flex flex-row gap-1">
 					<RunOption label="Min datetimes" for="min-datetimes">
@@ -920,7 +922,6 @@
 							type="text"
 							value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
 							disabled
-							class="min-w-[200px] relative"
 							name="min-datetimes"
 						/>
 
@@ -950,7 +951,6 @@
 							type="text"
 							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 							name="max-datetimes"
-							class="min-w-[200px]"
 							disabled
 						/>
 						<CalendarPicker
@@ -1008,7 +1008,7 @@
 						{usernames}
 						{folders}
 						{paths}
-						mobile={innerWidth < 900}
+						mobile={innerWidth < 1200}
 					/>
 				</div>
 			</div>
@@ -1130,7 +1130,11 @@
 			<Splitpanes>
 				<Pane size={60} minSize={40}>
 					<div class="flex flex-col h-full">
-						<div class="flex flex-row gap-4 items-center px-2 py-1">
+						<!-- Runs table top bar -->
+						<div
+							class="flex flex-row gap-4 items-center pl-4 pr-2 py-1 grow-0"
+							bind:clientWidth={tableTopBarWidth}
+						>
 							{#if selectionMode && selectableJobCount}
 								<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
 									<div class="px-2">
@@ -1193,9 +1197,11 @@
 									on:change={() => {
 										localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
 									}}
-									options={{ right: 'CRON Schedules' }}
+									options={tableTopBarWidth > 800 ? { right: 'CRON Schedules' } : {}}
 								/>
-								<Calendar size="16" />
+								<span title="CRON Schedules">
+									<Calendar size="16" />
+								</span>
 							</div>
 
 							<div class="flex flex-row gap-1 items-center">
@@ -1206,40 +1212,46 @@
 										localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
 									}}
 									id="planned-later"
-									options={{ right: 'Planned later' }}
+									options={tableTopBarWidth > 800 ? { right: 'Planned later' } : {}}
 								/>
-								<Clock size={16} />
+								<span title="Planned later">
+									<Clock size={16} />
+								</span>
 							</div>
 						</div>
-						{#if jobs}
-							<RunsTable
-								{jobs}
-								externalJobs={externalJobs ?? []}
-								omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-								showExternalJobs={!graphIsRunsChart}
-								activeLabel={label}
-								{selectionMode}
-								bind:selectedIds
-								bind:selectedWorkspace
-								bind:lastFetchWentToEnd
-								on:loadExtra={loadExtra}
-								on:filterByPath={filterByPath}
-								on:filterByUser={filterByUser}
-								on:filterByFolder={filterByFolder}
-								on:filterByLabel={filterByLabel}
-								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								on:filterByTag={filterByTag}
-								on:filterBySchedule={filterBySchedule}
-								on:filterByWorker={filterByWorker}
-								bind:this={runsTable}
-							></RunsTable>
-						{:else}
-							<div class="gap-1 flex flex-col">
-								{#each new Array(8) as _}
-									<Skeleton layout={[[3]]} />
-								{/each}
-							</div>
-						{/if}
+
+						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+						<div class="grow min-h-0 overflow-hidden">
+							{#if jobs}
+								<RunsTable
+									{jobs}
+									externalJobs={externalJobs ?? []}
+									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+									showExternalJobs={!graphIsRunsChart}
+									activeLabel={label}
+									{selectionMode}
+									bind:selectedIds
+									bind:selectedWorkspace
+									bind:lastFetchWentToEnd
+									on:loadExtra={loadExtra}
+									on:filterByPath={filterByPath}
+									on:filterByUser={filterByUser}
+									on:filterByFolder={filterByFolder}
+									on:filterByLabel={filterByLabel}
+									on:filterByConcurrencyKey={filterByConcurrencyKey}
+									on:filterByTag={filterByTag}
+									on:filterBySchedule={filterBySchedule}
+									on:filterByWorker={filterByWorker}
+									bind:this={runsTable}
+								></RunsTable>
+							{:else}
+								<div class="gap-1 flex flex-col">
+									{#each new Array(8) as _}
+										<Skeleton layout={[[3]]} />
+									{/each}
+								</div>
+							{/if}
+						</div>
 					</div>
 				</Pane>
 				<Pane size={40} minSize={15} class="flex flex-col">
