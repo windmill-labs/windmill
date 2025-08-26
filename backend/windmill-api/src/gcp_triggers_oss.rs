@@ -12,6 +12,7 @@ use {
     windmill_common::{triggers::TriggerKind, utils::empty_as_none, worker::to_raw_value},
 };
 
+#[cfg(not(feature = "private"))]
 type SqlxJson<T> = sqlx::types::Json<T>;
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
