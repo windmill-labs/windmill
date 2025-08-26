@@ -232,7 +232,7 @@
 											<HighlightCode lines language={job.language} code={job.raw_code} />
 										</div>
 									{:else if job}
-										No code is available
+										<span class="text-sm">No code available</span>
 									{:else}
 										<Skeleton layout={[[5]]} />
 									{/if}
