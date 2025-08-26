@@ -1,21 +1,34 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	export type RunsSelectionMode = 'cancel' | 're-run'
 </script>
 
 <script lang="ts">
 	import { userStore, superadmin } from '$lib/stores'
-	import { X, Check, ChevronDown, Loader2 } from 'lucide-svelte'
+	import { X, Check, ChevronDown, Loader2, SquareMousePointer } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
 
-	export let isLoading = false
-	export let selectionCount: number
-	export let selectionMode: RunsSelectionMode | false
-	export let onSetSelectionMode: (mode: RunsSelectionMode | false) => void
-	export let onCancelSelectedJobs: () => void
-	export let onCancelFilteredJobs: () => void
-	export let onReRunSelectedJobs: () => void
-	export let onReRunFilteredJobs: () => void
+	interface Props {
+		isLoading?: boolean
+		selectionCount: number
+		selectionMode: RunsSelectionMode | false
+		onSetSelectionMode: (mode: RunsSelectionMode | false) => void
+		onCancelSelectedJobs: () => void
+		onCancelFilteredJobs: () => void
+		onReRunSelectedJobs: () => void
+		onReRunFilteredJobs: () => void
+	}
+
+	let {
+		isLoading = false,
+		selectionCount,
+		selectionMode,
+		onSetSelectionMode,
+		onCancelSelectedJobs,
+		onCancelFilteredJobs,
+		onReRunSelectedJobs,
+		onReRunFilteredJobs
+	}: Props = $props()
 
 	function jobCountString(count: number) {
 		return `${count} ${count == 1 ? 'job' : 'jobs'}`
@@ -80,13 +93,14 @@
 				: [])
 		]}
 	>
-		<svelte:fragment slot="buttonReplacement">
+		{#snippet buttonReplacement()}
 			<div
-				class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+				class="px-2 h-[30px] border flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md gap-2"
 			>
+				<SquareMousePointer size={16} />
 				<span class="text-xs min-w-[5rem]">Batch actions</span>
-				<ChevronDown class="w-5 h-5" />
+				<ChevronDown size={16} />
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</DropdownV2>
 {/if}

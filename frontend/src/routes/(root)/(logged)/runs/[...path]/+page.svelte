@@ -872,28 +872,6 @@
 			</div>
 
 			<div class="flex flex-row gap-8">
-				<RunOption label="Fetch runs" for="fetch-runs">
-					<ManuelDatePicker
-						on:loadJobs={() => {
-							lastFetchWentToEnd = false
-							jobsLoader?.loadJobs(minTs, maxTs, true, true)
-						}}
-						bind:minTs
-						bind:maxTs
-						bind:selectedManualDate
-						{loading}
-						bind:this={manualDatePicker}
-					/>
-					<Toggle
-						size="xs"
-						bind:checked={autoRefresh}
-						on:change={() => {
-							localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-						}}
-						options={{ right: 'Auto-refresh' }}
-						textClass="whitespace-nowrap"
-					/>
-				</RunOption>
 				<RunsQueue
 					{success}
 					{queue_count}
@@ -1173,7 +1151,30 @@
 							{onReRunFilteredJobs}
 							{onReRunSelectedJobs}
 							bind:this={runsTable}
-						/>
+						>
+							{#snippet manualJobPicker()}
+								<ManuelDatePicker
+									on:loadJobs={() => {
+										lastFetchWentToEnd = false
+										jobsLoader?.loadJobs(minTs, maxTs, true)
+									}}
+									bind:minTs
+									bind:maxTs
+									bind:selectedManualDate
+									{loading}
+									bind:this={manualDatePicker}
+								/>
+								<Toggle
+									size="xs"
+									bind:checked={autoRefresh}
+									on:change={() => {
+										localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+									}}
+									options={{ right: 'Auto-refresh' }}
+									textClass="whitespace-nowrap"
+								/>
+							{/snippet}
+						</RunsTable>
 					{:else}
 						<div class="gap-1 flex flex-col">
 							{#each new Array(8) as _}
