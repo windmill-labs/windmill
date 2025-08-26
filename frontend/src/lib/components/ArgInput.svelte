@@ -944,6 +944,7 @@
 								for (const key of newValueKeys) {
 									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
 									if (
+										!['kind', 'label'].includes(key) &&
 										selectedObjProperties[key]?.enum &&
 										value &&
 										value[key] !== undefined &&
