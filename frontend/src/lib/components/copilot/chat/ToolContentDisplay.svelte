@@ -29,9 +29,7 @@
 				try {
 					const parsed = JSON.parse(obj[key])
 					obj[key] = parsed
-				} catch (e) {
-					console.error('Failed to parse JSON:', e)
-				}
+				} catch {}
 			}
 			return JSON.stringify(obj, null, 2)
 		} catch {

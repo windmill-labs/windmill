@@ -19,6 +19,7 @@
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -38,6 +39,12 @@
 	let job: Job | undefined = $state(undefined)
 
 	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
+
+	useUiIntent(`whileloopflow-${mod.id}`, {
+		openTab: (tab) => {
+			selected = tab
+		}
+	})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
