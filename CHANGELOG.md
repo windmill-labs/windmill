@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.535.0](https://github.com/windmill-labs/windmill/compare/v1.534.1...v1.535.0) (2025-08-25)
+
+
+### Features
+
+* **aichat:** show diff mode on inline scripts changes ([#6454](https://github.com/windmill-labs/windmill/issues/6454)) ([eca3109](https://github.com/windmill-labs/windmill/commit/eca3109ec63967e3041521bf74d34a12c70f5ff8))
+
+
+### Bug Fixes
+
+* fix opening advanced popup for run resetting tag to default ([d328894](https://github.com/windmill-labs/windmill/commit/d3288947b2d2539b2f3302059a9aad2841275a28))
+
+## [1.534.1](https://github.com/windmill-labs/windmill/compare/v1.534.0...v1.534.1) (2025-08-25)
+
+
+### Bug Fixes
+
+* add alias to subquery for older postgres versions ([#6455](https://github.com/windmill-labs/windmill/issues/6455)) ([16d233b](https://github.com/windmill-labs/windmill/commit/16d233bf466fd818ec1f9235377e4c1a8239d98c))
+* **frontend:** fix test step behavior ([#6427](https://github.com/windmill-labs/windmill/issues/6427)) ([fc20b7b](https://github.com/windmill-labs/windmill/commit/fc20b7bd91d33115aacb38cc46394f9c6465aa0f))
+
 ## [1.534.0](https://github.com/windmill-labs/windmill/compare/v1.533.1...v1.534.0) (2025-08-25)
 
 
