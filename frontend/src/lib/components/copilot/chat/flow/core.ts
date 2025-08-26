@@ -265,7 +265,7 @@ const setModuleControlOptionsSchema = z.object({
 		.nullable()
 		.optional()
 		.describe(
-			'JavaScript expression for skip condition. Can use `flow_input` or `results.<step_id>`. Only used if skip_if is true. Exemple: `flow_input.x > 10` or `results.a === "failure"`'
+			'JavaScript expression for skip condition. Can use `flow_input` or `results.<step_id>`. Only used if skip_if is true. Example: `flow_input.x > 10` or `results.a === "failure"`'
 		)
 })
 
