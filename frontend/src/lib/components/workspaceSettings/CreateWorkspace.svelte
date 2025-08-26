@@ -73,13 +73,13 @@
 		checking = false
 	}
 
-	const WM_FORK_PREFIX = 'wm-ephemeral-'
+	const WM_FORK_PREFIX = 'wm-forked-'
 
 	async function createOrForkWorkspace() {
-		const prefixed_id =  `${WM_FORK_PREFIX}${id}`
+		const prefixed_id = `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
 			if ($workspaceStore) {
-				await WorkspaceService.createEphemeralWorkspace({
+				await WorkspaceService.createWorkspaceFork({
 					requestBody: {
 						id: prefixed_id,
 						name,
@@ -242,13 +242,13 @@
 
 <CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace">
 	{#if isFork}
-	<div class="flex flex-block gap-2">
-		<GitFork />
-		<span class="text-secondary text-l"> Forking </span>
-		<span class="text-secondary font-bold text-l">
-			{$workspaceStore}
-		</span>
-	</div>
+		<div class="flex flex-block gap-2">
+			<GitFork />
+			<span class="text-secondary text-l"> Forking </span>
+			<span class="text-secondary font-bold text-l">
+				{$workspaceStore}
+			</span>
+		</div>
 	{/if}
 	<label class="block pb-4 pt-4">
 		{#if isFork}
@@ -264,7 +264,9 @@
 	<label class="block pb-4">
 		<span class="text-secondary text-sm">Workspace ID</span>
 		{#if isFork}
-			<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your fork (this will also set the branch name)</span>
+			<span class="ml-10 text-tertiary text-xs"
+				>Slug to uniquely identify your fork (this will also set the branch name)</span
+			>
 		{:else}
 			<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your workspace</span>
 		{/if}
@@ -398,21 +400,25 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-		<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-			<Button variant="border" size="sm" href="{base}/user/workspaces"
-				>&leftarrow; Back to workspaces</Button
-			>
-			<Button
-				disabled={checking ||
-					errorId != '' ||
-					!name ||
-					(!automateUsernameCreation && (errorUser != '' || !username)) ||
-					!id}
-				on:click={createOrForkWorkspace}
-			>
+	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
+			>&leftarrow; Back to workspaces</Button
+		>
+		<Button
+			disabled={checking ||
+				errorId != '' ||
+				!name ||
+				(!automateUsernameCreation && (errorUser != '' || !username)) ||
+				!id}
+			on:click={createOrForkWorkspace}
+		>
+			{#if isFork}
+				Fork workspace
+			{:else}
 				Create workspace
-			</Button>
-		</div>
+			{/if}
+		</Button>
+	</div>
 </CenteredModal>
 
 <style>

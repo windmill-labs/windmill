@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
-	import { UserService, type WorkspaceInvite, WorkspaceService, type EphemeralWorkspaceInfo } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService, type ForkedWorkspaceInfo } from '$lib/gen'
 	import {
 		superadmin,
 		usersWorkspaceStore,
@@ -34,7 +34,7 @@
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
-	let ephemeralWorkspaces: EphemeralWorkspaceInfo[] = []
+	let forkedWorkspaces: ForkedWorkspaceInfo[] = []
 
 	$: rd = $page.url.searchParams.get('rd')
 
@@ -74,11 +74,11 @@
 		})
 	}
 
-	async function loadEphemeralWorkspaces() {
+	async function loadForkedWorkspaces() {
 		try {
-			ephemeralWorkspaces = await WorkspaceService.listEphemeralWorkspaces()
+			forkedWorkspaces = await WorkspaceService.listWorkspaceForks()
 		} catch {
-			ephemeralWorkspaces = []
+			forkedWorkspaces = []
 		}
 	}
 
@@ -94,40 +94,40 @@
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
 	// Group workspaces into parent-child hierarchy
-	$: ephemeralMap = new Map(ephemeralWorkspaces.map(e => [e.ephemeral_workspace_id, e]))
-	$: regularWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins' && !ephemeralMap.has(x.id))
-	$: ephemeralWorkspacesList = (workspaces ?? []).filter((x) => ephemeralMap.has(x.id))
+	$: forkedMap = new Map(forkedWorkspaces.map(e => [e.forked_workspace_id, e]))
+	$: regularWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins' && !forkedMap.has(x.id))
+	$: forkedWorkspacesList = (workspaces ?? []).filter((x) => forkedMap.has(x.id))
 	$: groupedNonAdminWorkspaces = (() => {
-		const groups: Array<{ workspace: any; isEphemeral: boolean; parentName?: string }> = []
+		const groups: Array<{ workspace: any; isForked: boolean; parentName?: string }> = []
 		
-		// Add regular workspaces and their ephemeral children
+		// Add regular workspaces and their forked children
 		regularWorkspaces.forEach((workspace) => {
-			groups.push({ workspace, isEphemeral: false })
+			groups.push({ workspace, isForked: false })
 			
-			// Add ephemeral children for this parent
-			const children = ephemeralWorkspacesList.filter((w) => {
-				const ephemeralInfo = ephemeralMap.get(w.id)
-				return ephemeralInfo?.parent_workspace_id === workspace.id
+			// Add forked children for this parent
+			const children = forkedWorkspacesList.filter((w) => {
+				const forkedInfo = forkedMap.get(w.id)
+				return forkedInfo?.parent_workspace_id === workspace.id
 			})
 			children.forEach((child) => {
-				const ephemeralInfo = ephemeralMap.get(child.id)!
+				const forkedInfo = forkedMap.get(child.id)!
 				groups.push({ 
 					workspace: child, 
-					isEphemeral: true, 
-					parentName: ephemeralInfo.parent_workspace_name 
+					isForked: true, 
+					parentName: forkedInfo.parent_workspace_name 
 				})
 			})
 		})
 		
-		// Add orphaned ephemeral workspaces
-		ephemeralWorkspacesList.forEach((ephemeral) => {
-			const ephemeralInfo = ephemeralMap.get(ephemeral.id)!
-			const hasParent = regularWorkspaces.some((w) => w.id === ephemeralInfo.parent_workspace_id)
+		// Add orphaned forked workspaces
+		forkedWorkspacesList.forEach((forked) => {
+			const forkedInfo = forkedMap.get(forked.id)!
+			const hasParent = regularWorkspaces.some((w) => w.id === forkedInfo.parent_workspace_id)
 			if (!hasParent) {
 				groups.push({ 
-					workspace: ephemeral, 
-					isEphemeral: true, 
-					parentName: ephemeralInfo.parent_workspace_name 
+					workspace: forked, 
+					isForked: true, 
+					parentName: forkedInfo.parent_workspace_name 
 				})
 			}
 		})
@@ -155,7 +155,7 @@
 	refreshSuperadmin()
 	loadInvites()
 	loadWorkspaces()
-	loadEphemeralWorkspaces()
+	loadForkedWorkspaces()
 
 	let loading = false
 
@@ -240,8 +240,8 @@
 				workspace.
 			</p>
 		{/if}
-		{#each groupedNonAdminWorkspaces as { workspace, isEphemeral, parentName } (workspace.id)}
-			<label class="block pb-2" class:pl-6={isEphemeral}>
+		{#each groupedNonAdminWorkspaces as { workspace, isForked, parentName } (workspace.id)}
+			<label class="block pb-2" class:pl-6={isForked}>
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
 					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
@@ -249,7 +249,7 @@
 						speakFriendAndEnterWorkspace(workspace.id)
 					}}
 				>
-					{#if isEphemeral}
+					{#if isForked}
 						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
 					{/if}
 					<div class="flex-1 text-left">
@@ -259,12 +259,12 @@
 								style="background-color: {workspace.color}"
 							></span>
 						{/if}
-						<span class="font-mono" class:text-secondary={isEphemeral}>{workspace.id}</span> - <span class:text-secondary={isEphemeral}>{workspace.name}</span> as
-						<span class="font-mono" class:text-secondary={isEphemeral}>{workspace.username}</span>
+						<span class="font-mono" class:text-secondary={isForked}>{workspace.id}</span> - <span class:text-secondary={isForked}>{workspace.name}</span> as
+						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
 						{#if workspace['deleted']}
 							<span class="text-red-500"> (archived)</span>
 						{/if}
-						{#if isEphemeral && parentName}
+						{#if isForked && parentName}
 							<div class="text-tertiary text-xs mt-1">
 								Fork of {parentName}
 							</div>

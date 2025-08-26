@@ -15,7 +15,7 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { WorkspaceService, type EphemeralWorkspaceInfo } from '$lib/gen'
+	import { WorkspaceService, type ForkedWorkspaceInfo } from '$lib/gen'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -65,83 +65,83 @@
 		}
 	}
 
-	// Fetch ephemeral workspace data
-	let ephemeralWorkspaces: EphemeralWorkspaceInfo[] = $state([])
+	// Fetch forked workspace data
+	let forkedWorkspaces: ForkedWorkspaceInfo[] = $state([])
 
-	// Load ephemeral workspaces when component mounts or userWorkspaces change
+	// Load forked workspaces when component mounts or userWorkspaces change
 	$effect(() => {
 		if ($userWorkspaces) {
-			WorkspaceService.listEphemeralWorkspaces()
+			WorkspaceService.listWorkspaceForks()
 				.then((data) => {
-					ephemeralWorkspaces = data
+					forkedWorkspaces = data
 				})
 				.catch(() => {
-					ephemeralWorkspaces = []
+					forkedWorkspaces = []
 				})
 		}
 	})
 
-	// Helper function to check if a workspace is ephemeral
-	function isEphemeralWorkspace(workspaceId: string): boolean {
-		return ephemeralWorkspaces.some((e) => e.ephemeral_workspace_id === workspaceId)
+	// Helper function to check if a workspace is forked
+	function isForkedWorkspace(workspaceId: string): boolean {
+		return forkedWorkspaces.some((e) => e.forked_workspace_id === workspaceId)
 	}
 
-	function getEphemeralWorkspace(workspaceId: String): EphemeralWorkspaceInfo | undefined {
-		return ephemeralWorkspaces.find((e) => e.ephemeral_workspace_id == workspaceId)
+	function getForkedWorkspace(workspaceId: String): ForkedWorkspaceInfo | undefined {
+		return forkedWorkspaces.find((e) => e.forked_workspace_id == workspaceId)
 	}
 
 	// Group workspaces into parent-child hierarchy using Svelte 5 derived
 	const groupedWorkspaces = $derived(() => {
 		if (!$userWorkspaces) return []
 
-		// Create ephemeral workspace lookup map
-		const ephemeralMap = new Map<string, EphemeralWorkspaceInfo>()
-		ephemeralWorkspaces.forEach((e) => {
-			ephemeralMap.set(e.ephemeral_workspace_id, e)
+		// Create forked workspace lookup map
+		const forkedMap = new Map<string, ForkedWorkspaceInfo>()
+		forkedWorkspaces.forEach((e) => {
+			forkedMap.set(e.forked_workspace_id, e)
 		})
 
-		// Separate normal workspaces from ephemeral ones
-		const normalWorkspaces = $userWorkspaces.filter((w) => !ephemeralMap.has(w.id))
-		const ephemeralWorkspacesList = $userWorkspaces.filter((w) => ephemeralMap.has(w.id))
+		// Separate normal workspaces from forked ones
+		const normalWorkspaces = $userWorkspaces.filter((w) => !forkedMap.has(w.id))
+		const forkedWorkspacesList = $userWorkspaces.filter((w) => forkedMap.has(w.id))
 
-		// Create groups: each normal workspace followed by its ephemeral children
+		// Create groups: each normal workspace followed by its forked children
 		const groups: Array<{
 			workspace: any
-			isEphemeral: boolean
+			isForked: boolean
 			parentId?: string
 			parentName?: string
 		}> = []
 
 		normalWorkspaces.forEach((workspace) => {
 			// Add the parent workspace
-			groups.push({ workspace, isEphemeral: false })
+			groups.push({ workspace, isForked: false })
 
-			// Add its ephemeral children
-			const children = ephemeralWorkspacesList.filter((w) => {
-				const ephemeralInfo = ephemeralMap.get(w.id)
-				return ephemeralInfo?.parent_workspace_id === workspace.id
+			// Add its forked children
+			const children = forkedWorkspacesList.filter((w) => {
+				const forkedInfo = forkedMap.get(w.id)
+				return forkedInfo?.parent_workspace_id === workspace.id
 			})
 			children.forEach((child) => {
-				const ephemeralInfo = ephemeralMap.get(child.id)!
+				const forkedInfo = forkedMap.get(child.id)!
 				groups.push({
 					workspace: child,
-					isEphemeral: true,
-					parentId: ephemeralInfo.parent_workspace_id,
-					parentName: ephemeralInfo.parent_workspace_name
+					isForked: true,
+					parentId: forkedInfo.parent_workspace_id,
+					parentName: forkedInfo.parent_workspace_name
 				})
 			})
 		})
 
-		// Add orphaned ephemeral workspaces (those without a parent in the current list)
-		ephemeralWorkspacesList.forEach((ephemeral) => {
-			const ephemeralInfo = ephemeralMap.get(ephemeral.id)!
-			const hasParent = normalWorkspaces.some((w) => w.id === ephemeralInfo.parent_workspace_id)
+		// Add orphaned forked workspaces (those without a parent in the current list)
+		forkedWorkspacesList.forEach((forked) => {
+			const forkedInfo = forkedMap.get(forked.id)!
+			const hasParent = normalWorkspaces.some((w) => w.id === forkedInfo.parent_workspace_id)
 			if (!hasParent) {
 				groups.push({
-					workspace: ephemeral,
-					isEphemeral: true,
-					parentId: ephemeralInfo.parent_workspace_id,
-					parentName: ephemeralInfo.parent_workspace_name
+					workspace: forked,
+					isForked: true,
+					parentId: forkedInfo.parent_workspace_id,
+					parentName: forkedInfo.parent_workspace_name
 				})
 			}
 		})
@@ -152,12 +152,12 @@
 
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
-		{@const ephemeralWorkspace = getEphemeralWorkspace($workspaceStore ?? '')}
-		{#if ephemeralWorkspace}
+		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
+		{#if forkedWorkspace}
 			<MenuButton
 				class="!text-xs !text-tertiary"
 				icon={Building}
-				label={ephemeralWorkspace.parent_workspace_id}
+				label={forkedWorkspace.parent_workspace_id}
 				{isCollapsed}
 				color={$workspaceColor}
 				{trigger}
@@ -177,7 +177,7 @@
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each groupedWorkspaces() as { workspace, isEphemeral, parentId, parentName }}
+				{#each groupedWorkspaces() as { workspace, isForked, parentId, parentName }}
 					<MenuItem
 						class={twMerge(
 							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
@@ -192,16 +192,16 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div
-								class={twMerge('flex items-center gap-2 min-w-0', isEphemeral ? 'pl-6' : 'pl-4')}
+								class={twMerge('flex items-center gap-2 min-w-0', isForked ? 'pl-6' : 'pl-4')}
 							>
-								{#if isEphemeral}
+								{#if isForked}
 									<GitFork size={12} class="text-tertiary flex-shrink-0" />
 								{/if}
 								<div class="min-w-0 flex-1">
 									<div
 										class={twMerge(
 											'truncate text-left text-[1.2em]',
-											isEphemeral ? 'text-secondary' : 'text-primary'
+											isForked ? 'text-secondary' : 'text-primary'
 										)}
 									>
 										{workspace.name}
@@ -209,12 +209,12 @@
 									<div
 										class={twMerge(
 											'font-mono text-2xs whitespace-nowrap truncate text-left',
-											isEphemeral ? 'text-tertiary opacity-75' : 'text-tertiary'
+											isForked ? 'text-tertiary opacity-75' : 'text-tertiary'
 										)}
 									>
 										{workspace.id}
 									</div>
-									{#if isEphemeral && parentName}
+									{#if isForked && parentName}
 										<div class="text-tertiary text-2xs truncate">
 											Fork of {parentName}
 										</div>
@@ -322,14 +322,14 @@
 		{/if}
 	{/snippet}
 </Menu>
-{#if isEphemeralWorkspace($workspaceStore ?? '')}
+{#if isForkedWorkspace($workspaceStore ?? '')}
 	<Menu {createMenu} usePointerDownOutside>
 		{#snippet triggr({ trigger })}
 			<div class="pl-4">
 			<MenuButton
 				class="!text-xs"
 				icon={GitFork}
-				label={removePrefix($workspaceStore ?? '', 'wm-ephemeral-')}
+				label={removePrefix($workspaceStore ?? '', 'wm-forked-')}
 				{isCollapsed}
 				color={$workspaceColor}
 				{trigger}

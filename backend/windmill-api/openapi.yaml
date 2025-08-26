@@ -674,42 +674,42 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_ephemeral:
+  /workspaces/create_fork:
     post:
-      summary: create ephemeral workspace
-      operationId: createEphemeralWorkspace
+      summary: create forked workspace
+      operationId: createWorkspaceFork
       tags:
         - workspace
       requestBody:
-        description: new ephemeral workspace
+        description: new forked workspace
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateEphemeralWorkspace"
+              $ref: "#/components/schemas/CreateWorkspaceFork"
       responses:
         "201":
-          description: ephemeral workspace created
+          description: forked workspace created
           content:
             text/plain:
               schema:
                 type: string
 
-  /workspaces/list_ephemeral:
+  /workspaces/list_forks:
     get:
-      summary: list all ephemeral workspaces with their parents
-      operationId: listEphemeralWorkspaces
+      summary: list all forked workspaces with their parents
+      operationId: listWorkspaceForks
       tags:
         - workspace
       responses:
         "200":
-          description: list of ephemeral workspaces
+          description: list of forked workspaces
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/EphemeralWorkspaceInfo"
+                  $ref: "#/components/schemas/ForkedWorkspaceInfo"
 
   /workspaces/exists:
     post:
@@ -16961,7 +16961,7 @@ components:
         - id
         - name
 
-    CreateEphemeralWorkspace:
+    CreateWorkspaceFork:
       type: object
       properties:
         id:
@@ -16979,12 +16979,12 @@ components:
         - name
         - parent_workspace_id
 
-    EphemeralWorkspaceInfo:
+    ForkedWorkspaceInfo:
       type: object
       properties:
-        ephemeral_workspace_id:
+        forked_workspace_id:
           type: string
-        ephemeral_workspace_name:
+        forked_workspace_name:
           type: string
         parent_workspace_id:
           type: string
@@ -16994,8 +16994,8 @@ components:
           type: string
           format: date-time
       required:
-        - ephemeral_workspace_id
-        - ephemeral_workspace_name
+        - forked_workspace_id
+        - forked_workspace_name
         - parent_workspace_id
         - parent_workspace_name
         - created_at

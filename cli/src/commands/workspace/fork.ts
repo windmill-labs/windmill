@@ -2,7 +2,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { colors, Command, Input, log, setClient } from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { getActiveWorkspace, removeWorkspace } from "../workspace/workspace.ts";
+import { getActiveWorkspace, removeWorkspace } from "./workspace.ts";
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -10,7 +10,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 // Run ./gen_wm_client.sh to regenerate after backend changes
 // import * as wmill from "../../../gen/services.gen.ts";
 
-const WM_EPHEMERAL_PREFIX = "wm-ephemeral";
+const WM_FORKED_PREFIX = "wm-forked";
 
 async function runGitCommand(
   args: string[],
@@ -37,10 +37,10 @@ async function runGitCommand(
   }
 }
 
-async function createEphemeralWorkspace(
+async function createWorkspaceFork(
   opts: GlobalOptions,
   workspaceName: string | undefined,
-  workspaceId: string | undefined,
+  workspaceId: string | undefined = undefined,
 ) {
   if (opts.workspace) {
     log.info(
@@ -53,7 +53,7 @@ async function createEphemeralWorkspace(
 
   while (workspaceName === undefined) {
     if (!workspaceName) {
-      workspaceName = await Input.prompt("Name this ephemeral workspace:");
+      workspaceName = await Input.prompt("Name this forked workspace:");
     }
   }
 
@@ -88,9 +88,9 @@ async function createEphemeralWorkspace(
     remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
 
-  log.info(colors.blue(`Creating ephemeral workspace: ${workspaceName}`));
+  log.info(colors.blue(`Creating forked workspace: ${workspaceName}`));
 
-  const trueWorkspaceId = `${WM_EPHEMERAL_PREFIX}-${workspaceId}`;
+  const trueWorkspaceId = `${WM_FORKED_PREFIX}-${workspaceId}`;
   let alreadyExists = false;
   try {
     alreadyExists = await wmill.existsWorkspace({
@@ -104,14 +104,15 @@ async function createEphemeralWorkspace(
   }
 
   if (alreadyExists) {
-    throw new Error(`This ephemeral workspace '${workspaceId}' (${workspaceName}) already exists. Choose a different id`);
+    throw new Error(`This forked workspace '${workspaceId}' (${workspaceName}) already exists. Choose a different id`);
   }
 
-  // Create ephemeral workspace via API
-  log.info("Creating ephemeral workspace...");
+  // Create forked workspace via API
+  log.info("Creating forked workspace...");
 
   try {
-    const result = await wmill.createEphemeralWorkspace({
+    // TODO: Update to createWorkspaceFork after regenerating client from new OpenAPI spec
+    const result = await wmill.createWorkspaceFork({
       requestBody: {
         id: trueWorkspaceId,
         name: workspaceName,
@@ -126,7 +127,7 @@ async function createEphemeralWorkspace(
   } catch (error) {
     // If workspace creation fails, we should clean up the git branch
     log.error(
-      colors.red(`Failed to create ephemeral workspace: ${error.message}`),
+      colors.red(`Failed to create forked workspace: ${error.message}`),
     );
     throw error;
   }
@@ -136,41 +137,41 @@ async function createEphemeralWorkspace(
   const branchResult = await runGitCommand([
     "checkout",
     "-b",
-    `${WM_EPHEMERAL_PREFIX}/${workspaceId}`,
+    `${WM_FORKED_PREFIX}/${workspaceId}`,
   ]);
   if (!branchResult.success) {
     // If branch already exists, switch to it
-    const switchResult = await runGitCommand(["checkout", `${WM_EPHEMERAL_PREFIX}/${workspaceId}`]);
+    const switchResult = await runGitCommand(["checkout", `${WM_FORKED_PREFIX}/${workspaceId}`]);
     if (!switchResult.success) {
       throw new Error(
         `Failed to create or switch to git branch: ${branchResult.output}`,
       );
     }
-    log.info(colors.yellow(`Switched to existing branch: ${WM_EPHEMERAL_PREFIX}/${workspaceId}`));
+    log.info(colors.yellow(`Switched to existing branch: ${WM_FORKED_PREFIX}/${workspaceId}`));
   } else {
-    log.info(colors.green(`Created ephemral workspace and switched to branch: ${WM_EPHEMERAL_PREFIX}/${workspaceId}`));
+    log.info(colors.green(`Created forked workspace and switched to branch: ${WM_FORKED_PREFIX}/${workspaceId}`));
   }
 }
 
-async function deleteEphemeralWorkspace(
+async function deleteWorkspaceFork(
   opts: GlobalOptions,
   name: string,
 ) {
-  log.info(colors.blue(`Deleting ephemeral workspace: ${name}`));
+  log.info(colors.blue(`Deleting forked workspace: ${name}`));
 
   // Remove workspace from local config
   log.info("Removing workspace from local configuration...");
   await removeWorkspace(name, false, opts);
 
-  // Switch to main branch and delete ephemeral branch
+  // Switch to main branch and delete fork branch
   log.info("Cleaning up git branch...");
 
   // Check current branch
   const currentBranchResult = await runGitCommand(["branch", "--show-current"]);
   const currentBranch = currentBranchResult.output;
 
-  // If we're on the ephemeral branch, switch to main
-  if (currentBranch === `ephemeral/${name}`) {
+  // If we're on the fork branch, switch to main
+  if (currentBranch === `${WM_FORKED_PREFIX}/${name}`) {
     const switchResult = await runGitCommand(["checkout", "main"]);
     if (!switchResult.success) {
       log.warn(
@@ -181,56 +182,47 @@ async function deleteEphemeralWorkspace(
     }
   }
 
-  // Delete the ephemeral branch
+  // Delete the fork branch
   const deleteResult = await runGitCommand([
     "branch",
     "-D",
-    `ephemeral/${name}`,
+    `${WM_FORKED_PREFIX}/${name}`,
   ]);
   if (!deleteResult.success) {
     log.warn(
       colors.yellow(
-        `Warning: Could not delete git branch ephemeral/${name}: ${deleteResult.output}`,
+        `Warning: Could not delete git branch ${WM_FORKED_PREFIX}/${name}: ${deleteResult.output}`,
       ),
     );
   } else {
-    log.info(colors.green(`✅ Deleted git branch: ephemeral/${name}`));
+    log.info(colors.green(`✅ Deleted git branch: ${WM_FORKED_PREFIX}/${name}`));
   }
 
   log.info(
-    colors.green(`✅ Ephemeral workspace '${name}' deleted successfully!`),
+    colors.green(`✅ Forked workspace '${name}' deleted successfully!`),
   );
 }
 
-const command = new Command()
-  .name("ephemeral")
-  .description("Manage ephemeral workspaces with git branches")
-  .command(
-    "create",
-    new Command()
-      .description("Create an ephemeral workspace and git branch")
-      .arguments("<name:string>")
-	  .option(
-	    "--create-username <username:string>",
-	    "Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.",
-	    {
-	      default: "admin",
-	    }
-	  )
-      .action(async (opts: GlobalOptions, name: string) => {
-        await requireLogin(opts);
-        await createEphemeralWorkspace(opts, name);
-      }),
+const forkCommand = new Command()
+  .description("Create a forked workspace and git branch")
+  .arguments("<name:string>")
+  .option(
+    "--create-username <username:string>",
+    "Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.",
+    {
+      default: "admin",
+    }
   )
-  .command(
-    "delete",
-    new Command()
-      .description("Delete an ephemeral workspace and git branch")
-      .arguments("<name:string>")
-      .action(async (opts: GlobalOptions, name: string) => {
-        await deleteEphemeralWorkspace(opts, name);
-      }),
-  );
+  .action(async (opts: GlobalOptions, name: string) => {
+    await requireLogin(opts);
+    await createWorkspaceFork(opts, name, undefined);
+  });
 
-export default command;
+const deleteForkCommand = new Command()
+  .description("Delete a forked workspace and git branch")
+  .arguments("<name:string>")
+  .action(async (opts: GlobalOptions, name: string) => {
+    await deleteWorkspaceFork(opts, name);
+  });
 
+export { forkCommand, deleteForkCommand };

@@ -175,8 +175,8 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
-        .route("/create_ephemeral", post(create_ephemeral_workspace))
-        .route("/list_ephemeral", get(list_ephemeral_workspaces))
+        .route("/create_fork", post(create_workspace_fork))
+        .route("/list_forks", get(list_workspace_forks))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -334,7 +334,7 @@ struct CreateWorkspace {
 }
 
 #[derive(Deserialize)]
-struct CreateEphemeralWorkspace {
+struct CreateWorkspaceFork {
     id: String,
     name: String,
     username: Option<String>,
@@ -364,9 +364,9 @@ struct UserWorkspace {
 }
 
 #[derive(Serialize)]
-struct EphemeralWorkspaceInfo {
-    pub ephemeral_workspace_id: String,
-    pub ephemeral_workspace_name: String,
+struct ForkedWorkspaceInfo {
+    pub forked_workspace_id: String,
+    pub forked_workspace_name: String,
     pub parent_workspace_id: String,
     pub parent_workspace_name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -2064,16 +2064,16 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
-async fn list_ephemeral_workspaces(
+async fn list_workspace_forks(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-) -> JsonResult<Vec<EphemeralWorkspaceInfo>> {
+) -> JsonResult<Vec<ForkedWorkspaceInfo>> {
     let mut tx = user_db.begin(&authed).await?;
-    let ephemeral_workspaces = sqlx::query_as!(
-        EphemeralWorkspaceInfo,
+    let forked_workspaces = sqlx::query_as!(
+        ForkedWorkspaceInfo,
         "SELECT 
-            ew.ephemeral_workspace_id,
-            ew_workspace.name AS ephemeral_workspace_name,
+            ew.ephemeral_workspace_id as forked_workspace_id,
+            ew_workspace.name AS forked_workspace_name,
             ew.parent_workspace_id,
             parent_workspace.name AS parent_workspace_name,
             ew.created_at
@@ -2090,7 +2090,7 @@ async fn list_ephemeral_workspaces(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(ephemeral_workspaces))
+    Ok(Json(forked_workspaces))
 }
 
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
@@ -3111,10 +3111,10 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
-async fn create_ephemeral_workspace(
+async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Json(nw): Json<CreateEphemeralWorkspace>,
+    Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
         require_super_admin(&db, &authed.email).await?;
@@ -3128,18 +3128,18 @@ async fn create_ephemeral_workspace(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    // Generate unique ephemeral workspace ID with wm-ephemeral prefix
-    if !nw.id.starts_with("wm-ephemeral-") {
-        return Err(Error::BadRequest(format!("The id `{}` is invalid for an ephemeral workspace. It should be prefixed by `wm-ephemeral`", nw.id)));
+    // Generate unique forked workspace ID with wm-forked prefix
+    if !nw.id.starts_with("wm-forked-") {
+        return Err(Error::BadRequest(format!("The id `{}` is invalid for a forked workspace. It should be prefixed by `wm-forked`", nw.id)));
     }
 
-    let ephemeral_id = nw.id;
+    let forked_id = nw.id;
 
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner)
             VALUES ($1, $2, $3)",
-        ephemeral_id,
+        forked_id,
         nw.name,
         authed.email,
     )
@@ -3150,7 +3150,7 @@ async fn create_ephemeral_workspace(
         "INSERT INTO workspace_settings
             (workspace_id, color)
             VALUES ($1, $2)",
-        ephemeral_id,
+        forked_id,
         nw.color,
     )
     .execute(&mut *tx)
@@ -3160,7 +3160,7 @@ async fn create_ephemeral_workspace(
         "INSERT INTO workspace_key
             (workspace_id, kind, key)
             VALUES ($1, 'cloud', $2)",
-        ephemeral_id,
+        forked_id,
         &key
     )
     .execute(&mut *tx)
@@ -3192,17 +3192,17 @@ async fn create_ephemeral_workspace(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
             VALUES ($1, $2, $3, true)",
-        ephemeral_id,
+        forked_id,
         authed.email,
         username,
     )
     .execute(&mut *tx)
     .await?;
 
-    // Insert ephemeral workspace parent relationship
+    // Insert forked workspace parent relationship
     sqlx::query!(
         "INSERT INTO ephemeral_workspace (ephemeral_workspace_id, parent_workspace_id) VALUES ($1, $2)",
-        ephemeral_id,
+        forked_id,
         nw.parent_workspace_id,
     )
     .execute(&mut *tx)
@@ -3212,7 +3212,7 @@ async fn create_ephemeral_workspace(
     clone_workspace_data(
         &mut tx,
         &nw.parent_workspace_id,
-        &ephemeral_id,
+        &forked_id,
         &username,
         &db,
     )
@@ -3223,7 +3223,7 @@ async fn create_ephemeral_workspace(
            SELECT $1, email, is_admin, operator
            FROM usr
          WHERE workspace_id = $2",
-        &ephemeral_id,
+        &forked_id,
         &nw.parent_workspace_id
     )
     .execute(&mut *tx)
@@ -3234,13 +3234,13 @@ async fn create_ephemeral_workspace(
         &authed,
         "workspaces.create_fork",
         ActionKind::Create,
-        &ephemeral_id,
+        &forked_id,
         Some(nw.name.as_str()),
         None,
     )
     .await?;
     tx.commit().await?;
-    Ok(format!("Created ephemeral workspace {}", &ephemeral_id))
+    Ok(format!("Created forked workspace {}", &forked_id))
 }
 
 async fn edit_workspace(
