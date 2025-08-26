@@ -106,7 +106,9 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'number'
 				},
 				temperature: {
-					type: 'number'
+					type: 'number',
+					description:
+						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
 				}
 			},
 			required: ['provider', 'model', 'user_message'],
