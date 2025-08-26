@@ -46,6 +46,8 @@
 	import DropownSelect from '$lib/components/DropownSelect.svelte'
 	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { createBubbler } from 'svelte/legacy'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -1022,38 +1024,24 @@
 		<div class="p-2 px-4 pt-12 w-full border-b">
 			<div class="relative z-10">
 				<div class="absolute left-0 -top-10 flex flex-row gap-2 items-center min-w-24">
-					<DropownSelect
-						items={[
-							{
-								displayName: 'Duration (ms)',
-								action: () => {
-									graph = 'RunChart'
-									graphIsRunsChart = true
-								},
-								id: 'duration'
-							},
-							{
-								displayName: 'Concurrency',
-								action: () => {
-									graph = 'ConcurrencyChart'
-									graphIsRunsChart = false
-								},
-								id: 'concurrency'
-							}
-						]}
-						selected={graphIsRunsChart ? 'duration' : 'concurrency'}
+					<ToggleButtonGroup
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
+							graphIsRunsChart = graph === 'RunChart'
+						}}
 					>
-						{#snippet extraLabel()}
-							{#if warnJobLimit && !graphIsRunsChart}
-								<TooltipV2>
-									<TriangleAlert size={12} />
-									{#snippet text()}
-										{warnJobLimitMsg}
-									{/snippet}
-								</TooltipV2>
-							{/if}
+						{#snippet children({ item })}
+							<ToggleButton value="RunChart" label="Duration" {item} />
+							<ToggleButton
+								{item}
+								value="ConcurrencyChart"
+								label="Concurrency"
+								icon={warnJobLimit ? TriangleAlert : undefined}
+								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+							/>
 						{/snippet}
-					</DropownSelect>
+					</ToggleButtonGroup>
 
 					{#if !graphIsRunsChart}
 						<DropownSelect
