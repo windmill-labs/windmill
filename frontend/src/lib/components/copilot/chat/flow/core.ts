@@ -962,6 +962,7 @@ When adding steps, carefully consider the execution order:
 ### JavaScript Expressions
 For step inputs, forloop iterator expressions and branch predicates, use JavaScript expressions with these variables:
 - Step results: results.stepid or results.stepid.property_name
+- Break condition (stop_after_if) in for loops: result (contains the result of the last iteration)
 - Loop iterator: flow_input.iter.value (inside loops)
 - Flow inputs: flow_input.property_name
 - Static values: Use JavaScript syntax (e.g., "hello", true, 3)
