@@ -447,11 +447,6 @@ pub struct ExpiringCacheEntry<T> {
     pub expiry: std::time::Instant,
 }
 
-#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
-pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
-    let mut w = lock.write().await;
-    *w = value;
-}
 lazy_static::lazy_static! {
     static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 }

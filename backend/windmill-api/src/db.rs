@@ -10,18 +10,17 @@ use futures::FutureExt;
 use sqlx::{
     migrate::{Migrate, MigrateError},
     pool::PoolConnection,
-    Executor, PgConnection, Pool, Postgres,
+    Executor, PgConnection, Postgres,
 };
 
 use tokio::task::JoinHandle;
 use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
-use windmill_common::utils::generate_lock_id;
+pub use windmill_common::db::DB;
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
+    utils::generate_lock_id,
 };
-
-pub type DB = Pool<Postgres>;
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
     // language=SQL
