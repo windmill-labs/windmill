@@ -209,13 +209,11 @@
 				{#if job?.type === 'CompletedJob'}
 					{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 						<div class="w-full mt-8 mb-20">
-							<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} wideResults>
-								{#snippet assets()}
-									{#if job}
-										<JobAssetsViewer {job} />
-									{/if}
-								{/snippet}
-							</FlowStatusViewer>
+							<FlowStatusViewer
+								jobId={job.id}
+								workspaceId={job.workspace_id}
+								wideResults
+							></FlowStatusViewer>
 						</div>
 					{:else}
 						<Tabs bind:selected={viewTab}>

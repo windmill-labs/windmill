@@ -16,7 +16,7 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
-	import { getContext, setContext, tick, untrack, type Snippet } from 'svelte'
+	import { getContext, setContext, tick, untrack } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -50,6 +50,7 @@
 		AI_TOOL_MESSAGE_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
+	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 
 	let {
 		flowStateStore,
@@ -124,7 +125,6 @@
 			isToolCallToBeLoaded: (storeKey: string) => boolean
 			addToolCallToLoad: (storeKey: string) => void
 		}
-		assets?: Snippet
 	}
 
 	let {
@@ -165,8 +165,7 @@
 		onStart = undefined,
 		onJobsLoaded = undefined,
 		onDone = undefined,
-		toolCallStore,
-		assets
+		toolCallStore
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1177,9 +1176,7 @@
 							: ''}><span class="font-semibold">Logs</span></Tab
 					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
-					{#if assets}
-						<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
-					{/if}
+					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1551,13 +1548,13 @@
 				{onSelectedIteration}
 			/>
 		</div>
-		{#if selected == 'assets' && render && assets}
+		{#if selected == 'assets' && render}
 			<div
 				class="p-2"
 				bind:clientHeight={tabsHeigh.assetsHeight}
 				style="min-height: {minTabHeight}px"
 			>
-				{@render assets()}
+				<JobAssetsViewer {job} />
 			</div>
 		{/if}
 	</div>
