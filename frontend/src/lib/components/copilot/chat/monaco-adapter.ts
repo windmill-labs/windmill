@@ -210,7 +210,7 @@ export class AIChatEditorHandler {
 		return changedLines
 	}
 
-	private async reviewChanges(
+	async reviewChanges(
 		targetCode: string,
 		opts?: {
 			applyAll?: boolean
@@ -316,16 +316,5 @@ export class AIChatEditorHandler {
 		if (opts?.applyAll) {
 			this.acceptAll()
 		}
-	}
-
-	async reviewAndApply(
-		newCode: string,
-		opts?: {
-			applyAll?: boolean
-			mode?: 'apply' | 'revert'
-			onFinishedReview?: (outcome: ReviewOutcome) => void
-		}
-	) {
-		return this.reviewChanges(newCode, { ...opts, mode: opts?.mode ?? 'apply' })
 	}
 }
