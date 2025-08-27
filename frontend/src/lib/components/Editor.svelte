@@ -683,7 +683,11 @@
 		originalCode: string,
 		opts?: { labels?: { primary?: string; secondary?: string }; applyAll?: boolean }
 	) {
-		aiChatEditorHandler?.reviewRevertTo(originalCode, opts)
+		// sleep for 1 second
+		setTimeout(() => {
+			console.log('here reviewRevertToCode', aiChatEditorHandler !== undefined)
+			aiChatEditorHandler?.reviewRevertTo(originalCode, opts)
+		}, 1000)
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {

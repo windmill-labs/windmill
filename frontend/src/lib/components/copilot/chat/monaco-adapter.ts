@@ -222,6 +222,16 @@ export class AIChatEditorHandler {
 				}
 			}
 
+			const isRevert = opts?.mode === 'revert'
+			const acceptFn = isRevert ? secondaryFn : primaryFn // Accept = keep (revert mode), apply (apply mode)
+			const rejectFn = isRevert ? primaryFn : secondaryFn // Reject = revert (revert mode), discard (apply mode)
+			const labels = isRevert
+				? {
+						primary: opts?.labels?.primary ?? 'Keep',
+						secondary: opts?.labels?.secondary ?? 'Revert'
+					}
+				: opts?.labels
+
 			const changes = group.changes.map((c, i) => {
 				if (i === group.changes.length - 1) {
 					return {
@@ -229,9 +239,9 @@ export class AIChatEditorHandler {
 						options: {
 							...(c.options ?? {}),
 							review: {
-								acceptFn: primaryFn,
-								rejectFn: secondaryFn,
-								labels: opts?.labels
+								acceptFn,
+								rejectFn,
+								labels
 							}
 						}
 					}

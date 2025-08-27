@@ -622,6 +622,7 @@
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {
 				console.log('here review revert to code')
+				console.log(content.slice(-100))
 				untrack(() => $currentEditor.editor.reviewRevertToCode(content))
 			}
 		}
