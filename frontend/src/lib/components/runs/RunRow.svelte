@@ -211,7 +211,7 @@
 	</div>
 
 	<!-- Job duration-->
-	<div class="text-2xs font-normal text-secondary">
+	<div class="text-2xs font-normal text-secondary pr-2">
 		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 			{msToReadableTime(job.duration_ms)}
 		{:else}

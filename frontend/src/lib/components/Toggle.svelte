@@ -12,6 +12,7 @@
 		right?: string
 		rightTooltip?: string
 		rightDocumentationLink?: string
+		title?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
@@ -37,6 +38,7 @@
 	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
+	title={options?.title}
 >
 	{#if Boolean(options?.left)}
 		<span

@@ -797,7 +797,7 @@
 	let tableTopBarWidth = $state(0)
 
 	const smallScreenWidth = 1920
-	const verySmallScreenWidth = 1200
+	const verySmallScreenWidth = 1300
 </script>
 
 <JobsLoader

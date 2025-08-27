@@ -219,7 +219,7 @@
 						bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 						clearable
 						onClear={() => ((user = null), dispatch('reset'))}
-						inputClass="!h-[32px]"
+						inputClass="!h-[32px] min-w-36"
 						onCreateItem={(item) => (usernames.push(item), (user = item))}
 						createText="Press enter to use this value"
 						id="user"
@@ -234,7 +234,7 @@
 						bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 						clearable
 						onClear={() => ((folder = null), dispatch('reset'))}
-						inputClass="!h-[32px]"
+						inputClass="!h-[32px] min-w-36"
 						id="folder"
 					/>
 				{/key}
@@ -247,7 +247,7 @@
 						bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 						clearable
 						onClear={() => ((path = null), dispatch('reset'))}
-						inputClass="!h-[32px]"
+						inputClass="!h-[32px] min-w-36"
 						onCreateItem={(item) => (paths.push(item), (path = item))}
 						createText="Press enter to use this value"
 						id="path"
@@ -280,7 +280,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="!h-[32px] py-1 !text-xs min-w-36"
 							bind:value={displayedLabel}
 							onkeydown={(e) => {
 								if (labelTimeout) {
@@ -296,7 +296,7 @@
 							<Toggle
 								bind:checked={allowWildcards}
 								size="2xs"
-								options={{ right: 'allow wildcards (*)' }}
+								options={{ right: '(*)', title: 'allow wildcards (*)' }}
 							></Toggle>
 						</div>
 					</div>
@@ -328,7 +328,7 @@
 					<input
 						autofocus
 						type="text"
-						class="!h-[32px] py-1 !text-xs !w-64"
+						class="!h-[32px] py-1 !text-xs min-w-36"
 						bind:value={displayedConcurrencyKey}
 						onkeydown={(e) => {
 							if (concurrencyKeyTimeout) {
@@ -363,7 +363,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="!h-[32px] py-1 !text-xs min-w-36"
 							bind:value={displayedTag}
 							onkeydown={(e) => {
 								if (tagTimeout) {
@@ -380,7 +380,7 @@
 							<Toggle
 								bind:checked={allowWildcards}
 								size="2xs"
-								options={{ right: 'allow wildcards (*)' }}
+								options={{ right: 'wildcards (*)', title: 'allow wildcards (*)' }}
 							></Toggle>
 						</div>
 					</div>
@@ -406,7 +406,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="!h-[32px] py-1 !text-xs min-w-36"
 							bind:value={displayedSchedule}
 							onkeydown={(e) => {
 								if (tagTimeout) {
@@ -442,7 +442,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="!h-[32px] py-1 !text-xs min-w-36"
 							bind:value={displayedWorker}
 							onkeydown={(e) => {
 								if (workerTimeout) {
@@ -459,7 +459,7 @@
 							<Toggle
 								bind:checked={allowWildcards}
 								size="2xs"
-								options={{ right: 'allow wildcards (*)' }}
+								options={{ right: 'wildcards (*)', title: 'allow wildcards (*)' }}
 							></Toggle>
 						</div>
 					</div>
@@ -853,7 +853,7 @@
 							<Toggle
 								bind:checked={allowWildcards}
 								size="2xs"
-								options={{ right: 'allow wildcards (*)' }}
+								options={{ right: 'wildcards (*)', title: 'allow wildcards (*)' }}
 							></Toggle>
 						{/if}
 						<Label label="Kind">
