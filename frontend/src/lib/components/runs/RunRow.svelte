@@ -49,6 +49,7 @@
 		selected?: boolean
 		containerWidth?: number
 		containsLabel?: boolean
+		showTag?: boolean
 		activeLabel: string | null
 		selectionMode?: RunsSelectionMode | false
 	}
@@ -58,6 +59,7 @@
 		selected = false,
 		containerWidth = 0,
 		containsLabel = false,
+		showTag = true,
 		activeLabel,
 		selectionMode = false
 	}: Props = $props()
@@ -106,10 +108,14 @@
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'grid items-center h-full'
 	)}
-	class:grid-runs-table={!containsLabel && !selectionMode}
-	class:grid-runs-table-with-labels={containsLabel && !selectionMode}
-	class:grid-runs-table-selection={!containsLabel && selectionMode}
-	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode}
+	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
+	class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
+	class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
+	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
+	class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
+	class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
+	class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
+	class:grid-runs-table-with-labels-selection-no-tag={containsLabel && selectionMode && !showTag}
 	style="width: {containerWidth}px"
 	onclick={() => {
 		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
@@ -380,11 +386,13 @@
 	</div>
 
 	<!-- Job tag-->
-	<div class="flex justify-start gap-1">
-		{#if job.tag}
-			<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
-		{/if}
-	</div>
+	{#if showTag}
+		<div class="flex justify-start gap-1">
+			{#if job.tag}
+				<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Job link-->
 	{#if !isExternal}
@@ -456,6 +464,51 @@
 			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
 			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
 			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layouts without tag column */
+	.grid-runs-table-no-tag {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
+			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-with-labels-no-tag {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
+			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
+			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-selection-no-tag {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
+			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-with-labels-selection-no-tag {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
+			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
+			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
 			minmax(40px, 0.3fr); /* Actions (~5%) */
 	}
 </style>

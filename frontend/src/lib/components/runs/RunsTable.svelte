@@ -189,22 +189,30 @@
 		}
 		return nstickyIndices
 	})
+
+	const showTag = $derived(containerWidth > 700)
 </script>
 
 <svelte:window onresize={() => computeHeight()} />
 
 <div
-	class="divide-y h-full border min-w-[840px]"
+	class="divide-y h-full border min-w-[650px]"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
 		<div
 			class="grid bg-surface-secondary sticky top-0 w-full py-2 pr-4"
-			class:grid-runs-table={!containsLabel && !selectionMode}
-			class:grid-runs-table-with-labels={containsLabel && !selectionMode}
-			class:grid-runs-table-selection={!containsLabel && selectionMode}
-			class:grid-runs-table-with-labels-selection={containsLabel && selectionMode}
+			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
+			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
+			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
+			class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
+			class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
+			class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
+			class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
+			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+				selectionMode &&
+				!showTag}
 		>
 			{#if selectionMode}
 				<div class="text-xs font-semibold pl-4"></div>
@@ -238,7 +246,9 @@
 				<div class="text-xs font-semibold">Label</div>
 			{/if}
 			<div class="text-xs font-semibold">Triggered by</div>
-			<div class="text-xs font-semibold">Tag</div>
+			{#if showTag}
+				<div class="text-xs font-semibold">Tag</div>
+			{/if}
 			<div class=""></div>
 		</div>
 	</div>
@@ -270,6 +280,7 @@
 								<div class="flex flex-row items-center h-full w-full">
 									<RunRow
 										{containsLabel}
+										{showTag}
 										job={jobOrDate.job}
 										selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 										{selectionMode}
@@ -393,6 +404,51 @@
 			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
 			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
 			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layouts without tag column */
+	.grid-runs-table-no-tag {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
+			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-with-labels-no-tag {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
+			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
+			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-selection-no-tag {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
+			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	.grid-runs-table-with-labels-selection-no-tag {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
+			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
+			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
 			minmax(40px, 0.3fr); /* Actions (~5%) */
 	}
 </style>
