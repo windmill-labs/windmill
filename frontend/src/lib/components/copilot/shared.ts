@@ -24,10 +24,6 @@ export type VisualChange =
 				review?: {
 					acceptFn: () => void
 					rejectFn: () => void
-					labels?: {
-						primary?: string
-						secondary?: string
-					}
 				}
 				extraChanges?: VisualChange[]
 			}
@@ -45,10 +41,6 @@ export type VisualChange =
 				review?: {
 					acceptFn: () => void
 					rejectFn: () => void
-					labels?: {
-						primary?: string
-						secondary?: string
-					}
 				}
 			}
 	  }
@@ -118,8 +110,7 @@ white-space: pre;
 function getReviewButtons(
 	editor: meditor.IStandaloneCodeEditor,
 	acceptFn: () => void,
-	rejectFn: () => void,
-	labels?: { primary?: string; secondary?: string }
+	rejectFn: () => void
 ) {
 	const { contentWidth, verticalScrollbarWidth } = editor.getLayoutInfo()
 	const scrollLeft = editor.getScrollLeft()
@@ -142,7 +133,7 @@ function getReviewButtons(
 	})
 
 	const acceptButton = document.createElement('button')
-	acceptButton.textContent = labels?.primary || 'Accept'
+	acceptButton.textContent = 'Accept'
 	Object.assign(acceptButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -155,7 +146,7 @@ function getReviewButtons(
 	const layout = editor.getLayoutInfo()
 	layout.width
 	const rejectButton = document.createElement('button')
-	rejectButton.textContent = labels?.secondary || 'Reject'
+	rejectButton.textContent = 'Reject'
 	Object.assign(rejectButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -180,10 +171,6 @@ async function addMultilineGhostText(
 		review?: {
 			acceptFn: () => void
 			rejectFn: () => void
-			labels?: {
-				primary?: string
-				secondary?: string
-			}
 		}
 		extraChanges?: VisualChange[]
 	},
@@ -193,12 +180,7 @@ async function addMultilineGhostText(
 	el.textContent = text
 
 	if (options?.review) {
-		const reviewButtons = getReviewButtons(
-			editor,
-			options.review.acceptFn,
-			options.review.rejectFn,
-			options.review.labels
-		)
+		const reviewButtons = getReviewButtons(editor, options.review.acceptFn, options.review.rejectFn)
 		el.append(reviewButtons)
 	}
 	applyMonacoStyles(el, options?.greenHighlight, revertMode)
@@ -254,8 +236,7 @@ export async function displayVisualChanges(
 							const reviewButtons = getReviewButtons(
 								editor,
 								change.options.review.acceptFn,
-								change.options.review.rejectFn,
-								change.options.review.labels
+								change.options.review.rejectFn
 							)
 							el.append(reviewButtons)
 							resolve(

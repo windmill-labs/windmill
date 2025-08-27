@@ -170,7 +170,6 @@ export class AIChatEditorHandler {
 	private async reviewChanges(
 		targetCode: string,
 		opts?: {
-			labels?: { primary?: string; secondary?: string }
 			applyAll?: boolean
 			mode?: 'apply' | 'revert'
 		}
@@ -192,7 +191,10 @@ export class AIChatEditorHandler {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
 
-			const primaryFn = () => {
+			const isRevert = opts?.mode === 'revert'
+
+			// Apply this group and continue with remaining changes
+			const onApply = () => {
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
@@ -205,10 +207,11 @@ export class AIChatEditorHandler {
 						newCodeWithRejects += change.value
 					}
 				}
-				this.reviewChanges(targetCode, opts)
+				this.reviewChanges(newCodeWithRejects, opts)
 			}
 
-			const secondaryFn = () => {
+			// Discard this group and continue with remaining changes
+			const onDiscard = () => {
 				indicesOfRejectedLineChanges.push(...group.changes.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
@@ -222,15 +225,10 @@ export class AIChatEditorHandler {
 				}
 			}
 
-			const isRevert = opts?.mode === 'revert'
-			const acceptFn = isRevert ? secondaryFn : primaryFn // Accept = keep (revert mode), apply (apply mode)
-			const rejectFn = isRevert ? primaryFn : secondaryFn // Reject = revert (revert mode), discard (apply mode)
-			const labels = isRevert
-				? {
-						primary: opts?.labels?.primary ?? 'Keep',
-						secondary: opts?.labels?.secondary ?? 'Revert'
-					}
-				: opts?.labels
+			// In revert mode: Accept = keep current code, Reject = revert to targetCode
+			// In apply mode: Accept = apply changes, Reject = discard changes
+			const acceptFn = isRevert ? onDiscard : onApply
+			const rejectFn = isRevert ? onApply : onDiscard
 
 			const changes = group.changes.map((c, i) => {
 				if (i === group.changes.length - 1) {
@@ -240,8 +238,7 @@ export class AIChatEditorHandler {
 							...(c.options ?? {}),
 							review: {
 								acceptFn,
-								rejectFn,
-								labels
+								rejectFn
 							}
 						}
 					}
