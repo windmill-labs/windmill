@@ -128,7 +128,7 @@ export class AIChatEditorHandler {
 		this.finish(opts)
 	}
 
-	// Keep all changes, used in apply mode
+	// Keep all changes, used in revert mode
 	async keepAll(opts?: { disableReviewCallback?: boolean }) {
 		this.finish(opts)
 	}
