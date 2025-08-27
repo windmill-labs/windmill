@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -6,35 +9,62 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let options: {
-		left?: string
-		leftTooltip?: string
-		right?: string
-		rightTooltip?: string
-		rightDocumentationLink?: string
-	} = {}
-	export let checked: boolean = false
-	export let disabled = false
-	export let textClass = ''
-	export let textStyle = ''
-	export let color: 'blue' | 'red' | 'nord' = 'blue'
-	export let id = (Math.random() + 1).toString(36).substring(10)
-	export let lightMode: boolean = false
-	export let eeOnly: boolean = false
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-
-	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
-
 	const dispatch = createEventDispatcher<{ change: boolean }>()
-	const bothOptions = Boolean(options.left) && Boolean(options.right)
 
-	export let textDisabled = false
+	interface Props {
+		options?: {
+			left?: string
+			leftTooltip?: string
+			right?: string
+			rightTooltip?: string
+			rightDocumentationLink?: string
+		}
+		checked?: boolean | undefined
+		disabled?: boolean
+		textClass?: string
+		textStyle?: string
+		color?: 'blue' | 'red' | 'nord'
+		id?: any
+		lightMode?: boolean
+		eeOnly?: boolean
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		size?: 'sm' | 'xs' | '2xs' | '2sm'
+		class?: string | undefined
+		textDisabled?: boolean
+		right?: import('svelte').Snippet
+	}
+
+	let {
+		options = {},
+		checked = $bindable(undefined),
+		disabled = false,
+		textClass = '',
+		textStyle = '',
+		color = 'blue',
+		id = (Math.random() + 1).toString(36).substring(10),
+		lightMode = false,
+		eeOnly = false,
+		aiId = undefined,
+		aiDescription = undefined,
+		size = 'sm',
+		class: clazz = undefined,
+		textDisabled = false,
+		right
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (checked == undefined) {
+			checked = false
+		}
+	})
+
+	const bothOptions = Boolean(options.left) && Boolean(options.right)
 </script>
 
 <label
 	for={id}
-	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
+	class="{clazz || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
 >
@@ -55,11 +85,11 @@
 		</span>
 	{/if}
 
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="relative"
-		on:click|stopPropagation
+		onclick={stopPropagation(bubble('click'))}
 		use:triggerableByAI={{
 			id: aiId,
 			description: aiDescription,
@@ -69,16 +99,16 @@
 		}}
 	>
 		<input
-			on:focus
-			on:click
+			onfocus={bubble('focus')}
+			onclick={bubble('click')}
 			{disabled}
 			type="checkbox"
 			{id}
 			class="sr-only peer"
 			bind:checked
-			on:change|stopPropagation={(e) => {
+			onchange={stopPropagation((e) => {
 				dispatch('change', checked)
-			}}
+			})}
 		/>
 		<div
 			class={classNames(
@@ -116,7 +146,7 @@
 			{/if}
 		</span>
 	{/if}
-	<slot name="right" />
+	{@render right?.()}
 </label>
 {#if eeOnly && disabled}
 	<span class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8">

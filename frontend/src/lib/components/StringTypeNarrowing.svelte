@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
+	import { untrack } from 'svelte'
 	import Label from './Label.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -29,6 +28,7 @@
 		enumLabels?: Record<string, string> | undefined
 		overrideAllowKindChange?: boolean
 		originalType?: string | undefined
+		onChange?: () => void
 	}
 
 	let {
@@ -45,7 +45,8 @@
 		dateFormat = $bindable(),
 		enumLabels = $bindable(undefined),
 		overrideAllowKindChange = true,
-		originalType = undefined
+		originalType = undefined,
+		onChange = () => {}
 	}: Props = $props()
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' | 'date-time' = $state(
@@ -82,18 +83,22 @@
 		['Pattern', 'pattern']
 	]
 
-	run(() => {
+	$effect.pre(() => {
 		format =
-			kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
+			kind == 'resource'
+				? resource != undefined
+					? `resource-${resource}`
+					: 'resource'
+				: untrack(() => format)
 	})
-	run(() => {
+	$effect.pre(() => {
 		pattern = patternStr == '' ? undefined : patternStr
 	})
-	run(() => {
+	$effect.pre(() => {
 		contentEncoding = kind == 'base64' ? 'base64' : undefined
 	})
 
-	run(() => {
+	$effect.pre(() => {
 		if (format == 'email') {
 			pattern = '^[\\w-+.]+@([\\w-]+\\.)+[\\w-]{2,63}$'
 		}
@@ -369,6 +374,7 @@
 			options={{ right: 'Is Password' }}
 			checked={password}
 			on:change={(e) => {
+				onChange?.()
 				if (e.detail) {
 					password = true
 				} else {

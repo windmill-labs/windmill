@@ -523,7 +523,6 @@
 							<div class="shrink-0">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON editor',
@@ -650,7 +649,7 @@
 															bind:order={schema.properties[argName].order}
 															{isFlowInput}
 															{isAppInput}
-															on:change={() => {
+															onChange={() => {
 																schema = $state.snapshot(schema)
 																dispatch('change', schema)
 															}}

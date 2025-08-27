@@ -26,4 +26,6 @@
 
 <!-- <ScriptWrapper {script} neverShowMeta={true} {customUi} /> -->
 
-<EditableSchemaSdkWrapper {customUi} {schema} />
+<EditableSchemaSdkWrapper onSchemaChange={(schema) => console.log(schema)} {customUi} {schema} />
+
+{JSON.stringify(schema)}

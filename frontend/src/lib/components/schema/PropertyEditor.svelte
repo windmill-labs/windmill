@@ -14,8 +14,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { createEventDispatcher, onMount, untrack } from 'svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { onMount, untrack } from 'svelte'
 
 	interface Props {
 		description?: string
@@ -45,6 +44,7 @@
 			| undefined
 		typeeditor?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		onChange?: () => void
 	}
 
 	let {
@@ -66,7 +66,8 @@
 		order = $bindable(),
 		itemsType = $bindable(undefined),
 		typeeditor,
-		children
+		children,
+		onChange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -75,8 +76,6 @@
 		}
 	})
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let oneOfSelected: string | undefined = $state(
@@ -140,7 +139,8 @@
 		if (!deepEqual(extra, initialExtra)) {
 			initialExtra = structuredClone($state.snapshot(extra))
 			console.debug('property content updated')
-			dispatchIfMounted('change')
+
+			onChange?.()
 		}
 	}
 
@@ -151,7 +151,7 @@
 				order
 			}
 			console.debug('property schema updated')
-			dispatchIfMounted('change')
+			onChange?.()
 		}
 	}
 	$effect(() => {
@@ -177,7 +177,7 @@
 				rows="2"
 				bind:value={description}
 				onkeydown={onKeyDown}
-				onchange={() => dispatch('change')}
+				onchange={onChange}
 				placeholder="Field description"
 			></textarea>
 		</Label>
@@ -188,7 +188,7 @@
 			{/snippet}
 			<input
 				bind:value={title}
-				onchange={() => dispatch('change')}
+				onchange={onChange}
 				onkeydown={onKeyDown}
 				placeholder="Field title"
 			/>
@@ -206,7 +206,7 @@
 				placeholder="Enter a placeholder"
 				rows="1"
 				bind:value={placeholder}
-				onchange={() => dispatch('change')}
+				onchange={onChange}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
 			></textarea>
 		</Label>
@@ -236,6 +236,7 @@
 								bind:enumLabels={extra['enumLabels']}
 								originalType={extra['originalType']}
 								overrideAllowKindChange={isFlowInput || isAppInput}
+								{onChange}
 							/>
 						{:else if type == 'number' || type == 'integer'}
 							<NumberTypeNarrowing
