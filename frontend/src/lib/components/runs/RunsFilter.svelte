@@ -86,6 +86,17 @@
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
+		console.log(
+			'dbg autosetFilter',
+			path,
+			user,
+			folder,
+			label,
+			concurrencyKey,
+			tag,
+			schedulePath,
+			worker
+		)
 		if (path !== null && path !== '' && filterBy !== 'path') {
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
@@ -120,6 +131,17 @@
 		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
 			untrack(() => autosetFilter())
 	})
+
+	function resetFilter() {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = null
+	}
 </script>
 
 {#snippet runsTooltip()}
@@ -177,13 +199,7 @@
 				bind:selected={filterBy}
 				on:selected={(e) => {
 					if (e.detail != filterBy) {
-						path = null
-						user = null
-						folder = null
-						label = null
-						concurrencyKey = null
-						tag = null
-						schedulePath = undefined
+						resetFilter()
 					}
 				}}
 			>
@@ -201,6 +217,7 @@
 						]}
 						{item}
 						bind:selected={filterBy}
+						onSelected={(v) => resetFilter()}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
