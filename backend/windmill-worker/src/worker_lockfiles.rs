@@ -648,7 +648,10 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = parent_path {
-            // TODO: What is this used for?
+            // NOTE:
+            // it's not used but maybe one day it will be useful. allows more back-compatibility for the workers when we need it
+            // also very useful for debugging/observability
+            // it adds that information to the job args so you can see from the runs page
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
