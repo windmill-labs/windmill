@@ -179,8 +179,7 @@
 
 {#if !mobile}
 	{#if $workspaceStore == 'admins'}
-		<div class="relative">
-			<span class="text-xs absolute -top-4">Workspaces</span>
+		<RunOption label="Workspaces" for="workspaces">
 			<ToggleButtonGroup
 				bind:selected={allWorkspacesValue}
 				on:selected={({ detail }) => (allWorkspaces = detail === 'all')}
@@ -190,7 +189,7 @@
 					<ToggleButton value={'all'} label="All" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</RunOption>
 	{/if}
 	<!-- Filter by -->
 	<div class="flex flex-row gap-1">
@@ -646,6 +645,19 @@
 			<Section label="Filters">
 				<div class="w-102 flex flex-col gap-4">
 					{#if mobile}
+						{#if $workspaceStore == 'admins'}
+							<Label label="Workspaces">
+								<ToggleButtonGroup
+									bind:selected={allWorkspacesValue}
+									on:selected={({ detail }) => (allWorkspaces = detail === 'all')}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value={'admins'} label="Admins" {item} />
+										<ToggleButton value={'all'} label="All" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</Label>
+						{/if}
 						<Label label="Filter by">
 							<ToggleButtonGroup
 								bind:selected={filterBy}
