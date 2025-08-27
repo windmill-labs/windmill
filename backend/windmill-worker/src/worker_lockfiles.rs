@@ -363,7 +363,7 @@ pub async fn handle_dependency_job(
             //
             // First will **always** produce script with null in `lock`
             // where Second will **always** do with lock being not null
-            if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+            let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -445,6 +445,8 @@ pub async fn handle_dependency_job(
                 .await?;
 
                 tx.commit().await?;
+
+                ScriptHash(new_hash)
             } else {
                 // We do not create new row for this update
                 // That means we can keep current hash and just update lock
@@ -458,11 +460,15 @@ pub async fn handle_dependency_job(
                 .await?;
 
                 // `lock` has been updated; invalidate the cache.
+                // Since only worker that ran this Dependency Job has the cache
+                // we do not need to think about invalidating cache for other workers.
                 cache::script::invalidate(current_hash);
 
                 if *WMDEBUG_NO_HASH_CHANGE_ON_DJ {
                     tracing::warn!("WMDEBUG_NO_HASH_CHANGE_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
                 }
+
+                current_hash
             };
 
             if let Err(e) = handle_deployment_metadata(
@@ -471,10 +477,7 @@ pub async fn handle_dependency_job(
                 &db,
                 &w_id,
                 DeployedObject::Script {
-                    // TODO:
-                    hash: current_hash,
-                    // hash: current_hash,
-                    // hash: ScriptHash(0),
+                    hash: deployed_hash,
                     path: script_path.to_string(),
                     parent_path: parent_path.clone(),
                 },
