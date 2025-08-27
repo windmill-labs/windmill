@@ -33,11 +33,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
@@ -45,6 +41,7 @@ use windmill_worker::process_relative_imports;
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    scripts::hash_script,
     utils::WarnAfterExt,
     worker::CLOUD_HOSTED,
 };
@@ -377,12 +374,6 @@ async fn get_top_hub_scripts(
     )
     .await?;
     Ok::<_, Error>((status_code, headers, response))
-}
-
-fn hash_script(ns: &NewScript) -> i64 {
-    let mut dh = DefaultHasher::new();
-    ns.hash(&mut dh);
-    dh.finish() as i64
 }
 
 async fn create_snapshot_script(
