@@ -31,6 +31,7 @@
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
 	let workspaces: UserWorkspace[] | undefined = undefined
+	let showAllForks: boolean = false
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -95,15 +96,40 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	// Group workspaces into parent-child hierarchy using the new utility
-	$: groupedNonAdminWorkspaces = (() => {
+	// Main workspaces - only root workspaces (no forks)
+	$: mainWorkspaces = (() => {
 		if (!workspaces) return []
 
-		// Filter out admin workspace and convert to UserWorkspace format
+		// Filter out admin workspace and only show root workspaces (no parent)
+		const nonAdminWorkspaces = workspaces.filter(
+			(x) => x.id !== 'admins' && x.parent_workspace_id == null
+		)
+
+		// Convert to hierarchy format for consistent rendering (depth 0, not forked)
+		return nonAdminWorkspaces.map((workspace) => ({
+			workspace,
+			depth: 0,
+			isForked: false,
+			parentName: undefined,
+			hasChildren: workspaces.some((w) => w.parent_workspace_id === workspace.id)
+		}))
+	})()
+
+	// Complete workspace hierarchy with all forks
+	$: forkedWorkspacesHierarchy = (() => {
+		if (!workspaces) return []
+
+		// Filter out admin workspace
 		const nonAdminWorkspaces = workspaces.filter((x) => x.id !== 'admins')
 
 		return buildWorkspaceHierarchy(nonAdminWorkspaces)
 	})()
+
+	// Check if there are any forked workspaces to show the toggle
+	$: hasForkedWorkspaces = workspaces?.some((w) => w.parent_workspace_id != null) ?? false
+
+	// Legacy variable for backward compatibility
+	$: groupedNonAdminWorkspaces = showAllForks ? forkedWorkspacesHierarchy : mainWorkspaces
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
@@ -278,11 +304,14 @@
 		</div>
 	{/if}
 
+	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
+
+{console.log(invites)}
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
-	{#if invites.length == 0}
+	{#if nonForkInvites.length == 0}
 		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
-	{#each invites as invite}
+	{#each nonForkInvites as invite}
 		<div
 			class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
 			text-sm mt-1 flex flex-row justify-between items-center"
@@ -320,6 +349,74 @@
 			</div>
 		</div>
 	{/each}
+
+	{#if showAllForks}
+		{@const allWorkspacesList = workspaces || []}
+		{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
+
+		<h2 class="mt-6 mb-4">Forks of the workspaces you're in</h2>
+		{#if filteredInvites.length == 0}
+			<p class="text-sm text-tertiary mt-2"> There isn't anything here </p>
+		{/if}
+		{#each filteredInvites as invite}
+			{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
+			<div
+				class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
+			text-sm mt-1 flex flex-row justify-between items-center"
+			>
+				<div class="grow">
+					<div class="flex items-center gap-2">
+						{#if inviteWorkspace?.parent_workspace_id}
+							<GitFork size={12} class="text-tertiary flex-shrink-0" />
+						{/if}
+						<span class="font-mono font-semibold">{invite.workspace_id}</span>
+					</div>
+					{#if invite.is_admin}
+						<span class="text-sm">as an admin</span>
+					{:else if invite.operator}
+						<span class="text-sm">as an operator</span>
+					{/if}
+					{#if invite.parent_workspace_id}
+						<div class="text-tertiary text-xs mt-1">
+							Fork of {invite.parent_workspace_id}
+						</div>
+					{/if}
+				</div>
+				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
+					<a
+						class="font-bold p-1"
+						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
+							? `&rd=${encodeURIComponent(rd)}`
+							: ''}"
+					>
+						Accept
+					</a>
+
+					<button
+						class="text-red-700 font-bold p-1"
+						on:click={async () => {
+							await UserService.declineInvite({
+								requestBody: { workspace_id: invite.workspace_id }
+							})
+							sendUserToast(`Declined invite to ${invite.workspace_id}`)
+							loadInvites()
+						}}
+					>
+						Decline
+					</button>
+				</div>
+			</div>
+		{/each}
+	{/if}
+	{#if workspaces}
+		<div class="flex flex-row-reverse pt-4 pb-2">
+			<Toggle
+				bind:checked={showAllForks}
+				options={{ right: 'Show workspace forks' }}
+			/>
+		</div>
+	{/if}
+
 	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
 			<Button

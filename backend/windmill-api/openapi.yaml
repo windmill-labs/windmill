@@ -1582,6 +1582,9 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                parent_workspace_id:
+                  type: string
+                  nullable: true
               required:
                 - email
                 - is_admin

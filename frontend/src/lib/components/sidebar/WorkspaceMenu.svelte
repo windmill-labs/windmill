@@ -214,7 +214,7 @@
 					</a>
 				</div>
 			{/if}
-			{#if (isCloudHosted() || $superadmin) && !strictWorkspaceSelect}
+			{#if !strictWorkspaceSelect}
 				<div class="py-1" role="none">
 					<a
 						href="{base}/user/fork_workspace"

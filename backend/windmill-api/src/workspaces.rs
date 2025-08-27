@@ -412,7 +412,14 @@ async fn list_pending_invites(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE workspace_id = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
+        WHERE workspace_id = $1",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -3085,9 +3092,9 @@ async fn create_workspace_fork(
     Extension(db): Extension<DB>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
-    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
-    }
+    // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+    //     require_super_admin(&db, &authed.email).await?;
+    // }
 
     if *CLOUD_HOSTED {
         return Err(Error::BadRequest(format!(
@@ -3129,13 +3136,12 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id, created_by)
-            VALUES ($1, $2, $3, $4, $5)",
+            (id, name, owner, parent_workspace_id)
+            VALUES ($1, $2, $3, $4)",
         forked_id,
         nw.name,
         authed.email,
         nw.parent_workspace_id,
-        username,
     )
     .execute(&mut *tx)
     .await?;
@@ -3163,10 +3169,11 @@ async fn create_workspace_fork(
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, true)",
+            VALUES ($1, $2, $3, $4)",
         forked_id,
         authed.email,
         username,
+        authed.is_admin,
     )
     .execute(&mut *tx)
     .await?;
