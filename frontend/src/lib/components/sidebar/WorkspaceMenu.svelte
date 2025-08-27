@@ -15,7 +15,6 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { WorkspaceService, type ForkedWorkspaceInfo } from '$lib/gen'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -65,44 +64,29 @@
 		}
 	}
 
-	// Fetch forked workspace data
-	let forkedWorkspaces: ForkedWorkspaceInfo[] = $state([])
-
-	// Load forked workspaces when component mounts or userWorkspaces change
-	$effect(() => {
-		if ($userWorkspaces) {
-			WorkspaceService.listWorkspaceForks()
-				.then((data) => {
-					forkedWorkspaces = data
-				})
-				.catch(() => {
-					forkedWorkspaces = []
-				})
-		}
-	})
-
 	// Helper function to check if a workspace is forked
 	function isForkedWorkspace(workspaceId: string): boolean {
-		return forkedWorkspaces.some((e) => e.forked_workspace_id === workspaceId)
+		if (!$userWorkspaces) return false
+		return $userWorkspaces.some((w) => w.id === workspaceId && w.parent_workspace_id != null)
 	}
 
-	function getForkedWorkspace(workspaceId: String): ForkedWorkspaceInfo | undefined {
-		return forkedWorkspaces.find((e) => e.forked_workspace_id == workspaceId)
+	function getForkedWorkspace(workspaceId: string) {
+		if (!$userWorkspaces) return undefined
+		return $userWorkspaces.find((w) => w.id === workspaceId && w.parent_workspace_id != null)
+	}
+
+	function getParentWorkspace(parentId: string) {
+		if (!$userWorkspaces) return undefined
+		return $userWorkspaces.find((w) => w.id === parentId)
 	}
 
 	// Group workspaces into parent-child hierarchy using Svelte 5 derived
 	const groupedWorkspaces = $derived(() => {
 		if (!$userWorkspaces) return []
 
-		// Create forked workspace lookup map
-		const forkedMap = new Map<string, ForkedWorkspaceInfo>()
-		forkedWorkspaces.forEach((e) => {
-			forkedMap.set(e.forked_workspace_id, e)
-		})
-
 		// Separate normal workspaces from forked ones
-		const normalWorkspaces = $userWorkspaces.filter((w) => !forkedMap.has(w.id))
-		const forkedWorkspacesList = $userWorkspaces.filter((w) => forkedMap.has(w.id))
+		const normalWorkspaces = $userWorkspaces.filter((w) => w.parent_workspace_id == null)
+		const forkedWorkspacesList = $userWorkspaces.filter((w) => w.parent_workspace_id != null)
 
 		// Create groups: each normal workspace followed by its forked children
 		const groups: Array<{
@@ -117,31 +101,28 @@
 			groups.push({ workspace, isForked: false })
 
 			// Add its forked children
-			const children = forkedWorkspacesList.filter((w) => {
-				const forkedInfo = forkedMap.get(w.id)
-				return forkedInfo?.parent_workspace_id === workspace.id
-			})
+			const children = forkedWorkspacesList.filter((w) => w.parent_workspace_id === workspace.id)
 			children.forEach((child) => {
-				const forkedInfo = forkedMap.get(child.id)!
+				const parent = getParentWorkspace(child.parent_workspace_id!)
 				groups.push({
 					workspace: child,
 					isForked: true,
-					parentId: forkedInfo.parent_workspace_id,
-					parentName: forkedInfo.parent_workspace_name
+					parentId: child.parent_workspace_id!,
+					parentName: parent?.name
 				})
 			})
 		})
 
 		// Add orphaned forked workspaces (those without a parent in the current list)
 		forkedWorkspacesList.forEach((forked) => {
-			const forkedInfo = forkedMap.get(forked.id)!
-			const hasParent = normalWorkspaces.some((w) => w.id === forkedInfo.parent_workspace_id)
+			const hasParent = normalWorkspaces.some((w) => w.id === forked.parent_workspace_id)
 			if (!hasParent) {
+				const parent = getParentWorkspace(forked.parent_workspace_id!)
 				groups.push({
 					workspace: forked,
 					isForked: true,
-					parentId: forkedInfo.parent_workspace_id,
-					parentName: forkedInfo.parent_workspace_name
+					parentId: forked.parent_workspace_id!,
+					parentName: (parent?.name || forked.parent_workspace_id) ?? undefined
 				})
 			}
 		})
@@ -153,11 +134,12 @@
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
 		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
-		{#if forkedWorkspace}
+		{@const parentWorkspace = forkedWorkspace ? getParentWorkspace(forkedWorkspace.parent_workspace_id!) : null}
+		{#if forkedWorkspace && parentWorkspace}
 			<MenuButton
 				class="!text-xs !text-tertiary"
 				icon={Building}
-				label={forkedWorkspace.parent_workspace_id}
+				label={parentWorkspace.name}
 				{isCollapsed}
 				color={$workspaceColor}
 				{trigger}

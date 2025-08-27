@@ -176,7 +176,6 @@ pub fn global_service() -> Router {
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
         .route("/create_fork", post(create_workspace_fork))
-        .route("/list_forks", get(list_workspace_forks))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -199,6 +198,9 @@ struct Workspace {
     deleted: bool,
     premium: bool,
     color: Option<String>,
+    parent_workspace_id: Option<String>,
+    created_by: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -363,15 +365,6 @@ struct UserWorkspace {
     pub operator_settings: Option<Option<serde_json::Value>>,
 }
 
-#[derive(Serialize)]
-struct ForkedWorkspaceInfo {
-    pub forked_workspace_id: String,
-    pub forked_workspace_name: String,
-    pub parent_workspace_id: String,
-    pub parent_workspace_name: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
 #[derive(Deserialize)]
 struct WorkspaceId {
     pub id: String,
@@ -464,7 +457,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.created_by, workspace.created_at
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -2030,7 +2023,10 @@ async fn list_workspaces_as_super_admin(
             workspace.owner AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
-            workspace_settings.color AS \"color\"
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.created_by AS \"created_by\",
+            workspace.created_at AS \"created_at!\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -2064,34 +2060,6 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
-async fn list_workspace_forks(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-) -> JsonResult<Vec<ForkedWorkspaceInfo>> {
-    let mut tx = user_db.begin(&authed).await?;
-    let forked_workspaces = sqlx::query_as!(
-        ForkedWorkspaceInfo,
-        "SELECT 
-            ew.ephemeral_workspace_id as forked_workspace_id,
-            ew_workspace.name AS forked_workspace_name,
-            ew.parent_workspace_id,
-            parent_workspace.name AS parent_workspace_name,
-            ew.created_at
-        FROM ephemeral_workspace ew
-        JOIN workspace ew_workspace ON ew.ephemeral_workspace_id = ew_workspace.id
-        JOIN workspace parent_workspace ON ew.parent_workspace_id = parent_workspace.id
-        JOIN usr ON usr.workspace_id = ew.ephemeral_workspace_id OR usr.workspace_id = ew.parent_workspace_id
-        WHERE usr.email = $1
-          AND ew_workspace.deleted = false
-          AND parent_workspace.deleted = false
-        ORDER BY ew.created_at DESC",
-        authed.email
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Json(forked_workspaces))
-}
 
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     if w_id == "global" {
@@ -3135,13 +3103,38 @@ async fn create_workspace_fork(
 
     let forked_id = nw.id;
 
+    // Determine username early so we can use it in workspace creation
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        nw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner)
-            VALUES ($1, $2, $3)",
+            (id, name, owner, parent_workspace_id, created_by)
+            VALUES ($1, $2, $3, $4, $5)",
         forked_id,
         nw.name,
         authed.email,
+        nw.parent_workspace_id,
+        username,
     )
     .execute(&mut *tx)
     .await?;
@@ -3166,28 +3159,6 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(false);
-
-    let username = if automate_username_creation {
-        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
-            return Err(Error::BadRequest(
-                "username is not allowed when username creation is automated".to_string(),
-            ));
-        }
-        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
-    } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
-    };
-
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
@@ -3195,15 +3166,6 @@ async fn create_workspace_fork(
         forked_id,
         authed.email,
         username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Insert forked workspace parent relationship
-    sqlx::query!(
-        "INSERT INTO ephemeral_workspace (ephemeral_workspace_id, parent_workspace_id) VALUES ($1, $2)",
-        forked_id,
-        nw.parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;

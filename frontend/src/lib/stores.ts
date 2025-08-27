@@ -30,6 +30,7 @@ export interface UserExt {
 }
 
 export interface UserWorkspace {
+	parent_workspace_id: string | null
 	id: string
 	name: string
 	username: string

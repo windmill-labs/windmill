@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
-	import { UserService, type WorkspaceInvite, WorkspaceService, type ForkedWorkspaceInfo } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService, type Workspace } from '$lib/gen'
 	import {
 		superadmin,
 		usersWorkspaceStore,
@@ -34,7 +34,7 @@
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
-	let forkedWorkspaces: ForkedWorkspaceInfo[] = []
+	let forkedWorkspaces: Workspace[] = []
 
 	$: rd = $page.url.searchParams.get('rd')
 
@@ -76,7 +76,9 @@
 
 	async function loadForkedWorkspaces() {
 		try {
-			forkedWorkspaces = await WorkspaceService.listWorkspaceForks()
+			forkedWorkspaces = (await WorkspaceService.listWorkspaces()).filter(
+				(w) => w.parent_workspace_id != undefined
+			)
 		} catch {
 			forkedWorkspaces = []
 		}
@@ -94,16 +96,16 @@
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
 	// Group workspaces into parent-child hierarchy
-	$: forkedMap = new Map(forkedWorkspaces.map(e => [e.forked_workspace_id, e]))
+	$: forkedMap = new Map(forkedWorkspaces.map((e) => [e.id, e]))
 	$: regularWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins' && !forkedMap.has(x.id))
 	$: forkedWorkspacesList = (workspaces ?? []).filter((x) => forkedMap.has(x.id))
 	$: groupedNonAdminWorkspaces = (() => {
 		const groups: Array<{ workspace: any; isForked: boolean; parentName?: string }> = []
-		
+
 		// Add regular workspaces and their forked children
 		regularWorkspaces.forEach((workspace) => {
 			groups.push({ workspace, isForked: false })
-			
+
 			// Add forked children for this parent
 			const children = forkedWorkspacesList.filter((w) => {
 				const forkedInfo = forkedMap.get(w.id)
@@ -111,27 +113,27 @@
 			})
 			children.forEach((child) => {
 				const forkedInfo = forkedMap.get(child.id)!
-				groups.push({ 
-					workspace: child, 
-					isForked: true, 
-					parentName: forkedInfo.parent_workspace_name 
+				groups.push({
+					workspace: child,
+					isForked: true,
+					parentName: forkedInfo.parent_workspace_id ?? undefined
 				})
 			})
 		})
-		
+
 		// Add orphaned forked workspaces
 		forkedWorkspacesList.forEach((forked) => {
 			const forkedInfo = forkedMap.get(forked.id)!
 			const hasParent = regularWorkspaces.some((w) => w.id === forkedInfo.parent_workspace_id)
 			if (!hasParent) {
-				groups.push({ 
-					workspace: forked, 
-					isForked: true, 
-					parentName: forkedInfo.parent_workspace_name 
+				groups.push({
+					workspace: forked,
+					isForked: true,
+					parentName: forkedInfo.parent_workspace_id ?? undefined
 				})
 			}
 		})
-		
+
 		return groups
 	})()
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
@@ -259,7 +261,9 @@
 								style="background-color: {workspace.color}"
 							></span>
 						{/if}
-						<span class="font-mono" class:text-secondary={isForked}>{workspace.id}</span> - <span class:text-secondary={isForked}>{workspace.name}</span> as
+						<span class="font-mono" class:text-secondary={isForked}>{workspace.id}</span> -
+						<span class:text-secondary={isForked}>{workspace.name}</span>
+						as
 						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
 						{#if workspace['deleted']}
 							<span class="text-red-500"> (archived)</span>

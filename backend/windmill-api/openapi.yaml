@@ -695,22 +695,6 @@ paths:
               schema:
                 type: string
 
-  /workspaces/list_forks:
-    get:
-      summary: list all forked workspaces with their parents
-      operationId: listWorkspaceForks
-      tags:
-        - workspace
-      responses:
-        "200":
-          description: list of forked workspaces
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ForkedWorkspaceInfo"
-
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -16979,27 +16963,6 @@ components:
         - name
         - parent_workspace_id
 
-    ForkedWorkspaceInfo:
-      type: object
-      properties:
-        forked_workspace_id:
-          type: string
-        forked_workspace_name:
-          type: string
-        parent_workspace_id:
-          type: string
-        parent_workspace_name:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-      required:
-        - forked_workspace_id
-        - forked_workspace_name
-        - parent_workspace_id
-        - parent_workspace_name
-        - created_at
-
     Workspace:
       type: object
       properties:
@@ -17013,10 +16976,20 @@ components:
           type: string
         color:
           type: string
+        parent_workspace_id:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
       required:
         - id
         - name
         - owner
+        - created_at
 
     WorkspaceInvite:
       type: object
