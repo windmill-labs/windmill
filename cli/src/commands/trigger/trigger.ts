@@ -17,6 +17,8 @@ import {
   removeType,
   TRIGGER_TYPES,
 } from "../../types.ts";
+import { fromBranchSpecificPath, isBranchSpecificFile } from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 
@@ -230,6 +232,22 @@ function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
   }
 }
 
+function extractTriggerKindFromPath(filePath: string): string | undefined {
+  let pathToAnalyze = filePath;
+
+  // If this is a branch-specific file, convert it to the base path first
+  if (isBranchSpecificFile(filePath)) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      pathToAnalyze = fromBranchSpecificPath(filePath, currentBranch);
+    }
+  }
+
+  // Now extract trigger type from the base path: "something.kafka_trigger.yaml" -> "kafka"
+  const triggerMatch = pathToAnalyze.match(/\.(\w+)_trigger\.yaml$/);
+  return triggerMatch ? triggerMatch[1] : undefined;
+}
+
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -245,7 +263,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing trigger..."));
 
-  const triggerKind = filePath.split(".")[1].split("_")[0];
+  const triggerKind = extractTriggerKindFromPath(filePath);
   if (!checkIfValidTrigger(triggerKind)) {
     throw new Error("Invalid trigger kind: " + triggerKind);
   }
