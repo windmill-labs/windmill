@@ -136,10 +136,12 @@ export function sleep(ms: number) {
 
 export function isFileResource(path: string): boolean {
   const splitPath = path.split(".");
+
+  // Check for pattern: *.resource.file.* (handles both base and branch-specific)
   return (
     splitPath.length >= 4 &&
-    splitPath[1] == "resource" &&
-    splitPath[2] == "file"
+    splitPath[splitPath.length - 3] == "resource" &&
+    splitPath[splitPath.length - 2] == "file"
   );
 }
 
