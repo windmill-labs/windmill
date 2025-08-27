@@ -200,7 +200,7 @@
 		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 			{msToReadableTime(job.duration_ms)}
 		{:else}
-			--
+			-
 		{/if}
 	</div>
 

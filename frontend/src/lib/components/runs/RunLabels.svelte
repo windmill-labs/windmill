@@ -107,5 +107,5 @@
 		{/if}
 	</div>
 {:else}
-	<span class="text-2xs text-secondary">No labels</span>
+	<span class="text-2xs text-secondary">-</span>
 {/if}
