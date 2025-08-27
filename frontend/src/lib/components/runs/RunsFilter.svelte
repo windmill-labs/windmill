@@ -86,17 +86,6 @@
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
-		console.log(
-			'dbg autosetFilter',
-			path,
-			user,
-			folder,
-			label,
-			concurrencyKey,
-			tag,
-			schedulePath,
-			worker
-		)
 		if (path !== null && path !== '' && filterBy !== 'path') {
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
