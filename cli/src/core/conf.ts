@@ -44,6 +44,7 @@ export interface SyncOptions {
     commonSpecificItems?: {
       variables?: string[];
       resources?: string[];
+      triggers?: string[];
     };
   } & {
     [branchName: string]: SyncOptions & {
@@ -54,6 +55,7 @@ export interface SyncOptions {
       specificItems?: {
         variables?: string[];
         resources?: string[];
+        triggers?: string[];
       };
     };
   };
@@ -62,6 +64,7 @@ export interface SyncOptions {
     commonSpecificItems?: {
       variables?: string[];
       resources?: string[];
+      triggers?: string[];
     };
   } & {
     [branchName: string]: SyncOptions & {
@@ -72,6 +75,7 @@ export interface SyncOptions {
       specificItems?: {
         variables?: string[];
         resources?: string[];
+        triggers?: string[];
       };
     };
   };

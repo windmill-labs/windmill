@@ -15,6 +15,8 @@ import {
 } from "../../../deps.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import * as specificItems from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
 
 import {
   defaultScriptMetadata,
@@ -102,12 +104,24 @@ async function push(opts: PushOptions, filePath: string) {
 export async function findResourceFile(path: string) {
   const splitPath = path.split(".");
 
-  const contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
-  const contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
+  let contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
+  let contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
+
+  // Check for branch-specific metadata files first
+  const currentBranch = getCurrentGitBranch();
+
+  const candidates = [contentBasePathJSON, contentBasePathYAML];
+
+  if (currentBranch) {
+    // Add branch-specific candidates at the beginning (higher priority)
+    const branchSpecificJSON = specificItems.toBranchSpecificPath(contentBasePathJSON, currentBranch);
+    const branchSpecificYAML = specificItems.toBranchSpecificPath(contentBasePathYAML, currentBranch);
+    candidates.unshift(branchSpecificJSON, branchSpecificYAML);
+  }
 
   const validCandidates = (
     await Promise.all(
-      [contentBasePathJSON, contentBasePathYAML].map((x) => {
+      candidates.map((x) => {
         return Deno.stat(x)
           .catch(() => undefined)
           .then((x) => x?.isFile)
@@ -580,7 +594,7 @@ export function filePathExtensionFromContentType(
     return ".java";
   } else if (language === "ruby") {
     return ".rb";
-    // for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -611,7 +625,7 @@ export const exts = [
   ".playbook.yml",
   ".java",
   ".rb"
-  // for related places search: ADD_NEW_LANG 
+  // for related places search: ADD_NEW_LANG
 ];
 
 export function removeExtensionToPath(path: string): string {
