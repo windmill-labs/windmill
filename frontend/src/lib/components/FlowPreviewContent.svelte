@@ -140,7 +140,7 @@
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 			isRunning = true
 			if (inputSelected) {
-				savedArgs = previewArgs.val
+				savedArgs = $state.snapshot(previewArgs.val)
 				inputSelected = undefined
 			}
 			onRunPreview?.()
@@ -166,7 +166,7 @@
 					if (preventEscape) {
 						selectInput(undefined)
 						event.preventDefault()
-						event.stopPropagation
+						event.stopPropagation()
 					}
 					break
 			}
@@ -506,7 +506,7 @@
 									schema={flowStore.val.schema}
 									bind:args={previewArgs.val}
 									on:change={() => {
-										savedArgs = previewArgs.val
+										savedArgs = $state.snapshot(previewArgs.val)
 									}}
 									bind:isValid
 									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&

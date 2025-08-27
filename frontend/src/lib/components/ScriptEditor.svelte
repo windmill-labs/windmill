@@ -48,6 +48,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import { editor as meditor } from 'monaco-editor'
 
 	interface Props {
 		// Exported
@@ -403,7 +404,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -626,16 +627,29 @@
 						{args}
 					/>
 					<DiffEditor
-						class="h-full"
+						className="h-full"
 						bind:this={diffEditor}
+						modifiedModel={editor?.getModel() as meditor.ITextModel}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						showButtons={diffMode}
-						on:hideDiffMode={hideDiffMode}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
+						buttons={diffMode
+							? [
+									{
+										text: 'See changes history',
+										onClick: () => {
+											showHistoryDrawer = true
+										}
+									},
+									{
+										text: 'Quit diff mode',
+										onClick: () => {
+											hideDiffMode()
+										},
+										color: 'red'
+									}
+								]
+							: []}
 					/>
 				{/key}
 			</div>
