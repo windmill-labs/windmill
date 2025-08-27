@@ -616,14 +616,17 @@
 
 	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
-		if ($currentEditor?.type === 'script' && $selectedId && affectedModules[$selectedId]) {
+		if (
+			$currentEditor?.type === 'script' &&
+			$selectedId &&
+			affectedModules[$selectedId] &&
+			$currentEditor.editor.getAiChatEditorHandler()
+		) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
 			const content =
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {
-				console.log('here review revert to code')
-				console.log(content.slice(-100))
-				untrack(() => $currentEditor.editor.reviewRevertToCode(content))
+				untrack(() => $currentEditor.editor.reviewAppliedCode(content))
 			}
 		}
 	})

@@ -679,14 +679,14 @@
 		aiChatEditorHandler?.reviewAndApply(code, { applyAll })
 	}
 
-	export function reviewRevertToCode(originalCode: string) {
-		// sleep for 1 second
-		setTimeout(() => {
-			console.log('here reviewRevertToCode', aiChatEditorHandler !== undefined)
-			aiChatEditorHandler?.reviewAndApply(originalCode, {
-				mode: 'revert'
-			})
-		}, 1000)
+	export function reviewAppliedCode(originalCode: string) {
+		aiChatEditorHandler?.reviewAndApply(originalCode, {
+			mode: 'revert'
+		})
+	}
+
+	export function getAiChatEditorHandler() {
+		return aiChatEditorHandler
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
