@@ -245,22 +245,12 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    dbg!(&job);
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
         .as_ref()
         .map(|x| {
             x.get("raw_deps")
-                .is_some_and(|y| y.to_string().as_str() == "true")
-        })
-        .unwrap_or(false);
-
-    let triggered_by_relative_import = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("triggered_by_relative_import")
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
@@ -357,11 +347,23 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            // The hash of the script that needs lock be updated
-            // Either current_hash or new one derived from NewScript with current_hash as parent_hash
+            let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
+                "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
+            )
+            .bind(&current_hash.0)
+            .bind(w_id)
+            .fetch_one(db)
+            .await?;
             // TODO: Test for other languages
             // TODO: Test with empty lockfile
-            if triggered_by_relative_import {
+            //
+            // DependencyJob can be triggered only from 2 places:
+            // 1. create_script function in windmill-api/src/scripts.rs
+            // 2. trigger_dependents_to_recompute_dependencies (in this file)
+            //
+            // First will **always** produce script with null in `lock`
+            // where Second will **always** do with lock being not null
+            if script_info.lock.is_some() {
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -371,19 +373,14 @@ pub async fn handle_dependency_job(
                 // run it again until you ran it on both, normally it should fail on one of those
                 //
                 // It happens because every worker has cached their own script versions.
-                // However usual dependency job does not update hash of the script -> cache is keyed by the hash.
+                // However usual dependency job does not update hash of the script (and cache is keyed by the hash).
                 // This logical branch will create new script which will update the hash and automatically invalidate cache.
-                let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
-                    "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
-                )
-                .bind(&current_hash.0)
-                .bind(w_id)
-                .fetch_one(&mut *tx)
-                .await?;
+                //
+                // IMPORTANT: This will **only** be triggered by another DependencyJob. It will never be triggered by script (re)deployement
 
                 let ns = NewScript {
                     path: script_info.path,
-                    parent_hash: dbg!(Some(current_hash)),
+                    parent_hash: Some(current_hash),
                     summary: script_info.summary,
                     description: script_info.description,
                     content: script_info.content,
@@ -416,7 +413,7 @@ pub async fn handle_dependency_job(
                     assets: script_info.assets,
                 };
 
-                let new_hash = dbg!(hash_script(&ns));
+                let new_hash = hash_script(&ns);
 
                 sqlx::query!("
     INSERT INTO script
@@ -660,13 +657,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&already_visited),
         );
 
-        // TODO: Could this affect the things we don't want this affect?
-        // TODO: Are the arguments being blindly forwarded? Can this be passed to dependency job that has no dependencies update
-        args.insert(
-            "triggered_by_relative_import".to_string(),
-            to_raw_value(&true),
-        );
-
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
@@ -702,7 +692,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 Ok(Some(version)) => JobPayload::FlowDependencies {
                     path: s.importer_path.clone(),
                     dedicated_worker: None,
-                    version: version,
+                    version,
                 },
                 Ok(None) => {
                     tracing::error!(

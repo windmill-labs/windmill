@@ -33,11 +33,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
