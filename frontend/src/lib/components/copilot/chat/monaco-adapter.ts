@@ -75,10 +75,10 @@ export class AIChatEditorHandler {
 		}
 	}
 
-	async finish() {
+	async finish(opts?: { disableReviewCallback?: boolean }) {
 		// expose mode getter relies on reviewState
 		// Call completion callback if we're tracking review state
-		if (this.reviewState?.onFinishedReview) {
+		if (this.reviewState?.onFinishedReview && !opts?.disableReviewCallback) {
 			const revertedCount = this.reviewState.revertedGroups.size
 			const keptCount = this.reviewState.totalGroups - revertedCount
 
@@ -109,7 +109,7 @@ export class AIChatEditorHandler {
 		return this.reviewState?.mode ?? null
 	}
 
-	async acceptAll() {
+	async acceptAll(opts?: { disableReviewCallback?: boolean }) {
 		// Track that all groups were applied
 		if (this.reviewState) {
 			for (const group of this.groupChanges) {
@@ -121,12 +121,12 @@ export class AIChatEditorHandler {
 		for (const group of this.groupChanges) {
 			this.applyGroup(group)
 		}
-		this.finish()
+		this.finish(opts)
 	}
 
-	async rejectAll() {
+	async rejectAll(opts?: { disableReviewCallback?: boolean }) {
 		// Don't apply any changes - just finish
-		this.finish()
+		this.finish(opts)
 	}
 
 	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {

@@ -6,7 +6,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
+	import type { FlowModule, OpenFlow } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { AIModuleAction, FlowAIChatHelpers } from './core'
 	import {
@@ -93,21 +93,10 @@
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
 		},
-		acceptAllModuleActions: () => {
-			for (const [id, affectedModule] of Object.entries(affectedModules)) {
-				if (affectedModule.action === 'removed') {
-					deleteStep(id)
-				}
-				// Hide diff editor if the module is a rawscript
-				if (
-					affectedModule.action === 'modified' &&
-					$currentEditor?.type === 'script' &&
-					$currentEditor.stepId === id
-				) {
-					$currentEditor.hideDiffMode()
-				}
+		acceptAllModuleActions() {
+			for (const id of Object.keys(affectedModules)) {
+				this.acceptModuleAction(id)
 			}
-			affectedModules = {}
 		},
 		rejectAllModuleActions() {
 			for (const id of Object.keys(affectedModules)) {
@@ -189,8 +178,12 @@
 							$currentEditor?.type === 'script' &&
 							$currentEditor.stepId === id
 						) {
-							$currentEditor.editor.setCode((oldModule.value as RawScript).content)
-							$currentEditor.hideDiffMode()
+							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+							if (aiChatEditorHandler) {
+								// In revert mode, we accept to keep the current changes
+								aiChatEditorHandler.acceptAll({ disableReviewCallback: true })
+								$currentEditor.hideDiffMode()
+							}
 						}
 
 						Object.keys(newModule).forEach((k) => delete newModule[k])
@@ -205,6 +198,19 @@
 		acceptModuleAction: (id: string) => {
 			if (affectedModules[id]?.action === 'removed') {
 				deleteStep(id)
+			}
+
+			if (
+				affectedModules[id]?.action === 'modified' &&
+				$currentEditor &&
+				$currentEditor.type === 'script' &&
+				$currentEditor.stepId === id
+			) {
+				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+				if (aiChatEditorHandler) {
+					// In apply mode, we accept to keep the current changes
+					aiChatEditorHandler.rejectAll({ disableReviewCallback: true })
+				}
 			}
 			delete affectedModules[id]
 		},
