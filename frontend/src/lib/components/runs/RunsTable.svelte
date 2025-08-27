@@ -194,13 +194,22 @@
 <svelte:window onresize={() => computeHeight()} />
 
 <div
-	class="divide-y min-w-[640px] h-full"
+	class="divide-y h-full border min-w-[840px]"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2">
-			<div class="w-[18%] text-2xs pl-4 flex flex-row items-center gap-2">
+		<div
+			class="grid bg-surface-secondary sticky top-0 w-full py-2 pr-4"
+			class:grid-runs-table={!containsLabel && !selectionMode}
+			class:grid-runs-table-with-labels={containsLabel && !selectionMode}
+			class:grid-runs-table-selection={!containsLabel && selectionMode}
+			class:grid-runs-table-with-labels-selection={containsLabel && selectionMode}
+		>
+			{#if selectionMode}
+				<div class="text-xs font-semibold pl-4"></div>
+			{/if}
+			<div class="text-2xs px-2 flex flex-row items-center gap-2">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -222,14 +231,15 @@
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 				{/if}
 			</div>
-			<div class="w-[7%] text-xs font-semibold">Duration</div>
-			<div class="w-[35%] text-xs font-semibold">Path</div>
+			<div class="text-xs font-semibold">Started</div>
+			<div class="text-xs font-semibold">Duration</div>
+			<div class="text-xs font-semibold">Path</div>
 			{#if containsLabel}
-				<div class="w-[30%] text-xs font-semibold">Label</div>
+				<div class="text-xs font-semibold">Label</div>
 			{/if}
-			<div class="w-[30%] text-xs font-semibold">Triggered by</div>
-			<div class="w-[5%] text-xs font-semibold">Tag</div>
-			<div class="w-[5%]"></div>
+			<div class="text-xs font-semibold">Triggered by</div>
+			<div class="text-xs font-semibold">Tag</div>
+			<div class=""></div>
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
@@ -253,7 +263,7 @@
 
 						{#if jobOrDate}
 							{#if jobOrDate?.type === 'date'}
-								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-4">
+								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-4 h-[42px]">
 									{jobOrDate.date}
 								</div>
 							{:else}
@@ -332,5 +342,57 @@
 	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
 		width: 8px !important;
 		height: 8px !important;
+	}
+
+	/* Grid layout for runs table without labels */
+	.grid-runs-table {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
+			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table with labels */
+	.grid-runs-table-with-labels {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
+			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
+			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table without labels with selection */
+	.grid-runs-table-selection {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
+			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table with labels with selection */
+	.grid-runs-table-with-labels-selection {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
+			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
+			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
 	}
 </style>

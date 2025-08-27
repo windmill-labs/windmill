@@ -42,7 +42,7 @@
 		<Loader2 class="animate-spin" size={20} />
 	</Button>
 {:else if selectionMode}
-	<div class="p-2 h-8 flex flex-row items-center gap-1">
+	<div class="h-8 flex flex-row items-center gap-1">
 		<Button
 			startIcon={{ icon: X }}
 			size="xs"

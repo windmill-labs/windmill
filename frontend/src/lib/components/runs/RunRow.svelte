@@ -104,8 +104,12 @@
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-		'flex flex-row items-center h-full'
+		'grid items-center h-full'
 	)}
+	class:grid-runs-table={!containsLabel && !selectionMode}
+	class:grid-runs-table-with-labels={containsLabel && !selectionMode}
+	class:grid-runs-table-selection={!containsLabel && selectionMode}
+	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode}
 	style="width: {containerWidth}px"
 	onclick={() => {
 		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
@@ -113,13 +117,17 @@
 		}
 	}}
 >
-	<!-- Flow status-->
-	<div class="w-[8%] flex justify-start pl-4">
-		{#if selectionMode && isJobSelectable(selectionMode)(job)}
-			<div class="px-2">
-				<input type="checkbox" checked={selected} />
+	<!-- Selection column (only when in selection mode) -->
+	{#if selectionMode}
+		<div class="flex items-center justify-center">
+			<div class="w-4 h-4">
+				<input type="checkbox" checked={selected} disabled={!isJobSelectable(selectionMode)(job)} />
 			</div>
-		{/if}
+		</div>
+	{/if}
+
+	<!-- Status -->
+	<div class="flex items-center justify-center">
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
 				<ShieldQuestion size={14} />
@@ -161,8 +169,8 @@
 		{/if}
 	</div>
 
-	<!-- Job time-->
-	<div class="w-[10%] min-w-24 flex justify-start pr-4 overflow-hidden">
+	<!-- Job time -->
+	<div class="overflow-hidden min-w-0">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -196,7 +204,7 @@
 	</div>
 
 	<!-- Job duration-->
-	<div class="w-[7%] text-2xs font-normal text-secondary">
+	<div class="text-2xs font-normal text-secondary">
 		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 			{msToReadableTime(job.duration_ms)}
 		{:else}
@@ -205,7 +213,7 @@
 	</div>
 
 	<!-- Job path-->
-	<div class="w-[35%] flex justify-start flex-col pr-4">
+	<div class="flex justify-start flex-col pr-4">
 		{#if job === undefined}
 			No job found
 		{:else}
@@ -300,7 +308,7 @@
 	</div>
 	<!-- Labels-->
 	{#if containsLabel}
-		<div class="w-[30%] flex justify-start overflow-hidden" bind:clientWidth={labelWidth}>
+		<div class="flex justify-start overflow-hidden" bind:clientWidth={labelWidth}>
 			<RunLabels
 				{job}
 				{activeLabel}
@@ -310,7 +318,7 @@
 		</div>
 	{/if}
 	<!-- Author and schedule-->
-	<div class="w-[30%] flex justify-start pr-4 text-secondary">
+	<div class="flex justify-start pr-4 text-secondary">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1 w-full -ml-2">
 				<Button
@@ -372,7 +380,7 @@
 	</div>
 
 	<!-- Job tag-->
-	<div class="w-[5%] flex justify-start gap-1">
+	<div class="flex justify-start gap-1">
 		{#if job.tag}
 			<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
 		{/if}
@@ -380,7 +388,7 @@
 
 	<!-- Job link-->
 	{#if !isExternal}
-		<div class="w-[5%] flex justify-end pr-2">
+		<div class="flex justify-end pr-2">
 			<a
 				target="_blank"
 				href="{base}/run/{job.id}?workspace={job.workspace_id}"
@@ -397,3 +405,57 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* Grid layout for runs table without labels */
+	.grid-runs-table {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
+			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table with labels */
+	.grid-runs-table-with-labels {
+		grid-template-columns:
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
+			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
+			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table without labels with selection */
+	.grid-runs-table-selection {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
+			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+
+	/* Grid layout for runs table with labels with selection */
+	.grid-runs-table-with-labels-selection {
+		grid-template-columns:
+			50px /* Selection checkbox (fixed width) */
+			80px /* Status (fixed width) */
+			minmax(100px, 0.8fr) /* Started time (~10%) */
+			minmax(60px, 0.5fr) /* Duration (~7%) */
+			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
+			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
+			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
+			minmax(70px, 0.5fr) /* Tag (~7% wider) */
+			minmax(40px, 0.3fr); /* Actions (~5%) */
+	}
+</style>

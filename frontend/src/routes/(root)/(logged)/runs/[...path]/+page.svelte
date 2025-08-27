@@ -1129,7 +1129,7 @@
 						>
 							<div class="flex flex-row gap-4 items-center">
 								{#if selectionMode && selectableJobCount}
-									<div class="flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm">
+									<div class="flex flex-row items-center font-semibold text-sm">
 										<div class="px-2">
 											<input
 												onfocus={bubble('focus')}
@@ -1144,7 +1144,9 @@
 												onclick={selectAll}
 											/>
 										</div>
-										<label class="cursor-pointer" for="select-all">Select all</label>
+										<label class="cursor-pointer whitespace-nowrap" for="select-all"
+											>Select all</label
+										>
 									</div>
 								{/if}
 
@@ -1220,7 +1222,7 @@
 						</div>
 
 						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
-						<div class="grow min-h-0 overflow-hidden">
+						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 							{#if jobs}
 								<RunsTable
 									{jobs}
