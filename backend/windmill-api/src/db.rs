@@ -205,6 +205,38 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
+    let is_past_snapshot = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM windmill_migrations WHERE name = 'snapshot')"
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false);
+
+    if !is_past_snapshot {
+        migrate_up_to_snapshot(db).await?;
+    };
+
+    match sqlx::migrate!("../migrations")
+        .run_direct(&mut custom_migrator)
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
+            tracing::error!(
+                "{MORE_MIGRATIONS_MSG}
+Version missing: {e:#}"
+            );
+            custom_migrator.unlock().await?;
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }?;
+    Ok(todo!())
+}
+
+async fn migrate_up_to_snapshot(db: &DB) -> Result<(), Error> {
     let (has_done_first_old_migration, has_done_latest_old_migration) = sqlx::query!(
         r#"
         SELECT
@@ -258,7 +290,7 @@ Version missing: {e:#}"
             }
             Err(err) => Err(err),
         }?;
-        crate::live_migrations::custom_migrations_old(&mut custom_migrator, db).await;
+        crate::live_migrations::custom_migrations_old(&mut custom_migrator, db).await
     } else if !has_done_first_old_migration {
         match sqlx::migrate!("../migrations/old_snapshot")
             .run_direct(&mut custom_migrator)
@@ -267,30 +299,13 @@ Version missing: {e:#}"
             Ok(_) => Ok(()),
             Err(err) => Err(err),
         }?;
-        sqlx::query!(
-            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
-            VALUES (20250814114112, 'fake latest old migration', true, '0', 0),
-            (20220123221901, 'fake first old migration', true, '0', 0)"
-        )
+    };
+    tracing::info!("Inserting snapshot migration checkpoint");
+    sqlx::query!("INSERT INTO windmill_migrations (name) VALUES  ('snapshot')")
         .execute(db)
         .await?;
-        return Ok(None);
-    };
-    match sqlx::migrate!("../migrations")
-        .run_direct(&mut custom_migrator)
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!(
-                "{MORE_MIGRATIONS_MSG}
-Version missing: {e:#}"
-            );
-            custom_migrator.unlock().await?;
-            Ok(())
-        }
-        Err(err) => Err(err),
-    }?;
+    tracing::info!("Snapshot migration inserted");
+    Ok(())
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
