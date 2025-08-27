@@ -1698,10 +1698,24 @@
 {#if $reviewingChanges}
 	<GlobalReviewButtons
 		onAcceptAll={() => {
-			aiChatEditorHandler?.acceptAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				// In revert mode, Accept All means keep current code
+				aiChatEditorHandler?.rejectAll()
+			} else {
+				// In apply mode, Accept All means apply all changes
+				aiChatEditorHandler?.acceptAll()
+			}
 		}}
 		onRejectAll={() => {
-			aiChatEditorHandler?.rejectAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				// In revert mode, Reject All means revert everything
+				aiChatEditorHandler?.acceptAll()
+			} else {
+				// In apply mode, Reject All means discard all changes
+				aiChatEditorHandler?.rejectAll()
+			}
 		}}
 	/>
 {/if}

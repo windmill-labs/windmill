@@ -30,6 +30,7 @@ export class AIChatEditorHandler {
 	private reviewState: {
 		totalGroups: number
 		revertedGroups: Set<number>
+		mode: 'apply' | 'revert'
 		onFinishedReview?: (outcome: ReviewOutcome) => void
 	} | null = null
 
@@ -75,6 +76,7 @@ export class AIChatEditorHandler {
 	}
 
 	async finish() {
+		// expose mode getter relies on reviewState
 		// Call completion callback if we're tracking review state
 		if (this.reviewState?.onFinishedReview) {
 			const revertedCount = this.reviewState.revertedGroups.size
@@ -103,8 +105,12 @@ export class AIChatEditorHandler {
 		})
 	}
 
+	getReviewMode(): 'apply' | 'revert' | null {
+		return this.reviewState?.mode ?? null
+	}
+
 	async acceptAll() {
-		// Track that all groups were applied (in revert mode this means all reverted)
+		// Track that all groups were applied
 		if (this.reviewState) {
 			for (const group of this.groupChanges) {
 				this.reviewState.revertedGroups.add(group.groupIndex)
@@ -119,8 +125,7 @@ export class AIChatEditorHandler {
 	}
 
 	async rejectAll() {
-		// Track that no groups were applied (no groups reverted in revert mode)
-		// reviewState.revertedGroups remains empty
+		// Don't apply any changes - just finish
 		this.finish()
 	}
 
@@ -228,6 +233,7 @@ export class AIChatEditorHandler {
 		this.reviewState = {
 			totalGroups: this.groupChanges.length,
 			revertedGroups: new Set<number>(),
+			mode: opts?.mode ?? 'apply',
 			onFinishedReview: opts?.onFinishedReview
 		}
 
