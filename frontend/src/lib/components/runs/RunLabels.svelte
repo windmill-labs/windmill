@@ -73,11 +73,11 @@
 {#if labels && labels.length > 0}
 	<div class="flex flex-row items-center" style="gap: {GAP}px">
 		{#each visibleLabels as label}
-			<Tooltip openDelay={500} placement="right">
+			<Tooltip openDelay={500} placement="bottom">
 				<button
 					class={twMerge(
 						activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-						'flex flex-row items-center px-2 group py-1 rounded-md bg-surface-secondary'
+						'flex flex-row items-center px-2 group py-1 rounded-md bg-surface-secondary hover:bg-surface'
 					)}
 					style="gap: {GAP}px; width: {LABEL_MAX_WIDTH}px"
 					onclick={() => {

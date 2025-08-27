@@ -91,6 +91,8 @@
 	}
 
 	let labelWidth = $state(0)
+
+	let isJobRecent = $state(true)
 </script>
 
 <Portal name="run-row">
@@ -160,14 +162,12 @@
 	</div>
 
 	<!-- Job time-->
-	<div class="w-[17%] flex justify-start pr-4 overflow-hidden">
+	<div class="w-[10%] min-w-24 flex justify-start pr-4 overflow-hidden">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToReadableTime(job.duration_ms)})
-					{/if}
+					{isJobRecent ? 'Started' : ''}
+					<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}
@@ -193,6 +193,15 @@
 				{/if}
 			{/if}
 		</div>
+	</div>
+
+	<!-- Job duration-->
+	<div class="w-[7%] text-2xs font-normal text-secondary">
+		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+			{msToReadableTime(job.duration_ms)}
+		{:else}
+			--
+		{/if}
 	</div>
 
 	<!-- Job path-->

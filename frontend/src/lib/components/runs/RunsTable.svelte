@@ -200,7 +200,7 @@
 >
 	<div bind:clientHeight={headerHeight}>
 		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2">
-			<div class="w-[25%] text-2xs pl-4 flex flex-row items-center gap-2">
+			<div class="w-[18%] text-2xs pl-4 flex flex-row items-center gap-2">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -222,6 +222,7 @@
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 				{/if}
 			</div>
+			<div class="w-[7%] text-xs font-semibold">Duration</div>
 			<div class="w-[35%] text-xs font-semibold">Path</div>
 			{#if containsLabel}
 				<div class="w-[30%] text-xs font-semibold">Label</div>
