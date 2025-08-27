@@ -676,17 +676,16 @@
 	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewAndApply(code, applyAll)
+		aiChatEditorHandler?.reviewAndApply(code, { applyAll })
 	}
 
-	export function reviewRevertToCode(
-		originalCode: string,
-		opts?: { labels?: { primary?: string; secondary?: string }; applyAll?: boolean }
-	) {
+	export function reviewRevertToCode(originalCode: string) {
 		// sleep for 1 second
 		setTimeout(() => {
 			console.log('here reviewRevertToCode', aiChatEditorHandler !== undefined)
-			aiChatEditorHandler?.reviewRevertTo(originalCode, opts)
+			aiChatEditorHandler?.reviewAndApply(originalCode, {
+				mode: 'revert'
+			})
 		}, 1000)
 	}
 

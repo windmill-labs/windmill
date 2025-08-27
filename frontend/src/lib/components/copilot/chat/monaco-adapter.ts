@@ -266,33 +266,7 @@ export class AIChatEditorHandler {
 		}
 	}
 
-	async reviewAndApply(newCode: string, applyAll: boolean = false) {
-		return this.reviewChanges(newCode, { applyAll, mode: 'apply' })
-	}
-
-	async reviewRevertTo(
-		originalCode: string,
-		opts?: {
-			labels?: { primary?: string; secondary?: string }
-			applyAll?: boolean
-		}
-	) {
-		const currentCode = this.editor.getValue()
-		if (currentCode === originalCode) {
-			return
-		}
-
-		return this.reviewChanges(originalCode, {
-			...opts,
-			mode: 'revert'
-		})
-	}
-
-	async revertAll() {
-		this.acceptAll()
-	}
-
-	async keepAll() {
-		this.rejectAll()
+	async reviewAndApply(newCode: string, opts?: { applyAll?: boolean; mode?: 'apply' | 'revert' }) {
+		return this.reviewChanges(newCode, { ...opts, mode: opts?.mode ?? 'apply' })
 	}
 }
