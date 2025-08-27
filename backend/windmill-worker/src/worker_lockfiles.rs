@@ -356,7 +356,7 @@ pub async fn handle_dependency_job(
             .bind(w_id)
             .fetch_one(db)
             .await?;
-            // TODO: Test for other languages
+
             // DependencyJob can be triggered only from 2 places:
             // 1. create_script function in windmill-api/src/scripts.rs
             // 2. trigger_dependents_to_recompute_dependencies (in this file)
@@ -465,7 +465,6 @@ pub async fn handle_dependency_job(
                 }
             };
 
-            // TODO
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
                 &job.created_by,
@@ -477,7 +476,6 @@ pub async fn handle_dependency_job(
                     // hash: current_hash,
                     // hash: ScriptHash(0),
                     path: script_path.to_string(),
-                    // TODO:
                     parent_path: parent_path.clone(),
                 },
                 deployment_message.clone(),
@@ -620,9 +618,7 @@ pub async fn process_relative_imports(
 pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
-    // TODO
     deployment_message: Option<String>,
-    // TODO
     parent_path: Option<String>,
     email: &str,
     created_by: &str,
