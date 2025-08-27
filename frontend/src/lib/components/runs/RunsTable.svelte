@@ -199,7 +199,7 @@
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2 pr-4">
+		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full py-2">
 			<div class="w-[25%] text-2xs pl-4 flex flex-row items-center gap-2">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">

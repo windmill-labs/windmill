@@ -40,6 +40,7 @@
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { GitIcon } from '../icons'
+	import RunLabels from './RunLabels.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -88,6 +89,8 @@
 		}
 		return Code
 	}
+
+	let labelWidth = $state(0)
 </script>
 
 <Portal name="run-row">
@@ -157,7 +160,7 @@
 	</div>
 
 	<!-- Job time-->
-	<div class="w-[17%] flex justify-start pr-4">
+	<div class="w-[17%] flex justify-start pr-4 overflow-hidden">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -286,31 +289,15 @@
 			</div>
 		{/if}
 	</div>
+	<!-- Labels-->
 	{#if containsLabel}
-		<div class="w-3/12 flex justify-start px-0.5">
-			{#if job && job?.['labels']}
-				<div class="flex flex-row items-center gap-1 overflow-x-auto">
-					{#if Array.isArray(job?.['labels'])}
-						{#each job?.['labels'] as label}
-							<Button
-								variant="border"
-								size="xs3"
-								btnClasses={twMerge(
-									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-									'!text-2xs !font-normal truncate max-w-28'
-								)}
-								color="light"
-								on:click={() => {
-									dispatch('filterByLabel', label)
-								}}
-								endIcon={{ icon: ListFilterPlus }}
-							>
-								{label}
-							</Button>
-						{/each}
-					{/if}
-				</div>
-			{/if}
+		<div class="w-[30%] flex justify-start overflow-hidden" bind:clientWidth={labelWidth}>
+			<RunLabels
+				{job}
+				{activeLabel}
+				onFilterByLabel={(label) => dispatch('filterByLabel', label)}
+				{labelWidth}
+			/>
 		</div>
 	{/if}
 	<!-- Author and schedule-->
