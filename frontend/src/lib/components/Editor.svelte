@@ -144,7 +144,7 @@
 	import { conf, language } from '$lib/vueMonarch'
 
 	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
-	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
+	import { AIChatEditorHandler, type ReviewOutcome } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
@@ -679,9 +679,13 @@
 		aiChatEditorHandler?.reviewAndApply(code, { applyAll })
 	}
 
-	export function reviewAppliedCode(originalCode: string) {
+	export function reviewAppliedCode(
+		originalCode: string,
+		opts?: { onFinishedReview?: (outcome: ReviewOutcome) => void }
+	) {
 		aiChatEditorHandler?.reviewAndApply(originalCode, {
-			mode: 'revert'
+			mode: 'revert',
+			onFinishedReview: opts?.onFinishedReview
 		})
 	}
 
