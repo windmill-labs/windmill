@@ -42,6 +42,7 @@ use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
     scripts::hash_script,
+    utils::WarnAfterExt,
     worker::CLOUD_HOSTED,
 };
 
@@ -1438,6 +1439,7 @@ async fn raw_script_by_path_internal(
         w_id
     )
     .fetch_optional(&mut *tx)
+    .warn_after_seconds(5)
     .await?;
     tx.commit().await?;
 
@@ -1448,6 +1450,7 @@ async fn raw_script_by_path_internal(
             w_id
         )
         .fetch_one(&db)
+        .warn_after_seconds(5)
         .await?
         .unwrap_or(false);
 
