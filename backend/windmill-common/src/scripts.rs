@@ -649,3 +649,9 @@ pub struct HubScript {
     pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
 }
+
+pub fn hash_script(ns: &NewScript) -> i64 {
+    let mut dh = std::hash::DefaultHasher::new();
+    ns.hash(&mut dh);
+    dh.finish() as i64
+}

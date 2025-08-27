@@ -63,7 +63,9 @@ mod worker_lockfiles;
 mod worker_utils;
 
 pub use worker::*;
-pub use worker_lockfiles::process_relative_imports;
+pub use worker_lockfiles::{
+    process_relative_imports, trigger_dependents_to_recompute_dependencies,
+};
 
 pub use result_processor::handle_job_error;
 
