@@ -77,6 +77,7 @@
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
+		{hash}
 		on:email-domain
 	/>
 {:else if selectedTrigger.type === 'schedule'}
