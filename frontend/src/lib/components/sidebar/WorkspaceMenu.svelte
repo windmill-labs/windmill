@@ -177,7 +177,7 @@
 										{workspace.id}
 									</div>
 									{#if isForked && parentName}
-										<div class="text-tertiary text-2xs truncate">
+										<div class="text-tertiary text-2xs truncate text-left pl-2 min-h-[1rem]">
 											Fork of {parentName}
 										</div>
 									{/if}
