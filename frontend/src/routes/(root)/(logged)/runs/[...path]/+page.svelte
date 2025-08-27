@@ -1175,7 +1175,9 @@
 												showSchedules ? 'true' : 'false'
 											)
 										}}
-										options={tableTopBarWidth < 800 ? {} : { right: 'CRON Schedules' }}
+										options={tableTopBarWidth < 800 || selectionMode
+											? {}
+											: { right: 'CRON Schedules' }}
 									/>
 									<span title="CRON Schedules">
 										<Calendar size="16" />
@@ -1190,7 +1192,9 @@
 											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
 										}}
 										id="planned-later"
-										options={tableTopBarWidth < 800 ? {} : { right: 'Planned later' }}
+										options={tableTopBarWidth < 800 || selectionMode
+											? {}
+											: { right: 'Planned later' }}
 									/>
 									<span title="Planned later">
 										<Clock size={16} />
