@@ -676,14 +676,14 @@
 	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewAndApply(code, { applyAll })
+		aiChatEditorHandler?.reviewChanges(code, { applyAll, mode: 'apply' })
 	}
 
 	export function reviewAppliedCode(
 		originalCode: string,
 		opts?: { onFinishedReview?: (outcome: ReviewOutcome) => void }
 	) {
-		aiChatEditorHandler?.reviewAndApply(originalCode, {
+		aiChatEditorHandler?.reviewChanges(originalCode, {
 			mode: 'revert',
 			onFinishedReview: opts?.onFinishedReview
 		})
