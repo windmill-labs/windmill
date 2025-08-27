@@ -16,8 +16,9 @@
 	let { job, activeLabel, onFilterByLabel, labelWidth }: Props = $props()
 
 	const GAP = 4
-	const LABEL_MAX_WIDTH = 112
+	const LABEL_MAX_WIDTH = 84
 	const MORE_LABEL_WIDTH = 30
+	// Min width for labels columns is 120px
 
 	const labels = $derived(job && Array.isArray(job?.['labels']) ? (job['labels'] as string[]) : [])
 
