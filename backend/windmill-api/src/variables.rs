@@ -24,7 +24,10 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB, error::{Error, JsonResult, Result}, utils::{not_found_if_none, paginate, Pagination, StripPath}, variables::{
+    db::UserDB,
+    error::{Error, JsonResult, Result},
+    utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
+    variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
     worker::CLOUD_HOSTED,
@@ -693,6 +696,7 @@ pub async fn get_value_internal<'c>(
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(&mut *tx)
+    .warn_after_seconds(5)
     .await?;
 
     let variable = if let Some(variable) = variable_o {

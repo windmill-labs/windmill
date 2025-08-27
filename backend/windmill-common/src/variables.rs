@@ -7,6 +7,7 @@
  */
 
 use crate::error;
+use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
@@ -118,6 +119,7 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
             w_id
         )
         .fetch_one(db)
+        .warn_after_seconds(5)
         .await
         .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
         
