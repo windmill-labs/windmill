@@ -380,11 +380,16 @@
 
 	<!-- Job link-->
 	{#if !isExternal}
-		<div class="w-[5%] flex justify-end">
+		<div class="w-[5%] flex justify-end pr-2">
 			<a
 				target="_blank"
 				href="{base}/run/{job.id}?workspace={job.workspace_id}"
-				class="text-right float-right text-gray-300 hover:text-primary dark:text-gray-300 px-2"
+				class={twMerge(
+					'text-right float-right  px-2',
+					selected
+						? 'text-blue-500 hover:text-primary'
+						: 'text-gray-300 dark:text-gray-500 hover:text-primary dark:hover:text-primary'
+				)}
 				title="See run detail in a new tab"
 			>
 				<ExternalLink size={14} />
