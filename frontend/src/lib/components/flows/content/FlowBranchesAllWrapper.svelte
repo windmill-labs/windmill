@@ -15,6 +15,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	interface Props {
 		noEditor: boolean
@@ -31,6 +32,12 @@
 	})
 
 	let selected = $state('early-stop')
+
+	useUiIntent(`branchall-${flowModule.id}`, {
+		openTab: (tab) => {
+			selected = tab
+		}
+	})
 </script>
 
 <div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">

@@ -8,7 +8,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
+import { type DBSchema, dbSchemas, getCurrentModel } from '$lib/stores'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
@@ -655,7 +655,8 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
 		)
 
-		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		const model = getCurrentModel()
+		const modelContextWindow = getModelContextWindow(model.model)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''

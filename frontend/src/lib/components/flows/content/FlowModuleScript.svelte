@@ -140,7 +140,7 @@
 				{:then Module}
 					<Module.default
 						open={true}
-						class="h-screen"
+						className="h-screen"
 						readOnly
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(language)}

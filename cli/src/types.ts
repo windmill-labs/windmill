@@ -45,6 +45,17 @@ export interface DifferenceChange {
 
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
+export const TRIGGER_TYPES = [
+  'http',
+  'websocket',
+  'kafka',
+  'nats',
+  'postgres',
+  'mqtt',
+  'sqs',
+  'gcp'
+] as const;
+
 export type GlobalOptions = {
   baseUrl: string | undefined;
   workspace: string | undefined;
@@ -111,6 +122,17 @@ export function showConflict(path: string, local: string, remote: string) {
   log.info("\n");
 }
 
+/**
+ * Pushes an object to the workspace server based on its type
+ * @param workspace - The workspace ID to push to
+ * @param p - The server path (base path for branch-specific items)
+ * @param befObj - The previous object state (for updates)
+ * @param newObj - The new object state to push
+ * @param plainSecrets - Whether to store secrets in plain text
+ * @param alreadySynced - Array to track already synced items
+ * @param message - Optional commit/update message
+ * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
+ */
 export async function pushObj(
   workspace: string,
   p: string,
@@ -118,7 +140,8 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string
+  message?: string,
+  originalLocalPath?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -135,7 +158,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);

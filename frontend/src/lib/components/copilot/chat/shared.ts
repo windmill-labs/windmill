@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
-import { copilotSessionModel, workspaceStore } from '$lib/stores'
+import { workspaceStore, getCurrentModel } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -455,8 +455,8 @@ export async function buildSchemaForTool(
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-		const model = get(copilotSessionModel)?.provider
-		if (model === 'openai' || model === 'azure_openai') {
+		const model = getCurrentModel()
+		if (model.provider === 'openai' || model.provider === 'azure_openai') {
 			toolDef.function.strict = false
 		}
 		return true
