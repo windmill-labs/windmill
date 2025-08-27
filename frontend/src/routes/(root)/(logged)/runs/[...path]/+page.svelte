@@ -909,10 +909,10 @@
 					{success}
 					{queue_count}
 					{suspended_count}
-					on:jobs_waiting={() => {
+					onJobsWaiting={() => {
 						jobsFilter('waiting')
 					}}
-					on:jobs_suspended={() => {
+					onJobsSuspended={() => {
 						jobsFilter('suspended')
 					}}
 					small={innerWidth < smallScreenWidth}

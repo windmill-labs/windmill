@@ -1,9 +1,7 @@
 <script lang="ts">
 	import type { Tweened } from 'svelte/motion'
-
-	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
-	import { FilterX, Hourglass, ListFilterPlus } from 'lucide-svelte'
+	import { Hourglass, ListFilterPlus, X } from 'lucide-svelte'
 	import RunOption from './RunOption.svelte'
 	import { Popover } from '../meltComponents'
 
@@ -12,15 +10,18 @@
 		suspended_count?: Tweened<number> | undefined
 		success: string | undefined
 		small?: boolean
+		onJobsWaiting?: () => void
+		onJobsSuspended?: () => void
 	}
 
 	let {
 		queue_count = undefined,
 		suspended_count = undefined,
 		success,
-		small = false
+		small = false,
+		onJobsWaiting,
+		onJobsSuspended
 	}: Props = $props()
-	const dispatch = createEventDispatcher()
 </script>
 
 {#if small}
@@ -52,14 +53,20 @@
 		{/snippet}
 		<div
 			class={queue_count && ($queue_count ?? 0) > 0
-				? 'bg-purple-500 text-white rounded-full w-5 h-5'
+				? 'bg-purple-500 text-white rounded-full w-6 h-6 flex center-center'
 				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
 		>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
-			<Button size="xs2" color="light" on:click={() => dispatch('jobs_waiting')}
-				>{#if success == 'waiting'}<FilterX size={12}></FilterX>{:else}<ListFilterPlus size={14}
-					></ListFilterPlus>{/if}</Button
-			>
+			<Button size="xs2" color="light" on:click={() => onJobsWaiting?.()}>
+				{#if success == 'waiting'}
+					<div class="flex flex-row items-center gap-1">
+						Reset filter
+						<X size={12} />
+					</div>
+				{:else}
+					<ListFilterPlus size={14} />
+				{/if}
+			</Button>
 		</div>
 	</RunOption>
 
@@ -73,11 +80,17 @@
 					? 'bg-purple-500 text-white rounded-full w-6 h-6 flex center-center'
 					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
 			>
-			<div class="truncate text-2xs !text-secondary mt-0.5">
-				<Button size="xs2" color="light" on:click={() => dispatch('jobs_suspended')}
-					>{#if success == 'waiting'}<FilterX size={12}></FilterX>{:else}<ListFilterPlus size={14}
-						></ListFilterPlus>{/if}</Button
-				>
+			<div class="truncate text-2xs !text-secondary">
+				<Button size="xs2" color="light" on:click={() => onJobsSuspended?.()}>
+					{#if success == 'suspended'}
+						<div class="flex flex-row items-center gap-1">
+							Reset filter
+							<X size={12} />
+						</div>
+					{:else}
+						<ListFilterPlus size={14} />
+					{/if}
+				</Button>
 			</div>
 		</RunOption>
 	{/if}
