@@ -1082,6 +1082,23 @@
 
 		return ''
 	}
+
+	// Set all tabs content to the same height to prevent layout jumps
+	let tabsHeigh = $state({
+		sequenceHeight: 0,
+		logsHeight: 0,
+		assetsHeight: 0,
+		graphHeight: 0
+	})
+
+	let minTabHeight = $derived(
+		Math.max(
+			tabsHeigh.sequenceHeight,
+			tabsHeigh.logsHeight,
+			tabsHeigh.assetsHeight,
+			tabsHeigh.graphHeight
+		)
+	)
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1168,7 +1185,11 @@
 				<div class="h-[30px]"></div>
 			{/if}
 		{/if}
-		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
+		<div
+			class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto"
+			bind:clientHeight={tabsHeigh.sequenceHeight}
+			style="min-height: {minTabHeight}px"
+		>
 			{#if isListJob}
 				{@const sliceFrom =
 					globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
@@ -1517,7 +1538,11 @@
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
-		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
+		<div
+			class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
+			bind:clientHeight={tabsHeigh.logsHeight}
+			style="min-height: {minTabHeight}px"
+		>
 			<FlowLogViewerWrapper
 				{job}
 				{localModuleStates}
@@ -1527,14 +1552,22 @@
 			/>
 		</div>
 		{#if selected == 'assets' && render && assets}
-			<div class="p-2">
+			<div
+				class="p-2"
+				bind:clientHeight={tabsHeigh.assetsHeight}
+				style="min-height: {minTabHeight}px"
+			>
 				{@render assets()}
 			</div>
 		{/if}
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}
-			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
+			<div
+				class="{selected != 'graph' ? 'hidden' : ''} grow mt-4"
+				bind:clientHeight={tabsHeigh.graphHeight}
+				style="min-height: {minTabHeight}px"
+			>
 				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">

@@ -78,12 +78,29 @@
 	})
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
+
+	// Set all tabs content to the same height to prevent layout jumps
+	let tabsHeigh = $state({
+		codeHeight: 0,
+		logsHeight: 0,
+		assetsHeight: 0,
+		resultHeight: 0
+	})
+
+	let minTabHeight = $derived(
+		Math.max(
+			tabsHeigh.codeHeight,
+			tabsHeigh.logsHeight,
+			tabsHeigh.assetsHeight,
+			tabsHeigh.resultHeight
+		)
+	)
 </script>
 
 <JobLoader workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="h-full overflow-y-auto">
-	<div class="flex flex-col gap-2 items-start p-4 min-h-full">
+	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
 		{#if job}
 			<div class="flex gap-2 flex-wrap">
 				{#if job?.['priority']}
@@ -212,9 +229,13 @@
 
 						<Skeleton loading={!job} layout={[[5]]} />
 						{#if job}
-							<div class="flex flex-col border rounded-md p-2 mt-2 h-full overflow-auto">
+							<div class="flex flex-col border rounded-md p-2 mt-2 overflow-auto">
 								{#if viewTab == 'logs'}
-									<div class="w-full">
+									<div
+										class="w-full"
+										bind:clientHeight={tabsHeigh.logsHeight}
+										style="min-height: {minTabHeight}px"
+									>
 										<LogViewer
 											jobId={job.id}
 											duration={job?.['duration_ms']}
@@ -225,25 +246,43 @@
 										/>
 									</div>
 								{:else if viewTab == 'assets'}
-									<JobAssetsViewer {job} />
+									<div
+										class="w-full h-full"
+										bind:clientHeight={tabsHeigh.assetsHeight}
+										style="min-height: {minTabHeight}px"
+									>
+										<JobAssetsViewer {job} />
+									</div>
 								{:else if viewTab == 'code'}
-									{#if job && 'raw_code' in job && job.raw_code}
-										<div class="text-xs">
-											<HighlightCode lines language={job.language} code={job.raw_code} />
-										</div>
-									{:else if job}
-										<span class="text-sm">No code available</span>
-									{:else}
-										<Skeleton layout={[[5]]} />
-									{/if}
+									<div
+										class="text-xs"
+										bind:clientHeight={tabsHeigh.codeHeight}
+										style="min-height: {minTabHeight}px"
+									>
+										{#if job && 'raw_code' in job && job.raw_code}
+											<div class="text-xs">
+												<HighlightCode lines language={job.language} code={job.raw_code} />
+											</div>
+										{:else if job}
+											<span class="text-sm">No code available</span>
+										{:else}
+											<Skeleton layout={[[5]]} />
+										{/if}
+									</div>
 								{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
-									<DisplayResult
-										workspaceId={job?.workspace_id}
-										jobId={job?.id}
-										{result}
-										disableExpand
-										language={job?.language}
-									/>
+									<div
+										class="w-full"
+										bind:clientHeight={tabsHeigh.resultHeight}
+										style="min-height: {minTabHeight}px"
+									>
+										<DisplayResult
+											workspaceId={job?.workspace_id}
+											jobId={job?.id}
+											{result}
+											disableExpand
+											language={job?.language}
+										/>
+									</div>
 								{:else if job}
 									No output is available yet
 								{/if}
