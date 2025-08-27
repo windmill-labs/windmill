@@ -16921,6 +16921,12 @@ components:
                 type: string
               operator_settings:
                 $ref: "#/components/schemas/OperatorSettings"
+              parent_workspace_id:
+                type: string
+                nullable: true
+              created_by:
+                type: string
+                nullable: true
             required:
               - id
               - name

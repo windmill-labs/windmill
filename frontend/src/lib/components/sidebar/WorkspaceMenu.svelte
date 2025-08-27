@@ -8,7 +8,7 @@
 		workspaceUsageStore,
 		workspaceColor
 	} from '$lib/stores'
-	import { Building, Plus, Settings, GitBranch, GitFork } from 'lucide-svelte'
+	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { goto } from '$lib/navigation'
@@ -21,6 +21,7 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
+	import { buildWorkspaceHierarchy, getWorkspaceIndentation } from '$lib/utils/workspaceHierarchy'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -80,70 +81,54 @@
 		return $userWorkspaces.find((w) => w.id === parentId)
 	}
 
-	// Group workspaces into parent-child hierarchy using Svelte 5 derived
+	// Group workspaces into parent-child hierarchy using Svelte 5 derived and the new utility
 	const groupedWorkspaces = $derived(() => {
 		if (!$userWorkspaces) return []
-
-		// Separate normal workspaces from forked ones
-		const normalWorkspaces = $userWorkspaces.filter((w) => w.parent_workspace_id == null)
-		const forkedWorkspacesList = $userWorkspaces.filter((w) => w.parent_workspace_id != null)
-
-		// Create groups: each normal workspace followed by its forked children
-		const groups: Array<{
-			workspace: any
-			isForked: boolean
-			parentId?: string
-			parentName?: string
-		}> = []
-
-		normalWorkspaces.forEach((workspace) => {
-			// Add the parent workspace
-			groups.push({ workspace, isForked: false })
-
-			// Add its forked children
-			const children = forkedWorkspacesList.filter((w) => w.parent_workspace_id === workspace.id)
-			children.forEach((child) => {
-				const parent = getParentWorkspace(child.parent_workspace_id!)
-				groups.push({
-					workspace: child,
-					isForked: true,
-					parentId: child.parent_workspace_id!,
-					parentName: parent?.name
-				})
-			})
-		})
-
-		// Add orphaned forked workspaces (those without a parent in the current list)
-		forkedWorkspacesList.forEach((forked) => {
-			const hasParent = normalWorkspaces.some((w) => w.id === forked.parent_workspace_id)
-			if (!hasParent) {
-				const parent = getParentWorkspace(forked.parent_workspace_id!)
-				groups.push({
-					workspace: forked,
-					isForked: true,
-					parentId: forked.parent_workspace_id!,
-					parentName: (parent?.name || forked.parent_workspace_id) ?? undefined
-				})
-			}
-		})
-
-		return groups
+		return buildWorkspaceHierarchy($userWorkspaces)
 	})
 </script>
 
+{#if isForkedWorkspace($workspaceStore ?? '')}
+	{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
+	{@const parentWorkspace = forkedWorkspace
+		? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
+		: null}
+	<Menu {createMenu} usePointerDownOutside>
+		{#snippet triggr({ trigger })}
+			<div
+				class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs items-center"
+			>
+				<Building size={12} class="text-tertiary" />
+				<span class="text-xs text-tertiary"> {parentWorkspace?.name ?? ''} </span>
+				<!-- <MenuButton -->
+				<!-- 	class="!text-xs" -->
+				<!-- 	icon={GitFork} -->
+				<!-- 	label={removePrefix($workspaceStore ?? '', 'wm-forked-')} -->
+				<!-- 	{isCollapsed} -->
+				<!-- 	color={$workspaceColor} -->
+				<!-- 	{trigger} -->
+				<!-- /> -->
+			</div>
+		{/snippet}
+	</Menu>
+{/if}
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
 		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
-		{@const parentWorkspace = forkedWorkspace ? getParentWorkspace(forkedWorkspace.parent_workspace_id!) : null}
+		{@const parentWorkspace = forkedWorkspace
+			? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
+			: null}
 		{#if forkedWorkspace && parentWorkspace}
+		<div class="pl-6">
 			<MenuButton
-				class="!text-xs !text-tertiary"
-				icon={Building}
-				label={parentWorkspace.name}
+				class="!text-xs"
+				icon={GitFork}
+				label={$workspaceStore ?? ''}
 				{isCollapsed}
 				color={$workspaceColor}
 				{trigger}
 			/>
+		</div>
 		{:else}
 			<MenuButton
 				class="!text-xs"
@@ -159,7 +144,7 @@
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each groupedWorkspaces() as { workspace, isForked, parentId, parentName }}
+				{#each groupedWorkspaces() as { workspace, depth, isForked, parentName }}
 					<MenuItem
 						class={twMerge(
 							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
@@ -174,10 +159,13 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div
-								class={twMerge('flex items-center gap-2 min-w-0', isForked ? 'pl-6' : 'pl-4')}
+								class={twMerge('flex items-center gap-2 min-w-0', 'pl-4')}
+								style:padding-left={`${4 + depth * 12}px`}
 							>
 								{#if isForked}
 									<GitFork size={12} class="text-tertiary flex-shrink-0" />
+								{:else}
+									<Building size={12} />
 								{/if}
 								<div class="min-w-0 flex-1">
 									<div
@@ -304,19 +292,3 @@
 		{/if}
 	{/snippet}
 </Menu>
-{#if isForkedWorkspace($workspaceStore ?? '')}
-	<Menu {createMenu} usePointerDownOutside>
-		{#snippet triggr({ trigger })}
-			<div class="pl-4">
-			<MenuButton
-				class="!text-xs"
-				icon={GitFork}
-				label={removePrefix($workspaceStore ?? '', 'wm-forked-')}
-				{isCollapsed}
-				color={$workspaceColor}
-				{trigger}
-			/>
-			</div>
-		{/snippet}
-	</Menu>
-{/if}

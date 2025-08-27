@@ -25,12 +25,12 @@
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import type { UserWorkspace } from '$lib/stores'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
-	let workspaces:
-		| { id: string; name: string; username: string; color?: string | null }[]
-		| undefined = undefined
+	let workspaces: UserWorkspace[] | undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -95,46 +95,14 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	// Group workspaces into parent-child hierarchy
-	$: forkedMap = new Map(forkedWorkspaces.map((e) => [e.id, e]))
-	$: regularWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins' && !forkedMap.has(x.id))
-	$: forkedWorkspacesList = (workspaces ?? []).filter((x) => forkedMap.has(x.id))
+	// Group workspaces into parent-child hierarchy using the new utility
 	$: groupedNonAdminWorkspaces = (() => {
-		const groups: Array<{ workspace: any; isForked: boolean; parentName?: string }> = []
+		if (!workspaces) return []
 
-		// Add regular workspaces and their forked children
-		regularWorkspaces.forEach((workspace) => {
-			groups.push({ workspace, isForked: false })
+		// Filter out admin workspace and convert to UserWorkspace format
+		const nonAdminWorkspaces = workspaces.filter((x) => x.id !== 'admins')
 
-			// Add forked children for this parent
-			const children = forkedWorkspacesList.filter((w) => {
-				const forkedInfo = forkedMap.get(w.id)
-				return forkedInfo?.parent_workspace_id === workspace.id
-			})
-			children.forEach((child) => {
-				const forkedInfo = forkedMap.get(child.id)!
-				groups.push({
-					workspace: child,
-					isForked: true,
-					parentName: forkedInfo.parent_workspace_id ?? undefined
-				})
-			})
-		})
-
-		// Add orphaned forked workspaces
-		forkedWorkspacesList.forEach((forked) => {
-			const forkedInfo = forkedMap.get(forked.id)!
-			const hasParent = regularWorkspaces.some((w) => w.id === forkedInfo.parent_workspace_id)
-			if (!hasParent) {
-				groups.push({
-					workspace: forked,
-					isForked: true,
-					parentName: forkedInfo.parent_workspace_id ?? undefined
-				})
-			}
-		})
-
-		return groups
+		return buildWorkspaceHierarchy(nonAdminWorkspaces)
 	})()
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
@@ -242,8 +210,8 @@
 				workspace.
 			</p>
 		{/if}
-		{#each groupedNonAdminWorkspaces as { workspace, isForked, parentName } (workspace.id)}
-			<label class="block pb-2" class:pl-6={isForked}>
+		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked, parentName } (workspace.id)}
+			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
 					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
