@@ -92,6 +92,9 @@ class AIChatManager {
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
+	scriptEditorStartRevertReview = $state<
+		((originalCode: string, applyAll?: boolean) => void) | undefined
+	>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
@@ -929,14 +932,25 @@ class AIChatManager {
 					currentEditor.showDiffMode()
 				}
 			}
+			this.scriptEditorStartRevertReview = (originalCode: string, applyAll?: boolean) => {
+				if (currentEditor && currentEditor.type === 'script') {
+					currentEditor.hideDiffMode()
+					currentEditor.editor.reviewRevertToCode(originalCode, {
+						labels: { primary: 'Revert', secondary: 'Keep' },
+						applyAll
+					})
+				}
+			}
 		} else {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorStartRevertReview = undefined
 		}
 
 		return () => {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorStartRevertReview = undefined
 		}
 	}
 

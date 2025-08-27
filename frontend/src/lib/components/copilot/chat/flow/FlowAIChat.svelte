@@ -232,6 +232,14 @@
 			}
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
+
+				// Start revert review if we have a snapshot
+				// if (lastSnapshot) {
+				// 	const originalModule = getModule(id, lastSnapshot)
+				// 	if (originalModule && originalModule.value.type === 'rawscript') {
+				// 		aiChatManager.scriptEditorStartRevertReview?.(originalModule.value.content)
+				// 	}
+				// }
 			}
 			setModuleStatus(id, 'modified')
 		},
@@ -614,45 +622,36 @@
 		return cleanup
 	})
 
-	// Automatically show diff mode when selecting a rawscript module with pending changes
+	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
-		if (
-			$currentEditor?.type === 'script' &&
-			$selectedId &&
-			affectedModules[$selectedId] &&
-			lastSnapshot
-		) {
+		if ($currentEditor?.type === 'script' && $selectedId && affectedModules[$selectedId]) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
-			const currentModule = getModule($selectedId)
-
-			if (
-				moduleLastSnapshot &&
-				currentModule &&
-				currentModule.value.type === 'rawscript' &&
-				moduleLastSnapshot.value.type === 'rawscript'
-			) {
-				// Show diff mode automatically
-				$currentEditor.setDiffOriginal?.(moduleLastSnapshot.value.content ?? '')
-				$currentEditor.showDiffMode()
-				$currentEditor.setDiffButtons?.([
-					{
-						text: 'Accept Changes',
-						color: 'green',
-						onClick: () => {
-							flowHelpers.acceptModuleAction($selectedId)
-							$currentEditor?.hideDiffMode()
-						}
-					},
-					{
-						text: 'Reject Changes',
-						onClick: () => {
-							flowHelpers.revertModuleAction($selectedId)
-							$currentEditor?.hideDiffMode()
-						}
-					}
-				])
+			const content =
+				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
+			if (content.length > 0) {
+				untrack(() => aiChatManager.scriptEditorStartRevertReview?.(content))
 			}
 		}
+
+		// if (
+		// 	$currentEditor?.type === 'script' &&
+		// 	$selectedId &&
+		// 	affectedModules[$selectedId] &&
+		// 	lastSnapshot
+		// ) {
+		// 	const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+		// 	const currentModule = getModule($selectedId)
+
+		// 	if (
+		// 		moduleLastSnapshot &&
+		// 		currentModule &&
+		// 		currentModule.value.type === 'rawscript' &&
+		// 		moduleLastSnapshot.value.type === 'rawscript'
+		// 	) {
+		// 		// Start revert review automatically when selecting a modified module
+		// 		aiChatManager.scriptEditorStartRevertReview?.(moduleLastSnapshot.value.content ?? '')
+		// 	}
+		// }
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)

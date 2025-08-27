@@ -679,6 +679,13 @@
 		aiChatEditorHandler?.reviewAndApply(code, applyAll)
 	}
 
+	export function reviewRevertToCode(
+		originalCode: string,
+		opts?: { labels?: { primary?: string; secondary?: string }; applyAll?: boolean }
+	) {
+		aiChatEditorHandler?.reviewRevertTo(originalCode, opts)
+	}
+
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
 		try {
 			aiChatEditorHandler = new AIChatEditorHandler(editor)

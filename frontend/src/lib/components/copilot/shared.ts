@@ -3,47 +3,55 @@ import { type editor as meditor } from 'monaco-editor'
 
 export type VisualChange =
 	| {
-		type: 'added_inline'
-		position: {
-			line: number
-			column: number
-		}
-		value: string
-		options?: {
-			greenHighlight?: boolean
-		}
-	}
-	| {
-		type: 'added_block'
-		position: {
-			afterLineNumber: number
-		}
-		value: string
-		options?: {
-			greenHighlight?: boolean
-			review?: {
-				acceptFn: () => void
-				rejectFn: () => void
+			type: 'added_inline'
+			position: {
+				line: number
+				column: number
 			}
-			extraChanges?: VisualChange[]
-		}
-	}
-	| {
-		type: 'deleted'
-		range: {
-			startLine: number
-			startColumn: number
-			endLine: number
-			endColumn: number
-		}
-		options?: {
-			isWholeLine?: boolean
-			review?: {
-				acceptFn: () => void
-				rejectFn: () => void
+			value: string
+			options?: {
+				greenHighlight?: boolean
 			}
-		}
-	}
+	  }
+	| {
+			type: 'added_block'
+			position: {
+				afterLineNumber: number
+			}
+			value: string
+			options?: {
+				greenHighlight?: boolean
+				review?: {
+					acceptFn: () => void
+					rejectFn: () => void
+					labels?: {
+						primary?: string
+						secondary?: string
+					}
+				}
+				extraChanges?: VisualChange[]
+			}
+	  }
+	| {
+			type: 'deleted'
+			range: {
+				startLine: number
+				startColumn: number
+				endLine: number
+				endColumn: number
+			}
+			options?: {
+				isWholeLine?: boolean
+				review?: {
+					acceptFn: () => void
+					rejectFn: () => void
+					labels?: {
+						primary?: string
+						secondary?: string
+					}
+				}
+			}
+	  }
 
 function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
 	const computedStyles = window.getComputedStyle(
@@ -81,8 +89,9 @@ function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline'
 			endColumn: change.position.column + change.value.length
 		},
 		options: {
-			beforeContentClassName: `editor-ghost-text editor-ghost-text-content-${cssId} ${change.options?.greenHighlight ? 'editor-ghost-text-green' : ''
-				}`
+			beforeContentClassName: `editor-ghost-text editor-ghost-text-content-${cssId} ${
+				change.options?.greenHighlight ? 'editor-ghost-text-green' : ''
+			}`
 		}
 	}
 
@@ -100,7 +109,8 @@ white-space: pre;
 function getReviewButtons(
 	editor: meditor.IStandaloneCodeEditor,
 	acceptFn: () => void,
-	rejectFn: () => void
+	rejectFn: () => void,
+	labels?: { primary?: string; secondary?: string }
 ) {
 	const { contentWidth, verticalScrollbarWidth } = editor.getLayoutInfo()
 	const scrollLeft = editor.getScrollLeft()
@@ -123,7 +133,7 @@ function getReviewButtons(
 	})
 
 	const acceptButton = document.createElement('button')
-	acceptButton.textContent = 'Accept'
+	acceptButton.textContent = labels?.primary || 'Accept'
 	Object.assign(acceptButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -136,7 +146,7 @@ function getReviewButtons(
 	const layout = editor.getLayoutInfo()
 	layout.width
 	const rejectButton = document.createElement('button')
-	rejectButton.textContent = 'Reject'
+	rejectButton.textContent = labels?.secondary || 'Reject'
 	Object.assign(rejectButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -161,6 +171,10 @@ async function addMultilineGhostText(
 		review?: {
 			acceptFn: () => void
 			rejectFn: () => void
+			labels?: {
+				primary?: string
+				secondary?: string
+			}
 		}
 		extraChanges?: VisualChange[]
 	}
@@ -169,7 +183,12 @@ async function addMultilineGhostText(
 	el.textContent = text
 
 	if (options?.review) {
-		const reviewButtons = getReviewButtons(editor, options.review.acceptFn, options.review.rejectFn)
+		const reviewButtons = getReviewButtons(
+			editor,
+			options.review.acceptFn,
+			options.review.rejectFn,
+			options.review.labels
+		)
 		el.append(reviewButtons)
 	}
 	applyMonacoStyles(el, options?.greenHighlight)
@@ -224,7 +243,8 @@ export async function displayVisualChanges(
 							const reviewButtons = getReviewButtons(
 								editor,
 								change.options.review.acceptFn,
-								change.options.review.rejectFn
+								change.options.review.rejectFn,
+								change.options.review.labels
 							)
 							el.append(reviewButtons)
 							resolve(

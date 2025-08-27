@@ -167,15 +167,23 @@ export class AIChatEditorHandler {
 		return changedLines
 	}
 
-	async reviewAndApply(newCode: string, applyAll: boolean = false) {
-		if (aiChatManager.pendingNewCode === newCode) {
+	private async reviewChanges(
+		targetCode: string,
+		opts?: {
+			labels?: { primary?: string; secondary?: string }
+			applyAll?: boolean
+			mode?: 'apply' | 'revert'
+		}
+	) {
+		if (aiChatManager.pendingNewCode === targetCode) {
 			this.acceptAll()
 			return
 		} else if (aiChatManager.pendingNewCode) {
 			this.clear()
 		}
-		aiChatManager.pendingNewCode = newCode
-		const changedLines = await this.calculateVisualChanges(newCode)
+
+		aiChatManager.pendingNewCode = targetCode
+		const changedLines = await this.calculateVisualChanges(targetCode)
 		if (changedLines.length === 0) return
 
 		let indicesOfRejectedLineChanges: number[] = []
@@ -183,7 +191,8 @@ export class AIChatEditorHandler {
 		for (const [groupIndex, group] of this.groupChanges.entries()) {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
-			const acceptFn = () => {
+
+			const primaryFn = () => {
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
@@ -196,9 +205,10 @@ export class AIChatEditorHandler {
 						newCodeWithRejects += change.value
 					}
 				}
-				this.reviewAndApply(newCodeWithRejects)
+				this.reviewChanges(targetCode, opts)
 			}
-			const rejectFn = () => {
+
+			const secondaryFn = () => {
 				indicesOfRejectedLineChanges.push(...group.changes.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
@@ -211,29 +221,67 @@ export class AIChatEditorHandler {
 					this.finish()
 				}
 			}
+
 			const changes = group.changes.map((c, i) => {
 				if (i === group.changes.length - 1) {
 					return {
 						...c,
-						options: { ...(c.options ?? {}), review: { acceptFn, rejectFn } }
+						options: {
+							...(c.options ?? {}),
+							review: {
+								acceptFn: primaryFn,
+								rejectFn: secondaryFn,
+								labels: opts?.labels
+							}
+						}
 					}
 				} else {
 					return c
 				}
 			})
 
-			if (!applyAll) {
+			if (!opts?.applyAll) {
 				;({ collection, ids } = await displayVisualChanges(
 					'editor-windmill-chat-style',
 					this.editor,
 					changes
 				))
-					this.decorationsCollections.push(collection)
-					this.viewZoneIds.push(...ids)
+				this.decorationsCollections.push(collection)
+				this.viewZoneIds.push(...ids)
 			}
 		}
-		if (applyAll) {
+		if (opts?.applyAll) {
 			this.acceptAll()
 		}
+	}
+
+	async reviewAndApply(newCode: string, applyAll: boolean = false) {
+		return this.reviewChanges(newCode, { applyAll, mode: 'apply' })
+	}
+
+	async reviewRevertTo(
+		originalCode: string,
+		opts?: {
+			labels?: { primary?: string; secondary?: string }
+			applyAll?: boolean
+		}
+	) {
+		const currentCode = this.editor.getValue()
+		if (currentCode === originalCode) {
+			return
+		}
+
+		return this.reviewChanges(originalCode, {
+			...opts,
+			mode: 'revert'
+		})
+	}
+
+	async revertAll() {
+		this.acceptAll()
+	}
+
+	async keepAll() {
+		this.rejectAll()
 	}
 }
