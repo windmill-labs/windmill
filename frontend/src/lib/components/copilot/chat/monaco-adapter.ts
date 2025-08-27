@@ -175,7 +175,7 @@ export class AIChatEditorHandler {
 			mode?: 'apply' | 'revert'
 		}
 	) {
-		if (aiChatManager.pendingNewCode === targetCode) {
+		if (aiChatManager.pendingNewCode === targetCode && opts?.mode === 'apply') {
 			this.acceptAll()
 			return
 		} else if (aiChatManager.pendingNewCode) {

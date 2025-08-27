@@ -232,14 +232,6 @@
 			}
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
-
-				// Start revert review if we have a snapshot
-				// if (lastSnapshot) {
-				// 	const originalModule = getModule(id, lastSnapshot)
-				// 	if (originalModule && originalModule.value.type === 'rawscript') {
-				// 		aiChatManager.scriptEditorStartRevertReview?.(originalModule.value.content)
-				// 	}
-				// }
 			}
 			setModuleStatus(id, 'modified')
 		},
@@ -629,29 +621,10 @@
 			const content =
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {
-				untrack(() => aiChatManager.scriptEditorStartRevertReview?.(content))
+				console.log('here review revert to code')
+				untrack(() => $currentEditor.editor.reviewRevertToCode(content))
 			}
 		}
-
-		// if (
-		// 	$currentEditor?.type === 'script' &&
-		// 	$selectedId &&
-		// 	affectedModules[$selectedId] &&
-		// 	lastSnapshot
-		// ) {
-		// 	const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
-		// 	const currentModule = getModule($selectedId)
-
-		// 	if (
-		// 		moduleLastSnapshot &&
-		// 		currentModule &&
-		// 		currentModule.value.type === 'rawscript' &&
-		// 		moduleLastSnapshot.value.type === 'rawscript'
-		// 	) {
-		// 		// Start revert review automatically when selecting a modified module
-		// 		aiChatManager.scriptEditorStartRevertReview?.(moduleLastSnapshot.value.content ?? '')
-		// 	}
-		// }
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
