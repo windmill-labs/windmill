@@ -439,6 +439,7 @@ export function createGitSyncContext(workspace: string) {
 					git_repo_resource_path: `$res:${repoToSave.git_repo_resource_path}`,
 					script_path: repoToSave.script_path,
 					use_individual_branch: repoToSave.use_individual_branch,
+					skip_workspace_fork_tracking: repoToSave.skip_workspace_fork_tracking,
 					group_by_folder: repoToSave.group_by_folder,
 					settings: repoToSave.settings,
 					exclude_types_override: repoToSave.exclude_types_override
