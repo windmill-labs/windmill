@@ -286,13 +286,13 @@
 							{/if}
 						</div>
 					{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
-						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
+						Preview without path
 					{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
-							lock deps of {truncateHash(job.script_hash ?? '')}
-						</a>
+						lock deps of {truncateHash(job.script_hash ?? '')}
 					{:else if 'job_kind' in job && job.job_kind == 'identity'}
-						<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
+						no op
+					{:else if 'job_kind' in job && isFlowPreview(job.job_kind)}
+						Preview without path
 					{/if}
 				</div>
 			</div>
