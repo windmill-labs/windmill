@@ -109,15 +109,11 @@ async function tryResolveWorkspace(
     return { isError: false, value: e };
   }
 
-  const defaultWorkspace = await getActiveWorkspace(opts);
-  if (!defaultWorkspace) {
-    return {
-      isError: true,
-      error: colors.red.underline("No workspace given and no default set."),
-    };
-  }
-
-  return { isError: false, value: defaultWorkspace };
+  // Only check for explicit workspace, don't fallback to active workspace here
+  return {
+    isError: true,
+    error: colors.red.underline("No explicit workspace given."),
+  };
 }
 
 async function tryResolveBranchWorkspace(
@@ -259,6 +255,9 @@ async function tryResolveBranchWorkspace(
 export async function resolveWorkspace(
   opts: GlobalOptions
 ): Promise<Workspace> {
+  const cache = (opts as any).__secret_workspace;
+  if (cache) return cache;
+
   if (opts.baseUrl) {
     if (opts.workspace && opts.token) {
       let normalizedBaseUrl: string;
@@ -328,20 +327,28 @@ export async function resolveWorkspace(
     }
   }
 
-  // Try explicit workspace flag first (should override branch-based resolution)
+  // Try explicit workspace flag first (highest priority)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
     return res.value;
   }
 
-  // Fall back to branch-based resolution if no explicit workspace
+  // Try branch-based resolution (medium priority)
   const branchWorkspace = await tryResolveBranchWorkspace(opts);
   if (branchWorkspace) {
+    (opts as any).__secret_workspace = branchWorkspace;
     return branchWorkspace;
   }
 
-  // If both failed, show the original error from explicit workspace resolution
-  log.info(colors.red.bold(res.error));
+  // Fall back to active workspace (lowest priority)
+  const activeWorkspace = await getActiveWorkspace(opts);
+  if (activeWorkspace) {
+    (opts as any).__secret_workspace = activeWorkspace;
+    return activeWorkspace;
+  }
+
+  // If everything failed, show error
+  log.info(colors.red.bold("No workspace given and no default set."));
   return Deno.exit(-1);
 }
 
