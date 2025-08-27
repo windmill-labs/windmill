@@ -32,7 +32,7 @@
 		defaultModified?: string
 		readOnly?: boolean
 		buttons?: ButtonProp[]
-		onCodeChange?: (code: string) => void
+		modifiedModel?: meditor.ITextModel
 	}
 
 	let {
@@ -46,25 +46,12 @@
 		defaultModified = undefined,
 		readOnly = false,
 		buttons = [],
-		onCodeChange
+		modifiedModel
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
 	let diffDivEl: HTMLDivElement | null = $state(null)
 	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
-	let onChangeListener: { dispose: () => void } | undefined = $state(undefined)
-
-	function addOnChangeListener() {
-		if (onChangeListener) {
-			onChangeListener.dispose()
-		}
-		const model = diffEditor?.getModel()?.modified
-		if (model) {
-			onChangeListener = model.onDidChangeContent(() => {
-				onCodeChange?.(getModified())
-			})
-		}
-	}
 
 	async function loadDiffEditor() {
 		await initializeVscode()
@@ -87,11 +74,8 @@
 			lineNumbersMinChars: 2,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
-		if (
-			defaultOriginal !== undefined &&
-			defaultModified !== undefined &&
-			defaultLang !== undefined
-		) {
+
+		if (defaultLang !== undefined) {
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
@@ -102,18 +86,19 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
+		const o = meditor.createModel('', lang)
+		const m = modifiedModel ?? meditor.createModel('', modifiedLang ?? lang)
 		diffEditor?.setModel({
-			original: meditor.createModel('', lang),
-			modified: meditor.createModel('', modifiedLang ?? lang)
+			original: o,
+			modified: m
 		})
 		if (original) {
 			setOriginal(original)
 		}
-		if (modified) {
+		if (modifiedModel) {
+			setModifiedModel(modifiedModel)
+		} else if (modified) {
 			setModified(modified)
-		}
-		if (onCodeChange) {
-			addOnChangeListener()
 		}
 	}
 
@@ -129,6 +114,15 @@
 	export function setModified(code: string) {
 		diffEditor?.getModel()?.modified?.setValue(code)
 		defaultModified = code
+	}
+
+	export function setModifiedModel(model: meditor.ITextModel) {
+		const curr = diffEditor?.getModel()
+		if (!curr) return
+		diffEditor?.setModel({
+			original: curr.original,
+			modified: model
+		})
 	}
 
 	export function getModified(): string {
@@ -156,10 +150,15 @@
 		onWidthChange(editorWidth)
 	})
 
+	$effect(() => {
+		if (modifiedModel) {
+			setModifiedModel(modifiedModel)
+		}
+	})
+
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
-				onChangeListener?.dispose?.()
 				diffEditor?.dispose()
 			}
 		}
