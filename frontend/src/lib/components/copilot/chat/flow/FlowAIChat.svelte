@@ -630,27 +630,16 @@
 					$currentEditor.editor.reviewAppliedCode(content, {
 						onFinishedReview: (outcome) => {
 							const id = $selectedId
-							const action = affectedModules[id]?.action
+							const action = affectedModules[id].action
 
-							if (id && action === 'modified') {
-								if (outcome.outcome === 'all_kept') {
+							if (action === 'modified') {
+								if (outcome === 'all_kept') {
 									// User kept all current changes - accept the module
 									flowHelpers.acceptModuleAction(id)
-									if ($currentEditor?.type === 'script' && $currentEditor.stepId === id) {
-										$currentEditor.hideDiffMode()
-									}
-								} else if (outcome.outcome === 'all_reverted') {
+									$currentEditor.hideDiffMode()
+								} else if (outcome === 'all_reverted') {
 									// User reverted all changes - revert the module
 									flowHelpers.revertModuleAction(id)
-								} else {
-									// Partial changes - persist the final code and keep module as modified
-									const currentModule = getModule(id)
-									const currentContent =
-										currentModule?.value.type === 'rawscript' ? currentModule.value.content : ''
-									if (outcome.finalCode !== currentContent) {
-										flowHelpers.setCode(id, outcome.finalCode)
-									}
-									// Keep the module marked as modified
 								}
 							}
 						}

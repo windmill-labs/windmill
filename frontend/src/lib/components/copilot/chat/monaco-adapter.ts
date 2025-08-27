@@ -10,15 +10,7 @@ import {
 import { writable, type Writable } from 'svelte/store'
 import { aiChatManager } from './AIChatManager.svelte'
 
-export type ReviewOutcome = {
-	mode: 'apply' | 'revert'
-	totalGroups: number
-	revertedGroupCount: number
-	keptGroupCount: number
-	outcome: 'all_kept' | 'all_reverted' | 'partial'
-	finalCode: string
-	originalCode: string
-}
+export type ReviewOutcome = 'all_kept' | 'all_reverted' | 'partial'
 
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
 type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inline'> & {
@@ -36,8 +28,6 @@ export class AIChatEditorHandler {
 
 	// Track review decisions
 	private reviewState: {
-		originalCode: string
-		mode: 'apply' | 'revert'
 		totalGroups: number
 		revertedGroups: Set<number>
 		onFinishedReview?: (outcome: ReviewOutcome) => void
@@ -99,15 +89,7 @@ export class AIChatEditorHandler {
 				outcome = 'partial'
 			}
 
-			this.reviewState.onFinishedReview({
-				mode: this.reviewState.mode,
-				totalGroups: this.reviewState.totalGroups,
-				revertedGroupCount: revertedCount,
-				keptGroupCount: keptCount,
-				outcome,
-				finalCode: this.editor.getValue(),
-				originalCode: this.reviewState.originalCode
-			})
+			this.reviewState.onFinishedReview(outcome)
 		}
 
 		// Reset review state
@@ -122,13 +104,10 @@ export class AIChatEditorHandler {
 	}
 
 	async acceptAll() {
-		// Track that all groups were applied (reverted in revert mode)
+		// Track that all groups were applied (in revert mode this means all reverted)
 		if (this.reviewState) {
-			if (this.reviewState.mode === 'revert') {
-				// In revert mode, accepting all means reverting all groups
-				for (const group of this.groupChanges) {
-					this.reviewState.revertedGroups.add(group.groupIndex)
-				}
+			for (const group of this.groupChanges) {
+				this.reviewState.revertedGroups.add(group.groupIndex)
 			}
 		}
 
@@ -140,13 +119,8 @@ export class AIChatEditorHandler {
 	}
 
 	async rejectAll() {
-		// Track that no groups were applied (none reverted in revert mode)
-		if (this.reviewState && this.reviewState.mode === 'apply') {
-			// In apply mode, rejecting all means reverting all groups
-			for (const group of this.groupChanges) {
-				this.reviewState.revertedGroups.add(group.groupIndex)
-			}
-		}
+		// Track that no groups were applied (no groups reverted in revert mode)
+		// reviewState.revertedGroups remains empty
 		this.finish()
 	}
 
@@ -252,8 +226,6 @@ export class AIChatEditorHandler {
 
 		// Initialize review state for tracking
 		this.reviewState = {
-			originalCode: this.editor.getValue(),
-			mode: opts?.mode ?? 'apply',
 			totalGroups: this.groupChanges.length,
 			revertedGroups: new Set<number>(),
 			onFinishedReview: opts?.onFinishedReview
@@ -269,10 +241,8 @@ export class AIChatEditorHandler {
 
 			// Apply this group and continue with remaining changes
 			const onApply = () => {
-				// In revert mode, applying means reverting (going to targetCode)
-				if (isRevert) {
-					this.reviewState?.revertedGroups.add(groupIndex)
-				}
+				// Track that this group was applied (reverted in revert mode)
+				this.reviewState?.revertedGroups.add(groupIndex)
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
@@ -290,10 +260,7 @@ export class AIChatEditorHandler {
 
 			// Discard this group and continue with remaining changes
 			const onDiscard = () => {
-				// In revert mode, discarding means keeping current code (not reverting)
-				if (!isRevert) {
-					this.reviewState?.revertedGroups.add(groupIndex)
-				}
+				// This group was not applied (not reverted in revert mode)
 				indicesOfRejectedLineChanges.push(...group.changes.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
