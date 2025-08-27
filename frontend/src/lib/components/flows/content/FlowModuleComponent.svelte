@@ -36,7 +36,7 @@
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
-	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import DiffEditor, { type ButtonProp } from '$lib/components/DiffEditor.svelte'
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -47,13 +47,15 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import { type Job, JobService } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import { editor as meditor } from 'monaco-editor'
 
 	const {
 		selectedId,
@@ -80,6 +82,7 @@
 		savedModule?: FlowModule | undefined
 		forceTestTab?: boolean
 		highlightArg?: string
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -94,12 +97,22 @@
 		enableAi,
 		savedModule = undefined,
 		forceTestTab = false,
-		highlightArg = undefined
+		highlightArg = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
+	let diffButtons = $state<ButtonProp[]>([
+		{
+			text: 'Quit diff mode',
+			color: 'red',
+			onClick: () => {
+				hideDiffMode()
+			}
+		}
+	])
 
 	let editor: Editor | undefined = $state()
 	let diffEditor: DiffEditor | undefined = $state()
@@ -111,18 +124,25 @@
 		ruff: false,
 		shellcheck: false
 	})
-	let selected = $state(preprocessorModule ? 'test' : 'inputs')
+
+	let selected = $state(preprocessorModule || isAgentTool ? 'test' : 'inputs')
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
 	let validCode = $state(true)
 	let width = $state(1200)
-	let lastJob: Job | undefined = $state(undefined)
 	let testJob: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+
+	// UI Intent handling for AI tool control
+	useUiIntent(`flow-${flowModule.id}`, {
+		openTab: (tab) => {
+			selectAdvanced(tab)
+		}
+	})
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -147,6 +167,7 @@
 		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			console.log('reload', schema)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -155,7 +176,8 @@
 				if (
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
-					flowModule.value.type == 'flow'
+					flowModule.value.type == 'flow' ||
+					flowModule.value.type == 'aiagent'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -169,11 +191,11 @@
 				}
 			}
 			await tick()
-			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-				if (!$flowStateStore[flowModule.id]) {
-					$flowStateStore[flowModule.id] = { schema }
+			if (!deepEqual(schema, flowStateStore.val[flowModule.id]?.schema)) {
+				if (!flowStateStore.val[flowModule.id]) {
+					flowStateStore.val[flowModule.id] = { schema }
 				} else {
-					$flowStateStore[flowModule.id].schema = schema
+					flowStateStore.val[flowModule.id].schema = schema
 				}
 			}
 		} catch (e) {
@@ -192,43 +214,9 @@
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
-	let lastJobId: string | undefined = undefined
-
 	function onSelectedIdChange() {
-		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
-		}
-		lastJobId = undefined
-	}
-
-	async function getLastJob() {
-		if (
-			!$flowStateStore ||
-			!flowModule.id ||
-			$flowStateStore[flowModule.id]?.previewResult === 'never tested this far' ||
-			!$flowStateStore[flowModule.id]?.previewJobId ||
-			!$flowStateStore[flowModule.id]?.previewWorkspaceId
-		) {
-			return
-		}
-
-		if (
-			lastJobId == $flowStateStore[flowModule.id]?.previewJobId ||
-			lastJob?.id == $flowStateStore[flowModule.id]?.previewJobId ||
-			$flowStateStore[flowModule.id]?.previewSuccess == undefined
-		) {
-			return
-		}
-		lastJobId = $flowStateStore[flowModule.id]?.previewJobId
-
-		const job = await JobService.getJob({
-			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
-			id: $flowStateStore[flowModule.id]?.previewJobId ?? '',
-			noCode: true
-		})
-		if (job && job.type === 'CompletedJob') {
-			lastJobId = $flowStateStore[flowModule.id]?.previewJobId
-			lastJob = job
 		}
 	}
 
@@ -237,7 +225,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -251,9 +239,9 @@
 
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, flowStore.val, previewArgs.val)
+			? getFailureStepPropPicker(flowStateStore.val, flowStore.val, previewArgs.val)
 			: getStepPropPicker(
-					$flowStateStore,
+					flowStateStore.val,
 					parentModule,
 					previousModule,
 					flowModule.id,
@@ -265,13 +253,6 @@
 
 	$effect.pre(() => {
 		$selectedId && untrack(() => onSelectedIdChange())
-	})
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
-			untrack(() => getLastJob())
-		}
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -293,7 +274,13 @@
 				showDiffMode,
 				hideDiffMode,
 				diffMode,
-				lastDeployedCode
+				lastDeployedCode,
+				setDiffOriginal: (code: string) => {
+					diffEditor?.setOriginal(code ?? '')
+				},
+				setDiffButtons: (buttons: ButtonProp[]) => {
+					diffButtons = buttons
+				}
 			})
 	})
 
@@ -318,6 +305,12 @@
 	let rawScriptLang = $derived(
 		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
 	)
+
+	let modulePreviewResultViewer: ModulePreviewResultViewer | undefined = $state(undefined)
+
+	function onJobDone() {
+		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -337,6 +330,7 @@
 				}
 			}}
 			bind:summary={flowModule.summary}
+			{isAgentTool}
 		>
 			{#snippet header()}
 				<FlowModuleHeader
@@ -361,7 +355,7 @@
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
-						$flowStateStore[module.id] = state
+						flowStateStore.val[module.id] = state
 					}}
 					on:reload={async () => {
 						if (flowModule.value.type == 'script') {
@@ -380,14 +374,14 @@
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
 							$selectedId,
-							$flowStateStore[flowModule.id].schema,
+							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
 						if (flowModule.value.type == 'rawscript') {
 							module.value.input_transforms = flowModule.value.input_transforms
 						}
 						flowModule = module
-						$flowStateStore[module.id] = state
+						flowStateStore.val[module.id] = state
 					}}
 				/>
 			{/snippet}
@@ -414,103 +408,124 @@
 							{lastDeployedCode}
 							{diffMode}
 							openAiChat
+							moduleId={flowModule.id}
 						/>
 					</div>
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
-							{#if flowModule.value.type === 'rawscript'}
-								{#if !noEditor}
-									{#key flowModule.id}
-										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-											{#if assets?.length}
-												<AssetsDropdownButton {assets} />
-											{/if}
-										</div>
-										<Editor
-											loadAsync
-											folding
-											path={$pathStore + '/' + flowModule.id}
-											bind:websocketAlive
-											bind:this={editor}
-											class="h-full relative"
-											code={flowModule.value.content}
-											scriptLang={flowModule?.value?.language}
-											automaticLayout={true}
-											cmdEnterAction={async () => {
-												selected = 'test'
-												if ($selectedId == flowModule.id) {
-													if (flowModule.value.type === 'rawscript' && editor) {
-														flowModule.value.content = editor.getCode()
+						{#if flowModule.value.type !== 'aiagent'}
+							<Pane bind:size={editorPanelSize} minSize={10} class="relative">
+								{#if flowModule.value.type === 'rawscript'}
+									{#if !noEditor}
+										{#key flowModule.id}
+											<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+												{#if assets?.length}
+													<AssetsDropdownButton {assets} />
+												{/if}
+											</div>
+											<Editor
+												loadAsync
+												folding
+												path={$pathStore + '/' + flowModule.id}
+												bind:websocketAlive
+												bind:this={editor}
+												class="h-full relative"
+												code={flowModule.value.content}
+												scriptLang={flowModule?.value?.language}
+												automaticLayout={true}
+												cmdEnterAction={async () => {
+													selected = 'test'
+													if ($selectedId == flowModule.id) {
+														if (flowModule.value.type === 'rawscript' && editor) {
+															flowModule.value.content = editor.getCode()
+														}
+														await reload(flowModule)
+														modulePreview?.runTestWithStepArgs()
 													}
-													await reload(flowModule)
-													modulePreview?.runTestWithStepArgs()
-												}
-											}}
-											on:change={async (event) => {
-												const content = event.detail
-												if (flowModule.value.type === 'rawscript') {
-													if (flowModule.value.content !== content) {
-														flowModule.value.content = content
+												}}
+												on:change={async (event) => {
+													const content = event.detail
+													if (flowModule.value.type === 'rawscript') {
+														if (flowModule.value.content !== content) {
+															flowModule.value.content = content
+														}
+														await reload(flowModule)
 													}
-													await reload(flowModule)
-												}
-											}}
-											formatAction={() => {
-												reload(flowModule)
-												saveDraft()
-											}}
-											fixedOverflowWidgets={true}
-											args={Object.entries(flowModule.value.input_transforms).reduce(
-												(acc, [key, obj]) => {
-													acc[key] = obj.type === 'static' ? obj.value : undefined
-													return acc
-												},
-												{}
-											)}
-											key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-										/>
-										<DiffEditor
-											open={false}
-											bind:this={diffEditor}
-											automaticLayout
-											fixedOverflowWidgets
-											defaultLang={scriptLangToEditorLang(flowModule.value.language)}
-											class="h-full"
-										/>
-									{/key}
-								{/if}
-							{:else if flowModule.value.type === 'script'}
-								{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
-									<div class="border-t">
-										{#key forceReload}
-											<FlowModuleScript
-												bind:tag={workspaceScriptTag}
-												bind:language={workspaceScriptLang}
-												showAllCode={false}
-												path={flowModule.value.path}
-												hash={flowModule.value.hash}
+												}}
+												formatAction={() => {
+													reload(flowModule)
+													saveDraft()
+												}}
+												fixedOverflowWidgets={true}
+												args={Object.entries(flowModule.value.input_transforms).reduce(
+													(acc, [key, obj]) => {
+														acc[key] = obj.type === 'static' ? obj.value : undefined
+														return acc
+													},
+													{}
+												)}
+												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+												moduleId={flowModule.id}
+											/>
+											<DiffEditor
+												open={false}
+												bind:this={diffEditor}
+												modifiedModel={editor?.getModel() as meditor.ITextModel}
+												automaticLayout
+												fixedOverflowWidgets
+												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+												className="h-full"
+												buttons={diffMode ? diffButtons : []}
 											/>
 										{/key}
-									</div>
+									{/if}
+								{:else if flowModule.value.type === 'script'}
+									{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
+										<div class="border-t">
+											{#key forceReload}
+												<FlowModuleScript
+													bind:tag={workspaceScriptTag}
+													bind:language={workspaceScriptLang}
+													showAllCode={false}
+													path={flowModule.value.path}
+													hash={flowModule.value.hash}
+												/>
+											{/key}
+										</div>
+									{/if}
+								{:else if flowModule.value.type === 'flow'}
+									{#key forceReload}
+										<FlowPathViewer path={flowModule.value.path} />
+									{/key}
 								{/if}
-							{:else if flowModule.value.type === 'flow'}
-								{#key forceReload}
-									<FlowPathViewer path={flowModule.value.path} />
-								{/key}
-							{/if}
-						</Pane>
-						<Pane bind:size={editorSettingsPanelSize} minSize={20}>
+							</Pane>
+						{/if}
+						<Pane
+							bind:size={
+								() => {
+									if (flowModule.value.type === 'aiagent') {
+										return 100
+									}
+									return editorSettingsPanelSize
+								},
+								(v) => {
+									if (flowModule.value.type !== 'aiagent') {
+										editorSettingsPanelSize = v
+									}
+								}
+							}
+							minSize={20}
+						>
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<Tabs bind:selected>
-										{#if !preprocessorModule}
+										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="inputs">Step Input</Tab>
 										{/if}
 										<Tab value="test">Test this step</Tab>
-										{#if !preprocessorModule}
+										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced">Advanced</Tab>
 										{/if}
 									</Tabs>
@@ -519,7 +534,7 @@
 											? 'h-[calc(100%-68px)]'
 											: 'h-[calc(100%-34px)]'}
 									>
-										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
+										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 											<div class="h-full overflow-auto bg-surface" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
@@ -536,7 +551,7 @@
 														class="px-1 xl:px-2"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={$flowStateStore[$selectedId]?.schema ?? {}}
+														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -564,11 +579,12 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={$flowStateStore[$selectedId]?.schema ?? {}}
+												schema={flowStateStore.val[$selectedId]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
 												focusArg={highlightArg}
+												{onJobDone}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>
@@ -873,15 +889,15 @@
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}
-											{lastJob}
-											{scriptProgress}
 											{testJob}
+											{scriptProgress}
 											mod={flowModule}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
 											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 											tagLabel={customUi?.tagLabel}
+											bind:this={modulePreviewResultViewer}
 										/>
 									</Pane>
 								{/if}

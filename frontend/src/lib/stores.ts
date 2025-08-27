@@ -1,5 +1,5 @@
 import { BROWSER } from 'esm-env'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, get, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
@@ -154,11 +154,21 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 	}
 }
 
+export function getCurrentModel() {
+	const model =
+		get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
+	if (!model) {
+		throw new Error('No model selected')
+	}
+	return model
+}
+
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
 export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
 export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
@@ -166,6 +176,9 @@ export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const relativeLineNumbers = writable<boolean>(
+	getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true'
+)
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
@@ -175,9 +188,9 @@ const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
 	sessionModel && sessionProvider
 		? {
-			model: sessionModel,
-			provider: sessionProvider as AIProvider
-		}
+				model: sessionModel,
+				provider: sessionProvider as AIProvider
+			}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])

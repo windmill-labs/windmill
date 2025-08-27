@@ -387,22 +387,22 @@ async function bind(
   }
 
   // For unbind, check if branch exists
-  if (!bindWorkspace && (!config.git_branches || !config.git_branches[branch])) {
-    log.error(colors.red(`Branch '${branch}' not found in wmill.yaml git_branches`));
+  if (!bindWorkspace && (!config.gitBranches || !config.gitBranches[branch])) {
+    log.error(colors.red(`Branch '${branch}' not found in wmill.yaml gitBranches`));
     return;
   }
 
   // Update the branch configuration with workspace binding
-  if (!config.git_branches) {
-    config.git_branches = {};
+  if (!config.gitBranches) {
+    config.gitBranches = {};
   }
-  if (!config.git_branches[branch]) {
-    config.git_branches[branch] = { overrides: {} };
+  if (!config.gitBranches[branch]) {
+    config.gitBranches[branch] = { overrides: {} };
   }
 
   if (bindWorkspace && activeWorkspace) {
-    config.git_branches[branch].baseUrl = activeWorkspace.remote;
-    config.git_branches[branch].workspaceId = activeWorkspace.workspaceId;
+    config.gitBranches[branch].baseUrl = activeWorkspace.remote;
+    config.gitBranches[branch].workspaceId = activeWorkspace.workspaceId;
 
     log.info(colors.green(
       `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
@@ -410,8 +410,8 @@ async function bind(
     ));
   } else {
     // Unbind
-    delete config.git_branches[branch].baseUrl;
-    delete config.git_branches[branch].workspaceId;
+    delete config.gitBranches[branch].baseUrl;
+    delete config.gitBranches[branch].workspaceId;
 
     log.info(colors.green(`✓ Removed workspace binding from branch '${branch}'`));
   }

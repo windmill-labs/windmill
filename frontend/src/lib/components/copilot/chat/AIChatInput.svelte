@@ -5,7 +5,7 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
 
@@ -31,7 +31,7 @@
 		selectedContext = $bindable([]),
 		disabled = false,
 		isFirstMessage = false,
-		placeholder = 'Ask anything',
+		placeholder,
 		initialInstructions = '',
 		editingMessageIndex = null,
 		onEditEnd = () => {},
@@ -43,12 +43,38 @@
 		onKeyDown = undefined
 	}: Props = $props()
 
+	// Generate mode-specific placeholder
+	const modePlaceholder = $derived.by(() => {
+		if (!isFirstMessage) {
+			return 'Ask followup'
+		}
+
+		if (placeholder) {
+			return placeholder
+		}
+
+		switch (aiChatManager.mode) {
+			case AIMode.SCRIPT:
+				return 'Modify this script...'
+			case AIMode.FLOW:
+				return 'Modify this flow...'
+			case AIMode.NAVIGATOR:
+				return 'Navigate the app...'
+			case AIMode.API:
+				return 'Make API calls...'
+			case AIMode.ASK:
+				return 'Ask questions about Windmill...'
+			default:
+				return 'Ask anything'
+		}
+	})
+
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		if (aiChatManager.mode === 'script') {
+		if (aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -106,7 +132,7 @@
 </script>
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === 'script'}
+	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
@@ -131,7 +157,7 @@
 					<ContextElementBadge
 						contextElement={element}
 						deletable
-						on:delete={() => {
+						onDelete={() => {
 							selectedContext = selectedContext?.filter(
 								(c) => c.type !== element.type || c.title !== element.title
 							)
@@ -146,7 +172,7 @@
 			{availableContext}
 			{selectedContext}
 			{isFirstMessage}
-			{placeholder}
+			placeholder={modePlaceholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
 				if (disabled) {
@@ -173,7 +199,7 @@
 					}
 				}}
 				rows={3}
-				{placeholder}
+				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
 			></textarea>

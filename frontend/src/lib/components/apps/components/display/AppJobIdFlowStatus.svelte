@@ -98,13 +98,13 @@
 				<FlowStatusViewer
 					workspaceId={workspace}
 					{jobId}
-					on:start={() => {
+					onStart={() => {
 						outputs?.jobId.set(jobId)
 						outputs?.loading.set(true)
 					}}
-					on:done={(e) => {
+					onDone={({ job }) => {
 						outputs?.loading.set(false)
-						outputs?.result.set(e?.detail?.result)
+						outputs?.result.set(job?.result as any)
 					}}
 				/>
 			{:else}

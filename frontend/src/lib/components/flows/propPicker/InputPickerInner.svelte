@@ -13,18 +13,19 @@
 
 	let { inputTransform, id, onEditInput }: Props = $props()
 
-	const { flowStore, flowStateStore, testSteps, previewArgs } =
+	const { flowStore, flowStateStore, stepsInputArgs, previewArgs } =
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	onMount(() => {
-		testSteps?.updateStepArgs(id, $flowStateStore, flowStore?.val, previewArgs?.val)
+		stepsInputArgs?.updateStepArgs(id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
 	})
 
-	const input = $derived(testSteps?.getStepArgs(id)?.value)
+	const input = $derived(stepsInputArgs?.getStepArgs(id))
 </script>
 
 <div class="p-4 pr-6 h-full overflow-y-auto">
-	<ObjectViewer json={input} {inputTransform} {metaData} {editKey} />
+	<!-- {JSON.stringify({ inputTransform, input })} -->
+	<ObjectViewer json={input} {metaData} {editKey} />
 </div>
 
 {#snippet metaData(key: string)}
@@ -41,10 +42,10 @@
 			{:else if inputTransform[key].type === 'static'}
 				<DollarSign size={12} class="text-tertiary font-mono -my-1" />
 			{/if}
-			{#if testSteps?.isArgManuallySet(id, key)}
+			{#if stepsInputArgs?.isArgManuallySet(id, key)}
 				<button
 					onclick={() => {
-						testSteps?.evalArg(id, key, $flowStateStore, flowStore?.val, previewArgs?.val)
+						stepsInputArgs?.evalArg(id, key, flowStateStore?.val, flowStore?.val, previewArgs?.val)
 					}}
 					title="Re-evaluate input"
 					class="-my-1 ml-0.5 hover:text-primary dark:hover:text-primary dark:text-gray-500 text-gray-300"

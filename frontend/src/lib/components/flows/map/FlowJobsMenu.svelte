@@ -15,6 +15,7 @@
 		selected: number
 		selectedManually: boolean | undefined
 		onSelectedIteration: onSelectedIteration
+		showIcon?: boolean
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		selected,
 		selectedManually,
 		onSelectedIteration,
-		moduleId
+		moduleId,
+		showIcon = true
 	}: Props = $props()
 
 	let filter: number | undefined = $state(undefined)
@@ -68,6 +70,7 @@
 	let isOpen = $state(false)
 
 	$effect(() => {
+		filter
 		isOpen && flowJobs && untrack(() => updateItems())
 	})
 </script>
@@ -127,7 +130,9 @@
 					meltElement={trigger}
 				>
 					#{selected == -1 ? '?' : selected + 1}
-					<ListFilter size={15} />
+					{#if showIcon}
+						<ListFilter size={15} />
+					{/if}
 				</MeltButton>
 			{/snippet}
 
@@ -146,7 +151,8 @@
 											class={twMerge(
 												'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
 												items[idx].success == false ? 'text-red-400' : '',
-												'data-[highlighted]:bg-surface-hover'
+												'data-[highlighted]:bg-surface-hover',
+												items[idx].index == selected ? 'bg-surface-selected' : ''
 											)}
 											onClick={() => {
 												onSelectedIteration({

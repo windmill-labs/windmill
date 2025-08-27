@@ -12,6 +12,7 @@
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -24,12 +25,14 @@
 		description: PromptConfig
 		flowSummary: PromptConfig
 		flowDescription: PromptConfig
+		agentToolFunctionName: PromptConfig
 	} = {
 		summary: {
 			system: `
 You are a helpful AI assistant. You generate very brief summaries from scripts.
 The summaries need to be as short as possible (maximum 8 words) and only give a global idea. Do not specify the programming language. Do not use any punctation. Avoid using prepositions and articles.
 Examples: List the commits of a GitHub repository, Divide a number by 16, etc..
+**Return only the summary, no other text.**
 `,
 			user: `
 Generate a very short summary for the script below:
@@ -46,6 +49,7 @@ These descriptions are used to explain to other users what the script does and h
 Be as short as possible to give a global idea, maximum 3-4 sentences.
 All scripts export an asynchronous function called main, do not include it in the description.
 Do not describe how to call it either.
+**Return only the description, no other text.**
 `,
 			user: `
 Generate a description for the script below:
@@ -59,6 +63,7 @@ Generate a description for the script below:
 			system: `
 			You are a helpful AI assistant. You generate very brief summaries from scripts.
 The summaries need to be as short as possible (maximum 8 words) and only give a global idea. Do not use any punctation. Avoid using prepositions and articles.
+**Return only the summary, no other text.**
 `,
 			user: `
 Summarize the flow below in one very short sentence without punctation:
@@ -71,11 +76,26 @@ You are a helpful AI assistant. You generate descriptions from flow.
 These descriptions are used to explain to other users what the flow does and how to use it.
 Be as short as possible to give a global idea, maximum 3-4 sentences.
 Do not include line breaks.
+**Return only the description, no other text.**
 `,
 			user: `
 Generate a description for the flow below:
 {flow}`,
 			placeholderName: 'flow'
+		},
+		agentToolFunctionName: {
+			system: `
+You are a helpful AI assistant. You generate tool names from scripts.
+These tool names will be used by an AI agent to call this tool.
+It has to be based on the script code content not on the main function name.
+It has to respect the following regex: /[a-zA-Z0-9_]+/
+Examples: generate_image, classify_image, summarize_text, etc.
+**Return only the tool name, no other text.**
+`,
+			user: `
+Generate a tool name for the script below:
+{code}`,
+			placeholderName: 'code'
 		}
 	}
 
@@ -294,10 +314,20 @@ Generate a description for the flow below:
 			bind:this={el}
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
-			class={active ? '!indent-[3.5rem]' : ''}
+			class={twMerge(
+				active ? '!indent-[3.5rem]' : '',
+				promptConfigName === 'agentToolFunctionName' &&
+					!validateToolName(content ?? '') &&
+					'!border-red-400'
+			)}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}
 		/>
+		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
+			<div class="text-3xs text-red-400 absolute -bottom-4">
+				Invalid tool name, should only contain letters, numbers and underscores
+			</div>
+		{/if}
 	{/if}
 	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
 </div>

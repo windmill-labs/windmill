@@ -11,7 +11,8 @@
 		emptyModule,
 		pickScript,
 		pickFlow,
-		insertNewPreprocessorModule
+		insertNewPreprocessorModule,
+		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
@@ -36,9 +37,10 @@
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
-	import { writable, type Writable } from 'svelte/store'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -51,7 +53,8 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
@@ -64,7 +67,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 	}
@@ -80,7 +83,8 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
-		localModuleStates = writable({}),
+		localModuleStates = {},
+		testModuleStates = new ModulesTestStates(),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -93,7 +97,7 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = writable({}),
+		suspendStatus = $bindable({ val: {} }),
 		onDelete,
 		flowHasChanged
 	}: Props = $props()
@@ -115,9 +119,9 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		let module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
+		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
-		$flowStateStore[module.id] = state
+		flowStateStore.val[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
 		} else if (wsScript) {
@@ -136,17 +140,19 @@
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
+		} else if (kind == 'aiagent') {
+			;[module, state] = await createAiAgent(module.id)
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
-			$flowStateStore[module.id] = state
+			flowStateStore.val[module.id] = state
 			if (kind == 'trigger') {
 				module.summary = 'Trigger'
 			} else if (kind == 'approval') {
 				module.summary = 'Approval'
 			}
 		}
-		$flowStateStore[module.id] = state
+		flowStateStore.val[module.id] = state
 
 		if (kind == 'approval') {
 			module.suspend = { required_events: 1, timeout: 1800 }
@@ -187,6 +193,8 @@
 					return branch
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
+			} else if (mod.value.type == 'aiagent') {
+				mod.value.tools = removeAtId(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -303,18 +311,16 @@
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
-				$flowStateStore[moduleId] = {
-					...($flowStateStore[moduleId] ?? {}),
+				flowStateStore.val[moduleId] = {
+					...(flowStateStore.val[moduleId] ?? {}),
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
-					previewWorkspaceId: previousJobId[0].workspace_id,
 					previewSuccess: getJobResult.success
 				}
 				if (stepHistoryLoader) {
 					stepHistoryLoader.stepStates[moduleId].loadingJobs = false
 				}
 			}
-			$flowStateStore = $flowStateStore
 		}
 	}
 	$effect(() => {
@@ -388,12 +394,13 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
-			flowModuleStates={$localModuleStates}
+			flowModuleStates={localModuleStates}
+			{testModuleStates}
 			{isOwner}
 			{individualStepTests}
 			{flowJob}
 			{showJobStatus}
-			{suspendStatus}
+			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
@@ -408,7 +415,7 @@
 					}
 					refreshStateStore(flowStore)
 					onDelete?.(id)
-					delete $flowStateStore[id]
+					delete flowStateStore.val[id]
 				}
 
 				if (Object.keys(dependents).length > 0) {
@@ -446,6 +453,8 @@
 							}
 						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
 							targetModules = modules
+						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
+							targetModules = mod.value.tools
 						}
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
@@ -477,7 +486,8 @@
 									})
 								}
 							} else {
-								const index = detail.index ?? 0
+								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+
 								await insertNewModuleAtIndex(
 									targetModules,
 									index,
@@ -520,7 +530,6 @@
 						if (['branchone', 'branchall'].includes(detail.kind)) {
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
-						$flowStateStore = $flowStateStore
 						refreshStateStore(flowStore)
 						dispatch('change')
 					}
@@ -570,9 +579,8 @@
 						mod.id = newId
 					}
 				})
-				$flowStateStore[newId] = $flowStateStore[id]
-				delete $flowStateStore[id]
-				$flowStateStore = $flowStateStore
+				flowStateStore.val[newId] = flowStateStore.val[id]
+				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
 				$selectedId = newId
 			}}

@@ -100,7 +100,8 @@
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
-		vimMode
+		vimMode,
+		relativeLineNumbers
 	} from '$lib/stores'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
@@ -149,17 +150,17 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
-	import { editorPositionMap } from '$lib/utils'
+	import { editorPositionMap, readFieldsRecursively } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
+	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
 
 	interface Props {
-		// for related places search: ADD_NEW_LANG
 		code?: string
 		cmdEnterAction?: (() => void) | undefined
 		formatAction?: (() => void) | undefined
@@ -183,6 +184,7 @@
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
+		moduleId?: string
 	}
 
 	let {
@@ -208,7 +210,8 @@
 		changeTimeout = 500,
 		loadAsync = false,
 		key = undefined,
-		class: clazz = undefined
+		class: clazz = undefined,
+		moduleId = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -541,10 +544,18 @@
 
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
-	function updateSchema() {
+	async function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
+
 		if (typeof newSchemaRes === 'string') {
-			dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+			const resourcePath = newSchemaRes.replace('$res:', '')
+			dbSchema = $dbSchemas[resourcePath]
+			if (lang === 'graphql' && dbSchema === undefined) {
+				await getDbSchemas(lang, resourcePath, $workspaceStore, $dbSchemas, (e) => {
+					console.error('error getting graphql db schema', e)
+				})
+				dbSchema = $dbSchemas[resourcePath]
+			}
 		} else {
 			dbSchema = undefined
 		}
@@ -562,8 +573,10 @@
 		if (!schemaLang || !schema) {
 			return
 		}
+		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
 			graphqlService ||= initializeMode()
+			console.log('setting schema config', schema)
 			graphqlService?.setSchemaConfig([
 				{
 					uri: 'my-schema.graphql',
@@ -662,8 +675,8 @@
 	let inlineAIChatSelection: Selection | null = $state(null)
 	let selectedCode = $state('')
 
-	export function reviewAndApplyCode(code: string) {
-		aiChatEditorHandler?.reviewAndApply(code)
+	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
+		aiChatEditorHandler?.reviewAndApply(code, applyAll)
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
@@ -1224,7 +1237,13 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1317,7 +1336,8 @@
 					aiChatManager.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
-						selection.endLineNumber
+						selection.endLineNumber,
+						moduleId
 					)
 				} else {
 					aiChatManager.toggleOpen()
@@ -1588,9 +1608,12 @@
 			: sqlTypeCompletor?.dispose()
 	})
 	$effect(() => {
-		lang && args && $dbSchemas && untrack(() => updateSchema())
+		console.log('updating schema', lang, $dbSchemas)
+		readFieldsRecursively(args)
+		lang && $dbSchemas && untrack(() => updateSchema())
 	})
 	$effect(() => {
+		console.log('updating db schema completions', dbSchema, lang)
 		initialized &&
 			dbSchema &&
 			['sql', 'graphql'].includes(lang) &&
@@ -1638,6 +1661,11 @@
 	})
 	$effect(() => {
 		files && model && untrack(() => onFileChanges())
+	})
+	$effect(() => {
+		editor?.updateOptions({
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
 	})
 </script>
 

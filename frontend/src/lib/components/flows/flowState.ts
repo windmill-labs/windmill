@@ -1,15 +1,14 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
-import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils'
+import type { StateStore } from '$lib/utils'
 
 export type FlowModuleState = {
 	schema?: Schema
 	previewResult?: any
 	previewArgs?: any
 	previewJobId?: string
-	previewWorkspaceId?: string
 	previewSuccess?: boolean
 }
 
@@ -21,7 +20,7 @@ export type FlowState = Record<string, FlowModuleState>
  * We also hold the data of the results of a test job, ran by the user.
  */
 
-export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowState>) {
+export async function initFlowState(flow: Flow, flowStateStore: StateStore<FlowState>) {
 	const modulesState: FlowState = {}
 
 	await mapFlowModules(flow.value.modules, modulesState)
@@ -30,10 +29,10 @@ export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowSta
 		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
-	flowStateStore.set({
+	flowStateStore.val = {
 		...modulesState,
 		failure: failureModule
-	})
+	}
 }
 
 /**

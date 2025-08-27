@@ -1,4 +1,4 @@
-import { ResourceService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -8,12 +8,17 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { copilotSessionModel, type DBSchema, dbSchemas } from '$lib/stores'
-import { scriptLangToEditorLang } from '$lib/scripts'
+import { type DBSchema, dbSchemas, getCurrentModel } from '$lib/stores'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
-import type { CodePieceElement, ContextElement } from '../context'
+import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
-import { createSearchHubScriptsTool, type Tool } from '../shared'
+import {
+	createSearchHubScriptsTool,
+	type Tool,
+	executeTestRun,
+	buildTestRunArgs,
+	buildContextString
+} from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 
@@ -67,8 +72,6 @@ async function getResourceTypes(prompt: string, workspace: string) {
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
-
-const TS_INLINE_TYPE_INSTRUCTION = `When using resource types, you should use RT.ResourceType as parameter type. For other parameters, you should inline the objects types instead of defining them separately. This is because Windmill requires the types (other than resource types) to be inlined to generate a user friendly UI from the parameters.`
 
 const TS_WINDMILL_CLIENT_CONTEXT = `
 
@@ -213,9 +216,7 @@ export function getLangContext(
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
 					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) +
-		TS_INLINE_TYPE_INSTRUCTION +
-		TS_WINDMILL_CLIENT_CONTEXT
+					: '')) + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
@@ -351,6 +352,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- At the end of your reponse, if you modified or suggested changes to the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -441,18 +443,6 @@ export async function main() {
 \`\`\`
 `
 
-const CHAT_USER_CODE_CONTEXT = `
-- {title}:
-\`\`\`{language}
-{code}
-\`\`\`
-`
-
-const CHAT_USER_ERROR_CONTEXT = `
-ERROR:
-{error}
-`
-
 export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
@@ -462,25 +452,11 @@ WINDMILL LANGUAGE CONTEXT:
 
 `
 
-export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
-
 export function prepareScriptSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
 		role: 'system',
 		content: CHAT_SYSTEM_PROMPT
 	}
-}
-
-const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
-	let code = codeContext.split('\n')
-	let shiftOffset = 0
-	codePieces.sort((a, b) => a.startLine - b.startLine)
-	for (const codePiece of codePieces) {
-		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
-		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
-		shiftOffset += 2
-	}
-	return code.join('\n')
 }
 
 export function prepareScriptTools(
@@ -498,6 +474,7 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
+	tools.push(testRunScriptTool)
 	return tools
 }
 
@@ -509,61 +486,12 @@ export function prepareScriptUserMessage(
 		isPreprocessor?: boolean
 	} = {}
 ): ChatCompletionUserMessageParam {
-	let codeContext = 'CODE:\n'
-	let errorContext = 'ERROR:\n'
-	let dbContext = 'DATABASES:\n'
-	let diffContext = 'DIFF:\n'
-	let hasCode = false
-	let hasError = false
-	let hasDb = false
-	let hasDiff = false
-	for (const context of selectedContext) {
-		if (context.type === 'code') {
-			hasCode = true
-			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
-				.replace('{language}', scriptLangToEditorLang(language))
-				.replace(
-					'{code}',
-					applyCodePieceToCodeContext(
-						selectedContext.filter((c) => c.type === 'code_piece'),
-						context.content
-					)
-				)
-		} else if (context.type === 'error') {
-			if (hasError) {
-				throw new Error('Multiple error contexts provided')
-			}
-			hasError = true
-			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
-		} else if (context.type === 'db') {
-			hasDb = true
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
-				'{schema}',
-				context.schema?.stringified ?? 'to fetch with get_db_schema'
-			)
-		} else if (context.type === 'diff') {
-			hasDiff = true
-			const diff = JSON.stringify(context.diff)
-			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
-		}
-	}
-
 	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
 		'{lang_context}',
 		getLangContext(language, { allowResourcesFetch: true, ...options })
 	)
-	if (hasCode) {
-		userMessage += codeContext
-	}
-	if (hasError) {
-		userMessage += errorContext
-	}
-	if (hasDb) {
-		userMessage += dbContext
-	}
-	if (hasDiff) {
-		userMessage += diffContext
-	}
+	const contextInstructions = buildContextString(selectedContext)
+	userMessage += contextInstructions
 	return {
 		role: 'user',
 		content: userMessage
@@ -627,55 +555,72 @@ async function formatDBSchema(dbSchema: DBSchema) {
 }
 
 export interface ScriptChatHelpers {
-	getLang: () => ScriptLang | 'bunnative'
+	getScriptOptions: () => {
+		code: string
+		lang: ScriptLang | 'bunnative'
+		path: string
+		args: Record<string, any>
+	}
+	getLastSuggestedCode: () => string | undefined
+	applyCode: (code: string, applyAll?: boolean) => void
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.setToolStatus(toolId, { content: 'Searching resource types for "' + args.query + '"...' })
-		const formattedResourceTypes = await getFormattedResourceTypes(
-			helpers.getLang(),
-			args.query,
-			workspace
-		)
-		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved resource types for "' + args.query + '"' })
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Searching resource types for "' + args.query + '"...'
+		})
+		const lang = helpers.getScriptOptions().lang
+		const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Retrieved resource types for "' + args.query + '"'
+		})
 		return formattedResourceTypes
 	}
 }
 
-export const dbSchemaTool: Tool<ScriptChatHelpers> = {
-	def: DB_SCHEMA_FUNCTION_DEF,
-	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
-		if (!args.resourcePath) {
-			throw new Error('Database path not provided')
-		}
-		toolCallbacks.setToolStatus(toolId, { content: 'Getting database schema for ' + args.resourcePath + '...' })
-		const resource = await ResourceService.getResource({
-			workspace: workspace,
-			path: args.resourcePath
-		})
-		const newDbSchemas = {}
-		await getDbSchemas(
-			resource.resource_type,
-			args.resourcePath,
-			workspace,
-			newDbSchemas,
-			(error) => {
-				console.error(error)
+// Generic DB schema tool factory that can be used by both script and flow modes
+export function createDbSchemaTool<T>(): Tool<T> {
+	return {
+		def: DB_SCHEMA_FUNCTION_DEF,
+		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+			if (!args.resourcePath) {
+				throw new Error('Database path not provided')
 			}
-		)
-		dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-		const dbs = get(dbSchemas)
-		const db = dbs[args.resourcePath]
-		if (!db) {
-			throw new Error('Database not found')
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Getting database schema for ' + args.resourcePath + '...'
+			})
+			const resource = await ResourceService.getResource({
+				workspace: workspace,
+				path: args.resourcePath
+			})
+			const newDbSchemas = {}
+			await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				newDbSchemas,
+				(error) => {
+					console.error(error)
+				}
+			)
+			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
+			const dbs = get(dbSchemas)
+			const db = dbs[args.resourcePath]
+			if (!db) {
+				throw new Error('Database not found')
+			}
+			const stringSchema = await formatDBSchema(db)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved database schema for ' + args.resourcePath
+			})
+			return stringSchema
 		}
-		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved database schema for ' + args.resourcePath })
-		return stringSchema
 	}
 }
+
+export const dbSchemaTool: Tool<ScriptChatHelpers> = createDbSchemaTool<ScriptChatHelpers>()
 
 type PackageSearchQuery = {
 	package: {
@@ -710,7 +655,8 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
 		)
 
-		const modelContextWindow = getModelContextWindow(get(copilotSessionModel)?.model ?? '')
+		const model = getCurrentModel()
+		const modelContextWindow = getModelContextWindow(model.model)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''
@@ -830,4 +776,75 @@ export async function fetchNpmPackageTypes(
 			error: `Error fetching package types: ${error instanceof Error ? error.message : 'Unknown error'}`
 		}
 	}
+}
+
+const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'test_run_script',
+		description: 'Execute a test run of the current script in the editor',
+		parameters: {
+			type: 'object',
+			properties: {
+				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['args']
+		}
+	}
+}
+
+export const testRunScriptTool: Tool<ScriptChatHelpers> = {
+	def: TEST_RUN_SCRIPT_TOOL,
+	fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
+		const scriptOptions = helpers.getScriptOptions()
+
+		if (!scriptOptions) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'No script available to test',
+				error: 'No script found in current context'
+			})
+			throw new Error(
+				'No script code available to test. Please ensure you have a script open in the editor.'
+			)
+		}
+
+		let codeToTest = scriptOptions.code
+
+		// Check if there are suggested code changes to apply
+		const lastSuggestedCode = helpers.getLastSuggestedCode()
+		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
+			codeToTest = lastSuggestedCode
+			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+
+			// Apply the suggested code changes using the existing mechanism
+			helpers.applyCode(lastSuggestedCode, true)
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
+		}
+
+		const parsedArgs = await buildTestRunArgs(args, this.def)
+
+		return executeTestRun({
+			jobStarter: () =>
+				JobService.runScriptPreview({
+					workspace: workspace,
+					requestBody: {
+						path: scriptOptions.path,
+						content: codeToTest,
+						args: parsedArgs,
+						language: scriptOptions.lang as ScriptLang
+					}
+				}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: 'Running test...',
+			contextName: 'script'
+		})
+	},
+	requiresConfirmation: true,
+	confirmationMessage: 'Run script test',
+	showDetails: true
 }

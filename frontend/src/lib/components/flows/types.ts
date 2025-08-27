@@ -1,4 +1,4 @@
-import type { OpenFlow } from '$lib/gen'
+import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -7,12 +7,13 @@ import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
-import type { TestSteps } from './testSteps.svelte'
+import type { StepsInputArgs } from './stepsInputArgs.svelte'
 import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
+import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -57,6 +58,8 @@ export type CurrentEditor =
 					hideDiffMode: () => void
 					diffMode: boolean
 					lastDeployedCode: string | undefined
+					setDiffOriginal?: (code: string) => void
+					setDiffButtons?: (buttons: ButtonProp[]) => void
 			  }
 			| { type: 'iterator'; editor: SimpleEditor }
 	  ) & {
@@ -74,8 +77,8 @@ export type FlowEditorContext = {
 	pathStore: Writable<string>
 	flowStore: StateStore<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
-	flowStateStore: Writable<FlowState>
-	testSteps: TestSteps
+	flowStateStore: StateStore<FlowState>
+	stepsInputArgs: StepsInputArgs
 	saveDraft: () => void
 	initialPathStore: Writable<string>
 	fakeInitialPath: string
@@ -97,3 +100,16 @@ export type FlowGraphAssetContext = StateStore<{
 	additionalAssetsMap: Record<string, AssetWithAccessType[]>
 	computeAssetsCount: (asset: Asset) => number
 }>
+
+export type OutputViewerJob =
+	| ((
+			| Job
+			| {
+					id: string
+					result: unknown
+					type: 'CompletedJob'
+					workspace_id: string
+					success: boolean
+			  }
+	  ) & { result_stream?: string; result?: unknown })
+	| undefined

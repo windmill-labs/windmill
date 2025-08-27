@@ -959,6 +959,7 @@ impl RunJob {
             None,
             None,
             None,
+            false,
         )
         .await
         .expect("push has to succeed");
@@ -3468,6 +3469,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         tag: None,
         paused_until: None,
         cron_version: None,
+        description: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3538,6 +3540,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 tag: None,
                 paused_until: None,
                 cron_version: None,
+                description: None,
             },
         )
         .await
@@ -3621,6 +3624,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         tag: None,
         paused_until: None,
         cron_version: None,
+        description: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3692,6 +3696,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 tag: None,
                 paused_until: None,
                 cron_version: None,
+                description: None,
             },
         )
         .await
@@ -3777,6 +3782,7 @@ async fn run_deployed_relative_imports(
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
+                assets: vec![],
             },
         )
         .await
@@ -4028,6 +4034,7 @@ async fn assert_lockfile(
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
+                assets: vec![],
             },
         )
         .await

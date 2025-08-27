@@ -1128,7 +1128,7 @@
 														>
 															<LanguageIcon {lang} />
 															<span class="ml-2 py-2 truncate">{label}</span>
-															{#if lang === 'nu'}
+															{#if lang === 'ruby'}
 																<span class="text-tertiary !text-xs"> BETA </span>
 															{/if}
 														</Button>
@@ -1707,16 +1707,18 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if $workerTags}
-						{#if $workerTags?.length ?? 0 > 0}
-							<div class="max-w-[200px] pr-8">
-								<WorkerTagSelect
-									inputClass="text-sm text-secondary !placeholder-secondary"
-									nullTag={script.language}
-									placeholder={customUi?.tagSelectPlaceholder}
-									bind:tag={script.tag}
-								/>
-							</div>
+					{#if customUi?.topBar?.tagEdit != false}
+						{#if $workerTags}
+							{#if $workerTags?.length ?? 0 > 0}
+								<div class="max-w-[200px] pr-8">
+									<WorkerTagSelect
+										inputClass="text-sm text-secondary !placeholder-secondary"
+										nullTag={script.language}
+										placeholder={customUi?.tagSelectPlaceholder}
+										bind:tag={script.tag}
+									/>
+								</div>
+							{/if}
 						{/if}
 					{/if}
 					{#if customUi?.topBar?.settings != false}

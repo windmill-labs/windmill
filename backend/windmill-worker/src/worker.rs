@@ -99,6 +99,7 @@ use tokio::{
 
 use rand::Rng;
 
+use crate::ai_executor::handle_ai_agent_job;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::{handle_bash_job, handle_powershell_job},
@@ -133,6 +134,9 @@ use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
 
 #[cfg(feature = "java")]
 use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
+
+#[cfg(feature = "ruby")]
+use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRuby};
 
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
@@ -191,10 +195,14 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 
-// JAVA
+// Java
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+
+// Ruby
+pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
+
 // for related places search: ADD_NEW_LANG
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
@@ -338,6 +346,7 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
+    pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -745,7 +754,7 @@ pub async fn handle_all_job_kind_error(
                         preprocessed_args: None,
                         job: job.clone(),
                         result: Arc::new(windmill_common::worker::to_raw_value(&error_to_value(
-                            err,
+                            &err,
                         ))),
                         result_columns: None,
                         mem_peak: 0,
@@ -891,7 +900,7 @@ pub fn start_interactive_worker_shell(
     })
 }
 
-async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
+pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
     let job_dir_path = format!("{}/{}", worker_directory, job_id);
 
     create_directory_async(&job_dir_path).await;
@@ -2182,11 +2191,13 @@ pub struct SendResult {
     pub time: Instant,
 }
 
+#[derive(Clone)]
 pub enum SendResultPayload {
     JobCompleted(JobCompleted),
     UpdateFlow(UpdateFlow),
 }
 
+#[derive(Clone)]
 pub struct UpdateFlow {
     pub flow: Uuid,
     pub w_id: String,
@@ -2333,9 +2344,10 @@ pub async fn handle_queued_job(
             | JobKind::FlowDependencies,
             x,
         ) => match x.map(|x| x.0) {
-            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => {
-                Some(cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow).await?)
-            }
+            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(
+                cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                    .await?,
+            ),
             _ => None,
         },
         _ => None,
@@ -2540,6 +2552,31 @@ pub async fn handle_queued_job(
                 .flatten()
                 .map(|x| x.to_owned())
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
+            JobKind::AIAgent => match conn {
+                Connection::Sql(db) => {
+                    handle_ai_agent_job(
+                        conn,
+                        db,
+                        job.as_ref(),
+                        &client,
+                        &mut canceled_by,
+                        &mut mem_peak,
+                        &mut *occupancy_metrics,
+                        &job_completed_tx,
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        hostname,
+                        killpill_rx,
+                    )
+                    .await
+                }
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Agent worker does not support ai agent jobs".to_string(),
+                    ));
+                }
+            },
             _ => {
                 let metric_timer = Instant::now();
                 let preview_data = preview_data.and_then(|data| match data {
@@ -2724,6 +2761,7 @@ async fn try_validate_schema(
                 JobKind::AppDependencies => 12,
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
+                JobKind::AIAgent => 15,
             };
 
             let sv = match job.runnable_id {
@@ -3439,6 +3477,33 @@ mount {{
             })
             .await
         }
+        Some(ScriptLang::Ruby) => {
+            #[cfg(not(feature = "ruby"))]
+            return Err(anyhow::anyhow!(
+                "Ruby is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "ruby")]
+            handle_ruby_job(JobHandlerInputRuby {
+                mem_peak,
+                canceled_by,
+                job,
+                conn,
+                client,
+                parent_runnable_path,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
+        // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
@@ -3453,7 +3518,7 @@ mount {{
     result
 }
 
-fn parse_sig_of_lang(
+pub fn parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
     main_override: Option<String>,
@@ -3511,6 +3576,10 @@ fn parse_sig_of_lang(
             ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code)?),
             #[cfg(not(feature = "java"))]
             ScriptLang::Java => None,
+            #[cfg(feature = "ruby")]
+            ScriptLang::Ruby => Some(windmill_parser_ruby::parse_ruby_signature(code)?),
+            #[cfg(not(feature = "ruby"))]
+            ScriptLang::Ruby => None,
             // for related places search: ADD_NEW_LANG
         }
     } else {

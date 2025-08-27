@@ -14,8 +14,7 @@
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
-	import type { Writable } from 'svelte/store'
-	import type { DurationStatus } from '$lib/components/graph'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		noEditor?: boolean
@@ -33,9 +32,9 @@
 		onTestFlow?: () => void
 		job?: Job
 		isOwner?: boolean
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
+		previewOpen?: boolean
 	}
 
 	let {
@@ -50,9 +49,9 @@
 		onTestFlow,
 		job,
 		isOwner,
-		localDurationStatuses,
 		suspendStatus,
-		onOpenDetails
+		onOpenDetails,
+		previewOpen = false
 	}: Props = $props()
 
 	const {
@@ -81,7 +80,7 @@
 	}
 
 	$effect(() => {
-		computeMissingInputWarnings(flowStore, $flowStateStore, flowInputsStore)
+		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
 </script>
 
@@ -98,9 +97,10 @@
 		}}
 		on:applyArgs
 		{onTestFlow}
+		{previewOpen}
 	/>
 {:else if $selectedId === 'Result'}
-	<FlowResult {noEditor} {job} {isOwner} {localDurationStatuses} {suspendStatus} {onOpenDetails} />
+	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}

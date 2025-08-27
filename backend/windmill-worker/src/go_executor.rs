@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file, Connection},
+    worker::{save_cache, write_file, Connection, GoAnnotations},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -259,7 +259,7 @@ func Run(req Req) (interface{{}}, error){{
         #[cfg(windows)]
         set_windows_env_vars(&mut build_go_cmd);
 
-        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
+        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str(), false).await?;
         handle_child(
             &job.id,
             conn,
@@ -363,7 +363,7 @@ func Run(req Req) (interface{{}}, error){{
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         #[cfg(unix)]
         let compiled_executable_name = "./main";
@@ -406,7 +406,7 @@ func Run(req Req) (interface{{}}, error){{
         set_windows_env_vars(&mut run_go);
 
         run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
-        start_child_process(run_go, &compiled_executable_name).await?
+        start_child_process(run_go, &compiled_executable_name, false).await?
     };
     let handle_result = handle_child(
         &job.id,
@@ -464,6 +464,7 @@ pub async fn install_go_dependencies(
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    let anns = GoAnnotations::parse(code);
     if raw_deps {
         let go_mod =
             if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
@@ -490,7 +491,7 @@ pub async fn install_go_dependencies(
 
         #[cfg(windows)]
         set_windows_env_vars(&mut child_cmd);
-        let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+        let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
         handle_child(
             job_id,
@@ -529,7 +530,11 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
-    let hash = format!("go-{}", hash);
+    let hash = format!(
+        "go{}-{}",
+        if anns.go1_22_compat { "1.22" } else { "" },
+        hash
+    );
 
     let mut skip_tidy = has_sum;
 
@@ -566,6 +571,8 @@ pub async fn install_go_dependencies(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env("HOME", HOME_ENV.as_str())
+        .env("PATH", PATH_ENV.as_str())
         .env("GOPATH", {
             #[cfg(unix)]
             {
@@ -580,9 +587,26 @@ pub async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    if let Some(ref goprivate) = *GOPRIVATE {
+        child_cmd.env("GOPRIVATE", goprivate);
+    }
+
+    // TODO: Remove if no incidents reported
+    if !std::env::var("WMDEBUG_NO_GOPROXY_ON_TIDY").ok().is_some() {
+        if let Some(ref goproxy) = *GOPROXY {
+            child_cmd.env("GOPROXY", goproxy);
+        }
+    }
+
+    // If annotation used we want to call tidy with special flag to pin go to 1.22
+    // The reason for this that at some point we had to jump from go 1.22 to 1.25 and this addds backward compatibility.
+    if anns.go1_22_compat && mod_command == "tidy" {
+        child_cmd.args(vec!["-go", "1.22"]);
+    }
+
     #[cfg(windows)]
     set_windows_env_vars(&mut child_cmd);
-    let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+    let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
     handle_child(
         job_id,

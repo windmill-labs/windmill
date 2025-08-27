@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, type StateStore } from '$lib/utils'
 	import {
 		AlertTriangle,
 		Bed,
@@ -18,7 +18,7 @@
 		Play,
 		Loader2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -144,9 +144,7 @@
 	let testIsLoading = $state(false)
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
-	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
-	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
 
@@ -158,38 +156,16 @@
 		id: string | undefined,
 		pickableIds: Record<string, any> | undefined,
 		flowPropPickerConfig: any | undefined,
-		flowStateStore: FlowState | undefined
+		flowStateStore: StateStore<FlowState> | undefined
 	) {
 		if (!id) return
 		connectingData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? pickableIds[id]
-				: (flowStateStore?.[id]?.previewResult ?? {})
+				: (flowStateStore?.val?.[id]?.previewResult ?? {})
 	}
 	$effect(() => {
-		const args = [id, pickableIds, $flowPropPickerConfig, $flowStateStore] as const
-		untrack(() => updateConnectingData(...args))
-	})
-
-	function updateLastJob(flowStateStore: any | undefined) {
-		if (!flowStateStore || !id || flowStateStore[id]?.previewResult === 'never tested this far') {
-			return
-		}
-		lastJob = {
-			id: flowStateStore[id]?.previewJobId ?? '',
-			result: flowStateStore[id]?.previewResult,
-			type: 'CompletedJob' as const,
-			workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
-			success: flowStateStore[id]?.previewSuccess ?? undefined
-		}
-	}
-
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if (flowStateStore && $flowStateStore) {
-			untrack(() => updateLastJob($flowStateStore))
-		}
+		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
 	})
 
 	let isConnectingCandidate = $derived(
@@ -205,6 +181,9 @@
 	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
 </script>
 
 {#if deletable && id && editId}
@@ -268,8 +247,16 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore?.[id]}
-		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
+	{#if mod && flowStateStore?.val?.[id]}
+		<ModuleTest
+			bind:this={moduleTest}
+			{mod}
+			bind:testIsLoading
+			bind:testJob
+			onJobDone={() => {
+				outputPickerInner?.setJobPreview?.()
+			}}
+		/>
 	{/if}
 {/if}
 
@@ -453,7 +440,6 @@
 							prefix={'results'}
 							connectingData={isConnecting ? connectingData : undefined}
 							{mock}
-							{lastJob}
 							{testJob}
 							moduleId={id}
 							onSelect={selectConnection}
@@ -461,12 +447,12 @@
 							{path}
 							{loopStatus}
 							rightMargin
-							bind:derivedHistoryOpen={historyOpen}
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
 							isLoading={testIsLoading ||
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+							bind:this={outputPickerInner}
 						/>
 					{/snippet}
 				</OutputPicker>

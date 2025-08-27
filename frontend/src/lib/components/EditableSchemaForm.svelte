@@ -29,6 +29,7 @@
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
+	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -69,6 +70,7 @@
 		dynSelectCode?: string | undefined
 		dynSelectLang?: ScriptLang | undefined
 		showDynSelectOpt?: boolean
+		addPropertyInEditorTab?: boolean
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
@@ -104,6 +106,7 @@
 		dynSelectCode = $bindable(),
 		dynSelectLang = $bindable(),
 		showDynSelectOpt = false,
+		addPropertyInEditorTab = false,
 		openEditTab,
 		addProperty,
 		runButton,
@@ -186,6 +189,7 @@
 	function onSchemaChange() {
 		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
+			console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
 			editSchema = true
 		}
 		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
@@ -508,22 +512,31 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full p-3 flex justify-end">
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON editor',
-									rightTooltip:
-										'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
-								}}
-								lightMode
-								on:change={() => {
-									schemaString = JSON.stringify(schema, null, '\t')
-									editor?.setCode(schemaString)
-								}}
-							/>
+						<div class="w-full p-3 flex gap-4 justify-end items-center">
+							{#if addPropertyInEditorTab}
+								<AddPropertyV2 bind:schema on:change>
+									{#snippet trigger()}
+										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
+									{/snippet}
+								</AddPropertyV2>
+							{/if}
+							<div class="shrink-0">
+								<Toggle
+									bind:checked={jsonView}
+									label="JSON View"
+									size="xs"
+									options={{
+										right: 'JSON editor',
+										rightTooltip:
+											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+									}}
+									lightMode
+									on:change={() => {
+										schemaString = JSON.stringify(schema, null, '\t')
+										editor?.setCode(schemaString)
+									}}
+								/>
+							</div>
 						</div>
 					{/if}
 
@@ -654,7 +667,6 @@
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
 																					const isDynSelect = v == 'dynselect'
-
 																					const emptyProperty = {
 																						contentEncoding: undefined,
 																						enum_: undefined,
@@ -704,7 +716,8 @@
 																										property_1: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_1']
 																								},
 																								{
 																									title: 'Option 2',
@@ -717,7 +730,8 @@
 																										property_2: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_2']
 																								}
 																							]
 																						}

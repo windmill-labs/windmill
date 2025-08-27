@@ -98,7 +98,7 @@ pub async fn handle_dedicated_process(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(cmd, command_path).await?
+        start_child_process(cmd, command_path, false).await?
     };
 
     let stdout = child
@@ -433,6 +433,7 @@ async fn spawn_dedicated_workers_for_flow(
                 }
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
+                FlowModuleValue::AIAgent { .. } => (),
             }
         } else {
             tracing::error!("failed to get value for module: {:?}", module);
@@ -621,8 +622,7 @@ async fn spawn_dedicated_worker(
                 } else {
                     sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
                         "SELECT content, lock, language, envs, codebase IS NOT NULL, hash FROM script WHERE path = $1 AND workspace_id = $2 AND
-                            created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-                            deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+                            archived = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
                     )
                     .bind(&path)
                     .bind(&w_id)

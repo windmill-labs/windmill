@@ -78,7 +78,7 @@
 	import domContent from '$lib/dom.d.ts.txt?raw'
 	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { vimMode } from '$lib/stores'
+	import { vimMode, relativeLineNumbers } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
@@ -121,7 +121,8 @@
 		class: className = '',
 		loadAsync = false,
 		key,
-		disabled = false
+		disabled = false,
+		minHeight = 1000
 	}: {
 		lang: string
 		code?: string
@@ -147,6 +148,7 @@
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
+		minHeight?: number
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -264,6 +266,11 @@
 			untrack(() => onVimDisable())
 		}
 	})
+	$effect(() => {
+		editor?.updateOptions({
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
+	})
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -370,9 +377,14 @@
 			return
 		}
 		try {
-			console.log('fixedOverflowWidgets', fixedOverflowWidgets)
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
 				model,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
@@ -435,7 +447,7 @@
 		if (autoHeight) {
 			const updateHeight = () => {
 				if (!editor) return
-				const contentHeight = Math.min(1000, editor.getContentHeight())
+				const contentHeight = Math.min(minHeight, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}

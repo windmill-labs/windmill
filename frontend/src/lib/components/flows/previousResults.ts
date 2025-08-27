@@ -70,7 +70,6 @@ function getFlowInput(
 	const topFlowInput = schemaToObject(schema, args)
 
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
-
 	if (parentState && parentModule) {
 		if (
 			parentState.previewArgs &&
@@ -276,8 +275,9 @@ declare const results = ${JSON.stringify(results)};
  */
 declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
 
-${resume
-			? `
+${
+	resume
+		? `
 /**
  * resume payload
  */
@@ -288,8 +288,8 @@ declare const resume: any
  */
 declare const approvers: string
 `
-			: ''
-		}
+		: ''
+}
 `
 }
 

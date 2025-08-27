@@ -20,9 +20,9 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH,
-    PATH_ENV, PROXY_ENVS, TZ_ENV,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -151,7 +151,7 @@ pub async fn gen_bun_lockfile(
         #[cfg(windows)]
         child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+        let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
             handle_child(
@@ -356,7 +356,7 @@ pub async fn install_bun_lockfile(
         }
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
     gen_bunfig(job_dir).await?;
     if let Some(db) = db {
@@ -531,7 +531,7 @@ pub async fn generate_wrapper_mjs(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let child_process = start_child_process(child, &*BUN_PATH).await?;
+    let child_process = start_child_process(child, &*BUN_PATH, false).await?;
     handle_child(
         job_id,
         db,
@@ -581,7 +581,7 @@ pub async fn generate_bun_bundle(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let mut child_process = start_child_process(child, &*BUN_PATH).await?;
+    let mut child_process = start_child_process(child, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -758,7 +758,7 @@ pub async fn prebundle_bun_script(
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
 async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
-    let script_hash = get_latest_hash_for_path(&mut db.begin().await?, w_id, script_path).await?;
+    let script_hash = get_latest_hash_for_path(db, w_id, script_path, false).await?;
     let last_updated_at = sqlx::query_scalar!(
         "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
         w_id,
@@ -1399,7 +1399,7 @@ try {{
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
@@ -1458,6 +1458,7 @@ try {{
             } else {
                 &*BUN_PATH
             },
+            false,
         )
         .await?
     };

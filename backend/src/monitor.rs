@@ -18,6 +18,7 @@ use sqlx::{Pool, Postgres};
 use tokio::{
     join,
     sync::{mpsc, RwLock},
+    time::timeout,
 };
 use uuid::Uuid;
 
@@ -113,6 +114,12 @@ lazy_static::lazy_static! {
         &["tag"]
     ).unwrap();
 
+    static ref QUEUE_RUNNING_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
+        "queue_running_count",
+        "Number of running jobs in the queue",
+        &["tag"]
+    ).unwrap();
+
 }
 lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
@@ -139,6 +146,7 @@ lazy_static::lazy_static! {
     pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
     static ref STALE_JOB_TRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_TRESHOLD_MINUTES")
@@ -290,6 +298,7 @@ pub async fn initial_load(
         reload_nuget_config_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
+        reload_ruby_repos_setting(&conn).await;
     }
 }
 
@@ -684,20 +693,25 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
              VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)
-                .await {
-                tracing::error!("Error inserting log file: {:?}", e);
-            } else {
-                if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                    last_log_file_sent.replace(ts);
-                }) {
-                    tracing::error!("Error updating last log file sent: {:?}", e);
+                .execute(db)).await {
+                Ok(Ok(_)) => {
+                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                        last_log_file_sent.replace(ts);
+                    }) {
+                        tracing::error!("Error updating last log file sent: {:?}", e);
+                    }
+                    tracing::info!("Log file sent: {}", highest_file);
                 }
-                tracing::info!("Log file sent: {}", highest_file);
+                Ok(Err(e)) => {
+                    tracing::error!("Error inserting log file: {:?}", e);
+                }
+                Err(e) => {
+                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+                }
             }
         } else {
             // tracing::warn!("Not sending log file to object store in agent mode");
@@ -1087,6 +1101,7 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_maven_repos_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1096,6 +1111,7 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
     let value = load_value_from_global_settings_with_conn(
         conn,
@@ -1110,6 +1126,16 @@ pub async fn reload_no_default_maven_setting(conn: &Connection) {
         }
         _ => (),
     };
+}
+
+pub async fn reload_ruby_repos_setting(conn: &Connection) {
+    reload_url_list_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::RUBY_REPOS_SETTING,
+        "RUBY_REPOS",
+        windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
@@ -1273,6 +1299,100 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     {
         if value.is_none() {
             tracing::info!("Loaded {setting_name} setting to None");
+        }
+        let mut l = lock.write().await;
+        *l = value;
+    }
+
+    Ok(())
+}
+
+pub async fn reload_url_list_setting_with_tracing(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) {
+    if let Err(e) = reload_url_list_setting(conn, setting_name, std_env_var, lock.clone()).await {
+        tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
+    }
+}
+
+pub async fn reload_url_list_setting(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) -> error::Result<()> {
+    // Check for force environment variable
+    if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
+        let mut urls = Vec::new();
+        for url_str in force_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(e) => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid URL in FORCE_{}: '{}': {}",
+                        std_env_var, url_str, e
+                    )));
+                }
+            }
+        }
+        let mut l = lock.write().await;
+        *l = if urls.is_empty() { None } else { Some(urls) };
+        return Ok(());
+    }
+
+    let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+
+    // Check regular environment variable
+    let mut value = if let Ok(env_value) = std::env::var(std_env_var) {
+        let mut urls = Vec::new();
+        for url_str in env_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(_) => {
+                    // Log error but continue, similar to force variable handling
+                    tracing::error!("Invalid URL in {}: '{}'", std_env_var, url_str);
+                }
+            }
+        }
+        if urls.is_empty() {
+            None
+        } else {
+            Some(urls)
+        }
+    } else {
+        None
+    };
+
+    // Check database setting
+    if let Some(q) = q {
+        if let Ok(repos_str) = serde_json::from_value::<String>(q.clone()) {
+            let mut urls = Vec::new();
+            for url_str in repos_str.trim().split_whitespace() {
+                match url::Url::parse(url_str) {
+                    Ok(url) => urls.push(url),
+                    Err(e) => {
+                        tracing::error!("Invalid URL in {}: '{}': {}", setting_name, url_str, e);
+                        // Continue with other URLs, just skip invalid ones
+                    }
+                }
+            }
+            tracing::info!(
+                "Loaded setting {} from db config: {} URLs",
+                setting_name,
+                urls.len()
+            );
+            value = if urls.is_empty() { None } else { Some(urls) };
+        } else {
+            tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
+        }
+    }
+
+    {
+        if value.is_none() {
+            tracing::info!("Loaded {} setting to None", setting_name);
         }
         let mut l = lock.write().await;
         *l = value;
@@ -1568,6 +1688,30 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         if metrics_enabled {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
+        }
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            // Handle queue running count metrics
+            let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+
+            let mut running_tags_to_watch = vec![];
+            for q in queue_running_counts {
+                let count = q.1;
+                let tag = q.0;
+
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
+                metric.set(count as i64);
+                running_tags_to_watch.push(tag.to_string());
+            }
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
         }
     }
 
@@ -2426,8 +2570,6 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
     let app_workspaced_route =
         load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
-
-    println!("Updating...");
 
     let ws_route = match app_workspaced_route {
         Some(serde_json::Value::Bool(ws_route)) => ws_route,

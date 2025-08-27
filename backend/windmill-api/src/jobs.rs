@@ -177,12 +177,14 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run_wait_result/preview", post(run_wait_result_preview_script))
         .route(
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run_wait_result/preview_flow", post(run_wait_result_preview_flow))
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -272,6 +274,7 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_completed_logs_tail/:id", get(get_completed_job_logs_tail))
         .route("/get_args/:id", get(get_args))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
@@ -1361,11 +1364,55 @@ async fn get_logs_from_disk(
     return None;
 }
 
+async fn get_completed_job_logs_tail(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<String> {
+
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
+        .flatten();
+
+    let record = sqlx::query!(
+        "SELECT created_by AS \"created_by!\", coalesce(job_logs.logs, '') as logs
+        FROM v2_job
+        LEFT JOIN job_logs ON job_logs.job_id = v2_job.id
+        WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))
+        ORDER BY job_logs.log_offset DESC
+        LIMIT 100",
+        id,
+        w_id,
+        tags.as_ref().map(|v| v.as_slice())
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(record) = record {
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+ 
+        let logs = record.logs.unwrap_or_default();
+        Ok(Json(logs))
+    } else {
+        Err(Error::NotFound("Job not found".to_string()).into())
+    }
+}
+#[derive(Debug, Deserialize)]
+struct QueryJobLogs {
+    remove_ansi_warnings: Option<bool>,
+}
+
 async fn get_job_logs(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(query_job_logs): Query<QueryJobLogs>,
 ) -> error::Result<Response> {
     // let audit_author: AuditAuthor = match opt_authed {
     //     Some(authed) => (&authed).into(),
@@ -1419,10 +1466,14 @@ async fn get_job_logs(
         {
             return r.map(content_plain);
         }
-        let logs = format!(
-            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+        let logs = if query_job_logs.remove_ansi_warnings.unwrap_or(false) {
             logs
-        );
+        } else {
+            format!(
+                "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+                logs
+            )
+        };
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
@@ -3834,6 +3885,7 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -3928,6 +3980,7 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
+        false
     )
     .await?;
     tx.commit().await?;
@@ -4023,6 +4076,7 @@ pub async fn run_script_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4171,6 +4225,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
 
@@ -4701,6 +4756,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4851,6 +4907,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4965,6 +5022,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5082,6 +5140,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5151,11 +5210,34 @@ async fn run_preview_script(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(preview): Json<Preview>,
+) -> error::Result<Response> {
+
+    let (_status_code, uuid) = run_preview_script(
+        authed.clone(), 
+        Extension(db.clone()), 
+        Extension(user_db.clone()), 
+        Path(w_id.clone()), 
+        Query(run_query.clone()), 
+        Json(preview)
+    ).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 async fn run_bundle_preview_script(
@@ -5239,6 +5321,7 @@ async fn run_bundle_preview_script(
                 None,
                 None,
                 Some(&authed.clone().into()),
+                false,
             )
             .await?;
             job_id = Some(uuid);
@@ -5404,6 +5487,7 @@ async fn run_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5469,6 +5553,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -5809,11 +5894,26 @@ async fn run_preview_flow_job(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_wait_result_preview_flow(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(raw_flow): Json<PreviewFlow>,
+) -> error::Result<Response> {
+    let (_status_code, uuid) = run_preview_flow_job(authed.clone(), Extension(db.clone()), Extension(user_db.clone()), Path(w_id.clone()), Query(run_query.clone()), Json(raw_flow)).await?;
+    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    return result;
 }
 
 pub async fn run_job_by_hash(
@@ -5934,6 +6034,7 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         push_authed.as_ref(),
+        false,
     )
     .await?;
     tx.commit().await?;

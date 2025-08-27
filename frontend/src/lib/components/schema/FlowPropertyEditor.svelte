@@ -17,6 +17,8 @@
 	import Button from '../common/button/Button.svelte'
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import ResourcePicker from '../ResourcePicker.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	interface Props {
 		format?: string | undefined
@@ -122,9 +124,19 @@
 	}
 
 	let initialObjectSelected = $state(
-		Object.keys(properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+		format === 'json-schema'
+			? 'json-schema'
+			: format?.startsWith('jsonschema-')
+				? 'custom-object'
+				: Object.keys(properties ?? {}).length == 0
+					? 'resource'
+					: 'custom-object'
 	)
 	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
+
+	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
+		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
+	)
 </script>
 
 <div class="flex flex-col gap-2">
@@ -250,13 +262,16 @@
 				bind:schema={
 					() => {
 						if (oneOf?.[idx]) {
+							let properties = Object.fromEntries(
+								Object.entries(oneOf[idx].properties ?? {}).filter(
+									([k]) => k !== 'label' && k !== 'kind'
+								)
+							)
 							return {
 								...oneOf[idx],
-								properties: Object.fromEntries(
-									Object.entries(oneOf[idx].properties ?? {}).filter(
-										([k]) => k !== 'label' && k !== 'kind'
-									)
-								)
+								properties: properties,
+								order: Object.keys(properties),
+								required: oneOf[idx].required ?? []
 							}
 						}
 					},
@@ -265,7 +280,6 @@
 							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 								? 'kind'
 								: 'label'
-
 							oneOf[idx] = {
 								...(v ?? {}),
 								type: 'object',
@@ -289,33 +303,82 @@
 		<Tabs
 			bind:selected={initialObjectSelected}
 			on:selected={(e) => {
-				if (e.detail === 'custom-object') {
+				if (e.detail === 'json-schema') {
+					format = 'json-schema'
+				} else {
 					format = ''
 				}
 			}}
 		>
 			<Tab value="resource">Resource</Tab>
 			<Tab value="custom-object">Custom Object</Tab>
+			<Tab value="json-schema">
+				JSON Schema
+				<Tooltip>
+					This displays a JSON schema editor, useful when a JSON schema input is expected.
+				</Tooltip>
+			</Tab>
 			{#snippet content()}
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaDrawer
-							bind:schema={
-								() => {
-									return {
-										properties: properties,
-										order: order,
-										required: requiredProperty
-									}
-								},
-								(v) => {
-									properties = v.properties
-									order = v.order
-									requiredProperty = v.required
-									dispatch('schemaChange')
+						<ToggleButtonGroup
+							bind:selected={customObjectSelected}
+							class="mb-2"
+							on:selected={(e) => {
+								if (e.detail === 'editor') {
+									format = undefined
+								} else {
+									properties = undefined
+									order = undefined
+									requiredProperty = undefined
 								}
-							}
-						/>
+							}}
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="editor" label="Editor" {item} />
+								<ToggleButton
+									value="json-schema-resource"
+									label="JSON Schema Resource"
+									{item}
+									tooltip="Select a JSON schema resource to specify the object's properties"
+									showTooltipIcon
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
+						{#if customObjectSelected === 'editor'}
+							<EditableSchemaDrawer
+								bind:schema={
+									() => {
+										return {
+											properties: properties,
+											order: order,
+											required: requiredProperty
+										}
+									},
+									(v) => {
+										properties = v.properties
+										order = v.order
+										requiredProperty = v.required
+										dispatch('schemaChange')
+									}
+								}
+							/>
+						{:else if customObjectSelected === 'json-schema-resource'}
+							<ResourcePicker
+								resourceType="json_schema"
+								bind:value={
+									() => {
+										if (format?.startsWith('jsonschema-')) {
+											return format.substring('jsonschema-'.length)
+										}
+										return undefined
+									},
+									(v) => {
+										format = 'jsonschema-' + v
+									}
+								}
+							/>
+						{/if}
 					</TabContent>
 
 					<TabContent value="resource">

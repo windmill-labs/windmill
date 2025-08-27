@@ -1,27 +1,24 @@
 <script lang="ts">
 	import FlowPreviewResult from '$lib/components/FlowPreviewResult.svelte'
-	import type { DurationStatus } from '$lib/components/graph'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import type { Writable } from 'svelte/store'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		job?: Job
 		isOwner?: boolean
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		noEditor: boolean
 		onOpenDetails?: () => void
 	}
 
-	let { job, isOwner, localDurationStatuses, suspendStatus, noEditor, onOpenDetails }: Props =
-		$props()
+	let { job, isOwner, suspendStatus, noEditor, onOpenDetails }: Props = $props()
 </script>
 
 <FlowCard {noEditor} title="Flow result">
-	{#if job && isOwner !== undefined && localDurationStatuses && suspendStatus}
+	{#if job && isOwner !== undefined && suspendStatus}
 		<div class="px-4 py-2">
 			<FlowPreviewResult
 				{job}
@@ -29,7 +26,6 @@
 				{isOwner}
 				hideFlowResult={false}
 				hideDownloadLogs={false}
-				{localDurationStatuses}
 				innerModules={[]}
 				{suspendStatus}
 				{extra}

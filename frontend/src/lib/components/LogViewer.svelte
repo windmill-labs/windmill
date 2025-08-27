@@ -16,6 +16,7 @@
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		content: string | undefined
@@ -32,6 +33,7 @@
 		download?: boolean
 		customEmptyMessage?: string
 		tagLabel?: string
+		noPadding?: boolean
 	}
 
 	let {
@@ -48,7 +50,8 @@
 		noAutoScroll = false,
 		download = true,
 		customEmptyMessage = 'No logs are available yet',
-		tagLabel = undefined
+		tagLabel = undefined,
+		noPadding = false
 	}: Props = $props()
 
 	// @ts-ignore
@@ -271,7 +274,12 @@
 					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
+		<pre
+			class={twMerge(
+				'whitespace-pre break-words w-full',
+				small ? '!text-2xs' : '!text-xs',
+				noPadding ? '' : 'p-2'
+			)}
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
 					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button onclick={getStoreLogs}

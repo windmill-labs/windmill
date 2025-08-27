@@ -734,6 +734,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Nu
             || ns.language == ScriptLang::Php
             || ns.language == ScriptLang::Java
+            || ns.language == ScriptLang::Ruby
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())
@@ -1022,6 +1023,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             Some(&authed.clone().into()),
+            false,
         )
         .await?;
         Ok((hash, new_tx, None))
