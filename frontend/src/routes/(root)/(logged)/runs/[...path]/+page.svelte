@@ -1091,16 +1091,16 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					on:loadExtra={loadExtra}
+					onLoadExtra={loadExtra}
 					jobs={completedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
+					onZoom={async (zoom) => {
+						minTs = zoom.min.toISOString()
+						maxTs = zoom.max.toISOString()
 						manualDatePicker?.resetChoice()
 						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
-					on:pointClicked={(e) => {
-						runsTable?.scrollToRun(e.detail)
+					onPointClicked={(ids) => {
+						runsTable?.scrollToRun(ids)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
