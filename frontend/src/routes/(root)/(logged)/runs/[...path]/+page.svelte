@@ -1109,9 +1109,9 @@
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
 					{extendedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
+					onZoom={async (zoom) => {
+						minTs = zoom.min.toISOString()
+						maxTs = zoom.max.toISOString()
 						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
