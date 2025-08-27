@@ -125,8 +125,17 @@ export class AIChatEditorHandler {
 	}
 
 	async rejectAll(opts?: { disableReviewCallback?: boolean }) {
-		// Don't apply any changes - just finish
 		this.finish(opts)
+	}
+
+	// Keep all changes, used in apply mode
+	async keepAll(opts?: { disableReviewCallback?: boolean }) {
+		this.finish(opts)
+	}
+
+	// Revert all changes, used in revert mode
+	async revertAll(opts?: { disableReviewCallback?: boolean }) {
+		this.acceptAll(opts)
 	}
 
 	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {

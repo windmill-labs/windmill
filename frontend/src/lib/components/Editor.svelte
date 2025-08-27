@@ -1700,20 +1700,16 @@
 		onAcceptAll={() => {
 			const mode = aiChatEditorHandler?.getReviewMode?.()
 			if (mode === 'revert') {
-				// In revert mode, Accept All means keep current code
-				aiChatEditorHandler?.rejectAll()
+				aiChatEditorHandler?.keepAll()
 			} else {
-				// In apply mode, Accept All means apply all changes
 				aiChatEditorHandler?.acceptAll()
 			}
 		}}
 		onRejectAll={() => {
 			const mode = aiChatEditorHandler?.getReviewMode?.()
 			if (mode === 'revert') {
-				// In revert mode, Reject All means revert everything
-				aiChatEditorHandler?.acceptAll()
+				aiChatEditorHandler?.revertAll()
 			} else {
-				// In apply mode, Reject All means discard all changes
 				aiChatEditorHandler?.rejectAll()
 			}
 		}}

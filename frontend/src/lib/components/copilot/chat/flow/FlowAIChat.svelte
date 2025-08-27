@@ -180,8 +180,7 @@
 						) {
 							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
 							if (aiChatEditorHandler) {
-								// In revert mode, we accept to keep the current changes
-								aiChatEditorHandler.acceptAll({ disableReviewCallback: true })
+								aiChatEditorHandler.revertAll({ disableReviewCallback: true })
 								$currentEditor.hideDiffMode()
 							}
 						}
@@ -208,8 +207,7 @@
 			) {
 				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
 				if (aiChatEditorHandler) {
-					// In apply mode, we accept to keep the current changes
-					aiChatEditorHandler.rejectAll({ disableReviewCallback: true })
+					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
 				}
 			}
 			delete affectedModules[id]
