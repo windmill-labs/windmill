@@ -35,6 +35,7 @@ export interface UserWorkspace {
 	username: string
 	color: string | null
 	operator_settings?: OperatorSettings
+	parent_workspace_id?: string
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()

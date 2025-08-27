@@ -311,6 +311,7 @@ pub struct WorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub parent_workspace_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -616,7 +617,13 @@ async fn list_invites(
     let mut tx = db.begin().await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE email = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id WHERE email = $1",
         authed.email
     )
     .fetch_all(&mut *tx)
