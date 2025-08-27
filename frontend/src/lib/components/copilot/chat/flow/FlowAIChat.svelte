@@ -630,17 +630,13 @@
 					$currentEditor.editor.reviewAppliedCode(content, {
 						onFinishedReview: (outcome) => {
 							const id = $selectedId
-							const action = affectedModules[id].action
-
-							if (action === 'modified') {
-								if (outcome === 'all_kept') {
-									// User kept all current changes - accept the module
-									flowHelpers.acceptModuleAction(id)
-									$currentEditor.hideDiffMode()
-								} else if (outcome === 'all_reverted') {
-									// User reverted all changes - revert the module
-									flowHelpers.revertModuleAction(id)
-								}
+							if (outcome === 'all_kept' || outcome === 'partial') {
+								// User kept all current changes - accept the module
+								flowHelpers.acceptModuleAction(id)
+								$currentEditor.hideDiffMode()
+							} else if (outcome === 'all_reverted') {
+								// User reverted all changes - revert the module
+								flowHelpers.revertModuleAction(id)
 							}
 						}
 					})
