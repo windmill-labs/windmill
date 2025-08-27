@@ -38,8 +38,10 @@ use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
 
-// TODO:
-// Add fallback to disable relative imports schema
+lazy_static::lazy_static! {
+    // TODO: To be removed in future versions
+    static ref WMDEBUG_NO_HASH_CHANGE_ON_DJ: bool = std::env::var("WMDEBUG_NO_HASH_CHANGE_ON_DJ").is_ok();
+}
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
@@ -355,15 +357,13 @@ pub async fn handle_dependency_job(
             .fetch_one(db)
             .await?;
             // TODO: Test for other languages
-            // TODO: Test with empty lockfile
-            //
             // DependencyJob can be triggered only from 2 places:
             // 1. create_script function in windmill-api/src/scripts.rs
             // 2. trigger_dependents_to_recompute_dependencies (in this file)
             //
             // First will **always** produce script with null in `lock`
             // where Second will **always** do with lock being not null
-            if script_info.lock.is_some() {
+            if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -459,6 +459,10 @@ pub async fn handle_dependency_job(
 
                 // `lock` has been updated; invalidate the cache.
                 cache::script::invalidate(current_hash);
+
+                if *WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+                    tracing::warn!("WMDEBUG_NO_HASH_CHANGE_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
+                }
             };
 
             // TODO
