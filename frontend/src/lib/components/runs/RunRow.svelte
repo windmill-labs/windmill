@@ -41,6 +41,7 @@
 	import { Tooltip } from '../meltComponents'
 	import { GitIcon } from '../icons'
 	import RunLabels from './RunLabels.svelte'
+	import './runs-grid.css'
 
 	const dispatch = createEventDispatcher()
 
@@ -413,102 +414,3 @@
 		</div>
 	{/if}
 </div>
-
-<style>
-	/* Grid layout for runs table without labels */
-	.grid-runs-table {
-		grid-template-columns:
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
-			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
-			minmax(70px, 0.5fr) /* Tag (~7% wider) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	/* Grid layout for runs table with labels */
-	.grid-runs-table-with-labels {
-		grid-template-columns:
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
-			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
-			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
-			minmax(70px, 0.5fr) /* Tag (~7% wider) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	/* Grid layout for runs table without labels with selection */
-	.grid-runs-table-selection {
-		grid-template-columns:
-			50px /* Selection checkbox (fixed width) */
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
-			minmax(150px, 1.8fr) /* Triggered by (~28% reduced for wider tag) */
-			minmax(70px, 0.5fr) /* Tag (~7% wider) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	/* Grid layout for runs table with labels with selection */
-	.grid-runs-table-with-labels-selection {
-		grid-template-columns:
-			50px /* Selection checkbox (fixed width) */
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
-			minmax(120px, 1.3fr) /* Labels (~22% reduced for wider tag) */
-			minmax(110px, 1.3fr) /* Triggered by (~22% reduced for wider tag) */
-			minmax(70px, 0.5fr) /* Tag (~7% wider) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	/* Grid layouts without tag column */
-	.grid-runs-table-no-tag {
-		grid-template-columns:
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
-			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	.grid-runs-table-with-labels-no-tag {
-		grid-template-columns:
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
-			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
-			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	.grid-runs-table-selection-no-tag {
-		grid-template-columns:
-			50px /* Selection checkbox (fixed width) */
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
-			minmax(150px, 2.2fr) /* Triggered by (~33% expanded without tag) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-
-	.grid-runs-table-with-labels-selection-no-tag {
-		grid-template-columns:
-			50px /* Selection checkbox (fixed width) */
-			80px /* Status (fixed width) */
-			minmax(100px, 0.8fr) /* Started time (~10%) */
-			minmax(60px, 0.5fr) /* Duration (~7%) */
-			minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
-			minmax(120px, 1.8fr) /* Labels (~30% expanded without tag) */
-			minmax(110px, 1.8fr) /* Triggered by (~30% expanded without tag) */
-			minmax(40px, 0.3fr); /* Actions (~5%) */
-	}
-</style>
