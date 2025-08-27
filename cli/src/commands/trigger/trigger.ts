@@ -15,6 +15,7 @@ import {
   isSuperset,
   parseFromFile,
   removeType,
+  TRIGGER_TYPES,
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
@@ -222,19 +223,7 @@ async function list(opts: GlobalOptions) {
 }
 
 function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
-  if (
-    kind &&
-    [
-      "http",
-      "websocket",
-      "kafka",
-      "nats",
-      "postgres",
-      "mqtt",
-      "sqs",
-      "gcp",
-    ].includes(kind)
-  ) {
+  if (kind && (TRIGGER_TYPES as readonly string[]).includes(kind)) {
     return true;
   } else {
     return false;

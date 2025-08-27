@@ -45,6 +45,17 @@ export interface DifferenceChange {
 
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
+export const TRIGGER_TYPES = [
+  'http',
+  'websocket',
+  'kafka',
+  'nats',
+  'postgres',
+  'mqtt',
+  'sqs',
+  'gcp'
+] as const;
+
 export type GlobalOptions = {
   baseUrl: string | undefined;
   workspace: string | undefined;

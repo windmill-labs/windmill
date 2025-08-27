@@ -2,10 +2,58 @@ import { minimatch } from "../../deps.ts";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource } from "../utils/utils.ts";
 import { SyncOptions } from "./conf.ts";
+import { TRIGGER_TYPES } from "../types.ts";
 
 export interface SpecificItemsConfig {
   variables?: string[];
   resources?: string[];
+  triggers?: string[];
+}
+
+// Define all branch-specific file types (computed lazily)
+function getBranchSpecificTypes() {
+  return {
+    variable: '.variable.yaml',
+    resource: '.resource.yaml',
+    // Generate trigger patterns from the list
+    ...Object.fromEntries(
+      TRIGGER_TYPES.map(t => [`${t}_trigger`, `.${t}_trigger.yaml`])
+    )
+  } as const;
+}
+
+/**
+ * Check if a path ends with any trigger type
+ */
+function isTriggerFile(path: string): boolean {
+  return TRIGGER_TYPES.some(type => path.endsWith(`.${type}_trigger.yaml`));
+}
+
+/**
+ * Extract the file type suffix from a path
+ */
+function getFileTypeSuffix(path: string): string | null {
+  for (const [_, suffix] of Object.entries(getBranchSpecificTypes())) {
+    if (path.endsWith(suffix)) {
+      return suffix;
+    }
+  }
+
+  const resourceFileMatch = path.match(/(\\.resource\\.file\\..+)$/);
+  if (resourceFileMatch) {
+    return resourceFileMatch[1];
+  }
+
+  return null;
+}
+
+/**
+ * Build regex pattern for all supported yaml file types
+ */
+function buildYamlTypePattern(): string {
+  const basicTypes = ['variable', 'resource'];
+  const triggerTypes = TRIGGER_TYPES.map(t => `${t}_trigger`);
+  return `((${basicTypes.join('|')})|(${triggerTypes.join('|')}))`;
 }
 
 /**
@@ -40,6 +88,9 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions): SpecificI
   if (commonItems?.resources) {
     merged.resources = [...commonItems.resources];
   }
+  if (commonItems?.triggers) {
+    merged.triggers = [...commonItems.triggers];
+  }
 
   // Add branch-specific items (extending common items)
   if (branchItems?.variables) {
@@ -47,6 +98,9 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions): SpecificI
   }
   if (branchItems?.resources) {
     merged.resources = [...(merged.resources || []), ...branchItems.resources];
+  }
+  if (branchItems?.triggers) {
+    merged.triggers = [...(merged.triggers || []), ...branchItems.triggers];
   }
 
   return merged;
@@ -76,9 +130,14 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
     return specificItems.resources ? matchesPatterns(path, specificItems.resources) : false;
   }
 
+  // Check for any trigger type
+  if (isTriggerFile(path)) {
+    return specificItems.triggers ? matchesPatterns(path, specificItems.triggers) : false;
+  }
+
   // Check for resource files using the standard detection function
   if (isFileResource(path)) {
-    // Extract the base path without the file extension to match against patterns  
+    // Extract the base path without the file extension to match against patterns
     const basePathMatch = path.match(/^(.+?)\.resource\.file\./);
     if (basePathMatch && specificItems.resources) {
       const basePath = basePathMatch[1] + '.resource.yaml';
@@ -104,12 +163,11 @@ export function toBranchSpecificPath(basePath: string, branchName: string): stri
     extension = resourceFileMatch[2];
     pathWithoutExtension = resourceFileMatch[1];
   } else {
-    // Extract the extension (e.g., ".variable.yaml" or ".resource.yaml")
-    const extensionMatch = basePath.match(/(\.(variable|resource)\.yaml)$/);
-    if (!extensionMatch) {
-      return basePath; // Return unchanged if no recognized extension
+    const suffix = getFileTypeSuffix(basePath);
+    if (!suffix) {
+      return basePath;
     }
-    extension = extensionMatch[1];
+    extension = suffix;
     pathWithoutExtension = basePath.substring(0, basePath.length - extension.length);
   }
 
@@ -145,8 +203,7 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
     return `${pathWithoutBranchAndExtension}${extension}`;
   }
 
-  // Pattern for regular yaml files: path.sanitizedBranchName.extension
-  const yamlPattern = new RegExp(`\\.${escapedBranchName}(\\.(variable|resource)\\.yaml)$`);
+  const yamlPattern = new RegExp(`\\.${escapedBranchName}(\\.${buildYamlTypePattern()}\\.yaml)$`);
   const yamlMatch = branchSpecificPath.match(yamlPattern);
 
   if (!yamlMatch) {
@@ -208,9 +265,7 @@ export function isCurrentBranchFile(path: string): boolean {
   // Use cached pattern or create and cache new one
   let pattern = branchPatternCache.get(currentBranch);
   if (!pattern) {
-    // Match branch-specific files: *.{branch}.(variable|resource).yaml OR *.{branch}.resource.file.{ext}
-    // Examples: file.dev.variable.yaml, config.main.resource.yaml, cert.dev2.resource.file.pem
-    pattern = new RegExp(`\\.${escapedBranchName}\\.(variable|resource)\\.yaml$|\\.${escapedBranchName}\\.resource\\.file\\..+$`);
+    pattern = new RegExp(`\\.${escapedBranchName}\\.${buildYamlTypePattern()}\\.yaml$|\\.${escapedBranchName}\\.resource\\.file\\..+$`);
     branchPatternCache.set(currentBranch, pattern);
   }
 
@@ -222,8 +277,6 @@ export function isCurrentBranchFile(path: string): boolean {
  * Used to identify and skip files from other branches during sync operations
  */
 export function isBranchSpecificFile(path: string): boolean {
-  // Match any branch-specific file pattern using generic branch name matching
-  // Pattern matches: *.{anyBranch}.(variable|resource).yaml OR *.{anyBranch}.resource.file.{ext}
-  // [^.]+ captures any branch name (non-dot characters), examples: dev, main, feature_branch
-  return /\.[^.]+\.(variable|resource)\.yaml$|\.[^.]+\.resource\.file\..+$/.test(path);
+  const yamlTypePattern = buildYamlTypePattern();
+  return new RegExp(`\\.[^.]+\\.${yamlTypePattern}\\.yaml$|\\.[^.]+\\.resource\\.file\\..+$`).test(path);
 }
