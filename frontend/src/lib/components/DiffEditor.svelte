@@ -32,6 +32,7 @@
 		defaultModified?: string
 		readOnly?: boolean
 		buttons?: ButtonProp[]
+		modifiedModel?: meditor.ITextModel
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		defaultOriginal = undefined,
 		defaultModified = undefined,
 		readOnly = false,
-		buttons = []
+		buttons = [],
+		modifiedModel
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
@@ -72,11 +74,8 @@
 			lineNumbersMinChars: 2,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
-		if (
-			defaultOriginal !== undefined &&
-			defaultModified !== undefined &&
-			defaultLang !== undefined
-		) {
+
+		if (defaultLang !== undefined) {
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
@@ -87,16 +86,12 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
+		const o = meditor.createModel(original ?? '', lang)
+		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
-			original: meditor.createModel('', lang),
-			modified: meditor.createModel('', modifiedLang ?? lang)
+			original: o,
+			modified: m
 		})
-		if (original) {
-			setOriginal(original)
-		}
-		if (modified) {
-			setModified(modified)
-		}
 	}
 
 	export function setOriginal(code: string) {
@@ -111,6 +106,15 @@
 	export function setModified(code: string) {
 		diffEditor?.getModel()?.modified?.setValue(code)
 		defaultModified = code
+	}
+
+	export function setModifiedModel(model: meditor.ITextModel) {
+		const curr = diffEditor?.getModel()
+		if (!curr) return
+		diffEditor?.setModel({
+			original: curr.original,
+			modified: model
+		})
 	}
 
 	export function getModified(): string {
