@@ -101,9 +101,9 @@ pub async fn build_crypt_with_key_suffix(
 }
 
 pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
-    // Check cache first (60-second staleness)
+    // Check cache first (300-second staleness)
     let cached_key_o = WORKSPACE_KEY_CACHE.get(w_id).and_then(|(ts, key)| {
-        if ts > chrono::Utc::now().timestamp() - 60 {
+        if ts > chrono::Utc::now().timestamp() - 300 {
             Some(key)
         } else {
             None
