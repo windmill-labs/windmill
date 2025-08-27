@@ -273,9 +273,18 @@
 													selectedIds = selectedIds
 												}
 											} else {
-												selectedWorkspace = jobOrDate.job.workspace_id
-												selectedIds = [jobOrDate.job.id]
-												dispatch('select')
+												if (
+													JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
+													selectedWorkspace !== jobOrDate.job.workspace_id
+												) {
+													selectedWorkspace = jobOrDate.job.workspace_id
+													selectedIds = [jobOrDate.job.id]
+													dispatch('select')
+												} else {
+													selectedIds = []
+													selectedWorkspace = undefined
+													dispatch('select')
+												}
 											}
 										}}
 										{activeLabel}
