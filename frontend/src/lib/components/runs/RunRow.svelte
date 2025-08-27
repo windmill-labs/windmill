@@ -244,7 +244,7 @@
 							{#if isExternal}
 								<span class="w-30 justify-center">-</span>
 							{:else}
-								<span class="truncate w-30">
+								<span class="truncate w-30" title={job.script_path}>
 									{job.script_path}
 								</span>
 							{/if}
@@ -371,9 +371,10 @@
 		{/if}
 	</div>
 
+	<!-- Job tag-->
 	<div class="w-[5%] flex justify-start gap-1">
 		{#if job.tag}
-			<span class="text-xs text-secondary truncate">{job.tag}</span>
+			<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
 		{/if}
 	</div>
 
