@@ -150,12 +150,6 @@
 		onWidthChange(editorWidth)
 	})
 
-	$effect(() => {
-		if (modifiedModel) {
-			setModifiedModel(modifiedModel)
-		}
-	})
-
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
