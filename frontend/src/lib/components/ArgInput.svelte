@@ -937,11 +937,21 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								const prevValueKeys = Object.keys(
+								const selectedObjProperties =
 									oneOf?.find((o) => o.title == detail)?.properties ?? {}
-								)
+								const newValueKeys = Object.keys(selectedObjProperties)
 								const toKeep = {}
-								for (const key of prevValueKeys) {
+								for (const key of newValueKeys) {
+									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
+									if (
+										!['kind', 'label'].includes(key) &&
+										selectedObjProperties[key]?.enum &&
+										value &&
+										value[key] !== undefined &&
+										!selectedObjProperties[key].enum.includes(value[key])
+									) {
+										continue
+									}
 									toKeep[key] = value[key]
 								}
 								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
