@@ -88,7 +88,7 @@
 	})
 </script>
 
-{#if isForkedWorkspace($workspaceStore ?? '')}
+{#if isForkedWorkspace($workspaceStore ?? '') && !isCollapsed}
 	{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
 	{@const parentWorkspace = forkedWorkspace
 		? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
@@ -100,14 +100,6 @@
 			>
 				<Building size={12} class="text-tertiary" />
 				<span class="text-xs text-tertiary"> {parentWorkspace?.name ?? ''} </span>
-				<!-- <MenuButton -->
-				<!-- 	class="!text-xs" -->
-				<!-- 	icon={GitFork} -->
-				<!-- 	label={removePrefix($workspaceStore ?? '', 'wm-forked-')} -->
-				<!-- 	{isCollapsed} -->
-				<!-- 	color={$workspaceColor} -->
-				<!-- 	{trigger} -->
-				<!-- /> -->
 			</div>
 		{/snippet}
 	</Menu>
@@ -119,16 +111,16 @@
 			? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
 			: null}
 		{#if forkedWorkspace && parentWorkspace}
-		<div class="pl-6">
-			<MenuButton
-				class="!text-xs"
-				icon={GitFork}
-				label={$workspaceStore ?? ''}
-				{isCollapsed}
-				color={$workspaceColor}
-				{trigger}
-			/>
-		</div>
+			<div class={isCollapsed ? '' : 'pl-6'}>
+				<MenuButton
+					class="!text-xs"
+					icon={GitFork}
+					label={removePrefix($workspaceStore ?? '', 'wm-forked-')}
+					{isCollapsed}
+					color={$workspaceColor}
+					{trigger}
+				/>
+			</div>
 		{:else}
 			<MenuButton
 				class="!text-xs"
