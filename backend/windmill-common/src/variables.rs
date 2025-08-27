@@ -101,13 +101,33 @@ pub async fn build_crypt_with_key_suffix(
 }
 
 pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
-    let key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        w_id
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
+    // Check cache first (60-second staleness)
+    let cached_key_o = WORKSPACE_KEY_CACHE.get(w_id).and_then(|(ts, key)| {
+        if ts > chrono::Utc::now().timestamp() - 60 {
+            Some(key)
+        } else {
+            None
+        }
+    });
+
+    let key = if let Some(cached_key) = cached_key_o {
+        cached_key
+    } else {
+        let key = sqlx::query_scalar!(
+            "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+            w_id
+        )
+        .fetch_one(db)
+        .await
+        .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
+        
+        // Cache the key with current timestamp
+        WORKSPACE_KEY_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), key.clone()),
+        );
+        key
+    };
     Ok(key)
 }
 
@@ -164,6 +184,7 @@ pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 lazy_static::lazy_static! {
     pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
+    pub static ref WORKSPACE_KEY_CACHE: Cache<String, (i64, String)> = Cache::new(1000);
 }
 
 pub async fn get_reserved_variables(
