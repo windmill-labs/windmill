@@ -1,4 +1,4 @@
-use crate::{NETRC, PROXY_ENVS};
+use crate::PROXY_ENVS;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
