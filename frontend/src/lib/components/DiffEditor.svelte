@@ -86,20 +86,12 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
-		const o = meditor.createModel('', lang)
-		const m = modifiedModel ?? meditor.createModel('', modifiedLang ?? lang)
+		const o = meditor.createModel(original ?? '', lang)
+		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
 			original: o,
 			modified: m
 		})
-		if (original) {
-			setOriginal(original)
-		}
-		if (modifiedModel) {
-			setModifiedModel(modifiedModel)
-		} else if (modified) {
-			setModified(modified)
-		}
 	}
 
 	export function setOriginal(code: string) {
