@@ -940,15 +940,17 @@
 						</div>
 					</Label>
 
-					<span class="text-xs leading-6">
-						{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-					</span>
-					<Label label="Filter by args">
-						<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
-					</Label>
-					<Label label="Filter by result">
-						<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
-					</Label>
+					<div class="flex flex-col gap-1">
+						<span class="text-xs leading-6">
+							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+						</span>
+						<Label label="Filter by args">
+							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
+						</Label>
+						<Label label="Filter by result">
+							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
+						</Label>
+					</div>
 
 					<div class="flex flex-row gap-2 justify-between">
 						<Button
