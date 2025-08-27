@@ -254,7 +254,8 @@ export class AIChatEditorHandler {
 				;({ collection, ids } = await displayVisualChanges(
 					'editor-windmill-chat-style',
 					this.editor,
-					changes
+					changes,
+					isRevert
 				))
 				this.decorationsCollections.push(collection)
 				this.viewZoneIds.push(...ids)
