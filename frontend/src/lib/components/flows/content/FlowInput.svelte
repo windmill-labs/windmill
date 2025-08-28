@@ -401,7 +401,7 @@
 				shouldDispatchChanges={true}
 				on:change={() => {
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
+						savedPreviewArgs = $state.snapshot(previewArgs.val)
 					}
 					refreshStateStore(flowStore)
 				}}

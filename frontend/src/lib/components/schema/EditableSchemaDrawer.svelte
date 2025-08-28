@@ -183,44 +183,47 @@
 	</div>
 
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
-		<DrawerContent title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
-			<EditableSchemaForm
-				on:change={(e) => {
-					schema = $state.snapshot(schema)
-					dispatch('change', schema)
-				}}
-				bind:this={editableSchemaForm}
-				bind:schema
-				isAppInput
-				on:edit={(e) => {
-					addPropertyComponent?.openDrawer(e.detail)
-				}}
-				on:delete={(e) => {
-					addPropertyComponent?.handleDeleteArgument([e.detail])
-				}}
-				dndType="drawer"
-				editTab="inputEditor"
-			>
-				{#snippet addProperty()}
-					<AddPropertyV2
-						bind:schema
-						on:change
-						on:addNew={(e) => {
-							schema = $state.snapshot(schema)
-							editableSchemaForm?.openField(e.detail)
-						}}
-					>
-						{#snippet trigger()}
-							<div
-								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
-							>
-								<Plus size={14} />
-							</div>
-						{/snippet}
-					</AddPropertyV2>
-				{/snippet}
-			</EditableSchemaForm>
-		</DrawerContent>
+		{#snippet children({ isTop })}
+			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
+				<EditableSchemaForm
+					on:change={(e) => {
+						// schema = $state.snapshot(schema)
+						// dispatch('change', schema)
+					}}
+					bind:this={editableSchemaForm}
+					bind:schema
+					isAppInput
+					on:edit={(e) => {
+						addPropertyComponent?.openDrawer(e.detail)
+					}}
+					on:delete={(e) => {
+						addPropertyComponent?.handleDeleteArgument([e.detail])
+					}}
+					disableDnd={!isTop}
+					dndType="drawer"
+					editTab="inputEditor"
+				>
+					{#snippet addProperty()}
+						<AddPropertyV2
+							bind:schema
+							on:change
+							on:addNew={(e) => {
+								// schema = $state.snapshot(schema)
+								editableSchemaForm?.openField(e.detail)
+							}}
+						>
+							{#snippet trigger()}
+								<div
+									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+								>
+									<Plus size={14} />
+								</div>
+							{/snippet}
+						</AddPropertyV2>
+					{/snippet}
+				</EditableSchemaForm>
+			</DrawerContent>
+		{/snippet}
 	</Drawer>
 {:else}
 	<div class="mt-2"></div>

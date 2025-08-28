@@ -267,6 +267,7 @@
 									([k]) => k !== 'label' && k !== 'kind'
 								)
 							)
+							console.log('properties read', properties)
 							return {
 								...oneOf[idx],
 								properties: properties,
@@ -280,6 +281,7 @@
 							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 								? 'kind'
 								: 'label'
+							console.log('properties write', Object.keys(v?.properties ?? {}))
 							oneOf[idx] = {
 								...(v ?? {}),
 								type: 'object',
@@ -356,6 +358,7 @@
 										}
 									},
 									(v) => {
+										console.log('v', v)
 										properties = v.properties
 										order = v.order
 										requiredProperty = v.required

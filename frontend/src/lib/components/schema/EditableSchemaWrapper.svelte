@@ -68,6 +68,9 @@
 	])
 </script>
 
+<br />
+{JSON.stringify(schema)}
+
 {#if !resourceIsTextFile}
 	<div
 		class={twMerge(

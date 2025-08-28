@@ -55,42 +55,47 @@
 
 	let items = $state(computeItems())
 
-	let dragDisabled = $state(true)
+	let dragDisabledState = $state(true)
 
 	function computeItems() {
-		return (
-			(schema?.order ?? Object.keys(schema?.properties ?? {}) ?? []).map((key) => ({
-				id: key,
-				value: key
-			})) ?? []
-		)
+		let r =
+			($state.snapshot(schema?.order) ?? Object.keys(schema?.properties ?? {}) ?? []).map(
+				(key) => ({
+					id: key,
+					value: key
+				})
+			) ?? []
+		console.log('r', r)
+		return r
 	}
 
 	function updateItems() {
 		const newItems = computeItems()
+		console.log('newItems', newItems)
 		if (!deepEqual(newItems, items)) {
 			items = newItems
 		}
 	}
 
 	function handleConsider(e) {
-		dragDisabled = false
+		dragDisabledState = false
 		const { items: newItems } = e.detail
-		items = newItems
+		console.log('handleConsider', items, newItems)
+		items = $state.snapshot(newItems)
 	}
 
 	function handleFinalize(e) {
 		const { items: newItems } = e.detail
-
-		dragDisabled = true
-		items = newItems
+		console.log('handleFinalize', items, newItems)
+		dragDisabledState = true
+		items = $state.snapshot(newItems)
 
 		const newOrder = items.map((item) => item.value)
 		// console.log('handleFinalize', newOrder, e.detail)
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
-		schema && dragDisabled && untrack(() => updateItems())
+		schema && dragDisabledState && untrack(() => updateItems())
 	})
 </script>
 

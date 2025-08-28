@@ -108,7 +108,7 @@
 		className = '',
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions: actions_render = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -180,6 +180,7 @@
 			let nkeys = Object.keys(schema.properties ?? {})
 
 			if (!deepEqual(keys, nkeys)) {
+				console.log('keys', nkeys)
 				keys = nkeys
 				dispatch('change')
 			}
@@ -249,8 +250,6 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
-
-	const actions_render = $derived(actions)
 </script>
 
 {#if showReset}

@@ -25,5 +25,4 @@
 </script>
 
 <!-- <ScriptWrapper {script} neverShowMeta={true} {customUi} /> -->
-
 <EditableSchemaSdkWrapper {customUi} {schema} />

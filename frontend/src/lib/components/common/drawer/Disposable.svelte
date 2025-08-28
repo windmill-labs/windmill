@@ -1,25 +1,32 @@
-<script lang="ts" context="module">
-	export let openedDrawers: string[] = []
+<script lang="ts" module>
+	export let openedDrawers: { val: string[] } = $state({ val: [] })
 </script>
 
 <script lang="ts">
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
 	import { zIndexes } from '$lib/zIndexes'
 
-	import { createEventDispatcher } from 'svelte'
-
-	export let open = false
-	export let id = (Math.random() + 1).toString(36).substring(10)
-	export let preventEscape = false
-
-	if (open) {
-		openedDrawers.push(id)
+	interface Props {
+		open?: boolean
+		id?: any
+		preventEscape?: boolean
+		initialOffset?: number
+		children?: import('svelte').Snippet<[any]>
+		onOpen?: () => void
+		onClose?: () => void
 	}
 
-	export let initialOffset = 0
+	let {
+		open = $bindable(false),
+		id = (Math.random() + 1).toString(36).substring(10),
+		preventEscape = false,
+		initialOffset = 0,
+		children,
+		onOpen,
+		onClose
+	}: Props = $props()
 
-	let offset = initialOffset
+	let offset = $state(initialOffset)
+	let zIndex = $derived(zIndexes.disposables + offset)
 
 	export function toggleDrawer() {
 		if (!open) {
@@ -30,32 +37,31 @@
 	}
 
 	export function openDrawer() {
-		open = true
-		offset = openedDrawers.length - 1
-
-		if (openedDrawers.includes(id)) {
-			return
+		if (!open) {
+			open = true
+			if (openedDrawers.val.includes(id)) {
+				return
+			}
+			offset = openedDrawers.val.length - 1
+			openedDrawers.val.push(id)
 		}
-
-		openedDrawers.push(id)
 	}
 
 	export function closeDrawer() {
-		open = false
-		offset = initialOffset
-		// remove the last opened drawer
-		openedDrawers = openedDrawers.filter((drawer) => drawer !== id)
+		if (open) {
+			open = false
+			offset = initialOffset
+			// remove the last opened drawer
+			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
+		}
 	}
 
 	export function isOpen() {
 		return open
 	}
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
-
 	function handleClickAway(e) {
-		const last = openedDrawers[openedDrawers.length - 1]
+		const last = openedDrawers.val[openedDrawers.val.length - 1]
 
 		if (last === id) {
 			e.stopPropagation()
@@ -68,10 +74,11 @@
 			switch (event.key) {
 				case 'Escape':
 					if (
-						(id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) &&
+						(id == openedDrawers.val[openedDrawers.val.length - 1] ||
+							openedDrawers.val.length == 0) &&
 						!preventEscape
 					) {
-						openedDrawers.pop()
+						openedDrawers.val.pop()
 						event.preventDefault()
 						event.stopPropagation()
 						event.stopImmediatePropagation()
@@ -82,11 +89,25 @@
 		}
 	}
 
-	$: zIndex = zIndexes.disposables + offset
+	if (open) {
+		openedDrawers.val.push(id)
+	}
 
-	$: dispatchIfMounted(open ? 'open' : 'close')
+	$effect.pre(() => {
+		if (open) {
+			onOpen?.()
+		} else {
+			onClose?.()
+		}
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
-<slot {handleClickAway} {zIndex} {closeDrawer} {open} />
+{@render children?.({
+	handleClickAway,
+	zIndex,
+	closeDrawer,
+	open,
+	isTop: openedDrawers.val[openedDrawers.val.length - 1] == id
+})}

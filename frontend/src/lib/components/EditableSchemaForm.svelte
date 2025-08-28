@@ -14,7 +14,7 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher, tick, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -201,7 +201,7 @@
 			}
 		}
 		if (editSchema) {
-			schema = schema
+			// schema = schema
 		}
 	}
 
@@ -270,8 +270,8 @@
 
 			opened = newName
 
-			schema = $state.snapshot(schema)
-			dispatch('change', schema)
+			// schema = $state.snapshot(schema)
+			// dispatch('change', schema)
 			sendUserToast('Argument renamed')
 		}
 	}
@@ -409,7 +409,7 @@
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
 									schema = newSchema
-									tick().then(() => dispatch('change', schema))
+									// tick().then(() => dispatch('change', schema))
 								}
 							}
 							{dndType}
@@ -424,7 +424,7 @@
 									...schema,
 									order: e.detail
 								}
-								tick().then(() => dispatch('change', schema))
+								// tick().then(() => dispatch('change', schema))
 							}}
 							helperScript={{
 								type: 'inline',
@@ -437,7 +437,7 @@
 							on:acceptChange
 							on:rejectChange
 							on:nestedChange={() => {
-								dispatch('change', schema)
+								// dispatch('change', schema)
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
@@ -446,8 +446,8 @@
 
 						{@render runButton?.()}
 
-						<div class="h-full">
-							{#if dynSelectFunctions.length > 0}
+						{#if dynSelectFunctions.length > 0}
+							<div class="grow">
 								<Section
 									label="Dynamic select functions"
 									collapsable={true}
@@ -494,8 +494,8 @@
 										{/key}
 									</div>
 								</Section>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</Pane>
@@ -651,8 +651,8 @@
 															{isFlowInput}
 															{isAppInput}
 															on:change={() => {
-																schema = $state.snapshot(schema)
-																dispatch('change', schema)
+																// schema = $state.snapshot(schema)
+																// dispatch('change', schema)
 															}}
 														>
 															{#snippet typeeditor()}
@@ -745,9 +745,9 @@
 																				}
 																			}
 																			on:selected={(e) => {
-																				schema = schema
-																				dispatch('change', schema)
-																				dispatch('schemaChange')
+																				// schema = schema
+																				// dispatch('change', schema)
+																				// dispatch('schemaChange')
 																			}}
 																		>
 																			{#snippet children({ item })}
@@ -792,12 +792,12 @@
 																				(x) => x !== argName
 																			)
 																		}
-																		dispatch('change', schema)
+																		// dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
-																		schema = $state.snapshot(schema)
-																		dispatch('change', schema)
-																		dispatch('schemaChange')
+																		// schema = $state.snapshot(schema)
+																		// dispatch('change', schema)
+																		// dispatch('schemaChange')
 																	}}
 																/>
 															{/if}
