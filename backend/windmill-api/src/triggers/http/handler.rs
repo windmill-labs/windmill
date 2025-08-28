@@ -276,6 +276,7 @@ impl TriggerCrud for HttpTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
     const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
+    const IS_CLOUD_HOSTED: bool = true;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "route_path",
         "route_path_key",

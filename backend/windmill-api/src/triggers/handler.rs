@@ -1,9 +1,8 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{StandardTriggerQuery, TriggerData},
+    triggers::{StandardTriggerQuery, TriggerData, ENABLED_TRIGGERS},
 };
 use async_trait::async_trait;
-use quick_cache::sync::Cache;
 use serde::{de::DeserializeOwned, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
@@ -12,6 +11,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     utils::{paginate, Pagination},
+    worker::CLOUD_HOSTED,
     DB,
 };
 use windmill_git_sync::DeployedObject;
@@ -27,17 +27,10 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     error::{self, JsonResult},
     utils::StripPath,
-    worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
-
-lazy_static::lazy_static! {
-    //8 represent the number of trigger
-    static ref GET_TRIGGER_QUERY_CACHE: Cache<&'static str, Arc<String>> = Cache::new(8);
-    static ref LIST_TRIGGER_QUERY_CACHE: Cache<&'static str, Arc<String>> = Cache::new(8);
-}
 
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
@@ -61,34 +54,43 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
-    const SUPPORTS_ENABLED: bool = true;
-    const SUPPORTS_SERVER_STATE: bool = true;
-    const SUPPORTS_TEST_CONNECTION: bool = false;
+    const SUPPORTS_ENABLED: bool;
+    const SUPPORTS_SERVER_STATE: bool;
+    const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
+    const IS_CLOUD_HOSTED: bool;
 
     fn get_deployed_object(path: String) -> DeployedObject;
 
     async fn validate_new(
         &self,
+        workspace_id: &str,
+        new: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
+        self.validate_config(new, workspace_id).await
+    }
+
+    async fn validate_edit(
+        &self,
+        workspace_id: &str,
+        _path: &str,
+        edit: &Self::TriggerConfigRequest,
+    ) -> Result<()> {
+        self.validate_config(edit, workspace_id).await
+    }
+
+    async fn validate_config(
+        &self,
+        _config: &Self::TriggerConfigRequest,
         _workspace_id: &str,
-        _new: &Self::TriggerConfigRequest,
     ) -> Result<()> {
         Ok(())
     }
 
     fn scope_domain_name() -> &'static str {
         &Self::ROUTE_PREFIX[1..]
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        _edit: &Self::TriggerConfigRequest,
-    ) -> Result<()> {
-        Ok(())
     }
 
     async fn create_trigger(
@@ -134,33 +136,26 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<Self::Trigger> {
-        let sql = GET_TRIGGER_QUERY_CACHE
-            .get_or_insert_with(&Self::TABLE_NAME, || {
-                let mut fields = vec![
-                    "workspace_id",
-                    "path",
-                    "script_path",
-                    "is_flow",
-                    "edited_by",
-                    "email",
-                    "edited_at",
-                    "extra_perms",
-                ];
+        let mut fields = vec![
+            "workspace_id",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+        ];
 
-                if Self::SUPPORTS_SERVER_STATE {
-                    fields.extend_from_slice(&[
-                        "enabled",
-                        "server_id",
-                        "last_server_ping",
-                        "error",
-                    ]);
-                }
+        if Self::SUPPORTS_SERVER_STATE {
+            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+        }
 
-                fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-                fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
+        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
-                let sql = format!(
-                    r#"SELECT 
+        let sql = format!(
+            r#"SELECT 
                 {} 
             FROM 
                 {} 
@@ -168,13 +163,9 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 workspace_id = $1 AND 
                 path = $2
             "#,
-                    fields.join(", "),
-                    Self::TABLE_NAME
-                );
-
-                Ok::<_, ()>(Arc::new(sql))
-            })
-            .unwrap();
+            fields.join(", "),
+            Self::TABLE_NAME
+        );
 
         sqlx::query_as(&sql)
             .bind(workspace_id)
@@ -184,14 +175,14 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .ok_or_else(|| Error::NotFound(format!("Trigger not found at path: {}", path)))
     }
 
-    async fn exists(&self, tx: &mut PgConnection, workspace_id: &str, path: &str) -> Result<bool> {
+    async fn exists(&self, db: &DB, workspace_id: &str, path: &str) -> Result<bool> {
         let exists = sqlx::query_scalar(&format!(
             "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
             Self::TABLE_NAME
         ))
         .bind(workspace_id)
         .bind(path)
-        .fetch_one(&mut *tx)
+        .fetch_one(db)
         .await?;
 
         Ok(exists)
@@ -218,6 +209,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     async fn set_enabled(
         &self,
+        authed: &ApiAuthed,
         tx: &mut PgConnection,
         workspace_id: &str,
         path: &str,
@@ -231,12 +223,27 @@ pub trait TriggerCrud: Send + Sync + 'static {
         }
 
         let updated = sqlx::query(&format!(
-            "UPDATE {} SET enabled = $3 WHERE workspace_id = $1 AND path = $2",
+            r#"
+            UPDATE 
+                {} 
+            SET 
+                enabled = $1,
+                email = $2,
+                edited_by = $3,
+                edited_at = now(),
+                server_id = NULL,
+                error = NULL
+            WHERE 
+                workspace_id = $4 AND 
+                path = $5
+            "#,
             Self::TABLE_NAME
         ))
+        .bind(enabled)
+        .bind(&authed.email)
+        .bind(&authed.username)
         .bind(workspace_id)
         .bind(path)
-        .bind(enabled)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -253,7 +260,16 @@ pub trait TriggerCrud: Send + Sync + 'static {
         script_path: &str,
     ) -> i64 {
         let count = sqlx::query_scalar(&format!(
-            "SELECT COUNT(*) FROM {} WHERE workspace_id = $1 AND is_flow = $2 AND script_path = $3",
+            r#"
+                SELECT 
+                    COUNT(*) 
+                FROM 
+                    {} 
+                WHERE 
+                    workspace_id = $1 AND 
+                    is_flow = $2 AND 
+                    script_path = $3
+            "#,
             Self::TABLE_NAME
         ))
         .bind(workspace_id)
@@ -272,55 +288,51 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
     ) -> Result<Vec<Self::Trigger>> {
-        let sql = LIST_TRIGGER_QUERY_CACHE.get_or_insert_with(&Self::TABLE_NAME, || {
-            let mut fields = vec![
-                "workspace_id",
-                "path",
-                "script_path",
-                "is_flow",
-                "edited_by",
-                "email",
-                "edited_at",
-                "extra_perms",
-            ];
+        let mut fields = vec![
+            "workspace_id",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+        ];
 
-            if Self::SUPPORTS_SERVER_STATE {
-                fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+        if Self::SUPPORTS_SERVER_STATE {
+            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+        }
+
+        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
+        fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
+
+        let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
+
+        sqlb.fields(&fields)
+            .order_by("edited_at", true)
+            .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(query) = query {
+            let (per_page, offset) =
+                paginate(Pagination { per_page: query.per_page, page: query.page });
+            if let Some(path) = &query.path {
+                sqlb.and_where_eq("script_path", "?".bind(path));
             }
 
-            fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
-            fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
-
-            let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
-
-            sqlb.fields(&fields)
-                .order_by("edited_at", true)
-                .and_where("workspace_id = ?".bind(&workspace_id));
-
-            if let Some(query) = query {
-                let (per_page, offset) =
-                    paginate(Pagination { per_page: query.per_page, page: query.page });
-                if let Some(path) = &query.path {
-                    sqlb.and_where_eq("script_path", "?".bind(path));
-                }
-
-                if let Some(is_flow) = query.is_flow {
-                    sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
-                }
-
-                if let Some(path_start) = &query.path_start {
-                    sqlb.and_where_like_left("path", path_start);
-                }
-
-                sqlb.offset(offset).limit(per_page);
+            if let Some(is_flow) = query.is_flow {
+                sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
             }
 
-            let sql = sqlb
-                .sql()
-                .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
+            if let Some(path_start) = &query.path_start {
+                sqlb.and_where_like_left("path", path_start);
+            }
 
-            Ok::<_, Error>(Arc::new(sql))
-        })?;
+            sqlb.offset(offset).limit(per_page);
+        }
+
+        let sql = sqlb
+            .sql()
+            .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
         let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
 
@@ -364,7 +376,7 @@ async fn create_trigger<T: TriggerCrud>(
         )
     })?;
 
-    if *CLOUD_HOSTED {
+    if *CLOUD_HOSTED && !T::IS_CLOUD_HOSTED {
         return Err(error::Error::BadRequest(format!(
             "{} triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host",
             T::TRIGGER_TYPE
@@ -544,16 +556,14 @@ async fn delete_trigger<T: TriggerCrud>(
 async fn exists_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:read:{}", T::scope_domain_name(), path)
     })?;
-    let mut tx = user_db.begin(&authed).await?;
-    let exists = handler.exists(&mut *tx, &workspace_id, path).await?;
-    tx.commit().await?;
+    let exists = handler.exists(&db, &workspace_id, path).await?;
 
     Ok(Json(exists))
 }
@@ -567,6 +577,7 @@ async fn set_enabled_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabledPayload>,
 ) -> Result<String> {
@@ -575,7 +586,7 @@ async fn set_enabled_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
     let updated = handler
-        .set_enabled(&mut *tx, &workspace_id, path, payload.enabled)
+        .set_enabled(&authed, &mut *tx, &workspace_id, path, payload.enabled)
         .await?;
 
     if !updated {
@@ -586,6 +597,17 @@ async fn set_enabled_trigger<T: TriggerCrud>(
     }
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &workspace_id,
+        T::get_deployed_object(path.to_owned()),
+        Some(format!("{} trigger '{}' updated", T::DEPLOYMENT_NAME, path)),
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "Trigger '{}' {}",
@@ -635,8 +657,8 @@ pub fn generate_trigger_routers() -> Router {
     #[allow(unused_mut)]
     let mut router = Router::new();
 
-    #[cfg(feature = "http_trigger")]
-    {
+    let enabled = &*ENABLED_TRIGGERS;
+    if enabled.http {
         use crate::triggers::http::handler::HttpTrigger;
 
         router = router.nest(
@@ -645,8 +667,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(feature = "websocket")]
-    {
+    if enabled.websocket {
         use crate::triggers::websocket::WebsocketTrigger;
 
         router = router.nest(
@@ -655,8 +676,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-    {
+    if enabled.kafka {
         use crate::triggers::kafka::KafkaTrigger;
 
         router = router.nest(
@@ -665,8 +685,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
-    {
+    if enabled.nats {
         use crate::triggers::nats::NatsTrigger;
 
         router = router.nest(
@@ -675,8 +694,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(feature = "mqtt_trigger")]
-    {
+    if enabled.mqtt {
         use crate::triggers::mqtt::MqttTrigger;
 
         router = router.nest(
@@ -685,8 +703,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
-    {
+    if enabled.sqs {
         use crate::triggers::sqs::SqsTrigger;
 
         router = router.nest(
@@ -695,8 +712,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
-    {
+    if enabled.gcp {
         use crate::triggers::gcp::GcpTrigger;
 
         router = router.nest(
@@ -705,8 +721,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(feature = "postgres_trigger")]
-    {
+    if enabled.postgres {
         use crate::triggers::postgres::PostgresTrigger;
 
         router = router.nest(
