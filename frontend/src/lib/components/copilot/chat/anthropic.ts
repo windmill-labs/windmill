@@ -113,11 +113,17 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 
 			if (message.tool_calls) {
 				for (const toolCall of message.tool_calls) {
+					let input = {}
+					try {
+						input = JSON.parse(toolCall.function.arguments || '{}')
+					} catch (e) {
+						console.error('Failed to parse tool call arguments', e)
+					}
 					content.push({
 						type: 'tool_use',
 						id: toolCall.id,
 						name: toolCall.function.name,
-						input: JSON.parse(toolCall.function.arguments || '{}')
+						input
 					})
 				}
 			}
@@ -135,7 +141,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 				content: [
 					{
 						type: 'tool_result',
-						tool_use_id: message.tool_call_id || '',
+						tool_use_id: message.tool_call_id,
 						content:
 							typeof message.content === 'string'
 								? message.content
