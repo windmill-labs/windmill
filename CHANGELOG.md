@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.537.0](https://github.com/windmill-labs/windmill/compare/v1.536.0...v1.537.0) (2025-08-28)
+
+
+### Features
+
+* **aichat:** allow reverting specific line for inline script suggestions ([#6480](https://github.com/windmill-labs/windmill/issues/6480)) ([0cc11b3](https://github.com/windmill-labs/windmill/commit/0cc11b3f31aeee60a9d4a231cea5d4285d7ab37e))
+* autovacuum or high intensity tables ([4ad0d25](https://github.com/windmill-labs/windmill/commit/4ad0d255f3eea303e97eab5325f89930b26f9e52))
+
+
+### Bug Fixes
+
+* fix okta and oauth0 sso settings ([73a3f4c](https://github.com/windmill-labs/windmill/commit/73a3f4cc73271759650e9246f4eb2e0efb7c7e37))
+* fix relative imports cache invalidation ([#6468](https://github.com/windmill-labs/windmill/issues/6468)) ([006f326](https://github.com/windmill-labs/windmill/commit/006f32602c7609b282f15135989c5f164c109c1c))
+* fix workflow as code behavior with multithread ([4973c86](https://github.com/windmill-labs/windmill/commit/4973c860f2c28d9bdc2af94530d90eb177234e5d))
+
 ## [1.536.0](https://github.com/windmill-labs/windmill/compare/v1.535.0...v1.536.0) (2025-08-27)
 
 
