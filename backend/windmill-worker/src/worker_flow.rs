@@ -2818,7 +2818,7 @@ async fn push_next_flow_job(
 
         let value_with_parallel = module.get_value_with_parallel()?;
 
-        let root_job = if {
+        let flow_innermost_root_job = if {
             value_with_parallel.type_ == "flow"
                 || (value_with_parallel.type_ == "forloopflow"
                     && value_with_parallel.parallel.is_some_and(|x| x))
@@ -2832,10 +2832,7 @@ async fn push_next_flow_job(
 
         // forward root job permissions to the new job
         let job_perms: Option<Authed> = {
-            if let Some(root_job) = &flow_job
-                .flow_innermost_root_job
-                .or_else(|| Some(flow_job.id))
-            {
+            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
                 get_job_perms(&mut *tx, root_job, &flow_job.workspace_id)
                     .await?
                     .map(|x| x.into())
@@ -2879,7 +2876,8 @@ async fn push_next_flow_job(
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
-            root_job,
+            Some(flow_job.root_job.unwrap_or(flow_job.id)),
+            flow_innermost_root_job,
             None,
             true,
             continue_on_same_worker,
@@ -2940,7 +2938,7 @@ async fn push_next_flow_job(
                  SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
                  WHERE id = $2",
                  uuid_singleton_json,
-                 root_job.unwrap_or(flow_job.id)
+                 flow_innermost_root_job.unwrap_or(flow_job.id)
              )
              .execute(&mut *inner_tx)
              .warn_after_seconds(3)

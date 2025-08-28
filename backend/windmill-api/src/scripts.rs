@@ -1006,6 +1006,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            None,
             false,
             false,
             None,

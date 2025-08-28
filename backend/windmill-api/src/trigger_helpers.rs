@@ -789,6 +789,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
