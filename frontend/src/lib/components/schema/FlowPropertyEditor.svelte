@@ -132,7 +132,7 @@
 					? 'resource'
 					: 'custom-object'
 	)
-	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
+	let isDyn = $derived(format?.startsWith('dyn') ?? false)
 
 	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
 		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
@@ -299,7 +299,7 @@
 				}}
 			/>
 		{/if}
-	{:else if type === 'object' && format !== 'resource-s3_object' && !isDynSelect}
+	{:else if type === 'object' && format !== 'resource-s3_object' && !isDyn}
 		<Tabs
 			bind:selected={initialObjectSelected}
 			on:selected={(e) => {
@@ -389,7 +389,7 @@
 		</Tabs>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDynSelect}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDyn}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst

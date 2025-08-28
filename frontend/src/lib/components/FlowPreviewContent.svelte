@@ -509,12 +509,11 @@
 										savedArgs = $state.snapshot(previewArgs.val)
 									}}
 									bind:isValid
-									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-									flowStore.val.schema?.['x-windmill-dyn-select-lang']
+									helperScript={flowStore.val.schema?.['x-windmill-dyn-code'] && flowStore.val.schema?.['x-windmill-dyn-lang']
 										? {
 												type: 'inline',
-												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
+												code: flowStore.val.schema['x-windmill-dyn-code'] as string,
+												lang: flowStore.val.schema['x-windmill-dyn-lang'] as ScriptLang
 											}
 										: undefined}
 								/>
