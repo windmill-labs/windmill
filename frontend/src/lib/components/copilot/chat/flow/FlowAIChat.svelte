@@ -6,7 +6,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
+	import type { FlowModule, OpenFlow } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { AIModuleAction, FlowAIChatHelpers } from './core'
 	import {
@@ -93,21 +93,10 @@
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
 		},
-		acceptAllModuleActions: () => {
-			for (const [id, affectedModule] of Object.entries(affectedModules)) {
-				if (affectedModule.action === 'removed') {
-					deleteStep(id)
-				}
-				// Hide diff editor if the module is a rawscript
-				if (
-					affectedModule.action === 'modified' &&
-					$currentEditor?.type === 'script' &&
-					$currentEditor.stepId === id
-				) {
-					$currentEditor.hideDiffMode()
-				}
+		acceptAllModuleActions() {
+			for (const id of Object.keys(affectedModules)) {
+				this.acceptModuleAction(id)
 			}
-			affectedModules = {}
 		},
 		rejectAllModuleActions() {
 			for (const id of Object.keys(affectedModules)) {
@@ -189,8 +178,11 @@
 							$currentEditor?.type === 'script' &&
 							$currentEditor.stepId === id
 						) {
-							$currentEditor.editor.setCode((oldModule.value as RawScript).content)
-							$currentEditor.hideDiffMode()
+							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+							if (aiChatEditorHandler) {
+								aiChatEditorHandler.revertAll({ disableReviewCallback: true })
+								$currentEditor.hideDiffMode()
+							}
 						}
 
 						Object.keys(newModule).forEach((k) => delete newModule[k])
@@ -205,6 +197,18 @@
 		acceptModuleAction: (id: string) => {
 			if (affectedModules[id]?.action === 'removed') {
 				deleteStep(id)
+			}
+
+			if (
+				affectedModules[id]?.action === 'modified' &&
+				$currentEditor &&
+				$currentEditor.type === 'script' &&
+				$currentEditor.stepId === id
+			) {
+				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+				if (aiChatEditorHandler) {
+					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
+				}
 			}
 			delete affectedModules[id]
 		},
@@ -614,43 +618,27 @@
 		return cleanup
 	})
 
-	// Automatically show diff mode when selecting a rawscript module with pending changes
+	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
 		if (
 			$currentEditor?.type === 'script' &&
 			$selectedId &&
 			affectedModules[$selectedId] &&
-			lastSnapshot
+			$currentEditor.editor.getAiChatEditorHandler()
 		) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
-			const currentModule = getModule($selectedId)
-
-			if (
-				moduleLastSnapshot &&
-				currentModule &&
-				currentModule.value.type === 'rawscript' &&
-				moduleLastSnapshot.value.type === 'rawscript'
-			) {
-				// Show diff mode automatically
-				$currentEditor.setDiffOriginal?.(moduleLastSnapshot.value.content ?? '')
-				$currentEditor.showDiffMode()
-				$currentEditor.setDiffButtons?.([
-					{
-						text: 'Accept Changes',
-						color: 'green',
-						onClick: () => {
-							flowHelpers.acceptModuleAction($selectedId)
-							$currentEditor?.hideDiffMode()
+			const content =
+				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
+			if (content.length > 0) {
+				untrack(() =>
+					$currentEditor.editor.reviewAppliedCode(content, {
+						onFinishedReview: () => {
+							const id = $selectedId
+							flowHelpers.acceptModuleAction(id)
+							$currentEditor.hideDiffMode()
 						}
-					},
-					{
-						text: 'Reject Changes',
-						onClick: () => {
-							flowHelpers.revertModuleAction($selectedId)
-							$currentEditor?.hideDiffMode()
-						}
-					}
-				])
+					})
+				)
 			}
 		}
 	})
