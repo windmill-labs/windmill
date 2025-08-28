@@ -857,7 +857,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 "notify_workspace_premium_change" => {
                                                     let workspace_id = n.payload();
                                                     tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
-                                                    windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                                    windmill_common::workspaces::TEAM_PLAN_CACHE.remove(workspace_id);
                                                 },
                                                 "notify_runnable_version_change" => {
                                                     let payload = n.payload();

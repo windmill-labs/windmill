@@ -680,11 +680,12 @@ pub async fn resolve_job_timeout(
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
     let cloud_premium_workspace = *CLOUD_HOSTED
-        && windmill_common::workspaces::is_premium_workspace(
+        && windmill_common::workspaces::get_team_plan_status(
             _conn.as_sql().expect("cloud cannot use http connection"),
             _w_id,
         )
-        .await;
+        .await
+        .premium;
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
