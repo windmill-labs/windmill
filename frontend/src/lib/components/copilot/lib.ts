@@ -637,8 +637,7 @@ export async function getCompletion(
 			stream: true,
 			...(system && { system }),
 			...(anthropicTools && { tools: anthropicTools }),
-			...(config.temperature !== undefined && { temperature: config.temperature }),
-			...(config.thinking && { thinking: config.thinking })
+			...(typeof config.temperature === 'number' && { temperature: config.temperature })
 		}
 
 		const workspace = get(workspaceStore)
@@ -687,6 +686,7 @@ interface AnthropicMessage {
 				| {
 						type: 'text'
 						text: string
+						cache_control?: { type: 'ephemeral' }
 				  }
 				| {
 						type: 'tool_use'
@@ -706,18 +706,15 @@ interface AnthropicRequest {
 	model: string
 	max_tokens: number
 	messages: AnthropicMessage[]
-	system?: string
+	system?: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
 	tools?: Array<{
 		name: string
 		description?: string
 		input_schema: any
+		cache_control?: { type: 'ephemeral' }
 	}>
 	stream?: boolean
 	temperature?: number
-	thinking?: {
-		type: 'enabled'
-		budget_tokens: number
-	}
 }
 
 interface AnthropicStreamEvent {
@@ -726,16 +723,27 @@ interface AnthropicStreamEvent {
 }
 
 function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {
-	system?: string
+	system?: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
 	messages: AnthropicMessage[]
 } {
-	let system: string | undefined
+	let system:
+		| string
+		| Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+		| undefined
 	const anthropicMessages: AnthropicMessage[] = []
 
 	for (const message of messages) {
 		if (message.role === 'system') {
-			system =
+			const systemText =
 				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			// Convert system to array format with cache_control for caching
+			system = [
+				{
+					type: 'text',
+					text: systemText,
+					cache_control: { type: 'ephemeral' }
+				}
+			]
 			continue
 		}
 
@@ -791,6 +799,29 @@ function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]
 		}
 	}
 
+	// Add cache_control to the last message content blocks
+	if (anthropicMessages.length > 0) {
+		const lastMessage = anthropicMessages[anthropicMessages.length - 1]
+		if (Array.isArray(lastMessage.content)) {
+			// Add cache_control to the last content block
+			if (lastMessage.content.length > 0) {
+				const lastBlock = lastMessage.content[lastMessage.content.length - 1]
+				if (lastBlock.type === 'text') {
+					lastBlock.cache_control = { type: 'ephemeral' }
+				}
+			}
+		} else if (typeof lastMessage.content === 'string') {
+			// Convert string content to array format with cache_control
+			lastMessage.content = [
+				{
+					type: 'text',
+					text: lastMessage.content,
+					cache_control: { type: 'ephemeral' }
+				}
+			]
+		}
+	}
+
 	return { system, messages: anthropicMessages }
 }
 
@@ -799,15 +830,24 @@ function convertOpenAIToolsToAnthropic(tools?: OpenAI.Chat.Completions.ChatCompl
 			name: string
 			description?: string
 			input_schema: any
+			cache_control?: { type: 'ephemeral' }
 	  }>
 	| undefined {
 	if (!tools || tools.length === 0) return undefined
 
-	return tools.map((tool) => ({
+	const anthropicTools = tools.map((tool) => ({
 		name: tool.function.name,
 		description: tool.function.description,
-		input_schema: tool.function.parameters || { type: 'object', properties: {} }
+		input_schema: tool.function.parameters || { type: 'object', properties: {} },
+		cache_control: undefined as { type: 'ephemeral' } | undefined
 	}))
+
+	// Add cache_control to the last tool to cache all tool definitions
+	if (anthropicTools.length > 0) {
+		anthropicTools[anthropicTools.length - 1].cache_control = { type: 'ephemeral' }
+	}
+
+	return anthropicTools
 }
 
 async function* convertAnthropicStreamToOpenAI(
