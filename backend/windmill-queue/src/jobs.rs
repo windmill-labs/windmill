@@ -2376,7 +2376,7 @@ impl MiniPulledJob {
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
             flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
-            root_job: None, // TODO: double check that this won't break anything
+            root_job: None,
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
