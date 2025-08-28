@@ -10,8 +10,6 @@ import {
 import { writable, type Writable } from 'svelte/store'
 import { aiChatManager } from './AIChatManager.svelte'
 
-export type ReviewOutcome = 'all_kept' | 'all_reverted' | 'partial'
-
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
 type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inline'> & {
 	diffIndex: number
@@ -28,10 +26,8 @@ export class AIChatEditorHandler {
 
 	// Track review decisions
 	private reviewState: {
-		totalGroups: number
-		revertedGroups: Set<number>
 		mode: 'apply' | 'revert'
-		onFinishedReview?: (outcome: ReviewOutcome) => void
+		onFinishedReview?: () => void
 	} | null = null
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
@@ -79,19 +75,7 @@ export class AIChatEditorHandler {
 		// expose mode getter relies on reviewState
 		// Call completion callback if we're tracking review state
 		if (this.reviewState?.onFinishedReview && !opts?.disableReviewCallback) {
-			const revertedCount = this.reviewState.revertedGroups.size
-			const keptCount = this.reviewState.totalGroups - revertedCount
-
-			let outcome: 'all_kept' | 'all_reverted' | 'partial'
-			if (revertedCount === 0) {
-				outcome = 'all_kept'
-			} else if (keptCount === 0) {
-				outcome = 'all_reverted'
-			} else {
-				outcome = 'partial'
-			}
-
-			this.reviewState.onFinishedReview(outcome)
+			this.reviewState.onFinishedReview()
 		}
 
 		// Reset review state
@@ -110,13 +94,6 @@ export class AIChatEditorHandler {
 	}
 
 	async acceptAll(opts?: { disableReviewCallback?: boolean }) {
-		// Track that all groups were applied
-		if (this.reviewState) {
-			for (const group of this.groupChanges) {
-				this.reviewState.revertedGroups.add(group.groupIndex)
-			}
-		}
-
 		this.groupChanges.reverse()
 		for (const group of this.groupChanges) {
 			this.applyGroup(group)
@@ -224,7 +201,7 @@ export class AIChatEditorHandler {
 		opts?: {
 			applyAll?: boolean
 			mode?: 'apply' | 'revert'
-			onFinishedReview?: (outcome: ReviewOutcome) => void
+			onFinishedReview?: () => void
 		}
 	) {
 		if (aiChatManager.pendingNewCode === targetCode && opts?.mode === 'apply') {
@@ -240,8 +217,6 @@ export class AIChatEditorHandler {
 
 		// Initialize review state for tracking
 		this.reviewState = {
-			totalGroups: this.groupChanges.length,
-			revertedGroups: new Set<number>(),
 			mode: opts?.mode ?? 'apply',
 			onFinishedReview: opts?.onFinishedReview
 		}
@@ -256,8 +231,6 @@ export class AIChatEditorHandler {
 
 			// Apply this group and continue with remaining changes
 			const onApply = () => {
-				// Track that this group was applied (reverted in revert mode)
-				this.reviewState?.revertedGroups.add(groupIndex)
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''

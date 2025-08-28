@@ -632,16 +632,10 @@
 			if (content.length > 0) {
 				untrack(() =>
 					$currentEditor.editor.reviewAppliedCode(content, {
-						onFinishedReview: (outcome) => {
+						onFinishedReview: () => {
 							const id = $selectedId
-							if (outcome === 'all_kept' || outcome === 'partial') {
-								// User kept all current changes - accept the module
-								flowHelpers.acceptModuleAction(id)
-								$currentEditor.hideDiffMode()
-							} else if (outcome === 'all_reverted') {
-								// User reverted all changes - revert the module
-								flowHelpers.revertModuleAction(id)
-							}
+							flowHelpers.acceptModuleAction(id)
+							$currentEditor.hideDiffMode()
 						}
 					})
 				)
