@@ -624,6 +624,46 @@ export async function getCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+
+	// If using Anthropic, handle format conversion and direct API call
+	if (provider === 'anthropic') {
+		const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
+		const anthropicTools = convertOpenAIToolsToAnthropic(tools)
+
+		const anthropicRequest: AnthropicRequest = {
+			model: config.model,
+			max_tokens: config.max_tokens || 4096,
+			messages: anthropicMessages,
+			stream: true,
+			...(system && { system }),
+			...(anthropicTools && { tools: anthropicTools }),
+			...(config.temperature !== undefined && { temperature: config.temperature }),
+			...(config.thinking && { thinking: config.thinking })
+		}
+
+		const workspace = get(workspaceStore)
+		const response = await fetch(
+			`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/messages`,
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Provider': provider,
+					'anthropic-version': '2023-06-01'
+				},
+				body: JSON.stringify(anthropicRequest),
+				signal: abortController.signal
+			}
+		)
+
+		if (!response.ok) {
+			throw new Error(`Anthropic API request failed: ${response.status} ${response.statusText}`)
+		}
+
+		return convertAnthropicStreamToOpenAI(response)
+	}
+
+	// For other providers, use the existing OpenAI client
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
@@ -636,6 +676,277 @@ export async function getCompletion(
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
 	return part.choices?.[0]?.delta?.content || ''
+}
+
+// Anthropic API types and conversion functions
+interface AnthropicMessage {
+	role: 'user' | 'assistant'
+	content:
+		| string
+		| Array<
+				| {
+						type: 'text'
+						text: string
+				  }
+				| {
+						type: 'tool_use'
+						id: string
+						name: string
+						input: any
+				  }
+				| {
+						type: 'tool_result'
+						tool_use_id: string
+						content: string
+				  }
+		  >
+}
+
+interface AnthropicRequest {
+	model: string
+	max_tokens: number
+	messages: AnthropicMessage[]
+	system?: string
+	tools?: Array<{
+		name: string
+		description?: string
+		input_schema: any
+	}>
+	stream?: boolean
+	temperature?: number
+	thinking?: {
+		type: 'enabled'
+		budget_tokens: number
+	}
+}
+
+interface AnthropicStreamEvent {
+	type: string
+	[key: string]: any
+}
+
+function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {
+	system?: string
+	messages: AnthropicMessage[]
+} {
+	let system: string | undefined
+	const anthropicMessages: AnthropicMessage[] = []
+
+	for (const message of messages) {
+		if (message.role === 'system') {
+			system =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			continue
+		}
+
+		if (message.role === 'user') {
+			anthropicMessages.push({
+				role: 'user',
+				content:
+					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			})
+		} else if (message.role === 'assistant') {
+			const content: any[] = []
+
+			if (message.content) {
+				content.push({
+					type: 'text',
+					text:
+						typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+				})
+			}
+
+			if (message.tool_calls) {
+				for (const toolCall of message.tool_calls) {
+					content.push({
+						type: 'tool_use',
+						id: toolCall.id,
+						name: toolCall.function.name,
+						input: JSON.parse(toolCall.function.arguments || '{}')
+					})
+				}
+			}
+
+			if (content.length > 0) {
+				anthropicMessages.push({
+					role: 'assistant',
+					content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
+				})
+			}
+		} else if (message.role === 'tool') {
+			// Tool results must be in user messages in Anthropic format
+			anthropicMessages.push({
+				role: 'user',
+				content: [
+					{
+						type: 'tool_result',
+						tool_use_id: message.tool_call_id || '',
+						content:
+							typeof message.content === 'string'
+								? message.content
+								: JSON.stringify(message.content)
+					}
+				]
+			})
+		}
+	}
+
+	return { system, messages: anthropicMessages }
+}
+
+function convertOpenAIToolsToAnthropic(tools?: OpenAI.Chat.Completions.ChatCompletionTool[]):
+	| Array<{
+			name: string
+			description?: string
+			input_schema: any
+	  }>
+	| undefined {
+	if (!tools || tools.length === 0) return undefined
+
+	return tools.map((tool) => ({
+		name: tool.function.name,
+		description: tool.function.description,
+		input_schema: tool.function.parameters || { type: 'object', properties: {} }
+	}))
+}
+
+async function* convertAnthropicStreamToOpenAI(
+	response: Response
+): AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> {
+	if (!response.body) {
+		throw new Error('Response body is null')
+	}
+
+	const reader = response.body.getReader()
+	const decoder = new TextDecoder()
+	let buffer = ''
+	let currentToolCall: { id: string; name: string; args: string } | null = null
+	let messageId = `chatcmpl-${Date.now()}`
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split('\n')
+			buffer = lines.pop() || ''
+
+			for (const line of lines) {
+				if (line.startsWith('data: ')) {
+					const data = line.slice(6)
+					if (data === '[DONE]') continue
+
+					try {
+						const event: AnthropicStreamEvent = JSON.parse(data)
+
+						if (event.type === 'message_start') {
+							yield {
+								id: messageId,
+								object: 'chat.completion.chunk',
+								created: Math.floor(Date.now() / 1000),
+								model: event.message?.model || 'claude-3-5-sonnet-20241022',
+								choices: [
+									{
+										index: 0,
+										delta: { role: 'assistant' },
+										finish_reason: null
+									}
+								]
+							}
+						} else if (event.type === 'content_block_start') {
+							if (event.content_block?.type === 'tool_use') {
+								currentToolCall = {
+									id: event.content_block.id,
+									name: event.content_block.name,
+									args: ''
+								}
+							}
+						} else if (event.type === 'content_block_delta') {
+							if (event.delta?.type === 'text_delta') {
+								yield {
+									id: messageId,
+									object: 'chat.completion.chunk',
+									created: Math.floor(Date.now() / 1000),
+									model: 'claude-3-5-sonnet-20241022',
+									choices: [
+										{
+											index: 0,
+											delta: { content: event.delta.text },
+											finish_reason: null
+										}
+									]
+								}
+							} else if (event.delta?.type === 'thinking_delta') {
+								// For thinking delta, we can either include as content or skip it
+								// For now, skip thinking content as it's internal to the model
+							} else if (event.delta?.type === 'input_json_delta' && currentToolCall) {
+								currentToolCall.args += event.delta.partial_json
+							}
+						} else if (event.type === 'content_block_stop') {
+							if (currentToolCall) {
+								// Emit tool call
+								yield {
+									id: messageId,
+									object: 'chat.completion.chunk',
+									created: Math.floor(Date.now() / 1000),
+									model: 'claude-3-5-sonnet-20241022',
+									choices: [
+										{
+											index: 0,
+											delta: {
+												tool_calls: [
+													{
+														index: 0,
+														id: currentToolCall.id,
+														type: 'function' as const,
+														function: {
+															name: currentToolCall.name,
+															arguments: currentToolCall.args
+														}
+													}
+												]
+											},
+											finish_reason: null
+										}
+									]
+								}
+								currentToolCall = null
+							}
+						} else if (event.type === 'message_delta') {
+							const finishReason =
+								event.delta?.stop_reason === 'end_turn'
+									? 'stop'
+									: event.delta?.stop_reason === 'tool_use'
+										? 'tool_calls'
+										: event.delta?.stop_reason === 'max_tokens'
+											? 'length'
+											: null
+
+							yield {
+								id: messageId,
+								object: 'chat.completion.chunk',
+								created: Math.floor(Date.now() / 1000),
+								model: 'claude-3-5-sonnet-20241022',
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: finishReason
+									}
+								]
+							}
+						}
+					} catch (e) {
+						// Skip invalid JSON
+						console.warn('Failed to parse Anthropic SSE event:', data)
+					}
+				}
+			}
+		}
+	} finally {
+		reader.releaseLock()
+	}
 }
 
 export async function copilot(
