@@ -5,66 +5,6 @@ use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
 use windmill_common::{error::JsonResult, DB};
 
-#[derive(Debug, Clone)]
-pub struct EnabledTriggers {
-    pub http: bool,
-    pub websocket: bool,
-    pub kafka: bool,
-    pub nats: bool,
-    pub postgres: bool,
-    pub mqtt: bool,
-    pub sqs: bool,
-    pub gcp: bool,
-}
-
-impl EnabledTriggers {
-    pub fn detect() -> Self {
-        Self {
-            http: cfg!(feature = "http_trigger"),
-            websocket: cfg!(feature = "websocket"),
-            kafka: cfg!(all(feature = "kafka", feature = "enterprise", feature = "private")),
-            nats: cfg!(all(feature = "nats", feature = "enterprise", feature = "private")),
-            postgres: cfg!(feature = "postgres_trigger"),
-            mqtt: cfg!(feature = "mqtt_trigger"),
-            sqs: cfg!(all(feature = "sqs_trigger", feature = "enterprise", feature = "private")),
-            gcp: cfg!(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")),
-        }
-    }
-
-    pub fn enabled_types(&self) -> Vec<&'static str> {
-        let mut types = Vec::new();
-        if self.http {
-            types.push("http");
-        }
-        if self.websocket {
-            types.push("websocket");
-        }
-        if self.kafka {
-            types.push("kafka");
-        }
-        if self.nats {
-            types.push("nats");
-        }
-        if self.postgres {
-            types.push("postgres");
-        }
-        if self.mqtt {
-            types.push("mqtt");
-        }
-        if self.sqs {
-            types.push("sqs");
-        }
-        if self.gcp {
-            types.push("gcp");
-        }
-        types
-    }
-}
-
-lazy_static::lazy_static! {
-    pub static ref ENABLED_TRIGGERS: EnabledTriggers = EnabledTriggers::detect();
-}
-
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
 pub mod gcp;
 #[cfg(feature = "http_trigger")]
@@ -247,78 +187,92 @@ pub(crate) async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    #[allow(unused)]
     let mut tx = db.begin().await?;
 
-    let enabled = &*ENABLED_TRIGGERS;
-
-    let http_routes_count = if enabled.http {
+    #[cfg(feature = "http_trigger")]
+    let http_routes_count = {
         use crate::triggers::http::handler::HttpTrigger;
-        HttpTrigger
+        let count = HttpTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(feature = "http_trigger"))]
+    let http_routes_count = 0;
 
-    let websocket_count = if enabled.websocket {
+    #[cfg(feature = "websocket")]
+    let websocket_count = {
         use crate::triggers::websocket::WebsocketTrigger;
-        WebsocketTrigger
+        let count = WebsocketTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(feature = "websocket"))]
+    let websocket_count = 0;
 
-    let kafka_count = if enabled.kafka {
+    #[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+    let kafka_count = {
         use crate::triggers::kafka::KafkaTrigger;
-        KafkaTrigger
+        let count = KafkaTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(all(feature = "kafka", feature = "enterprise", feature = "private")))]
+    let kafka_count = 0;
 
-    let nats_count = if enabled.nats {
+    #[cfg(all(feature = "nats", feature = "enterprise", feature = "private"))]
+    let nats_count = {
         use crate::triggers::nats::NatsTrigger;
-        NatsTrigger
+        let count = NatsTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(all(feature = "nats", feature = "enterprise", feature = "private")))]
+    let nats_count = 0;
 
-    let postgres_count = if enabled.postgres {
+    #[cfg(feature = "postgres_trigger")]
+    let postgres_count = {
         use crate::triggers::postgres::PostgresTrigger;
-        PostgresTrigger
+        let count = PostgresTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(feature = "postgres_trigger"))]
+    let postgres_count = 0;
 
-    let mqtt_count = if enabled.mqtt {
+    #[cfg(feature = "mqtt_trigger")]
+    let mqtt_count = {
         use crate::triggers::mqtt::MqttTrigger;
-        MqttTrigger
+        let count = MqttTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
-            .await
-    } else {
-        0
+            .await;
+        count
     };
+    #[cfg(not(feature = "mqtt_trigger"))]
+    let mqtt_count = 0;
 
-    let sqs_count = if enabled.sqs {
+    #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
+    let sqs_count = {
         use crate::triggers::sqs::SqsTrigger;
-        SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await
-    } else {
-        0
+        let count = SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        count
     };
+    #[cfg(not(all(feature = "sqs_trigger", feature = "enterprise", feature = "private")))]
+    let sqs_count = 0;
 
-    let gcp_count = if enabled.gcp {
+    #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
+    let gcp_count = {
         use crate::triggers::gcp::GcpTrigger;
-        GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await
-    } else {
-        0
+        let count = GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        count
     };
-
+    #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
+    let gcp_count = 0;
     tx.commit().await?;
 
     let webhook_count = (if is_flow {

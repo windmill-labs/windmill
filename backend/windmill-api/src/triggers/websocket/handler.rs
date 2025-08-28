@@ -49,6 +49,7 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn validate_config(
         &self,
+        _db: &DB,
         config: &Self::TriggerConfigRequest,
         _workspace_id: &str,
     ) -> Result<()> {

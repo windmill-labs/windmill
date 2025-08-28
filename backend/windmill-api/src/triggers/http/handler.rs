@@ -6,11 +6,11 @@ use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     resources::try_get_resource_from_db_as,
-    triggers::trigger_helpers::{
-        get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result, RunnableId,
-    },
     triggers::{
-        http::{increase_trigger_version, refresh_routers, RouteExists},
+        http::{increase_trigger_version, refresh_routers, RouteExists, ROUTE_PATH_KEY_RE},
+        trigger_helpers::{
+            get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result, RunnableId,
+        },
         Trigger, TriggerCrud, TriggerData,
     },
     users::fetch_api_authed,
@@ -101,9 +101,9 @@ pub async fn insert_new_trigger_into_db(
     tx: &mut PgConnection,
     w_id: &str,
     trigger: &TriggerData<HttpConfigRequest>,
+    route_path_key: &str,
 ) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
-    let route_path_key = generate_route_path_key(&trigger.config.route_path);
 
     sqlx::query!(
             r#"
@@ -139,7 +139,7 @@ pub async fn insert_new_trigger_into_db(
             w_id,
             trigger.base.path,
             trigger.config.route_path,
-            &route_path_key,
+            route_path_key,
             trigger.config.workspaced_route.unwrap_or(false),
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
@@ -188,29 +188,11 @@ pub async fn create_many_http_triggers(
 
     for new_http_trigger in new_http_triggers.iter() {
         handler
-            .validate_new(&w_id, &new_http_trigger.config)
+            .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
-        let route_path_key = generate_route_path_key(&new_http_trigger.config.route_path);
-
-        let exists = route_path_key_exists(
-            &route_path_key,
-            &new_http_trigger.config.http_method,
-            &w_id,
-            None,
-            new_http_trigger.config.workspaced_route,
-            &db,
-        )
-        .await
-        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
-
-        if exists {
-            return Err(error_wrapper(
-                &new_http_trigger.config.route_path,
-                Error::BadRequest("A route already exists with this path".to_string()),
-            ));
-        }
+        let route_path_key = check_if_route_exist(&db, &new_http_trigger.config, &w_id).await?;
 
         route_path_keys.push(route_path_key.clone());
     }
@@ -219,9 +201,8 @@ pub async fn create_many_http_triggers(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    for (new_http_trigger, _route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter())
-    {
-        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger)
+    for (new_http_trigger, route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter()) {
+        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger, route_path_key)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
@@ -258,6 +239,32 @@ pub async fn create_many_http_triggers(
         .map_err(|err| error_wrapper(&http_trigger.config.route_path, err.into()))?;
     }
     Ok((StatusCode::CREATED, "Created all HTTP routes".to_string()))
+}
+
+async fn check_if_route_exist(
+    db: &DB,
+    config: &HttpConfigRequest,
+    workspace_id: &str,
+) -> Result<String> {
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&config.route_path, ":key");
+
+    let exists = route_path_key_exists(
+        &route_path_key,
+        &config.http_method,
+        workspace_id,
+        None,
+        config.workspaced_route,
+        db,
+    )
+    .await?;
+
+    if exists {
+        return Err(Error::BadRequest(
+            "A route already exists with this path".to_string(),
+        ));
+    }
+
+    Ok(route_path_key.into_owned())
 }
 
 pub struct HttpTrigger;
@@ -297,7 +304,6 @@ impl TriggerCrud for HttpTrigger {
         DeployedObject::HttpTrigger { path }
     }
 
-
     fn additional_routes(&self) -> Router {
         Router::new()
             .route("/create_many", post(create_many_http_triggers))
@@ -306,6 +312,7 @@ impl TriggerCrud for HttpTrigger {
 
     async fn validate_new(
         &self,
+        _db: &DB,
         _workspace_id: &str,
         new: &Self::TriggerConfigRequest,
     ) -> Result<()> {
@@ -326,9 +333,10 @@ impl TriggerCrud for HttpTrigger {
 
     async fn validate_edit(
         &self,
+        _db: &DB,
         _workspace_id: &str,
-        _path: &str,
         edit: &Self::TriggerConfigRequest,
+        _path: &str,
     ) -> Result<()> {
         if *CLOUD_HOSTED && (edit.is_static_website || edit.static_asset_config.is_some()) {
             return Err(Error::BadRequest(
@@ -343,13 +351,15 @@ impl TriggerCrud for HttpTrigger {
 
     async fn create_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        insert_new_trigger_into_db(authed, tx, w_id, &trigger).await?;
+        let route_path_key = check_if_route_exist(db, &trigger.config, &w_id).await?;
+
+        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key).await?;
 
         increase_trigger_version(tx).await?;
 
@@ -375,23 +385,7 @@ impl TriggerCrud for HttpTrigger {
                 return Err(Error::BadRequest("Invalid route path".to_string()));
             }
 
-            let route_path_key = generate_route_path_key(route_path);
-
-            let exists = route_path_key_exists(
-                &route_path_key,
-                &trigger.config.http_method,
-                &workspace_id,
-                Some(&path),
-                trigger.config.workspaced_route,
-                &db,
-            )
-            .await?;
-
-            if exists {
-                return Err(Error::BadRequest(
-                    "A route already exists with this path".to_string(),
-                ));
-            }
+            let route_path_key = check_if_route_exist(db, &trigger.config, workspace_id).await?;
 
             sqlx::query!(
                 r#"

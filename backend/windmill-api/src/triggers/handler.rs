@@ -1,6 +1,6 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{StandardTriggerQuery, TriggerData, ENABLED_TRIGGERS},
+    triggers::{StandardTriggerQuery, TriggerData},
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
@@ -66,23 +66,26 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     async fn validate_new(
         &self,
+        db: &DB,
         workspace_id: &str,
         new: &Self::TriggerConfigRequest,
     ) -> Result<()> {
-        self.validate_config(new, workspace_id).await
+        self.validate_config(db, new, workspace_id).await
     }
 
     async fn validate_edit(
         &self,
+        db: &DB,
         workspace_id: &str,
-        _path: &str,
         edit: &Self::TriggerConfigRequest,
+        _path: &str,
     ) -> Result<()> {
-        self.validate_config(edit, workspace_id).await
+        self.validate_config(db, edit, workspace_id).await
     }
 
     async fn validate_config(
         &self,
+        _db: &DB,
         _config: &Self::TriggerConfigRequest,
         _workspace_id: &str,
     ) -> Result<()> {
@@ -384,7 +387,7 @@ async fn create_trigger<T: TriggerCrud>(
     }
 
     handler
-        .validate_new(&workspace_id, &new_trigger.config)
+        .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -477,7 +480,7 @@ async fn update_trigger<T: TriggerCrud>(
     })?;
 
     handler
-        .validate_edit(&workspace_id, path, &edit_trigger.config)
+        .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -657,8 +660,8 @@ pub fn generate_trigger_routers() -> Router {
     #[allow(unused_mut)]
     let mut router = Router::new();
 
-    let enabled = &*ENABLED_TRIGGERS;
-    if enabled.http {
+    #[cfg(feature = "http_trigger")]
+    {
         use crate::triggers::http::handler::HttpTrigger;
 
         router = router.nest(
@@ -667,7 +670,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.websocket {
+    #[cfg(feature = "websocket")]
+    {
         use crate::triggers::websocket::WebsocketTrigger;
 
         router = router.nest(
@@ -676,7 +680,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.kafka {
+    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
+    {
         use crate::triggers::kafka::KafkaTrigger;
 
         router = router.nest(
@@ -685,7 +690,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.nats {
+    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
+    {
         use crate::triggers::nats::NatsTrigger;
 
         router = router.nest(
@@ -694,7 +700,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.mqtt {
+    #[cfg(feature = "mqtt_trigger")]
+    {
         use crate::triggers::mqtt::MqttTrigger;
 
         router = router.nest(
@@ -703,7 +710,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.sqs {
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
+    {
         use crate::triggers::sqs::SqsTrigger;
 
         router = router.nest(
@@ -712,7 +720,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.gcp {
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
+    {
         use crate::triggers::gcp::GcpTrigger;
 
         router = router.nest(
@@ -721,7 +730,8 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    if enabled.postgres {
+    #[cfg(feature = "postgres_trigger")]
+    {
         use crate::triggers::postgres::PostgresTrigger;
 
         router = router.nest(

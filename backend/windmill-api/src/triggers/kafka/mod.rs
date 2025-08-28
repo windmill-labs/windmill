@@ -6,3 +6,6 @@ pub mod handler_oss;
 mod mod_ee;
 #[cfg(feature = "private")]
 pub use mod_ee::*;
+
+#[derive(Copy, Clone)]
+pub struct KafkaTrigger;
