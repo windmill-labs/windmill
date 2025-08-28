@@ -46,11 +46,10 @@ export interface AnthropicStreamEvent {
 }
 
 export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {
-	system?: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+	system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> | undefined
 	messages: AnthropicMessage[]
 } {
 	let system:
-		| string
 		| Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
 		| undefined
 	const anthropicMessages: AnthropicMessage[] = []
@@ -176,6 +175,7 @@ export function convertOpenAIToolsToAnthropic(
 }
 
 export async function* convertAnthropicStreamToOpenAI(
+	model: string,
 	response: Response
 ): AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	if (!response.body) {
@@ -210,7 +210,7 @@ export async function* convertAnthropicStreamToOpenAI(
 								id: messageId,
 								object: 'chat.completion.chunk',
 								created: Math.floor(Date.now() / 1000),
-								model: event.message?.model || 'claude-3-5-sonnet-20241022',
+								model,
 								choices: [
 									{
 										index: 0,
@@ -233,7 +233,7 @@ export async function* convertAnthropicStreamToOpenAI(
 									id: messageId,
 									object: 'chat.completion.chunk',
 									created: Math.floor(Date.now() / 1000),
-									model: 'claude-3-5-sonnet-20241022',
+									model,
 									choices: [
 										{
 											index: 0,
@@ -243,7 +243,6 @@ export async function* convertAnthropicStreamToOpenAI(
 									]
 								}
 							} else if (event.delta?.type === 'thinking_delta') {
-								// For thinking delta, we can either include as content or skip it
 								// For now, skip thinking content as it's internal to the model
 							} else if (event.delta?.type === 'input_json_delta' && currentToolCall) {
 								currentToolCall.args += event.delta.partial_json
@@ -255,7 +254,7 @@ export async function* convertAnthropicStreamToOpenAI(
 									id: messageId,
 									object: 'chat.completion.chunk',
 									created: Math.floor(Date.now() / 1000),
-									model: 'claude-3-5-sonnet-20241022',
+									model,
 									choices: [
 										{
 											index: 0,
@@ -292,7 +291,7 @@ export async function* convertAnthropicStreamToOpenAI(
 								id: messageId,
 								object: 'chat.completion.chunk',
 								created: Math.floor(Date.now() / 1000),
-								model: 'claude-3-5-sonnet-20241022',
+								model,
 								choices: [
 									{
 										index: 0,

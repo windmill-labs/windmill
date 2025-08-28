@@ -638,7 +638,7 @@ export async function getCompletion(
 
 		const anthropicRequest: AnthropicRequest = {
 			model: config.model,
-			max_tokens: config.max_tokens || 4096,
+			max_tokens: config.max_tokens as number, // config always has a max_tokens for anthropic
 			messages: anthropicMessages,
 			stream: true,
 			...(system && { system }),
@@ -665,7 +665,7 @@ export async function getCompletion(
 			throw new Error(`Anthropic API request failed: ${response.status} ${response.statusText}`)
 		}
 
-		return convertAnthropicStreamToOpenAI(response)
+		return convertAnthropicStreamToOpenAI(config.model, response)
 	}
 
 	// For other providers, use the existing OpenAI client
