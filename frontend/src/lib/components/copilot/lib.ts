@@ -802,7 +802,7 @@ export async function deltaCodeCompletion(
 		}
 
 		if (!match[1].endsWith('`')) {
-			// skip udpating if possible that part of three ticks (end of code block)s
+			// skip updating if possible that part of three ticks (end of code block)s
 			delta = getStringEndDelta(code, match[1])
 			generatedCodeDelta.set(delta)
 			code = match[1]

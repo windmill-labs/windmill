@@ -45,13 +45,38 @@ export interface AnthropicStreamEvent {
 	[key: string]: any
 }
 
+export interface AnthropicTool {
+	name: string
+	description?: string
+	input_schema: any
+	cache_control?: { type: 'ephemeral' }
+}
+
+export interface AnthropicSystemMessage {
+	type: 'text'
+	text: string
+	cache_control?: { type: 'ephemeral' }
+}
+
+export interface AnthropicContentBlockToolUse {
+	type: 'tool_use'
+	id: string
+	name: string
+	input: any
+}
+
+export interface AnthropicContentBlockText {
+	type: 'text'
+	text: string
+}
+
+export type AnthropicContentBlock = AnthropicContentBlockToolUse | AnthropicContentBlockText
+
 export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {
-	system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> | undefined
+	system: AnthropicSystemMessage[] | undefined
 	messages: AnthropicMessage[]
 } {
-	let system:
-		| Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
-		| undefined
+	let system: AnthropicSystemMessage[] | undefined
 	const anthropicMessages: AnthropicMessage[] = []
 
 	for (const message of messages) {
@@ -76,7 +101,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 			})
 		} else if (message.role === 'assistant') {
-			const content: any[] = []
+			const content: AnthropicContentBlock[] = []
 
 			if (message.content) {
 				content.push({
@@ -149,21 +174,13 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 
 export function convertOpenAIToolsToAnthropic(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-):
-	| Array<{
-			name: string
-			description?: string
-			input_schema: any
-			cache_control?: { type: 'ephemeral' }
-	  }>
-	| undefined {
+): AnthropicTool[] | undefined {
 	if (!tools || tools.length === 0) return undefined
 
-	const anthropicTools = tools.map((tool) => ({
+	const anthropicTools: AnthropicTool[] = tools.map((tool) => ({
 		name: tool.function.name,
 		description: tool.function.description,
-		input_schema: tool.function.parameters || { type: 'object', properties: {} },
-		cache_control: undefined as { type: 'ephemeral' } | undefined
+		input_schema: tool.function.parameters || { type: 'object', properties: {} }
 	}))
 
 	// Add cache_control to the last tool to cache all tool definitions
