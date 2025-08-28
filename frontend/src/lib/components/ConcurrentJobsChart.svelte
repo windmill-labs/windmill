@@ -65,7 +65,7 @@
 				}
 				const s = timeline.get(startTime)!
 				s.count += 1
-				s.id_started.push('unknoww')
+				s.id_started.push('unknown')
 				if (j.duration_ms != undefined) {
 					const jc = j as CompletedJob
 					const endTime = startTime + jc.duration_ms
