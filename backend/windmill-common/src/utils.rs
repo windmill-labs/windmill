@@ -265,14 +265,18 @@ pub fn create_directory_sync(directory_path: &str) {
         .expect("could not create dir");
 }
 
+#[track_caller]
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {
     if let Some(o) = opt {
         Ok(o)
     } else {
+        let loc = Location::caller();
         Err(Error::NotFound(format!(
-            "{} not found at name {}",
+            "{} not found at name {} ({}:{})",
             kind,
-            name.as_ref()
+            name.as_ref(),
+            loc.file().split("/").last().unwrap_or_default(),
+            loc.line()
         )))
     }
 }
