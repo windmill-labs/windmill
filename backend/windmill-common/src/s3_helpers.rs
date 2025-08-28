@@ -1119,8 +1119,19 @@ impl ObjectStoreResource {
                 s3_resource.path_style,
                 s3_resource.bucket.clone(),
             )),
-            _ => Err(error::Error::InternalErr(
-                "TODO only implemented for s3 for now".to_string(),
+            ObjectStoreResource::Gcs(gcs_resource) => Ok(format!(
+                "https://storage.googleapis.com/{}",
+                gcs_resource.bucket
+            )),
+            ObjectStoreResource::Azure(az_resource) => Ok(render_endpoint(
+                az_resource
+                    .endpoint
+                    .clone()
+                    .unwrap_or_else(|| "".to_string()),
+                az_resource.use_ssl.unwrap_or(false),
+                None,
+                None,
+                "".to_string(),
             )),
         }
     }
