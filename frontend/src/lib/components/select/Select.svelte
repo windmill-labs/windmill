@@ -28,6 +28,7 @@
 		createText,
 		noItemsMsg,
 		open = $bindable(false),
+		id,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -53,6 +54,7 @@
 		createText?: string
 		noItemsMsg?: string
 		open?: boolean
+		id?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -137,6 +139,7 @@
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
+		{id}
 	/>
 	<SelectDropdown
 		{disablePortal}
