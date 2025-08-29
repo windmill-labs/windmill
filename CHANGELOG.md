@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.537.1](https://github.com/windmill-labs/windmill/compare/v1.537.0...v1.537.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* fix error handling of pre-processor steps ([641d565](https://github.com/windmill-labs/windmill/commit/641d5651c5b6fa898e4fc8ad29a8508f9400c6d8))
+* fix preprocessor not displaying immediately on addition ([e28c9df](https://github.com/windmill-labs/windmill/commit/e28c9df60f20b70a4dcef802839750bb843b91a4))
+* skipPreprocessor on re-running job immedaitely from UI ([e2b344e](https://github.com/windmill-labs/windmill/commit/e2b344ed02b02972366a011c3e873e0f43ab2843))
+
 ## [1.537.0](https://github.com/windmill-labs/windmill/compare/v1.536.0...v1.537.0) (2025-08-28)
 
 
