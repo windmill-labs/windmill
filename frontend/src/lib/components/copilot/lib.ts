@@ -9,11 +9,12 @@ import {
 import { buildClientSchema, printSchema } from 'graphql'
 import OpenAI from 'openai'
 import type {
+	ChatCompletionChunk,
 	ChatCompletionCreateParams,
 	ChatCompletionCreateParamsNonStreaming,
 	ChatCompletionCreateParamsStreaming,
-	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall
+	ChatCompletionMessageFunctionToolCall,
+	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
 import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
@@ -21,8 +22,8 @@ import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
-import type { ChatCompletionStream } from 'openai/lib/ChatCompletionStream.mjs'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import type { Stream } from 'openai/core/streaming.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -644,21 +645,21 @@ export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-): Promise<ChatCompletionStream> {
+): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
 	const openaiClient = workspaceAIClients.getOpenaiClient()
-	const stream = openaiClient.chat.completions.stream(config, {
+	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
 		}
 	})
-	return stream
+	return completion
 }
 
 export async function parseOpenAICompletion(
-	stream: ChatCompletionStream,
+	completion: Stream<ChatCompletionChunk>,
 	callbacks: ToolCallbacks & {
 		onNewToken: (token: string) => void
 		onMessageEnd: () => void
@@ -668,61 +669,82 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any
 ): Promise<boolean> {
-	let toolCallsToProcess: ChatCompletionMessageToolCall[] = []
-	let error = null
+	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 
-	// Handle content streaming
-	stream.on('content.delta', ({ delta }: { delta: string }) => {
-		callbacks.onNewToken(delta)
-	})
-
-	// Handle complete messages
-	stream.on('message', (message: ChatCompletionMessageParam) => {
-		console.log('message', message)
-		if (message.role === 'assistant') {
-			// Add the complete assistant message (whether it has content, tool calls, or both)
-			messages.push(message)
-			addedMessages.push(message)
-
-			if (message.content) {
-				callbacks.onMessageEnd()
+	let answer = ''
+	for await (const chunk of completion) {
+		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
+			continue
+		}
+		const c = chunk as ChatCompletionChunk
+		const delta = c.choices[0].delta.content
+		if (delta) {
+			answer += delta
+			callbacks.onNewToken(delta)
+		}
+		const toolCalls = c.choices[0].delta.tool_calls || []
+		if (toolCalls.length > 0 && answer) {
+			// if tool calls are present but we have some textual content already, we need to display it to the user first
+			callbacks.onMessageEnd()
+			answer = ''
+		}
+		for (const toolCall of toolCalls) {
+			const { index } = toolCall
+			let finalToolCall = finalToolCalls[index]
+			if (!finalToolCall) {
+				finalToolCalls[index] = toolCall
+			} else {
+				if (toolCall.function?.arguments) {
+					if (!finalToolCall.function) {
+						finalToolCall.function = toolCall.function
+					} else {
+						finalToolCall.function.arguments =
+							(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+					}
+				}
 			}
-
-			if (message.tool_calls) {
-				toolCallsToProcess = message.tool_calls
-				// Preprocess tools
-				for (const toolCall of message.tool_calls) {
-					console.log('toolCall', toolCall)
-					if (toolCall.type !== 'function') continue
-					const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-					if (tool?.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCall.id })
+			finalToolCall = finalToolCalls[index]
+			if (finalToolCall?.function) {
+				const {
+					function: { name: funcName },
+					id: toolCallId
+				} = finalToolCall
+				if (funcName && toolCallId) {
+					const tool = tools.find((t) => t.def.function.name === funcName)
+					if (tool && tool.preAction) {
+						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
 				}
 			}
 		}
-	})
+	}
 
-	// Handle errors
-	stream.on('error', (error: any) => {
-		console.error('OpenAI stream error:', error)
-		error = error
-	})
-
-	// Wait for completion
-	await stream.done()
-
-	if (error) {
-		throw error
+	if (answer) {
+		const toAdd = { role: 'assistant' as const, content: answer }
+		addedMessages.push(toAdd)
+		messages.push(toAdd)
 	}
 
 	callbacks.onMessageEnd()
 
-	// Process tool calls if any
-	if (toolCallsToProcess.length > 0) {
-		// Process each tool call
-		for (const toolCall of toolCallsToProcess) {
-			if (toolCall.type !== 'function') continue
+	const toolCalls = Object.values(finalToolCalls).filter(
+		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+	) as ChatCompletionMessageFunctionToolCall[]
+
+	if (toolCalls.length > 0) {
+		const toAdd = {
+			role: 'assistant' as const,
+			tool_calls: toolCalls.map((t) => ({
+				...t,
+				function: {
+					...t.function,
+					arguments: t.function.arguments || '{}'
+				}
+			}))
+		}
+		messages.push(toAdd)
+		addedMessages.push(toAdd)
+		for (const toolCall of toolCalls) {
 			const messageToAdd = await processToolCall({
 				tools,
 				toolCall,
@@ -732,10 +754,10 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
-		return true // Continue the conversation loop
+	} else {
+		return false
 	}
-
-	return false // End the conversation
+	return true
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
