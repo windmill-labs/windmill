@@ -437,6 +437,7 @@ class AIChatManager {
 			}
 			return addedMessages
 		} catch (err) {
+			console.error('Error in chatRequest', err)
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err

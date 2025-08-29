@@ -59,6 +59,7 @@ export async function parseAnthropicCompletion(
 	helpers: any
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
+	let error = null
 
 	// Handle text streaming
 	completion.on('text', (textDelta: string, _textSnapshot: string) => {
@@ -95,13 +96,17 @@ export async function parseAnthropicCompletion(
 	// Handle errors
 	completion.on('error', (error: any) => {
 		console.error('Anthropic stream error:', error)
-		throw error
+		error = error
 	})
 
 	// Wait for completion
 	await completion.done()
 
 	callbacks.onMessageEnd()
+
+	if (error) {
+		throw error
+	}
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {

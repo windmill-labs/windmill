@@ -669,6 +669,7 @@ export async function parseOpenAICompletion(
 	helpers: any
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageToolCall[] = []
+	let error = null
 
 	// Handle content streaming
 	stream.on('content.delta', ({ delta }: { delta: string }) => {
@@ -677,6 +678,7 @@ export async function parseOpenAICompletion(
 
 	// Handle complete messages
 	stream.on('message', (message: ChatCompletionMessageParam) => {
+		console.log('message', message)
 		if (message.role === 'assistant') {
 			// Add the complete assistant message (whether it has content, tool calls, or both)
 			messages.push(message)
@@ -690,6 +692,7 @@ export async function parseOpenAICompletion(
 				toolCallsToProcess = message.tool_calls
 				// Preprocess tools
 				for (const toolCall of message.tool_calls) {
+					console.log('toolCall', toolCall)
 					if (toolCall.type !== 'function') continue
 					const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 					if (tool?.preAction) {
@@ -703,11 +706,15 @@ export async function parseOpenAICompletion(
 	// Handle errors
 	stream.on('error', (error: any) => {
 		console.error('OpenAI stream error:', error)
-		throw error
+		error = error
 	})
 
 	// Wait for completion
 	await stream.done()
+
+	if (error) {
+		throw error
+	}
 
 	callbacks.onMessageEnd()
 
