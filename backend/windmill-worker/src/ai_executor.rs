@@ -484,6 +484,7 @@ async fn call_tool(
         agent_job.schedule_path(),
         Some(agent_job.id),
         None,
+        None,
         Some(job_id),
         false,
         false,
