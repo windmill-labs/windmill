@@ -1,11 +1,15 @@
 import { OpenAI } from 'openai'
-import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import type {
+	ChatCompletionMessageParam,
+	ChatCompletionMessageToolCall
+} from 'openai/resources/index.mjs'
 import type {
 	MessageParam,
 	TextBlockParam,
 	ToolUnion,
 	ToolUseBlockParam,
-	Tool as AnthropicTool
+	Tool as AnthropicTool,
+	Message
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
@@ -53,29 +57,36 @@ export async function parseAnthropicCompletion(
 	tools: Tool<any>[],
 	helpers: any
 ): Promise<boolean> {
-	let hasToolCalls = false
-	let toolCallsToProcess: { id: string; name: string; input: any }[] = []
-	let textContent = ''
+	let toolCallsToProcess: ChatCompletionMessageToolCall[] = []
 
 	// Handle text streaming
 	completion.on('text', (textDelta: string, _textSnapshot: string) => {
-		textContent += textDelta
 		callbacks.onNewToken(textDelta)
 	})
 
-	// Handle completed content blocks (including tool use)
-	completion.on('contentBlock', (contentBlock: any) => {
-		if (contentBlock.type === 'tool_use') {
-			hasToolCalls = true
-			toolCallsToProcess.push({
-				id: contentBlock.id,
-				name: contentBlock.name,
-				input: contentBlock.input
-			})
-			// Preprocess tool if it has a preAction
-			const tool = tools.find((t) => t.def.function.name === contentBlock.name)
-			if (tool && tool.preAction) {
-				tool.preAction({ toolCallbacks: callbacks, toolId: contentBlock.id })
+	completion.on('message', (message: Message) => {
+		for (const block of message.content) {
+			if (block.type === 'text') {
+				const text = block.text
+				const assistantMessage = { role: 'assistant' as const, content: text }
+				messages.push(assistantMessage)
+				addedMessages.push(assistantMessage)
+				callbacks.onMessageEnd()
+			} else if (block.type === 'tool_use') {
+				// Convert Anthropic tool calls to OpenAI format for compatibility
+				toolCallsToProcess.push({
+					id: block.id,
+					type: 'function' as const,
+					function: {
+						name: block.name,
+						arguments: JSON.stringify(block.input)
+					}
+				})
+				// Preprocess tool if it has a preAction
+				const tool = tools.find((t) => t.def.function.name === block.name)
+				if (tool && tool.preAction) {
+					tool.preAction({ toolCallbacks: callbacks, toolId: block.id })
+				}
 			}
 		}
 	})
@@ -89,48 +100,22 @@ export async function parseAnthropicCompletion(
 	// Wait for completion
 	await completion.done()
 
-	// Add text content to messages if any
-	if (textContent) {
-		const assistantMessage = { role: 'assistant' as const, content: textContent }
-		addedMessages.push(assistantMessage)
-		messages.push(assistantMessage)
-	}
-
 	callbacks.onMessageEnd()
 
 	// Process tool calls if any
-	if (hasToolCalls && toolCallsToProcess.length > 0) {
-		// Convert Anthropic tool calls to OpenAI format for compatibility
-		const toolCalls = toolCallsToProcess.map((toolCall) => ({
-			id: toolCall.id,
-			type: 'function' as const,
-			function: {
-				name: toolCall.name,
-				arguments: JSON.stringify(toolCall.input)
-			}
-		}))
-
+	if (toolCallsToProcess.length > 0) {
 		const assistantWithTools = {
 			role: 'assistant' as const,
-			tool_calls: toolCalls
+			tool_calls: toolCallsToProcess
 		}
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
 
 		// Process each tool call
 		for (const toolCall of toolCallsToProcess) {
-			const openAIToolCall = {
-				id: toolCall.id,
-				type: 'function' as const,
-				function: {
-					name: toolCall.name,
-					arguments: JSON.stringify(toolCall.input)
-				}
-			}
-
 			const messageToAdd = await processToolCall({
 				tools,
-				toolCall: openAIToolCall,
+				toolCall,
 				helpers,
 				toolCallbacks: callbacks
 			})
