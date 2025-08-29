@@ -7,15 +7,15 @@ import type {
 	ToolUseBlockParam,
 	Tool as AnthropicTool
 } from '@anthropic-ai/sdk/resources'
+import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
-import type { Stream } from 'openai/streaming.mjs'
-import type { Tool, ToolCallbacks } from './shared'
+import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-) {
+): Promise<MessageStream> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true })
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	const anthropicTools = convertOpenAIToolsToAnthropic(tools)
@@ -43,7 +43,7 @@ export async function getAnthropicCompletion(
 }
 
 export async function parseAnthropicCompletion(
-	completion: Stream<any>,
+	completion: MessageStream,
 	callbacks: ToolCallbacks & {
 		onNewToken: (token: string) => void
 		onMessageEnd: () => void
@@ -53,8 +53,94 @@ export async function parseAnthropicCompletion(
 	tools: Tool<any>[],
 	helpers: any
 ): Promise<boolean> {
-	// TODO: Implement Anthropic completion parsing
-	return true
+	let hasToolCalls = false
+	let toolCallsToProcess: { id: string; name: string; input: any }[] = []
+	let textContent = ''
+
+	// Handle text streaming
+	completion.on('text', (textDelta: string, _textSnapshot: string) => {
+		textContent += textDelta
+		callbacks.onNewToken(textDelta)
+	})
+
+	// Handle completed content blocks (including tool use)
+	completion.on('contentBlock', (contentBlock: any) => {
+		if (contentBlock.type === 'tool_use') {
+			hasToolCalls = true
+			toolCallsToProcess.push({
+				id: contentBlock.id,
+				name: contentBlock.name,
+				input: contentBlock.input
+			})
+			// Preprocess tool if it has a preAction
+			const tool = tools.find((t) => t.def.function.name === contentBlock.name)
+			if (tool && tool.preAction) {
+				tool.preAction({ toolCallbacks: callbacks, toolId: contentBlock.id })
+			}
+		}
+	})
+
+	// Handle errors
+	completion.on('error', (error: any) => {
+		console.error('Anthropic stream error:', error)
+		throw error
+	})
+
+	// Wait for completion
+	await completion.done()
+
+	// Add text content to messages if any
+	if (textContent) {
+		const assistantMessage = { role: 'assistant' as const, content: textContent }
+		addedMessages.push(assistantMessage)
+		messages.push(assistantMessage)
+	}
+
+	callbacks.onMessageEnd()
+
+	// Process tool calls if any
+	if (hasToolCalls && toolCallsToProcess.length > 0) {
+		// Convert Anthropic tool calls to OpenAI format for compatibility
+		const toolCalls = toolCallsToProcess.map((toolCall) => ({
+			id: toolCall.id,
+			type: 'function' as const,
+			function: {
+				name: toolCall.name,
+				arguments: JSON.stringify(toolCall.input)
+			}
+		}))
+
+		const assistantWithTools = {
+			role: 'assistant' as const,
+			tool_calls: toolCalls
+		}
+		messages.push(assistantWithTools)
+		addedMessages.push(assistantWithTools)
+
+		// Process each tool call
+		for (const toolCall of toolCallsToProcess) {
+			const openAIToolCall = {
+				id: toolCall.id,
+				type: 'function' as const,
+				function: {
+					name: toolCall.name,
+					arguments: JSON.stringify(toolCall.input)
+				}
+			}
+
+			const messageToAdd = await processToolCall({
+				tools,
+				toolCall: openAIToolCall,
+				helpers,
+				toolCallbacks: callbacks
+			})
+			messages.push(messageToAdd)
+			addedMessages.push(messageToAdd)
+		}
+		return true // Continue the conversation loop
+	}
+
+	return false // End the conversation
 }
 
 export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {

@@ -44,6 +44,7 @@ import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
+import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -409,23 +410,47 @@ class AIChatManager {
 					this.pendingPrompt = ''
 				}
 
-				const completion = await getCompletion(
-					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
-					abortController,
-					tools.map((t) => t.def)
-				)
+				const model = getCurrentModel()
 
-				if (completion) {
-					const continueCompletion = await parseOpenAICompletion(
-						completion,
-						callbacks,
-						messages,
-						addedMessages,
-						tools,
-						helpers
+				if (model.provider === 'anthropic') {
+					const completion = await getAnthropicCompletion(
+						[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
+						abortController,
+						tools.map((t) => t.def)
 					)
-					if (!continueCompletion) {
-						break
+
+					if (completion) {
+						const continueCompletion = await parseAnthropicCompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
+					}
+				} else {
+					const completion = await getCompletion(
+						[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
+						abortController,
+						tools.map((t) => t.def)
+					)
+
+					if (completion) {
+						const continueCompletion = await parseOpenAICompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				}
 			}
