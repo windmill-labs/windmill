@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.536.0
+  version: 1.537.1
   title: Windmill API
 
   contact:
@@ -2034,6 +2034,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: skip_subscription_fetch
+          in: query
+          description: skip fetching subscription status from stripe
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -2051,9 +2056,14 @@ paths:
                     type: string
                   status:
                     type: string
+                  is_past_due:
+                    type: boolean
+                  max_tolerated_executions:
+                    type: number
                 required:
                   - premium
                   - owner
+                  - is_past_due
 
   /w/{workspace}/workspaces/threshold_alert:
     get:

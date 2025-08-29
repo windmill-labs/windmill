@@ -355,12 +355,14 @@
 				if (job?.job_kind == 'script') {
 					id = await JobService.runScriptByHash({
 						...commonArgs,
-						hash: job.script_hash!
+						hash: job.script_hash!,
+						skipPreprocessor: true
 					})
 				} else {
 					id = await JobService.runFlowByPath({
 						...commonArgs,
-						path: job.script_path!
+						path: job.script_path!,
+						skipPreprocessor: true
 					})
 				}
 
