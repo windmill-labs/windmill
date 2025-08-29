@@ -1422,8 +1422,9 @@ fn apply_completed_job_cloud_usage(
         let email2 = email.clone();
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
-            let premium_workspace =
-                windmill_common::workspaces::is_premium_workspace(&db, &w_id).await;
+            let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
+                .await
+                .premium;
             tokio::time::timeout(std::time::Duration::from_secs(10), async move {
                 let _ = sqlx::query!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
@@ -3646,8 +3647,8 @@ pub async fn push<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let premium_workspace =
-            windmill_common::workspaces::is_premium_workspace(_db, workspace_id).await;
+        let team_plan_status =
+            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -3665,7 +3666,7 @@ pub async fn push<'c, 'd>(
                     .await
                     .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
 
-                let user_usage = if !premium_workspace {
+                let user_usage = if !team_plan_status.premium {
                     Some(sqlx::query_scalar!(
                         "INSERT INTO usage (id, is_workspace, month_, usage)
                         VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
@@ -3688,7 +3689,7 @@ pub async fn push<'c, 'd>(
             Ok((None, None))
         }?;
 
-        if !premium_workspace {
+        if !team_plan_status.premium || team_plan_status.is_past_due {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
                     .fetch_optional(_db)
@@ -3696,7 +3697,8 @@ pub async fn push<'c, 'd>(
                     .unwrap_or(false);
 
             if !is_super_admin {
-                if email != ERROR_HANDLER_USER_EMAIL
+                if !team_plan_status.premium
+                    && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
                     && email != "worker@windmill.dev"
@@ -3775,43 +3777,53 @@ pub async fn push<'c, 'd>(
                         .flatten()
                         .unwrap_or(1)
                     };
+                    if team_plan_status.premium {
+                        // team plan is premium but past due, we check if the workspace has exceeded the max tolerated executions
+                        if team_plan_status.max_tolerated_executions.is_none()
+                            || workspace_usage > team_plan_status.max_tolerated_executions.unwrap()
+                        {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings."
+                            )));
+                        }
+                    } else {
+                        if workspace_usage > MAX_FREE_EXECS
+                            && !matches!(job_payload, JobPayload::Dependencies { .. })
+                            && !matches!(job_payload, JobPayload::FlowDependencies { .. })
+                            && !matches!(job_payload, JobPayload::AppDependencies { .. })
+                        {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                            )));
+                        }
 
-                    if workspace_usage > MAX_FREE_EXECS
-                        && !matches!(job_payload, JobPayload::Dependencies { .. })
-                        && !matches!(job_payload, JobPayload::FlowDependencies { .. })
-                        && !matches!(job_payload, JobPayload::AppDependencies { .. })
-                    {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                        )));
-                    }
+                        let in_queue_workspace = sqlx::query_scalar!(
+                            "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
+                            workspace_id
+                        )
+                        .fetch_one(_db)
+                        .await?
+                        .unwrap_or(0);
 
-                    let in_queue_workspace = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
-                        workspace_id
-                    )
-                    .fetch_one(_db)
-                    .await?
-                    .unwrap_or(0);
+                        if in_queue_workspace > MAX_FREE_EXECS as i64 {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                            )));
+                        }
 
-                    if in_queue_workspace > MAX_FREE_EXECS as i64 {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                        )));
-                    }
-
-                    let concurrent_runs_workspace = sqlx::query_scalar!(
+                        let concurrent_runs_workspace = sqlx::query_scalar!(
                         "SELECT COUNT(id) FROM v2_job_queue WHERE running = true AND workspace_id = $1",
-                        workspace_id
-                    )
-                    .fetch_one(_db)
-                    .await?
-                    .unwrap_or(0);
+                            workspace_id
+                        )
+                        .fetch_one(_db)
+                        .await?
+                        .unwrap_or(0);
 
-                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
-                        )));
+                        if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                            )));
+                        }
                     }
                 }
             }

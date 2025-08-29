@@ -1478,16 +1478,16 @@ def task(*args, **kwargs):
                 params = {}
                 if tag is not None:
                     params["tag"] = tag
-                r = _client.post(
+                w_as_code_response = _client.post(
                     f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
                     json={"args": json},
                     params=params,
                 )
-                job_id = r.text
+                job_id = w_as_code_response.text
                 print(f"Executing task {func.__name__} on job {job_id}")
-                r = _client.wait_job(job_id)
+                job_result = _client.wait_job(job_id)
                 print(f"Task {func.__name__} ({job_id}) completed")
-                return r
+                return job_result
 
             return inner
 

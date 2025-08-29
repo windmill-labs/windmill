@@ -520,7 +520,7 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result.error"
+            "let error = previous_result.error;"
         } else {
             ""
         },
