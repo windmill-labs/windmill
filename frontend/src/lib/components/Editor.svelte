@@ -544,9 +544,7 @@
 
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
-	async function updateSchema() {
-		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
-
+	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
@@ -1621,10 +1619,14 @@
 			? untrack(() => addSqlTypeCompletions())
 			: sqlTypeCompletor?.dispose()
 	})
+
+	let lastArg = undefined
 	$effect(() => {
-		console.log('updating schema', lang, $dbSchemas)
-		readFieldsRecursively(args)
-		lang && $dbSchemas && untrack(() => updateSchema())
+		let newArg = lang === 'graphql' ? args?.api : args?.database
+		if (newArg !== lastArg) {
+			lastArg = newArg
+			$dbSchemas && untrack(() => updateSchema(newArg))
+		}
 	})
 	$effect(() => {
 		console.log('updating db schema completions', dbSchema, lang)
