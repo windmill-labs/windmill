@@ -96,27 +96,28 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 						}
 					]
 				},
-				system_prompt: {
-					type: 'string',
-					default: 'You are a helpful assistant'
-				},
 				user_message: {
+					type: 'string'
+				},
+				system_prompt: {
 					type: 'string'
 				},
 				max_completion_tokens: {
 					type: 'number'
 				},
 				temperature: {
-					type: 'number'
+					type: 'number',
+					description:
+						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
 				}
 			},
-			required: ['provider', 'model', 'system_prompt', 'user_message'],
+			required: ['provider', 'model', 'user_message'],
 			type: 'object',
 			order: [
 				'provider',
 				'model',
-				'system_prompt',
 				'user_message',
+				'system_prompt',
 				'max_completion_tokens',
 				'temperature'
 			]

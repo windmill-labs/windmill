@@ -19,7 +19,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	let {
-		flowModuleSchemaMap,
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
@@ -93,13 +93,10 @@
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
 		},
-		acceptAllModuleActions: () => {
-			for (const [id, affectedModule] of Object.entries(affectedModules)) {
-				if (affectedModule.action === 'removed') {
-					deleteStep(id)
-				}
+		acceptAllModuleActions() {
+			for (const id of Object.keys(affectedModules)) {
+				this.acceptModuleAction(id)
 			}
-			affectedModules = {}
 		},
 		rejectAllModuleActions() {
 			for (const id of Object.keys(affectedModules)) {
@@ -174,7 +171,22 @@
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
-						newModule.value = oldModule.value
+
+						// Apply the old code to the editor and hide diff editor if the reverted module is a rawscript
+						if (
+							newModule.value.type === 'rawscript' &&
+							$currentEditor?.type === 'script' &&
+							$currentEditor.stepId === id
+						) {
+							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+							if (aiChatEditorHandler) {
+								aiChatEditorHandler.revertAll({ disableReviewCallback: true })
+								$currentEditor.hideDiffMode()
+							}
+						}
+
+						Object.keys(newModule).forEach((k) => delete newModule[k])
+						Object.assign(newModule, $state.snapshot(oldModule))
 					}
 
 					refreshStateStore(flowStore)
@@ -185,6 +197,18 @@
 		acceptModuleAction: (id: string) => {
 			if (affectedModules[id]?.action === 'removed') {
 				deleteStep(id)
+			}
+
+			if (
+				affectedModules[id]?.action === 'modified' &&
+				$currentEditor &&
+				$currentEditor.type === 'script' &&
+				$currentEditor.stepId === id
+			) {
+				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+				if (aiChatEditorHandler) {
+					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
+				}
 			}
 			delete affectedModules[id]
 		},
@@ -476,6 +500,75 @@
 			}
 
 			setModuleStatus(id, 'modified')
+		},
+		setForLoopOptions: async (id, opts) => {
+			const module = getModule(id)
+			if (!module) {
+				throw new Error('Module not found')
+			}
+			if (module.value.type !== 'forloopflow') {
+				throw new Error('Module is not a forloopflow')
+			}
+
+			// Apply skip_failures if provided
+			if (typeof opts.skip_failures === 'boolean') {
+				module.value.skip_failures = opts.skip_failures
+			}
+
+			// Apply parallel if provided
+			if (typeof opts.parallel === 'boolean') {
+				module.value.parallel = opts.parallel
+			}
+
+			// Handle parallelism
+			if (opts.parallel === false) {
+				// If parallel is disabled, clear parallelism
+				module.value.parallelism = undefined
+			} else if (opts.parallelism !== undefined) {
+				if (opts.parallelism === null) {
+					// Explicitly clear parallelism
+					module.value.parallelism = undefined
+				} else if (module.value.parallel || opts.parallel === true) {
+					// Only set parallelism if parallel is enabled
+					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
+					module.value.parallelism = n
+				}
+			}
+
+			refreshStateStore(flowStore)
+			setModuleStatus(id, 'modified')
+		},
+		setModuleControlOptions: async (id, opts) => {
+			const module = getModule(id)
+			if (!module) {
+				throw new Error('Module not found')
+			}
+
+			// Handle stop_after_if
+			if (typeof opts.stop_after_if === 'boolean') {
+				if (opts.stop_after_if === false) {
+					module.stop_after_if = undefined
+				} else {
+					module.stop_after_if = {
+						expr: opts.stop_after_if_expr ?? '',
+						skip_if_stopped: opts.stop_after_if
+					}
+				}
+			}
+
+			// Handle skip_if
+			if (typeof opts.skip_if === 'boolean') {
+				if (opts.skip_if === false) {
+					module.skip_if = undefined
+				} else {
+					module.skip_if = {
+						expr: opts.skip_if_expr ?? ''
+					}
+				}
+			}
+
+			refreshStateStore(flowStore)
+			setModuleStatus(id, 'modified')
 		}
 	}
 
@@ -523,6 +616,31 @@
 	$effect(() => {
 		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
 		return cleanup
+	})
+
+	// Automatically show revert review when selecting a rawscript module with pending changes
+	$effect(() => {
+		if (
+			$currentEditor?.type === 'script' &&
+			$selectedId &&
+			affectedModules[$selectedId] &&
+			$currentEditor.editor.getAiChatEditorHandler()
+		) {
+			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+			const content =
+				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
+			if (content.length > 0) {
+				untrack(() =>
+					$currentEditor.editor.reviewAppliedCode(content, {
+						onFinishedReview: () => {
+							const id = $selectedId
+							flowHelpers.acceptModuleAction(id)
+							$currentEditor.hideDiffMode()
+						}
+					})
+				)
+			}
+		}
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)

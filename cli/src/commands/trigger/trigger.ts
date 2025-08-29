@@ -15,7 +15,10 @@ import {
   isSuperset,
   parseFromFile,
   removeType,
+  TRIGGER_TYPES,
 } from "../../types.ts";
+import { fromBranchSpecificPath, isBranchSpecificFile } from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 
@@ -222,23 +225,27 @@ async function list(opts: GlobalOptions) {
 }
 
 function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
-  if (
-    kind &&
-    [
-      "http",
-      "websocket",
-      "kafka",
-      "nats",
-      "postgres",
-      "mqtt",
-      "sqs",
-      "gcp",
-    ].includes(kind)
-  ) {
+  if (kind && (TRIGGER_TYPES as readonly string[]).includes(kind)) {
     return true;
   } else {
     return false;
   }
+}
+
+function extractTriggerKindFromPath(filePath: string): string | undefined {
+  let pathToAnalyze = filePath;
+
+  // If this is a branch-specific file, convert it to the base path first
+  if (isBranchSpecificFile(filePath)) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      pathToAnalyze = fromBranchSpecificPath(filePath, currentBranch);
+    }
+  }
+
+  // Now extract trigger type from the base path: "something.kafka_trigger.yaml" -> "kafka"
+  const triggerMatch = pathToAnalyze.match(/\.(\w+)_trigger\.yaml$/);
+  return triggerMatch ? triggerMatch[1] : undefined;
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
@@ -256,7 +263,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing trigger..."));
 
-  const triggerKind = filePath.split(".")[1].split("_")[0];
+  const triggerKind = extractTriggerKindFromPath(filePath);
   if (!checkIfValidTrigger(triggerKind)) {
     throw new Error("Invalid trigger kind: " + triggerKind);
   }

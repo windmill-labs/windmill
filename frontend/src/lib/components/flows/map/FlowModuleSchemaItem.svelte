@@ -144,9 +144,7 @@
 	let testIsLoading = $state(false)
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
-	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
-	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
 
@@ -170,30 +168,6 @@
 		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
 	})
 
-	function updateLastJob(flowStateStore: any | undefined) {
-		if (
-			!flowStateStore ||
-			!id ||
-			flowStateStore.val[id]?.previewResult === 'never tested this far'
-		) {
-			return
-		}
-		lastJob = {
-			id: flowStateStore.val[id]?.previewJobId ?? '',
-			result: flowStateStore.val[id]?.previewResult,
-			type: 'CompletedJob' as const,
-			success: flowStateStore.val[id]?.previewSuccess ?? undefined
-		}
-	}
-
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if (id) {
-			updateLastJob(flowStateStore)
-		}
-	})
-
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
@@ -207,6 +181,9 @@
 	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
 </script>
 
 {#if deletable && id && editId}
@@ -271,7 +248,15 @@
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
-		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
+		<ModuleTest
+			bind:this={moduleTest}
+			{mod}
+			bind:testIsLoading
+			bind:testJob
+			onJobDone={() => {
+				outputPickerInner?.setJobPreview?.()
+			}}
+		/>
 	{/if}
 {/if}
 
@@ -455,7 +440,6 @@
 							prefix={'results'}
 							connectingData={isConnecting ? connectingData : undefined}
 							{mock}
-							{lastJob}
 							{testJob}
 							moduleId={id}
 							onSelect={selectConnection}
@@ -463,12 +447,12 @@
 							{path}
 							{loopStatus}
 							rightMargin
-							bind:derivedHistoryOpen={historyOpen}
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
 							isLoading={testIsLoading ||
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+							bind:this={outputPickerInner}
 						/>
 					{/snippet}
 				</OutputPicker>

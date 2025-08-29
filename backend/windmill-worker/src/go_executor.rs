@@ -571,6 +571,8 @@ pub async fn install_go_dependencies(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env("HOME", HOME_ENV.as_str())
+        .env("PATH", PATH_ENV.as_str())
         .env("GOPATH", {
             #[cfg(unix)]
             {
@@ -584,6 +586,18 @@ pub async fn install_go_dependencies(
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    if let Some(ref goprivate) = *GOPRIVATE {
+        child_cmd.env("GOPRIVATE", goprivate);
+    }
+
+    // TODO: Remove if no incidents reported
+    if !std::env::var("WMDEBUG_NO_GOPROXY_ON_TIDY").ok().is_some() {
+        if let Some(ref goproxy) = *GOPROXY {
+            child_cmd.env("GOPROXY", goproxy);
+        }
+    }
+
     // If annotation used we want to call tidy with special flag to pin go to 1.22
     // The reason for this that at some point we had to jump from go 1.22 to 1.25 and this addds backward compatibility.
     if anns.go1_22_compat && mod_command == "tidy" {

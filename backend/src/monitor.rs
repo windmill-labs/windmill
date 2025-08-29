@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicU16, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -1530,6 +1530,20 @@ pub async fn monitor_db(
         }
     };
 
+    // run every hour
+    let vacuum_queue_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
+            if let Some(db) = conn.as_sql() {
+                let instant = Instant::now();
+                tracing::info!("vacuuming tables");
+                if let Err(e) = vacuuming_tables(&db).await {
+                    tracing::error!("Error vacuuming v2_job: {:?}", e);
+                }
+                tracing::info!("vacuum tables done in {}s", instant.elapsed().as_secs());
+            }
+        }
+    };
+
     let expired_items_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
@@ -1607,6 +1621,7 @@ pub async fn monitor_db(
         expired_items_f,
         zombie_jobs_f,
         stale_jobs_f,
+        vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
         worker_groups_alerts_f,
@@ -1617,6 +1632,13 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
     );
+}
+
+async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics")
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
@@ -2570,8 +2592,6 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
     let app_workspaced_route =
         load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
-
-    println!("Updating...");
 
     let ws_route = match app_workspaced_route {
         Some(serde_json::Value::Bool(ws_route)) => ws_route,

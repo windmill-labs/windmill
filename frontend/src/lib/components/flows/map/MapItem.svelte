@@ -248,6 +248,7 @@
 					{bgColor}
 					{bgHoverColor}
 					label={mod.summary ||
+						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
 							: mod.id.startsWith('failure')
@@ -272,10 +273,13 @@
 					{skipped}
 				>
 					{#snippet icon()}
-						{@const size = mod.value.type === 'script' && mod.value.path.startsWith('hub/')
-							? 20
-							: mod.value.type === "script" ? 14 : 16}
-						<FlowModuleIcon module={mod} size={size} />
+						{@const size =
+							mod.value.type === 'script' && mod.value.path.startsWith('hub/')
+								? 20
+								: mod.value.type === 'script'
+									? 14
+									: 16}
+						<FlowModuleIcon module={mod} {size} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

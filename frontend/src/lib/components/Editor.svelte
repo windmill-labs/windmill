@@ -676,7 +676,21 @@
 	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewAndApply(code, applyAll)
+		aiChatEditorHandler?.reviewChanges(code, { applyAll, mode: 'apply' })
+	}
+
+	export function reviewAppliedCode(
+		originalCode: string,
+		opts?: { onFinishedReview?: () => void }
+	) {
+		aiChatEditorHandler?.reviewChanges(originalCode, {
+			mode: 'revert',
+			onFinishedReview: opts?.onFinishedReview
+		})
+	}
+
+	export function getAiChatEditorHandler() {
+		return aiChatEditorHandler
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
@@ -1237,7 +1251,13 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, $relativeLineNumbers),
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
 				model,
 				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
@@ -1657,7 +1677,7 @@
 		files && model && untrack(() => onFileChanges())
 	})
 	$effect(() => {
-		editor?.updateOptions({ 
+		editor?.updateOptions({
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
@@ -1678,10 +1698,20 @@
 {#if $reviewingChanges}
 	<GlobalReviewButtons
 		onAcceptAll={() => {
-			aiChatEditorHandler?.acceptAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.keepAll()
+			} else {
+				aiChatEditorHandler?.acceptAll()
+			}
 		}}
 		onRejectAll={() => {
-			aiChatEditorHandler?.rejectAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.revertAll()
+			} else {
+				aiChatEditorHandler?.rejectAll()
+			}
 		}}
 	/>
 {/if}

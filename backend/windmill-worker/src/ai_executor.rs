@@ -118,7 +118,7 @@ struct Tool {
 #[derive(Deserialize, Debug)]
 struct AIAgentArgs {
     provider: Provider,
-    system_prompt: String,
+    system_prompt: Option<String>,
     user_message: String,
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
@@ -608,18 +608,21 @@ async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<Box<RawValue>> {
-    let mut messages = vec![
-        OpenAIMessage {
+    let mut messages = if let Some(system_prompt) = args.system_prompt.filter(|s| !s.is_empty()) {
+        vec![OpenAIMessage {
             role: "system".to_string(),
-            content: Some(args.system_prompt),
+            content: Some(system_prompt),
             ..Default::default()
-        },
-        OpenAIMessage {
-            role: "user".to_string(),
-            content: Some(args.user_message),
-            ..Default::default()
-        },
-    ];
+        }]
+    } else {
+        vec![]
+    };
+
+    messages.push(OpenAIMessage {
+        role: "user".to_string(),
+        content: Some(args.user_message),
+        ..Default::default()
+    });
 
     let mut actions = vec![];
 
@@ -923,7 +926,7 @@ pub async fn handle_ai_agent_job(
                             .await?;
                             Ok(Some(hub_script.schema))
                         } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path)
+                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path, true)
                                 .await?
                                 .0;
                             // update module definition to use a fixed hash so all tool calls match the same schema

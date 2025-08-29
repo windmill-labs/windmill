@@ -25,6 +25,12 @@
 					return obj
 				}
 			}
+			for (const key in obj) {
+				try {
+					const parsed = JSON.parse(obj[key])
+					obj[key] = parsed
+				} catch {}
+			}
 			return JSON.stringify(obj, null, 2)
 		} catch {
 			return String(obj)
@@ -81,7 +87,9 @@
 			<div
 				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto"
 			>
-				<pre class="text-2xs text-primary whitespace-pre-wrap">{formatJson(content)}</pre>
+				<pre class="text-2xs text-primary whitespace-pre-wrap"
+					>{formatJson($state.snapshot(content))}</pre
+				>
 			</div>
 		{:else}
 			<div

@@ -103,6 +103,7 @@ mod inkeep_ee;
 mod inkeep_oss;
 mod inputs;
 mod integration;
+mod live_migrations;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
 mod s3_proxy;

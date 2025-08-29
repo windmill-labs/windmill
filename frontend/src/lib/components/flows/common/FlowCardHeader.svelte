@@ -72,7 +72,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-4 flex-nowrap"
 >
 	{#if flowModuleValue}
 		<span class="text-sm w-full mr-4">
@@ -153,6 +153,9 @@
 					/>
 				{:else if flowModuleValue.type === 'flow'}
 					<Badge color="indigo" capitalize>flow</Badge>
+					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+				{:else if flowModuleValue.type === 'aiagent'}
+					<Badge color="indigo">AI Agent</Badge>
 					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
 				{/if}
 			</div>
