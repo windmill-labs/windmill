@@ -60,7 +60,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const ROUTE_PREFIX: &'static str;
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
-    const IS_CLOUD_HOSTED: bool;
+    const IS_ALLOWED_ON_CLOUD: bool;
 
     fn get_deployed_object(path: String) -> DeployedObject;
 
@@ -235,7 +235,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 edited_by = $3,
                 edited_at = now(),
                 server_id = NULL,
-                error = NULL
+                error = NULL,
+                last_server_ping = NULL
             WHERE 
                 workspace_id = $4 AND 
                 path = $5
@@ -379,7 +380,7 @@ async fn create_trigger<T: TriggerCrud>(
         )
     })?;
 
-    if *CLOUD_HOSTED && !T::IS_CLOUD_HOSTED {
+    if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
         return Err(error::Error::BadRequest(format!(
             "{} triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host",
             T::TRIGGER_TYPE

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json as SqlxJson, FromRow, PgConnection};
+use sqlx::{types::Json as SqlxJson, FromRow};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
     error::{Error, Result},
@@ -153,55 +153,6 @@ pub fn validate_authentication_method(
         }
         _ => Ok(()),
     }
-}
-
-pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
-    sqlx::query!("SELECT nextval('http_trigger_version_seq')")
-        .fetch_one(tx)
-        .await?;
-    Ok(())
-}
-
-pub async fn route_path_key_exists(
-    route_path_key: &str,
-    http_method: &HttpMethod,
-    w_id: &str,
-    trigger_path: Option<&str>,
-    workspaced_route: Option<bool>,
-    db: &DB,
-) -> Result<bool> {
-    let existing = if workspaced_route.unwrap_or(false) {
-        sqlx::query_scalar!(
-            "SELECT path FROM http_trigger WHERE route_path_key = $1 AND http_method = $2 AND workspace_id = $3 AND workspaced_route = true",
-            route_path_key,
-            http_method as _,
-            w_id
-        )
-        .fetch_optional(db)
-        .await?
-    } else {
-        sqlx::query_scalar!(
-            "SELECT path FROM http_trigger WHERE route_path_key = $1 AND http_method = $2",
-            route_path_key,
-            http_method as _,
-        )
-        .fetch_optional(db)
-        .await?
-    };
-
-    if let Some(existing_path) = existing {
-        if let Some(trigger_path) = trigger_path {
-            Ok(existing_path != trigger_path)
-        } else {
-            Ok(true)
-        }
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn generate_route_path_key(route_path: &str) -> String {
-    ROUTE_PATH_KEY_RE.replace_all(route_path, "/*").to_string()
 }
 
 pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {

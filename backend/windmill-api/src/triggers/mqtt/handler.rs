@@ -39,7 +39,7 @@ impl TriggerCrud for MqttTrigger {
         "client_id",
         "client_version",
     ];
-    const IS_CLOUD_HOSTED: bool = false;
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::MqttTrigger { path }

@@ -41,7 +41,7 @@ impl TriggerCrud for WebsocketTrigger {
         "url_runnable_args",
         "can_return_message",
     ];
-    const IS_CLOUD_HOSTED: bool = false;
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::WebsocketTrigger { path }
@@ -56,12 +56,6 @@ impl TriggerCrud for WebsocketTrigger {
         if config.url.trim().is_empty() {
             return Err(Error::BadRequest(
                 "WebSocket URL cannot be empty".to_string(),
-            ));
-        }
-
-        if !config.url.starts_with("ws://") && !config.url.starts_with("wss://") {
-            return Err(Error::BadRequest(
-                "WebSocket URL must start with ws:// or wss://".to_string(),
             ));
         }
 
