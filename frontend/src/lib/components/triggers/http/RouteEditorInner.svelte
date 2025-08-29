@@ -596,7 +596,7 @@
 				{can_write}
 				bind:static_asset_config
 				showTestingBadge={isEditor}
-				isDraftOnly={trigger?.isDraft}
+				isDraftOnly={trigger ? trigger.isDraft : false}
 			/>
 
 			{#if !is_static_website}
