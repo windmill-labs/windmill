@@ -1,7 +1,7 @@
 import { OpenAI } from 'openai'
 import type {
 	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall
+	ChatCompletionMessageFunctionToolCall
 } from 'openai/resources/index.mjs'
 import type {
 	MessageParam,
@@ -18,7 +18,7 @@ import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionFunctionTool[]
 ): Promise<MessageStream> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true })
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
@@ -57,7 +57,7 @@ export async function parseAnthropicCompletion(
 	tools: Tool<any>[],
 	helpers: any
 ): Promise<boolean> {
-	let toolCallsToProcess: ChatCompletionMessageToolCall[] = []
+	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 
 	// Handle text streaming
 	completion.on('text', (textDelta: string, _textSnapshot: string) => {
@@ -169,6 +169,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 
 			if (message.tool_calls) {
 				for (const toolCall of message.tool_calls) {
+					if (toolCall.type !== 'function') continue
 					let input = {}
 					try {
 						input = JSON.parse(toolCall.function.arguments || '{}')
@@ -235,7 +236,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 }
 
 export function convertOpenAIToolsToAnthropic(
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionFunctionTool[]
 ): ToolUnion[] | undefined {
 	if (!tools || tools.length === 0) return undefined
 
