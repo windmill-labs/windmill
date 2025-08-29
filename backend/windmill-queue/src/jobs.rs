@@ -4695,7 +4695,8 @@ pub async fn push<'c, 'd>(
 
     let root_job =
         if root_job.is_some() && (root_job == flow_innermost_root_job || root_job == parent_job) {
-            // if the root job is the innermost root job or parent job, we don't need to set the root job, we fallback to flow_innermost_root_job and parent_job when we get it
+            // We only save the root job if it's not the innermost root job or parent job as an optimization
+            // Reference: see [`windmill_worker::utils::get_root_job_id`] for logic on determining the root job.
             None
         } else {
             root_job
@@ -4764,7 +4765,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        root_job.or(parent_job), // root_job: TODO: check if fallback to parent job is really needed
+        root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
     )
