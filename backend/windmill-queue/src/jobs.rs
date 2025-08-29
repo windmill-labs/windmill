@@ -4756,7 +4756,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        root_job.or(parent_job), // root_job: are we sure we want to always set root job to parent job on fallback?
+        root_job.or(parent_job), // root_job: TODO: check if fallback to parent job is really needed
         trigger_kind as Option<JobTriggerKind>,
         running,
     )
