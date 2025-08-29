@@ -183,6 +183,7 @@ pub async fn do_duckdb(
         };
 
         let base_internal_url = client.base_internal_url.clone();
+        let w_id = job.workspace_id.clone();
 
         // duckdb::Connection is not Send so we run the queries in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
@@ -207,7 +208,7 @@ pub async fn do_duckdb(
                     PROVIDER config,
                     KEY_ID '{s3_access_key}',
                     SECRET '{s3_secret_key}',
-                    ENDPOINT '{s3_endpoint}/api/w/data-pipeline-demo/s3_proxy',
+                    ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
                     URL_STYLE path,
                     USE_SSL {s3_endpoint_ssl}
                 );",
