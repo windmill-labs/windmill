@@ -15,7 +15,6 @@
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	interface Props {
 		// import FlowRetries from './FlowRetries.svelte'
@@ -40,12 +39,6 @@
 	})
 
 	let selected = $state('early-stop')
-
-	useUiIntent(`branchone-${flowModule.id}`, {
-		openTab: (tab) => {
-			selected = tab
-		}
-	})
 </script>
 
 <div class="h-full" id="flow-editor-branch-one-wrapper">

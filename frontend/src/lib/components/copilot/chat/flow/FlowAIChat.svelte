@@ -98,14 +98,6 @@
 				if (affectedModule.action === 'removed') {
 					deleteStep(id)
 				}
-				// Hide diff editor if the module is a rawscript
-				if (
-					affectedModule.action === 'modified' &&
-					$currentEditor?.type === 'script' &&
-					$currentEditor.stepId === id
-				) {
-					$currentEditor.hideDiffMode()
-				}
 			}
 			affectedModules = {}
 		},
@@ -193,8 +185,7 @@
 							$currentEditor.hideDiffMode()
 						}
 
-						Object.keys(newModule).forEach((k) => delete newModule[k])
-						Object.assign(newModule, $state.snapshot(oldModule))
+						newModule.value = oldModule.value
 					}
 
 					refreshStateStore(flowStore)
@@ -495,75 +486,6 @@
 				refreshStateStore(flowStore)
 			}
 
-			setModuleStatus(id, 'modified')
-		},
-		setForLoopOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'forloopflow') {
-				throw new Error('Module is not a forloopflow')
-			}
-
-			// Apply skip_failures if provided
-			if (typeof opts.skip_failures === 'boolean') {
-				module.value.skip_failures = opts.skip_failures
-			}
-
-			// Apply parallel if provided
-			if (typeof opts.parallel === 'boolean') {
-				module.value.parallel = opts.parallel
-			}
-
-			// Handle parallelism
-			if (opts.parallel === false) {
-				// If parallel is disabled, clear parallelism
-				module.value.parallelism = undefined
-			} else if (opts.parallelism !== undefined) {
-				if (opts.parallelism === null) {
-					// Explicitly clear parallelism
-					module.value.parallelism = undefined
-				} else if (module.value.parallel || opts.parallel === true) {
-					// Only set parallelism if parallel is enabled
-					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
-					module.value.parallelism = n
-				}
-			}
-
-			refreshStateStore(flowStore)
-			setModuleStatus(id, 'modified')
-		},
-		setModuleControlOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-
-			// Handle stop_after_if
-			if (typeof opts.stop_after_if === 'boolean') {
-				if (opts.stop_after_if === false) {
-					module.stop_after_if = undefined
-				} else {
-					module.stop_after_if = {
-						expr: opts.stop_after_if_expr ?? '',
-						skip_if_stopped: opts.stop_after_if
-					}
-				}
-			}
-
-			// Handle skip_if
-			if (typeof opts.skip_if === 'boolean') {
-				if (opts.skip_if === false) {
-					module.skip_if = undefined
-				} else {
-					module.skip_if = {
-						expr: opts.skip_if_expr ?? ''
-					}
-				}
-			}
-
-			refreshStateStore(flowStore)
 			setModuleStatus(id, 'modified')
 		}
 	}
