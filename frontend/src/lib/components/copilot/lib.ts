@@ -14,6 +14,7 @@ import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
+import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
@@ -22,8 +23,7 @@ import { z } from 'zod'
 import {
 	convertAnthropicStreamToOpenAI,
 	convertOpenAIToAnthropicMessages,
-	convertOpenAIToolsToAnthropic,
-	type AnthropicRequest
+	convertOpenAIToolsToAnthropic
 } from './chat/anthropic'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
@@ -225,9 +225,11 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 
 class WorkspacedAIClients {
 	private openaiClient: OpenAI | undefined
+	private anthropicClient: Anthropic | undefined
 
 	init(workspace: string) {
 		this.initOpenai(workspace)
+		this.initAnthropic(workspace)
 	}
 
 	private getBaseURL(workspace: string) {
@@ -246,11 +248,27 @@ class WorkspacedAIClients {
 		})
 	}
 
+	private initAnthropic(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.anthropicClient = new Anthropic({
+			baseURL,
+			apiKey: 'fake-key',
+			dangerouslyAllowBrowser: true
+		})
+	}
+
 	getOpenaiClient() {
 		if (!this.openaiClient) {
 			throw new Error('OpenAI not initialized')
 		}
 		return this.openaiClient
+	}
+
+	getAnthropicClient() {
+		if (!this.anthropicClient) {
+			throw new Error('Anthropic not initialized')
+		}
+		return this.anthropicClient
 	}
 }
 
@@ -631,41 +649,32 @@ export async function getCompletion(
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
-	// If using Anthropic, handle format conversion and direct API call
+	// If using Anthropic, use the Anthropic SDK with format conversion
 	if (provider === 'anthropic') {
 		const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 		const anthropicTools = convertOpenAIToolsToAnthropic(tools)
 
-		const anthropicRequest: AnthropicRequest = {
+		const anthropicClient = workspaceAIClients.getAnthropicClient()
+
+		const anthropicParams = {
 			model: config.model,
-			max_tokens: config.max_tokens as number, // config always has a max_tokens for anthropic
+			max_tokens: config.max_tokens as number,
 			messages: anthropicMessages,
-			stream: true,
+			stream: true as const,
 			...(system && { system }),
 			...(anthropicTools && { tools: anthropicTools }),
 			...(typeof config.temperature === 'number' && { temperature: config.temperature })
 		}
 
-		const workspace = get(workspaceStore)
-		const response = await fetch(
-			`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/messages`,
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-Provider': provider,
-					'anthropic-version': '2023-06-01'
-				},
-				body: JSON.stringify(anthropicRequest),
-				signal: abortController.signal
+		const stream = await anthropicClient.messages.create(anthropicParams, {
+			signal: abortController.signal,
+			headers: {
+				'X-Provider': provider,
+				'anthropic-version': '2023-06-01'
 			}
-		)
+		})
 
-		if (!response.ok) {
-			throw new Error(`Anthropic API request failed: ${response.status} ${response.statusText}`)
-		}
-
-		return convertAnthropicStreamToOpenAI(config.model, response)
+		return convertAnthropicStreamToOpenAI(config.model, stream)
 	}
 
 	// For other providers, use the existing OpenAI client

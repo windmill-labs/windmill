@@ -1,83 +1,19 @@
 import { OpenAI } from 'openai'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-
-export interface AnthropicMessage {
-	role: 'user' | 'assistant'
-	content:
-		| string
-		| Array<
-				| {
-						type: 'text'
-						text: string
-						cache_control?: { type: 'ephemeral' }
-				  }
-				| {
-						type: 'tool_use'
-						id: string
-						name: string
-						input: any
-				  }
-				| {
-						type: 'tool_result'
-						tool_use_id: string
-						content: string
-				  }
-		  >
-}
-
-export interface AnthropicRequest {
-	model: string
-	max_tokens: number
-	messages: AnthropicMessage[]
-	system?: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
-	tools?: Array<{
-		name: string
-		description?: string
-		input_schema: any
-		cache_control?: { type: 'ephemeral' }
-	}>
-	stream?: boolean
-	temperature?: number
-}
-
-export interface AnthropicStreamEvent {
-	type: string
-	[key: string]: any
-}
-
-export interface AnthropicTool {
-	name: string
-	description?: string
-	input_schema: any
-	cache_control?: { type: 'ephemeral' }
-}
-
-export interface AnthropicSystemMessage {
-	type: 'text'
-	text: string
-	cache_control?: { type: 'ephemeral' }
-}
-
-export interface AnthropicContentBlockToolUse {
-	type: 'tool_use'
-	id: string
-	name: string
-	input: any
-}
-
-export interface AnthropicContentBlockText {
-	type: 'text'
-	text: string
-}
-
-export type AnthropicContentBlock = AnthropicContentBlockToolUse | AnthropicContentBlockText
+import type {
+	MessageParam,
+	TextBlockParam,
+	ToolUnion,
+	ToolUseBlockParam,
+	Tool
+} from '@anthropic-ai/sdk/resources'
 
 export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {
-	system: AnthropicSystemMessage[] | undefined
-	messages: AnthropicMessage[]
+	system: TextBlockParam[] | undefined
+	messages: MessageParam[]
 } {
-	let system: AnthropicSystemMessage[] | undefined
-	const anthropicMessages: AnthropicMessage[] = []
+	let system: TextBlockParam[] | undefined
+	const anthropicMessages: MessageParam[] = []
 
 	for (const message of messages) {
 		if (message.role === 'system') {
@@ -101,7 +37,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 			})
 		} else if (message.role === 'assistant') {
-			const content: AnthropicContentBlock[] = []
+			const content: (TextBlockParam | ToolUseBlockParam)[] = []
 
 			if (message.content) {
 				content.push({
@@ -180,13 +116,16 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 
 export function convertOpenAIToolsToAnthropic(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-): AnthropicTool[] | undefined {
+): ToolUnion[] | undefined {
 	if (!tools || tools.length === 0) return undefined
 
-	const anthropicTools: AnthropicTool[] = tools.map((tool) => ({
+	const anthropicTools: ToolUnion[] = tools.map((tool) => ({
 		name: tool.function.name,
 		description: tool.function.description,
-		input_schema: tool.function.parameters || { type: 'object', properties: {} }
+		input_schema: (tool.function.parameters || {
+			type: 'object',
+			properties: {}
+		}) as Tool.InputSchema
 	}))
 
 	// Add cache_control to the last tool to cache all tool definitions
@@ -199,139 +138,131 @@ export function convertOpenAIToolsToAnthropic(
 
 export async function* convertAnthropicStreamToOpenAI(
 	model: string,
-	response: Response
+	stream: Stream<MessageStreamEvent>
 ): AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> {
-	if (!response.body) {
-		throw new Error('Response body is null')
-	}
-
-	const reader = response.body.getReader()
-	const decoder = new TextDecoder()
-	let buffer = ''
 	let currentToolCall: { id: string; name: string; args: string } | null = null
-	let messageId = `chatcmpl-${Date.now()}`
+	const messageId = `chatcmpl-${Date.now()}`
 
 	try {
-		while (true) {
-			const { done, value } = await reader.read()
-			if (done) break
+		for await (const event of stream) {
+			switch (event.type) {
+				case 'message_start':
+					yield {
+						id: messageId,
+						object: 'chat.completion.chunk',
+						created: Math.floor(Date.now() / 1000),
+						model,
+						choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]
+					}
+					break
 
-			buffer += decoder.decode(value, { stream: true })
-			const lines = buffer.split('\n')
-			buffer = lines.pop() || ''
+				case 'content_block_start':
+					if (event.content_block?.type === 'tool_use') {
+						currentToolCall = {
+							id: event.content_block.id,
+							name: event.content_block.name,
+							args: ''
+						}
+					}
+					// Text and thinking blocks start here but don't need special handling
+					break
 
-			for (const line of lines) {
-				if (line.startsWith('data: ')) {
-					const data = line.slice(6)
-					if (data === '[DONE]') continue
-
-					try {
-						const event: AnthropicStreamEvent = JSON.parse(data)
-
-						if (event.type === 'message_start') {
+				case 'content_block_delta':
+					switch (event.delta?.type) {
+						case 'text_delta':
 							yield {
 								id: messageId,
 								object: 'chat.completion.chunk',
 								created: Math.floor(Date.now() / 1000),
 								model,
-								choices: [
-									{
-										index: 0,
-										delta: { role: 'assistant' },
-										finish_reason: null
-									}
-								]
+								choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
 							}
-						} else if (event.type === 'content_block_start') {
-							if (event.content_block?.type === 'tool_use') {
-								currentToolCall = {
-									id: event.content_block.id,
-									name: event.content_block.name,
-									args: ''
-								}
-							}
-						} else if (event.type === 'content_block_delta') {
-							if (event.delta?.type === 'text_delta') {
-								yield {
-									id: messageId,
-									object: 'chat.completion.chunk',
-									created: Math.floor(Date.now() / 1000),
-									model,
-									choices: [
-										{
-											index: 0,
-											delta: { content: event.delta.text },
-											finish_reason: null
-										}
-									]
-								}
-							} else if (event.delta?.type === 'thinking_delta') {
-								// For now, skip thinking content as it's internal to the model
-							} else if (event.delta?.type === 'input_json_delta' && currentToolCall) {
+							break
+
+						case 'input_json_delta':
+							if (currentToolCall) {
 								currentToolCall.args += event.delta.partial_json
 							}
-						} else if (event.type === 'content_block_stop') {
-							if (currentToolCall) {
-								// Emit tool call
-								yield {
-									id: messageId,
-									object: 'chat.completion.chunk',
-									created: Math.floor(Date.now() / 1000),
-									model,
-									choices: [
-										{
-											index: 0,
-											delta: {
-												tool_calls: [
-													{
-														index: 0,
-														id: currentToolCall.id,
-														type: 'function' as const,
-														function: {
-															name: currentToolCall.name,
-															arguments: currentToolCall.args
-														}
-													}
-												]
-											},
-											finish_reason: null
-										}
-									]
-								}
-								currentToolCall = null
-							}
-						} else if (event.type === 'message_delta') {
-							const finishReason =
-								event.delta?.stop_reason === 'end_turn'
-									? 'stop'
-									: event.delta?.stop_reason === 'tool_use'
-										? 'tool_calls'
-										: event.delta?.stop_reason === 'max_tokens'
-											? 'length'
-											: null
+							break
 
-							yield {
-								id: messageId,
-								object: 'chat.completion.chunk',
-								created: Math.floor(Date.now() / 1000),
-								model,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: finishReason
-									}
-								]
-							}
-						}
-					} catch (e) {
-						// Skip invalid JSON
-						console.warn('Failed to parse Anthropic SSE event:', data)
+						case 'thinking_delta':
+							// Skip thinking deltas - they're internal reasoning
+							break
+
+						default:
+							// Handle unknown delta types gracefully
+							break
 					}
-				}
+					break
+
+				case 'content_block_stop':
+					if (currentToolCall) {
+						// Emit completed tool call
+						yield {
+							id: messageId,
+							object: 'chat.completion.chunk',
+							created: Math.floor(Date.now() / 1000),
+							model,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: currentToolCall.id,
+												type: 'function' as const,
+												function: { name: currentToolCall.name, arguments: currentToolCall.args }
+											}
+										]
+									},
+									finish_reason: null
+								}
+							]
+						}
+						currentToolCall = null
+					}
+					break
+
+				case 'message_delta':
+					const finishReason =
+						event.delta?.stop_reason === 'end_turn'
+							? 'stop'
+							: event.delta?.stop_reason === 'tool_use'
+								? 'tool_calls'
+								: event.delta?.stop_reason === 'max_tokens'
+									? 'length'
+									: null
+
+					yield {
+						id: messageId,
+						object: 'chat.completion.chunk',
+						created: Math.floor(Date.now() / 1000),
+						model,
+						choices: [{ index: 0, delta: {}, finish_reason: finishReason }]
+					}
+					break
+
+				case 'message_stop':
+					// Stream completed successfully
+					break
+
+				case 'ping':
+					// Ignore ping events
+					break
+
+				case 'error':
+					// Handle error events
+					throw new Error(`Anthropic stream error: ${JSON.stringify(event.error)}`)
+
+				default:
+					// Handle unknown event types gracefully as per Anthropic docs
+					console.debug('Unknown Anthropic stream event type:', event.type)
+					break
 			}
 		}
-	} finally {
-		reader.releaseLock()
+	} catch (error) {
+		console.error('Error processing Anthropic stream:', error)
+		throw error
 	}
 }

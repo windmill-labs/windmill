@@ -304,7 +304,7 @@ impl AIProvider {
             AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
             AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
-            AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
+            AIProvider::Anthropic => Ok("https://api.anthropic.com".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
             p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
                 if let Some(base_url) = resource_base_url {
