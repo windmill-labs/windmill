@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
+use crate::utils::get_root_job_id;
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
@@ -2857,6 +2858,8 @@ async fn push_next_flow_job(
                 flow_job.permissioned_as.to_owned(),
             )
         };
+
+        let flow_root_job = get_root_job_id(&flow_job);
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2874,7 +2877,7 @@ async fn push_next_flow_job(
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
-            Some(flow_job.root_job.unwrap_or(flow_job.id)),
+            Some(flow_root_job.unwrap_or(flow_job.id)),
             flow_innermost_root_job,
             None,
             true,

@@ -2032,7 +2032,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
-        Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2142,7 +2142,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
-        Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2233,7 +2233,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
-        Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -4693,6 +4693,14 @@ pub async fn push<'c, 'd>(
         None
     };
 
+    let root_job =
+        if root_job.is_some() && (root_job == flow_innermost_root_job || root_job == parent_job) {
+            // if the root job is the innermost root job or parent job, we don't need to set the root job, we fallback to flow_innermost_root_job and parent_job when we get it
+            None
+        } else {
+            root_job
+        };
+
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -5147,6 +5155,7 @@ pub async fn get_same_worker_job(
                     v2_job.concurrent_limit,
                     v2_job.concurrency_time_window_s,
                     v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
