@@ -39,7 +39,8 @@ export async function getAnthropicCompletion(
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider,
-			'anthropic-version': '2023-06-01'
+			'anthropic-version': '2023-06-01',
+			'X-Anthropic-SDK': 'true'
 		}
 	})
 

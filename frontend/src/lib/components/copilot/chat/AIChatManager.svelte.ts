@@ -411,46 +411,27 @@ class AIChatManager {
 				}
 
 				const model = getCurrentModel()
+				const completionFn = model.provider === 'anthropic' ? getAnthropicCompletion : getCompletion
+				const parseFn =
+					model.provider === 'anthropic' ? parseAnthropicCompletion : parseOpenAICompletion
 
-				if (model.provider === 'anthropic') {
-					const completion = await getAnthropicCompletion(
-						[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
-						abortController,
-						tools.map((t) => t.def)
+				const completion = await completionFn(
+					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
+					abortController,
+					tools.map((t) => t.def)
+				)
+
+				if (completion) {
+					const continueCompletion = await parseFn(
+						completion as any,
+						callbacks,
+						messages,
+						addedMessages,
+						tools,
+						helpers
 					)
-
-					if (completion) {
-						const continueCompletion = await parseAnthropicCompletion(
-							completion,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers
-						)
-						if (!continueCompletion) {
-							break
-						}
-					}
-				} else {
-					const completion = await getCompletion(
-						[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
-						abortController,
-						tools.map((t) => t.def)
-					)
-
-					if (completion) {
-						const continueCompletion = await parseOpenAICompletion(
-							completion,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers
-						)
-						if (!continueCompletion) {
-							break
-						}
+					if (!continueCompletion) {
+						break
 					}
 				}
 			}
