@@ -94,9 +94,9 @@ export async function parseAnthropicCompletion(
 	})
 
 	// Handle errors
-	completion.on('error', (error: any) => {
-		console.error('Anthropic stream error:', error)
-		error = error
+	completion.on('error', (e: any) => {
+		console.error('Anthropic stream error:', e)
+		error = e
 	})
 
 	// Wait for completion
