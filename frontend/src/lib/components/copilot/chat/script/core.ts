@@ -5,7 +5,7 @@ import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
 	ChatCompletionSystemMessageParam,
-	ChatCompletionTool,
+	ChatCompletionFunctionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas, getCurrentModel } from '$lib/stores'
@@ -498,7 +498,7 @@ export function prepareScriptUserMessage(
 	}
 }
 
-const RESOURCE_TYPE_FUNCTION_DEF: ChatCompletionTool = {
+const RESOURCE_TYPE_FUNCTION_DEF: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		name: 'search_resource_types',
@@ -519,7 +519,7 @@ const RESOURCE_TYPE_FUNCTION_DEF: ChatCompletionTool = {
 	}
 }
 
-const DB_SCHEMA_FUNCTION_DEF: ChatCompletionTool = {
+const DB_SCHEMA_FUNCTION_DEF: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		name: 'get_db_schema',
@@ -693,7 +693,7 @@ export async function searchExternalIntegrationResources(args: { query: string }
 	}
 }
 
-const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionTool = {
+const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		name: 'search_npm_packages',
@@ -778,7 +778,7 @@ export async function fetchNpmPackageTypes(
 	}
 }
 
-const TEST_RUN_SCRIPT_TOOL: ChatCompletionTool = {
+const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		name: 'test_run_script',

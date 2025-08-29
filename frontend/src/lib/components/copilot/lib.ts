@@ -7,18 +7,23 @@ import {
 	type SQLSchema
 } from '$lib/stores'
 import { buildClientSchema, printSchema } from 'graphql'
-import { OpenAI } from 'openai'
+import OpenAI from 'openai'
 import type {
+	ChatCompletionChunk,
 	ChatCompletionCreateParams,
 	ChatCompletionCreateParamsNonStreaming,
 	ChatCompletionCreateParamsStreaming,
+	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
+import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
+import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import type { Stream } from 'openai/core/streaming.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -219,9 +224,11 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 
 class WorkspacedAIClients {
 	private openaiClient: OpenAI | undefined
+	private anthropicClient: Anthropic | undefined
 
 	init(workspace: string) {
 		this.initOpenai(workspace)
+		this.initAnthropic(workspace)
 	}
 
 	private getBaseURL(workspace: string) {
@@ -240,11 +247,27 @@ class WorkspacedAIClients {
 		})
 	}
 
+	private initAnthropic(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.anthropicClient = new Anthropic({
+			baseURL,
+			apiKey: 'fake-key',
+			dangerouslyAllowBrowser: true
+		})
+	}
+
 	getOpenaiClient() {
 		if (!this.openaiClient) {
 			throw new Error('OpenAI not initialized')
 		}
 		return this.openaiClient
+	}
+
+	getAnthropicClient() {
+		if (!this.anthropicClient) {
+			throw new Error('Anthropic not initialized')
+		}
+		return this.anthropicClient
 	}
 }
 
@@ -460,7 +483,7 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
-function getProviderAndCompletionConfig<K extends boolean>({
+export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
 	tools,
@@ -622,16 +645,119 @@ export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-) {
+): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+
 	const openaiClient = workspaceAIClients.getOpenaiClient()
-	const completion = await openaiClient.chat.completions.create(config, {
+	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
 		}
 	})
 	return completion
+}
+
+export async function parseOpenAICompletion(
+	completion: Stream<ChatCompletionChunk>,
+	callbacks: ToolCallbacks & {
+		onNewToken: (token: string) => void
+		onMessageEnd: () => void
+	},
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	tools: Tool<any>[],
+	helpers: any
+): Promise<boolean> {
+	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+
+	let answer = ''
+	for await (const chunk of completion) {
+		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
+			continue
+		}
+		const c = chunk as ChatCompletionChunk
+		const delta = c.choices[0].delta.content
+		if (delta) {
+			answer += delta
+			callbacks.onNewToken(delta)
+		}
+		const toolCalls = c.choices[0].delta.tool_calls || []
+		if (toolCalls.length > 0 && answer) {
+			// if tool calls are present but we have some textual content already, we need to display it to the user first
+			callbacks.onMessageEnd()
+			answer = ''
+		}
+		for (const toolCall of toolCalls) {
+			const { index } = toolCall
+			let finalToolCall = finalToolCalls[index]
+			if (!finalToolCall) {
+				finalToolCalls[index] = toolCall
+			} else {
+				if (toolCall.function?.arguments) {
+					if (!finalToolCall.function) {
+						finalToolCall.function = toolCall.function
+					} else {
+						finalToolCall.function.arguments =
+							(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+					}
+				}
+			}
+			finalToolCall = finalToolCalls[index]
+			if (finalToolCall?.function) {
+				const {
+					function: { name: funcName },
+					id: toolCallId
+				} = finalToolCall
+				if (funcName && toolCallId) {
+					const tool = tools.find((t) => t.def.function.name === funcName)
+					if (tool && tool.preAction) {
+						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					}
+				}
+			}
+		}
+	}
+
+	if (answer) {
+		const toAdd = { role: 'assistant' as const, content: answer }
+		addedMessages.push(toAdd)
+		messages.push(toAdd)
+	}
+
+	callbacks.onMessageEnd()
+
+	const toolCalls = Object.values(finalToolCalls).filter(
+		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+	) as ChatCompletionMessageFunctionToolCall[]
+
+	if (toolCalls.length > 0) {
+		const toAdd = {
+			role: 'assistant' as const,
+			tool_calls: toolCalls.map((t) => ({
+				...t,
+				function: {
+					...t.function,
+					arguments: t.function.arguments || '{}'
+				}
+			}))
+		}
+		messages.push(toAdd)
+		addedMessages.push(toAdd)
+		for (const toolCall of toolCalls) {
+			const messageToAdd = await processToolCall({
+				tools,
+				toolCall,
+				helpers,
+				toolCallbacks: callbacks
+			})
+			messages.push(messageToAdd)
+			addedMessages.push(messageToAdd)
+		}
+	} else {
+		return false
+	}
+	return true
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
@@ -757,7 +883,7 @@ export async function deltaCodeCompletion(
 		}
 
 		if (!match[1].endsWith('`')) {
-			// skip udpating if possible that part of three ticks (end of code block)s
+			// skip updating if possible that part of three ticks (end of code block)s
 			delta = getStringEndDelta(code, match[1])
 			generatedCodeDelta.set(delta)
 			code = match[1]
