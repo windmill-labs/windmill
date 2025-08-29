@@ -150,7 +150,7 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
-	import { editorPositionMap, readFieldsRecursively } from '$lib/utils'
+	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
