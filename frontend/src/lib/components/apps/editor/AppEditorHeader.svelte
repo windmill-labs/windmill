@@ -10,6 +10,7 @@
 	import { AppService, DraftService, SettingService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import type { Item } from '$lib/utils'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
