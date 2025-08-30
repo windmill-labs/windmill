@@ -2,26 +2,18 @@
 #[allow(unused)]
 pub use crate::gcp_triggers_ee::*;
 
-use serde_json::value::RawValue;
-use sqlx::prelude::FromRow;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use sqlx::types::Json as SqlxJson;
-use windmill_common::worker::to_raw_value;
-use windmill_common::triggers::TriggerKind;
-use crate::trigger_helpers::TriggerJobArgs;
-
 #[cfg(not(feature = "private"))]
 use {
-    crate::db::{ApiAuthed, DB},
-    axum::{extract::Request, Router},
-    http::HeaderMap,
-    windmill_common::db::UserDB,
-    windmill_common::{
-        error::{Error as WindmillError, Result as WindmillResult},
-        utils::empty_as_none,
-    },
+    crate::{db::DB, trigger_helpers::TriggerJobArgs},
+    serde::{Deserialize, Serialize},
+    serde_json::value::RawValue,
+    sqlx::FromRow,
+    std::collections::HashMap,
+    windmill_common::{triggers::TriggerKind, utils::empty_as_none, worker::to_raw_value},
 };
+
+#[cfg(not(feature = "private"))]
+type SqlxJson<T> = sqlx::types::Json<T>;
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
@@ -78,11 +70,6 @@ pub enum SubscriptionMode {
 }
 
 #[cfg(not(feature = "private"))]
-pub fn workspaced_service() -> Router {
-    Router::new()
-}
-
-#[cfg(not(feature = "private"))]
 pub fn start_consuming_gcp_pubsub_event(
     _db: DB,
     mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -91,49 +78,6 @@ pub fn start_consuming_gcp_pubsub_event(
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn manage_google_subscription(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _workspace_id: &str,
-    _gcp_resource_path: &str,
-    _path: &str,
-    _topic_id: &str,
-    _subscription_id: &mut Option<String>,
-    _base_endpoint: &mut Option<String>,
-    _subscription_mode: SubscriptionMode,
-    _create_update_config: Option<CreateUpdateConfig>,
-    _trigger_mode: bool,
-    _is_flow: bool,
-) -> WindmillResult<CreateUpdateConfig> {
-    Ok(CreateUpdateConfig::default())
-}
-
-#[cfg(not(feature = "private"))]
-pub async fn process_google_push_request(
-    _headers: HeaderMap,
-    _request: Request,
-) -> Result<(String, HashMap<String, Box<RawValue>>), WindmillError> {
-    Ok((String::new(), HashMap::new()))
-}
-
-#[cfg(not(feature = "private"))]
-pub async fn validate_jwt_token(
-    _db: &DB,
-    _user_db: UserDB,
-    _authed: ApiAuthed,
-    _headers: &HeaderMap,
-    _gcp_resource_path: &str,
-    _workspace_id: &str,
-    _delivery_config: &PushConfig,
-) -> Result<(), windmill_common::error::Error> {
-    Ok(())
-}
-
-#[cfg(not(feature = "private"))]
-pub fn gcp_push_route_handler() -> Router {
-    Router::new()
-}
-
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 pub struct GcpTrigger {
     pub gcp_resource_path: String,
@@ -164,6 +108,7 @@ pub struct GcpTrigger {
     pub auto_acknowledge_msg: Option<bool>,
 }
 
+#[cfg(not(feature = "private"))]
 impl TriggerJobArgs<String> for GcpTrigger {
     fn v1_payload_fn(payload: String) -> HashMap<String, Box<RawValue>> {
         HashMap::from([("payload".to_string(), to_raw_value(&payload))])
