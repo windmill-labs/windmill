@@ -256,29 +256,30 @@
 			// clear the input
 			el.value = oldName
 		} else {
+			let newSchema = $state.snapshot(schema)
 			if (args) {
 				args[newName] = args[oldName]
 				delete args[oldName]
 			}
 
-			schema.properties[newName] = schema.properties[oldName]
-			delete schema.properties[oldName]
+			newSchema.properties[newName] = newSchema.properties[oldName]
+			delete newSchema.properties[oldName]
 
-			if (schema.required?.includes(oldName)) {
-				schema.required = schema.required?.map((x) => (x === oldName ? newName : x))
+			if (newSchema.required?.includes(oldName)) {
+				newSchema.required = newSchema.required?.map((x) => (x === oldName ? newName : x))
 			}
 
 			// Replace the old name with the new name in the order array
-			if (schema.order) {
-				const index = schema.order.indexOf(oldName)
+			if (newSchema.order) {
+				const index = newSchema.order.indexOf(oldName)
 				if (index !== -1) {
-					schema.order[index] = newName
+					newSchema.order[index] = newName
 				}
 			}
 
 			opened = newName
 
-			schema = { ...schema }
+			schema = newSchema
 
 			sendUserToast('Argument renamed')
 		}
