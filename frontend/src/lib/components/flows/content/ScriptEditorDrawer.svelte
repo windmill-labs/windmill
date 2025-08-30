@@ -23,6 +23,7 @@
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined
+		closeAnyway = false
 		scriptEditorDrawer?.openDrawer?.()
 		script = await ScriptService.getScriptByHash({
 			workspace: $workspaceStore!,
@@ -114,7 +115,6 @@
 	async function checkForUnsavedChanges() {
 		if (closeAnyway) {
 			scriptEditorDrawer?.closeDrawer()
-			closeAnyway = false
 			return
 		}
 		if (savedScript && script) {
@@ -122,12 +122,15 @@
 			const current = cleanValueProperties(script)
 			if (orderedJsonStringify(saved) !== orderedJsonStringify(current)) {
 				unsavedModalOpen = true
+				scriptEditorDrawer?.openDrawer()
 			} else {
 				scriptEditorDrawer?.closeDrawer()
 			}
 		}
 	}
 	let args = $state({})
+
+	let displayEditor = $state(true)
 </script>
 
 <ConfirmationModal
@@ -138,8 +141,9 @@
 		unsavedModalOpen = false
 	}}
 	on:confirmed={() => {
-		unsavedModalOpen = false
+		console.log('confirmed')
 		closeAnyway = true
+		unsavedModalOpen = false
 		scriptEditorDrawer?.closeDrawer()
 	}}
 >
@@ -156,7 +160,7 @@
 				}
 				unsavedModalOpen = false
 				closeAnyway = true
-				scriptEditorDrawer?.closeDrawer()
+				displayEditor = false
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					title: 'Saved <> Current',
@@ -182,7 +186,6 @@
 	bind:this={scriptEditorDrawer}
 	size="1200px"
 	on:close={() => {
-		scriptEditorDrawer?.openDrawer()
 		checkForUnsavedChanges()
 	}}
 >
@@ -195,7 +198,7 @@
 			scriptEditorDrawer?.closeDrawer()
 		}}
 	>
-		{#if script}
+		{#if script && displayEditor}
 			{#key script.hash}
 				<ScriptEditor
 					showCaptures={false}
@@ -236,7 +239,7 @@
 						return
 					}
 					closeAnyway = true
-					scriptEditorDrawer?.closeDrawer()
+					displayEditor = false
 					diffDrawer?.openDrawer()
 					diffDrawer?.setDiff({
 						mode: 'simple',
@@ -276,10 +279,6 @@
 <DiffDrawer
 	bind:this={diffDrawer}
 	on:close={() => {
-		if (!closeAnyway) {
-			scriptEditorDrawer?.openDrawer()
-		} else {
-			closeAnyway = false
-		}
+		displayEditor = true
 	}}
 />
