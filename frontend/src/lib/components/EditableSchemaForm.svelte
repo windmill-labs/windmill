@@ -278,8 +278,8 @@
 
 			opened = newName
 
-			// schema = $state.snapshot(schema)
-			// dispatch('change', schema)
+			schema = { ...schema }
+
 			sendUserToast('Argument renamed')
 		}
 	}
