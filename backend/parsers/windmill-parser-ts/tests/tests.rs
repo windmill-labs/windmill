@@ -618,6 +618,35 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_dyn_multiselect() {
+        let code = r#"
+        export async function main(
+            selector: DynMultiselect_my_options
+        ) {
+            return selector;
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(
+            sig,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    name: "selector".to_string(),
+                    otyp: None,
+                    typ: Typ::DynMultiselect("my_options".to_string()),
+                    default: None,
+                    has_default: false,
+                    oidx: None,
+                }],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false),
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_invalid_typescript() {
         let code = r#"
         this is not valid typescript code {

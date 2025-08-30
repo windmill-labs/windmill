@@ -69,6 +69,7 @@ pub enum Typ {
     Email,
     Sql,
     DynSelect(String),
+    DynMultiselect(String),
     Object(ObjectType),
     OneOf(Vec<OneOfVariant>),
     #[default]

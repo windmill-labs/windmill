@@ -235,6 +235,9 @@ fn parse_typ(id: &str) -> Typ {
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
         }
+        x @ _ if x.starts_with("DynMultiselect_") => {
+            Typ::DynMultiselect(x.strip_prefix("DynMultiselect_").unwrap().to_string())
+        }
         _ => Typ::Resource(map_resource_name(id)),
     }
 }

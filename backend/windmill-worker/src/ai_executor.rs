@@ -212,6 +212,7 @@ impl OpenAPISchema {
             Typ::Email => Self::from_str("string"),
             Typ::Sql => Self::from_str("string"),
             Typ::DynSelect(_) => Self::from_str("string"),
+            Typ::DynMultiselect(_) => Self::from_str("string"),
             Typ::List(typ) => OpenAPISchema {
                 r#type: "array".to_string(),
                 items: Some(Box::new(Self::from_typ(typ))),

@@ -60,6 +60,7 @@ export function argSigToJsonSchemaType(
 					| null
 		  }
 		| { dynselect: string }
+		| { dynmultselect: string }
 		| { str: string[] | null }
 		| { object: { name?: string; props?: { key: string; typ: any }[] } }
 		| {
@@ -150,7 +151,11 @@ export function argSigToJsonSchemaType(
 	} else if (typeof t !== 'string' && `dynselect` in t) {
 		newS.type = 'object'
 		newS.format = `dynselect-${t.dynselect}`
-	} else if (typeof t !== 'string' && `list` in t) {
+	}  else if (typeof t !== 'string' && `dynmultiselect` in t) {
+		newS.type = 'object'
+		newS.format = `dynmultiselect-${t.dynmultiselect}`
+	}
+	else if (typeof t !== 'string' && `list` in t) {
 		newS.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
 			newS.items = { type: 'number' }
