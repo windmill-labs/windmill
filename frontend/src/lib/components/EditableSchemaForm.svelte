@@ -21,7 +21,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
 	import {
-		DynamicSelect,
+		DynamicInput,
 		emptyString,
 		generateRandomString,
 		readFieldsRecursively
@@ -484,55 +484,53 @@
 
 						{@render runButton?.()}
 
-						<div class="h-full">
-							{#if dynamicFunctions.length > 0}
-								<Section
-									label="Dynamic input functions"
-									collapsable={true}
-									collapsed={false}
-									class="text-sm"
-								>
-									<div class="flex flex-col gap-2 h-full">
-										{#if dynamicFunctions.length > 0}
-											<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-												<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
-													Expected Functions for Dynamic Input Fields:
-												</div>
-												<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-													{#each dynamicFunctions as functionName}
-														<li class="font-mono bg-blue-100 dark:bg-blue-800/30 px-2 py-1 rounded">
-															{functionName}()
-														</li>
-													{/each}
-												</ul>
+						{#if dynamicFunctions.length > 0}
+							<Section
+								label="Dynamic input functions"
+								collapsable={true}
+								collapsed={false}
+								class="text-sm"
+							>
+								<div class="flex flex-col gap-2 h-full">
+									{#if dynamicFunctions.length > 0}
+										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+												Expected Functions for Dynamic Input Fields:
 											</div>
-										{/if}
-										<ToggleButtonGroup
-											bind:selected={dynLang}
-											on:selected={({ detail }) => {
-												dynCode = initDynFn(detail)
-											}}
-										>
-											{#snippet children({ item })}
-												<ToggleButton value="bun" label="Typescript (Bun)" {item} />
-												<ToggleButton value="python3" label="Python" {item} />
-											{/snippet}
-										</ToggleButtonGroup>
-										{#key dynLang}
-											<div class="border w-full h-full">
-												<Editor
-													bind:this={dynamicSelectEditor}
-													class="flex flex-1 grow h-80 w-full"
-													scriptLang={dynLang}
-													useWebsockets={false}
-													automaticLayout
-													bind:code={dynCode}
-												/>
-											</div>
-										{/key}
-									</div>
-								</Section>
-							</div>
+											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+												{#each dynamicFunctions as functionName}
+													<li class="font-mono bg-blue-100 dark:bg-blue-800/30 px-2 py-1 rounded">
+														{functionName}()
+													</li>
+												{/each}
+											</ul>
+										</div>
+									{/if}
+									<ToggleButtonGroup
+										bind:selected={dynLang}
+										on:selected={({ detail }) => {
+											dynCode = initDynFn(detail)
+										}}
+									>
+										{#snippet children({ item })}
+											<ToggleButton value="bun" label="Typescript (Bun)" {item} />
+											<ToggleButton value="python3" label="Python" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+									{#key dynLang}
+										<div class="border w-full h-full">
+											<Editor
+												bind:this={dynamicSelectEditor}
+												class="flex flex-1 grow h-80 w-full"
+												scriptLang={dynLang}
+												useWebsockets={false}
+												automaticLayout
+												bind:code={dynCode}
+											/>
+										</div>
+									{/key}
+								</div>
+							</Section>
 						{/if}
 					</div>
 				</div>
