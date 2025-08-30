@@ -638,7 +638,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: setForLoopOptionsToolDef,
+		def: {
+			...setForLoopOptionsToolDef,
+			function: { ...setForLoopOptionsToolDef.function, strict: false }
+		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setForLoopOptionsSchema.parse(args)
 			await helpers.setForLoopOptions(parsedArgs.id, {
@@ -656,7 +659,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: setModuleControlOptionsToolDef,
+		def: {
+			...setModuleControlOptionsToolDef,
+			function: { ...setModuleControlOptionsToolDef.function, strict: false }
+		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setModuleControlOptionsSchema.parse(args)
 			await helpers.setModuleControlOptions(parsedArgs.id, {
