@@ -58,8 +58,7 @@
 	let {
 		schema = $bindable(),
 		jsonView = $bindable(false),
-		hiddenArgs = undefined,
-		onClose = undefined
+		hiddenArgs = undefined
 	}: Props = $props()
 
 	// let schema = $state(structuredClone($state.snapshot(schema)))
@@ -80,7 +79,7 @@
 		id: string
 	}>
 
-	let rnd = generateRandomString()
+	const rnd = generateRandomString()
 </script>
 
 <div class="flex flex-col items-end mb-2 w-full">
@@ -113,85 +112,81 @@
 />
 
 {#if !jsonView}
-	<div
-		use:dragHandleZone={{
-			items,
-			flipDurationMs,
-			dropTargetStyle: {},
-			type: rnd
-		}}
-		onconsider={handleConsider}
-		onfinalize={handleFinalize}
-		class="gap-1 flex flex-col mt-2"
-	>
-		{#if items?.length > 0}
-			{#each items as item (item.id)}
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div
-					animate:flip={{ duration: 200 }}
-					class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
-				>
-					{#if schema.properties?.[item.value]}
-						<div class="flex flex-row justify-between items-center w-full">
-							{`${item.value}${
-								schema.properties?.[item.value]?.title
-									? ` (title: ${schema.properties?.[item.value]?.title})`
-									: ''
-							} `}
-							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div class="flex flex-row gap-1 item-center h-full justify-center">
-								<Button
-									iconOnly
-									size="xs2"
-									color="light"
-									startIcon={{ icon: Trash }}
-									on:click={() => {
-										addPropertyComponent?.handleDeleteArgument([item.value])
-									}}
-								/>
-								<Button
-									iconOnly
-									size="xs2"
-									color="light"
-									startIcon={{ icon: Pen }}
-									on:click={() => {
-										schemaFormDrawer?.openDrawer()
-
-										tick().then(() => {
-											editableSchemaForm?.openField(item.value)
-										})
-									}}
-								/>
-
-								<div class="cursor-move flex items-center handle" use:dragHandle>
-									<GripVertical size={16} />
-								</div>
-							</div>
-						</div>
-
-						{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
-							<div class="flex flex-col w-full mt-2">
-								<Label label="Nested properties">
-									<EditableSchemaDrawer
-										bind:schema={schema.properties[item.value]}
-										onClose={() => {
-											onClose?.()
+	{#key rnd}
+		<div
+			use:dragHandleZone={{
+				items,
+				flipDurationMs,
+				dropTargetStyle: {},
+				type: rnd
+			}}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
+			class="gap-1 flex flex-col mt-2"
+		>
+			{#if items?.length > 0}
+				{#each items as item (item.id)}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						animate:flip={{ duration: 200 }}
+						class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
+					>
+						{#if schema.properties?.[item.value]}
+							<div class="flex flex-row justify-between items-center w-full">
+								{`${item.value}${
+									schema.properties?.[item.value]?.title
+										? ` (title: ${schema.properties?.[item.value]?.title})`
+										: ''
+								} `}
+								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="flex flex-row gap-1 item-center h-full justify-center">
+									<Button
+										iconOnly
+										size="xs2"
+										color="light"
+										startIcon={{ icon: Trash }}
+										on:click={() => {
+											addPropertyComponent?.handleDeleteArgument([item.value])
 										}}
 									/>
-								</Label>
-							</div>
-						{/if}
-					{:else}
-						<div class="text-tertiary"> Value is undefined </div>
-					{/if}
-				</div>
-			{/each}
-		{/if}
-	</div>
+									<Button
+										iconOnly
+										size="xs2"
+										color="light"
+										startIcon={{ icon: Pen }}
+										on:click={() => {
+											schemaFormDrawer?.openDrawer()
 
-	<Drawer bind:this={schemaFormDrawer} size="1200px" on:close={() => onClose?.()}>
-		{#snippet children({ isTop })}
+											tick().then(() => {
+												editableSchemaForm?.openField(item.value)
+											})
+										}}
+									/>
+
+									<div class="flex items-center handle" use:dragHandle>
+										<GripVertical size={16} />
+									</div>
+								</div>
+							</div>
+
+							{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
+								<div class="flex flex-col w-full mt-2">
+									<Label label="Nested properties">
+										<EditableSchemaDrawer bind:schema={schema.properties[item.value]} />
+									</Label>
+								</div>
+							{/if}
+						{:else}
+							<div class="text-tertiary"> Value is undefined </div>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+		</div>
+	{/key}
+	<Drawer bind:this={schemaFormDrawer} size="1200px">
+		{#snippet children()}
 			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
 				<EditableSchemaForm
 					schemaFormClassName="h-full"
@@ -205,7 +200,6 @@
 						addPropertyComponent?.handleDeleteArgument([e.detail])
 					}}
 					{hiddenArgs}
-					disableDnd={!isTop}
 					editTab="inputEditor"
 				>
 					{#snippet addProperty()}

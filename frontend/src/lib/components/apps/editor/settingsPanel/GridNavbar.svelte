@@ -122,7 +122,7 @@
 	let resolvedPaths: string[] = $state([])
 	let resolvedLabels: string[] = $state([])
 
-	let rnd = generateRandomString()
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection

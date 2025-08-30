@@ -52,11 +52,12 @@
 	}
 
 	export function closeDrawer() {
+		if (open) {
+			setTimeout(() => {
+				dispatch('afterClose')
+			}, durationMs)
+		}
 		disposable?.closeDrawer()
-
-		setTimeout(() => {
-			dispatch('afterClose')
-		}, durationMs)
 	}
 
 	export function isOpen() {

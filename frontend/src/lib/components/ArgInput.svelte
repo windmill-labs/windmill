@@ -1089,18 +1089,13 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
-							bind:schema={
-								() => ({
-									properties,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object',
-									order
-								}),
-								(newSchema) => {
-									dispatch('nestedChange')
-								}
-							}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
 							bind:args={value}
 							on:reorder={(e) => {
 								const keys = e.detail

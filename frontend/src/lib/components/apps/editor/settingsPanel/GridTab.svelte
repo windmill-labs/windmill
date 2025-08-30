@@ -159,7 +159,7 @@
 		}
 	}
 
-	let rnd = generateRandomString()
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection title={`${word}s ${tabs && tabs.length > 0 ? `(${tabs.length})` : ''}`}>

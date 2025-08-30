@@ -104,7 +104,7 @@
 		items = newItems
 	}
 
-	let rnd = generateRandomString()
+	const rnd = generateRandomString()
 </script>
 
 {#if components}
