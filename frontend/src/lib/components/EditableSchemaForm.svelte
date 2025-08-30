@@ -168,9 +168,10 @@
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	let keys: string[] = $state(
-		Array.isArray(schema?.order)
+		(Array.isArray(schema?.order)
 			? [...schema.order]
 			: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
+		).filter((x) => !hiddenArgs?.includes(x))
 	)
 
 	function alignOrderWithProperties(schema: {
@@ -204,7 +205,9 @@
 		if (alignOrderWithProperties(schema)) {
 			// console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
 		}
-		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
+		let lkeys = (schema?.order ?? Object.keys(schema?.properties ?? {})).filter(
+			(x) => !hiddenArgs?.includes(x)
+		)
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = [...lkeys]
 			if (opened == undefined) {
@@ -423,6 +426,7 @@
 									schema = newSchema
 								}
 							}
+							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
 							bind:args
@@ -641,7 +645,7 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
