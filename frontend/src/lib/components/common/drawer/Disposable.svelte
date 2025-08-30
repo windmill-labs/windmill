@@ -97,10 +97,6 @@
 	let wasEverOpen = false
 	let lastOpen = open
 	$effect.pre(() => {
-		untrack(() => {
-			console.log('open', open, lastOpen, id, wasEverOpen)
-		})
-
 		if (open === untrack(() => lastOpen)) {
 			return
 		}
