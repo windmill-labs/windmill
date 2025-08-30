@@ -1,22 +1,28 @@
 <script lang="ts">
 	import { readFieldsRecursively } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 	import type { EditableSchemaWrapperProps } from './editable_schema_wrapper'
 	import EditableSchemaWrapper from './EditableSchemaWrapper.svelte'
 
-	let { schema: oldSchema, ...props }: EditableSchemaWrapperProps = $props()
+	let {
+		schema: oldSchema,
+		onSchemaChange,
+		...props
+	}: EditableSchemaWrapperProps & { onSchemaChange?: (schema: any) => void } = $props()
 
 	let schema = $state(oldSchema)
 
+	let lastSchema = $state.snapshot(schema)
 	$effect(() => {
-		console.log('schema 2', schema)
-	})
-
-	$effect(() => {
-		readFieldsRecursively(schema)
-		console.log('schema 3', schema)
+		if (onSchemaChange) {
+			readFieldsRecursively(schema)
+			let newSchema = $state.snapshot(schema)
+			if (!deepEqual(lastSchema, newSchema)) {
+				lastSchema = newSchema
+				onSchemaChange(newSchema)
+			}
+		}
 	})
 </script>
-
-{JSON.stringify(schema)}
 
 <EditableSchemaWrapper bind:schema {...props} />

@@ -992,8 +992,11 @@
 													}
 												}
 												bind:args={value}
-												dndType={`nested-${title}`}
-												hiddenArgs={['label', 'kind']}
+												hiddenArgs={[
+													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+														? 'kind'
+														: 'label'
+												]}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -1099,7 +1102,6 @@
 								}
 							}
 							bind:args={value}
-							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys

@@ -25,4 +25,12 @@
 </script>
 
 <!-- <ScriptWrapper {script} neverShowMeta={true} {customUi} /> -->
-<EditableSchemaSdkWrapper {customUi} {schema} />
+{JSON.stringify(schema)}
+<EditableSchemaSdkWrapper
+	{customUi}
+	{schema}
+	onSchemaChange={(newSchema) => {
+		console.log('onSchemaChange', newSchema)
+		schema = newSchema
+	}}
+/>

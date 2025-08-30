@@ -180,7 +180,6 @@
 			let nkeys = Object.keys(schema.properties ?? {})
 
 			if (!deepEqual(keys, nkeys)) {
-				console.log('keys', nkeys)
 				keys = nkeys
 				dispatch('change')
 			}

@@ -6,9 +6,8 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
-	import type { DynamicSelect } from '$lib/utils'
+	import { generateRandomString, type DynamicSelect } from '$lib/utils'
 	interface Props {
-		dndType?: string | undefined
 		schema: Schema
 		args?: Record<string, any>
 		prettifyHeader?: boolean
@@ -24,10 +23,11 @@
 		isValid?: boolean
 		noVariablePicker?: boolean
 		helperScript?: DynamicSelect.HelperScript
+		className?: string
+		dndType?: string
 	}
 
 	let {
-		dndType = undefined,
 		schema = $bindable(),
 		args = $bindable(undefined),
 		prettifyHeader = false,
@@ -42,7 +42,9 @@
 		diff = {},
 		nestedClasses = '',
 		isValid = $bindable(true),
-		noVariablePicker = false
+		noVariablePicker = false,
+		className = '',
+		dndType = generateRandomString()
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -58,20 +60,18 @@
 	let dragDisabledState = $state(true)
 
 	function computeItems() {
-		let r =
+		return (
 			($state.snapshot(schema?.order) ?? Object.keys(schema?.properties ?? {}) ?? []).map(
 				(key) => ({
 					id: key,
 					value: key
 				})
 			) ?? []
-		console.log('r', r)
-		return r
+		)
 	}
 
 	function updateItems() {
 		const newItems = computeItems()
-		console.log('newItems', newItems)
 		if (!deepEqual(newItems, items)) {
 			items = newItems
 		}
@@ -80,18 +80,14 @@
 	function handleConsider(e) {
 		dragDisabledState = false
 		const { items: newItems } = e.detail
-		console.log('handleConsider', items, newItems)
 		items = $state.snapshot(newItems)
 	}
 
 	function handleFinalize(e) {
 		const { items: newItems } = e.detail
-		console.log('handleFinalize', items, newItems)
 		dragDisabledState = true
 		items = $state.snapshot(newItems)
-
 		const newOrder = items.map((item) => item.value)
-		// console.log('handleFinalize', newOrder, e.detail)
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
@@ -123,6 +119,7 @@
 	{disablePortal}
 	{disabled}
 	{helperScript}
+	{className}
 	bind:schema
 	dndConfig={disableDnd
 		? undefined
@@ -130,7 +127,7 @@
 				items,
 				flipDurationMs,
 				dropTargetStyle: {},
-				type: dndType ?? 'top-level'
+				type: dndType
 			}}
 	{items}
 	{diff}

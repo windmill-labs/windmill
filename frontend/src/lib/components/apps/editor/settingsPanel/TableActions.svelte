@@ -103,6 +103,8 @@
 
 		items = newItems
 	}
+
+	let rnd = generateRandomString()
 </script>
 
 {#if components}
@@ -132,7 +134,8 @@
 				use:dragHandleZone={{
 					items,
 					flipDurationMs: 200,
-					dropTargetStyle: {}
+					dropTargetStyle: {},
+					type: rnd
 				}}
 				onconsider={handleConsider}
 				onfinalize={handleFinalize}

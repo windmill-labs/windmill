@@ -16,7 +16,6 @@
 		noPreview = false,
 		fullHeight = true,
 		formatExtension = $bindable(undefined),
-		onSchemaChange,
 		customUi
 	}: EditableSchemaWrapperProps = $props()
 
@@ -51,7 +50,6 @@
 				}
 			}
 		}
-		onSchemaChange?.({ schema: $state.snapshot(schema) })
 	}
 
 	let suggestedFileExtensions = $state([
@@ -68,9 +66,6 @@
 	])
 </script>
 
-<br />
-{JSON.stringify(schema)}
-
 {#if !resourceIsTextFile}
 	<div
 		class={twMerge(
@@ -84,9 +79,8 @@
 				noPopover={customUi?.noAddPopover}
 				bind:schema
 				bind:this={addPropertyComponent}
-				on:change={() => onSchemaChange?.({ schema: $state.snapshot(schema) })}
-				on:addNew={(e) => {
-					editableSchemaForm?.openField(e.detail)
+				onAddNew={(argName) => {
+					editableSchemaForm?.openField(argName)
 				}}
 			>
 				{#snippet trigger()}
@@ -102,11 +96,7 @@
 			onlyMaskPassword
 			bind:this={editableSchemaForm}
 			bind:schema
-			on:change={() => onSchemaChange?.({ schema: $state.snapshot(schema) })}
 			isFlowInput
-			on:edit={(e) => {
-				addPropertyComponent?.openDrawer(e.detail)
-			}}
 			on:delete={(e) => {
 				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
@@ -120,7 +110,6 @@
 						noPopover={customUi?.noAddPopover}
 						bind:schema
 						bind:this={addPropertyComponent}
-						on:change={() => onSchemaChange?.({ schema })}
 					>
 						{#snippet trigger()}
 							<div

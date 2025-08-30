@@ -7,7 +7,7 @@
 	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
@@ -50,11 +50,17 @@
 
 	interface Props {
 		schema: Schema | undefined | any
-		parentId?: string | undefined
 		jsonView?: boolean
+		hiddenArgs?: string[]
+		onClose?: () => void
 	}
 
-	let { schema = $bindable(), parentId = undefined, jsonView = $bindable(false) }: Props = $props()
+	let {
+		schema = $bindable(),
+		jsonView = $bindable(false),
+		hiddenArgs = undefined,
+		onClose = undefined
+	}: Props = $props()
 
 	// let schema = $state(structuredClone($state.snapshot(schema)))
 
@@ -63,14 +69,18 @@
 	let error: string | undefined = $state(undefined)
 	let items = $derived([
 		...new Set(
-			(schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
-				return { value: item, id: item }
-			}) ?? []
+			(schema?.order ?? Object.keys(schema?.properties ?? {}))
+				?.map((item, index) => {
+					return { value: item, id: item }
+				})
+				.filter((item) => !hiddenArgs?.includes(item.value)) ?? []
 		)
 	]) as Array<{
 		value: string
 		id: string
 	}>
+
+	let rnd = generateRandomString()
 </script>
 
 <div class="flex flex-col items-end mb-2 w-full">
@@ -108,7 +118,7 @@
 			items,
 			flipDurationMs,
 			dropTargetStyle: {},
-			type: parentId ? `app-editor-fields-${parentId}` : 'app-editor-fields'
+			type: rnd
 		}}
 		onconsider={handleConsider}
 		onfinalize={handleFinalize}
@@ -164,12 +174,10 @@
 							<div class="flex flex-col w-full mt-2">
 								<Label label="Nested properties">
 									<EditableSchemaDrawer
-										on:change={() => {
-											schema = $state.snapshot(schema)
-											dispatch('change', schema)
-										}}
 										bind:schema={schema.properties[item.value]}
-										parentId={item.value}
+										onClose={() => {
+											onClose?.()
+										}}
 									/>
 								</Label>
 							</div>
@@ -182,14 +190,11 @@
 		{/if}
 	</div>
 
-	<Drawer bind:this={schemaFormDrawer} size="1200px">
+	<Drawer bind:this={schemaFormDrawer} size="1200px" on:close={() => onClose?.()}>
 		{#snippet children({ isTop })}
 			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
 				<EditableSchemaForm
-					on:change={(e) => {
-						// schema = $state.snapshot(schema)
-						// dispatch('change', schema)
-					}}
+					schemaFormClassName="h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
 					isAppInput
@@ -199,17 +204,15 @@
 					on:delete={(e) => {
 						addPropertyComponent?.handleDeleteArgument([e.detail])
 					}}
+					{hiddenArgs}
 					disableDnd={!isTop}
-					dndType="drawer"
 					editTab="inputEditor"
 				>
 					{#snippet addProperty()}
 						<AddPropertyV2
 							bind:schema
-							on:change
-							on:addNew={(e) => {
-								// schema = $state.snapshot(schema)
-								editableSchemaForm?.openField(e.detail)
+							onAddNew={(argName) => {
+								editableSchemaForm?.openField(argName)
 							}}
 						>
 							{#snippet trigger()}

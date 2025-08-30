@@ -4,6 +4,7 @@
 
 <script lang="ts">
 	import { zIndexes } from '$lib/zIndexes'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		open?: boolean
@@ -93,10 +94,12 @@
 		openedDrawers.val.push(id)
 	}
 
+	let wasEverOpen = false
 	$effect.pre(() => {
 		if (open) {
+			wasEverOpen = true
 			onOpen?.()
-		} else {
+		} else if (untrack(() => wasEverOpen)) {
 			onClose?.()
 		}
 	})

@@ -158,6 +158,8 @@
 			})
 		}
 	}
+
+	let rnd = generateRandomString()
 </script>
 
 <PanelSection title={`${word}s ${tabs && tabs.length > 0 ? `(${tabs.length})` : ''}`}>
@@ -169,7 +171,8 @@
 			use:dragHandleZone={{
 				items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				type: rnd
 			}}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
