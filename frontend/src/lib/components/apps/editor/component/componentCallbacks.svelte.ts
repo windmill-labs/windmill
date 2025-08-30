@@ -220,7 +220,6 @@ async function copyGridItemsToClipboard(
 	},
 	type: 'copy' | 'cut' | undefined = undefined
 ) {
-	console.log(window.getSelection()?.toString())
 	const app = get(ctx.app)
 	let allSubgrids = {}
 	for (let item of items) {
