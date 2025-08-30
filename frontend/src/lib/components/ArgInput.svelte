@@ -992,8 +992,11 @@
 													}
 												}
 												bind:args={value}
-												dndType={`nested-${title}`}
-												hiddenArgs={['label', 'kind']}
+												hiddenArgs={[
+													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+														? 'kind'
+														: 'label'
+												]}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -1086,20 +1089,14 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
-							bind:schema={
-								() => ({
-									properties,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object',
-									order
-								}),
-								(newSchema) => {
-									dispatch('nestedChange')
-								}
-							}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
 							bind:args={value}
-							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys

@@ -49,6 +49,7 @@
 		order?: string[] | undefined
 		requiredProperty?: string[] | undefined
 		displayWebhookWarning?: boolean
+		onDrawerClose?: () => void
 	}
 
 	let {
@@ -72,10 +73,11 @@
 		properties = $bindable(undefined),
 		order = $bindable(undefined),
 		requiredProperty = $bindable(undefined),
-		displayWebhookWarning = true
+		displayWebhookWarning = true,
+		onDrawerClose = undefined
 	}: Props = $props()
 
-	let oneOfSelected: string | undefined = $state(undefined)
+	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
 
 	const dispatch = createEventDispatcher()
 
@@ -259,44 +261,13 @@
 		{#if oneOfSelected && oneOf}
 			{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
 			<EditableSchemaDrawer
-				bind:schema={
-					() => {
-						if (oneOf?.[idx]) {
-							let properties = Object.fromEntries(
-								Object.entries(oneOf[idx].properties ?? {}).filter(
-									([k]) => k !== 'label' && k !== 'kind'
-								)
-							)
-							return {
-								...oneOf[idx],
-								properties: properties,
-								order: Object.keys(properties),
-								required: oneOf[idx].required ?? []
-							}
-						}
-					},
-					(v) => {
-						if (oneOf?.[idx]) {
-							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-								? 'kind'
-								: 'label'
-							oneOf[idx] = {
-								...(v ?? {}),
-								type: 'object',
-								properties: {
-									...(v?.properties ?? {}),
-									[tagKey]: {
-										type: 'string',
-										enum: [v?.title ?? '']
-									}
-								}
-							}
-						}
-					}
-				}
-				on:change={() => {
-					dispatch('schemaChange')
+				onClose={() => {
+					onDrawerClose?.()
 				}}
+				bind:schema={oneOf[idx]}
+				hiddenArgs={[
+					oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind')) ? 'kind' : 'label'
+				]}
 			/>
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object' && !isDynSelect}
@@ -359,7 +330,6 @@
 										properties = v.properties
 										order = v.order
 										requiredProperty = v.required
-										dispatch('schemaChange')
 									}
 								}
 							/>
@@ -382,7 +352,7 @@
 					</TabContent>
 
 					<TabContent value="resource">
-						<ObjectTypeNarrowing on:change={() => dispatch('schemaChange')} bind:format />
+						<ObjectTypeNarrowing bind:format />
 					</TabContent>
 				</div>
 			{/snippet}
