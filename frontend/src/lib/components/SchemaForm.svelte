@@ -108,7 +108,7 @@
 		className = '',
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions: actions_render = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -249,8 +249,6 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
-
-	const actions_render = $derived(actions)
 </script>
 
 {#if showReset}

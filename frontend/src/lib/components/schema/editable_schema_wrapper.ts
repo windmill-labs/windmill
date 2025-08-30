@@ -9,5 +9,4 @@ export type EditableSchemaWrapperProps = {
 	customUi?: {
 		noAddPopover?: boolean
 	}
-	onSchemaChange?: ({ schema }: { schema: Schema }) => void
 }

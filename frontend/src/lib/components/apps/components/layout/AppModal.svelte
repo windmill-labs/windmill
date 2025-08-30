@@ -173,11 +173,11 @@
 		<Disposable
 			{id}
 			bind:this={disposable}
-			on:open={() => {
+			onOpen={() => {
 				outputs?.open.set(true)
 				onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}
-			on:close={() => {
+			onClose={() => {
 				outputs?.open.set(false)
 				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}

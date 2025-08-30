@@ -12,9 +12,8 @@
 	} from './componentCallbacks.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 
-	const { history, movingcomponents, jobsDrawerOpen } = getContext<AppEditorContext>(
-		'AppEditorContext'
-	) as AppEditorContext
+	const { history, movingcomponents, jobsDrawerOpen, runnableJobEditorPanel } =
+		getContext<AppEditorContext>('AppEditorContext') as AppEditorContext
 	const { app, selectedComponent, focusedGrid, componentControl } = getContext<AppViewerContext>(
 		'AppViewerContext'
 	) as AppViewerContext
@@ -33,7 +32,8 @@
 		let classes = event.target?.['className']
 		if (
 			(typeof classes === 'string' && classes.includes('inputarea')) ||
-			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!) ||
+			$runnableJobEditorPanel.focused
 		) {
 			return
 		}

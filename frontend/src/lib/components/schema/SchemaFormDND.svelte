@@ -6,9 +6,8 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
-	import type { DynamicSelect } from '$lib/utils'
+	import { generateRandomString, type DynamicSelect } from '$lib/utils'
 	interface Props {
-		dndType?: string | undefined
 		schema: Schema
 		args?: Record<string, any>
 		prettifyHeader?: boolean
@@ -24,10 +23,11 @@
 		isValid?: boolean
 		noVariablePicker?: boolean
 		helperScript?: DynamicSelect.HelperScript
+		className?: string
+		dndType?: string
 	}
 
 	let {
-		dndType = undefined,
 		schema = $bindable(),
 		args = $bindable(undefined),
 		prettifyHeader = false,
@@ -42,7 +42,9 @@
 		diff = {},
 		nestedClasses = '',
 		isValid = $bindable(true),
-		noVariablePicker = false
+		noVariablePicker = false,
+		className = '',
+		dndType = generateRandomString()
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -55,14 +57,16 @@
 
 	let items = $state(computeItems())
 
-	let dragDisabled = $state(true)
+	let dragDisabledState = $state(true)
 
 	function computeItems() {
 		return (
-			(schema?.order ?? Object.keys(schema?.properties ?? {}) ?? []).map((key) => ({
-				id: key,
-				value: key
-			})) ?? []
+			($state.snapshot(schema?.order) ?? Object.keys(schema?.properties ?? {}) ?? []).map(
+				(key) => ({
+					id: key,
+					value: key
+				})
+			) ?? []
 		)
 	}
 
@@ -74,23 +78,20 @@
 	}
 
 	function handleConsider(e) {
-		dragDisabled = false
+		dragDisabledState = false
 		const { items: newItems } = e.detail
-		items = newItems
+		items = $state.snapshot(newItems)
 	}
 
 	function handleFinalize(e) {
 		const { items: newItems } = e.detail
-
-		dragDisabled = true
-		items = newItems
-
+		dragDisabledState = true
+		items = $state.snapshot(newItems)
 		const newOrder = items.map((item) => item.value)
-		// console.log('handleFinalize', newOrder, e.detail)
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
-		schema && dragDisabled && untrack(() => updateItems())
+		schema && dragDisabledState && untrack(() => updateItems())
 	})
 </script>
 
@@ -118,6 +119,7 @@
 	{disablePortal}
 	{disabled}
 	{helperScript}
+	{className}
 	bind:schema
 	dndConfig={disableDnd
 		? undefined
@@ -125,7 +127,7 @@
 				items,
 				flipDurationMs,
 				dropTargetStyle: {},
-				type: dndType ?? 'top-level'
+				type: dndType
 			}}
 	{items}
 	{diff}

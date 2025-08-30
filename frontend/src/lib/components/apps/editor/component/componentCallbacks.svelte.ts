@@ -308,7 +308,7 @@ export async function handlePaste(
 			} else {
 				copiedGridItems = undefined
 			}
-		} catch {}
+		} catch { }
 	}
 
 	if (tempGridItems != undefined) {

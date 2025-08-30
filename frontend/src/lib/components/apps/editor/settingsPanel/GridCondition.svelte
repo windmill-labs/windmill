@@ -126,6 +126,8 @@
 		})
 		component.numberOfSubgrids = items.length + 1
 	}
+
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection title={'Conditions'}>
@@ -141,7 +143,8 @@
 			use:dragHandleZone={{
 				items: items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				type: rnd
 			}}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}

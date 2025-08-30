@@ -121,6 +121,8 @@
 
 	let resolvedPaths: string[] = $state([])
 	let resolvedLabels: string[] = $state([])
+
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection
@@ -134,7 +136,8 @@
 			use:dragHandleZone={{
 				items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				type: rnd
 			}}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}

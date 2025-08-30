@@ -1,4 +1,4 @@
-<script context="module">
+<script module>
 	import { tick } from 'svelte'
 
 	export function portal(el, options) {
@@ -50,13 +50,17 @@
 
 <script>
 	/**
-	 * DOM Element or CSS Selector
-	 * @type { HTMLElement|string}
+	 * @typedef {Object} Props
+	 * @property { HTMLElement|string} [target] - DOM Element or CSS Selector
+	 * @property {any} [name]
+	 * @property {string|undefined} [class]
+	 * @property {import('svelte').Snippet} [children]
 	 */
-	export let target = 'body'
-	export let name = undefined
+
+	/** @type {Props} */
+	let { target = 'body', name = undefined, class: clazz = undefined, children } = $props()
 </script>
 
-<div use:portal={{ target, name }} hidden class={$$props.class}>
-	<slot />
+<div use:portal={{ target, name }} hidden class={clazz}>
+	{@render children?.()}
 </div>
