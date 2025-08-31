@@ -854,6 +854,11 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
                                                     windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
                                                 },
+                                                "notify_workspace_key_change" => {
+                                                    let workspace_id = n.payload();
+                                                    tracing::info!("Workspace key change detected, invalidating workspace key cache: {}", workspace_id);
+                                                    windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(workspace_id);
+                                                },
                                                 "notify_workspace_premium_change" => {
                                                     let workspace_id = n.payload();
                                                     tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
@@ -1268,6 +1273,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_global_setting_change",
         "notify_webhook_change",
         "notify_workspace_envs_change",
+        "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
     ];
