@@ -78,13 +78,38 @@ pub struct CreateVariable {
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
-    let key = get_workspace_key(w_id, db).await?;
-    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", key, salt)
+    // Check cache first (300-second staleness)
+    let cached_key_o = WORKSPACE_CRYPT_CACHE.get(w_id).and_then(|(ts, key)| {
+        if ts > chrono::Utc::now().timestamp() - 300 {
+            Some(key)
+        } else {
+            None
+        }
+    });
+
+    let crypt = if let Some(cached_key) = cached_key_o {
+        cached_key
     } else {
-        key
+        let key = get_workspace_key(w_id, db).await?;
+        tracing::info!(
+            "crypt for workspace {} with key {} expired, refetching",
+            w_id,
+            key
+        );
+        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+            format!("{}{}", key, salt)
+        } else {
+            key
+        };
+        let ncrypt = magic_crypt::new_magic_crypt!(crypt_key, 256);
+        WORKSPACE_CRYPT_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), ncrypt.clone()),
+        );
+        ncrypt
     };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+
+    Ok(crypt)
 }
 
 pub async fn build_crypt_with_key_suffix(
@@ -102,34 +127,15 @@ pub async fn build_crypt_with_key_suffix(
 }
 
 pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
-    // Check cache first (300-second staleness)
-    let cached_key_o = WORKSPACE_KEY_CACHE.get(w_id).and_then(|(ts, key)| {
-        if ts > chrono::Utc::now().timestamp() - 300 {
-            Some(key)
-        } else {
-            None
-        }
-    });
+    let key = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+        w_id
+    )
+    .fetch_one(db)
+    .warn_after_seconds(5)
+    .await
+    .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
 
-    let key = if let Some(cached_key) = cached_key_o {
-        cached_key
-    } else {
-        let key = sqlx::query_scalar!(
-            "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-            w_id
-        )
-        .fetch_one(db)
-        .warn_after_seconds(5)
-        .await
-        .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
-        
-        // Cache the key with current timestamp
-        WORKSPACE_KEY_CACHE.insert(
-            w_id.to_string(),
-            (chrono::Utc::now().timestamp(), key.clone()),
-        );
-        key
-    };
     Ok(key)
 }
 
@@ -186,7 +192,8 @@ pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 lazy_static::lazy_static! {
     pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
-    pub static ref WORKSPACE_KEY_CACHE: Cache<String, (i64, String)> = Cache::new(1000);
+    pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, MagicCrypt256)> = Cache::new(1000);
+
 }
 
 pub async fn get_reserved_variables(

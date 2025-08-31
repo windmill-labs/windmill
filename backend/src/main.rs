@@ -857,7 +857,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 "notify_workspace_key_change" => {
                                                     let workspace_id = n.payload();
                                                     tracing::info!("Workspace key change detected, invalidating workspace key cache: {}", workspace_id);
-                                                    windmill_common::variables::WORKSPACE_KEY_CACHE.remove(workspace_id);
+                                                    windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(workspace_id);
                                                 },
                                                 "notify_workspace_premium_change" => {
                                                     let workspace_id = n.payload();
