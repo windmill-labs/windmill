@@ -547,9 +547,13 @@
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
-									on:change={() => {
-										schemaString = JSON.stringify(schema, null, '\t')
-										editor?.setCode(schemaString)
+									on:change={(e) => {
+										if (e.detail) {
+											schemaString = JSON.stringify(schema, null, '\t')
+											editor?.setCode(schemaString)
+										} else {
+											schema = JSON.parse(schemaString)
+										}
 									}}
 								/>
 							</div>
