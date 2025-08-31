@@ -689,6 +689,12 @@ pub async fn get_logs_from_store(
     return None;
 }
 
+lazy_static::lazy_static! {
+    static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+}
+
 pub async fn check_tag_available_for_workspace_internal(
     db: &DB,
     w_id: &str,
@@ -726,10 +732,14 @@ pub async fn check_tag_available_for_workspace_internal(
             )));
         }
 
-        return Err(error::Error::BadRequest(format!(
+        if *TAGS_ARE_SENSITIVE {
+            return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else {
+            return Err(error::Error::BadRequest(format!(
             "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
             custom_tags_per_w
         )));
+        }
     }
 
     return Ok(());

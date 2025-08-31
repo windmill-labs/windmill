@@ -5,6 +5,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
