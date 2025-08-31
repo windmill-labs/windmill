@@ -82,7 +82,18 @@
 	const rnd = generateRandomString()
 </script>
 
-<div class="flex flex-col items-end mb-2 w-full">
+<div class="flex flex-wrap justify-between mb-2 w-full items-center gap-y-2">
+	<AddProperty
+		on:change={() => {
+			if (jsonView) {
+				schemaString = JSON.stringify(schema, null, '\t')
+				editor?.setCode(schemaString)
+			}
+		}}
+		bind:schema
+		bind:this={addPropertyComponent}
+	/>
+
 	<Toggle
 		bind:checked={jsonView}
 		label="JSON View"
@@ -99,17 +110,6 @@
 		}}
 	/>
 </div>
-
-<AddProperty
-	on:change={() => {
-		if (jsonView) {
-			schemaString = JSON.stringify(schema, null, '\t')
-			editor?.setCode(schemaString)
-		}
-	}}
-	bind:schema
-	bind:this={addPropertyComponent}
-/>
 
 {#if !jsonView}
 	{#key rnd}
