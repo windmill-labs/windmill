@@ -12,16 +12,9 @@ use super::models::SchemaType;
 /// have names with slashes. Because we replace slashes with underscores, 
 /// we also need to escape underscores.
 pub fn transform_path(path: &str, type_str: &str) -> String {
-    // Only apply special underscore escaping for paths starting with "f/"
-    let transformed = if path.starts_with("f/") {
-        let escaped_path = path.replace('_', "__");
-        escaped_path.replace('/', "_")
-    } else {
-        path.replace('/', "_")
-    };
-
+    let escaped_path = path.replace('_', "__").replace('/', "_");
     // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-    format!("{}-{}", &type_str[..1], transformed)
+    format!("{}-{}", &type_str[..1], escaped_path)
 }
 
 /// Reverse the transformation of a path
@@ -53,19 +46,12 @@ pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool),
 
     let mangled_path = &transformed_path[2..];
 
-    // Check if this path was previously transformed with special underscore handling
-    let is_special_path = mangled_path.starts_with("f_");
-
     let original_path = if is_hub {
         let parts = mangled_path.split("-").collect::<Vec<&str>>();
         parts[0].to_string()
-    } else if is_special_path {
-        const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
-        let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
-        let path_with_slashes = path_with_placeholder.replace('_', "/");
-        path_with_slashes.replace(TEMP_PLACEHOLDER, "_")
     } else {
-        mangled_path.replacen('_', "/", 2)
+        const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
+        mangled_path.replace("__", TEMP_PLACEHOLDER).replace('_', "/").replace(TEMP_PLACEHOLDER, "_")
     };
 
     Ok((type_str, original_path, is_hub))
