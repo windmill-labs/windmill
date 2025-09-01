@@ -464,6 +464,7 @@ pub async fn get_reserved_variables(
         job.flow_step_id.clone(),
         job.flow_innermost_root_job.clone().map(|x| x.to_string()),
         Some(job.scheduled_for.clone()),
+        job.runnable_id,
     )
     .await
     .to_vec();
