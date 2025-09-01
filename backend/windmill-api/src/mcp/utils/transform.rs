@@ -48,6 +48,9 @@ pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool),
 
     let original_path = if is_hub {
         let parts = mangled_path.split("-").collect::<Vec<&str>>();
+        if parts.is_empty() {
+            return Err(format!("Invalid transformed path: {}", transformed_path));
+        }
         parts[0].to_string()
     } else {
         const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
