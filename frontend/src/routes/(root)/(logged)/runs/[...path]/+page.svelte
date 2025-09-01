@@ -922,7 +922,7 @@
 			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
 				<div class="flex flex-row gap-1">
-					<RunOption label="Min datetimes" for="min-datetimes">
+					<RunOption label="From" for="min-datetimes">
 						<input
 							type="text"
 							value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
@@ -933,7 +933,7 @@
 						<CalendarPicker
 							clearable={true}
 							date={minTs}
-							label="Min datetimes"
+							label="From"
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
@@ -951,7 +951,7 @@
 						/>
 					</RunOption>
 
-					<RunOption label="Max datetimes" for="max-datetimes">
+					<RunOption label="To" for="max-datetimes">
 						<input
 							type="text"
 							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
@@ -961,7 +961,7 @@
 						<CalendarPicker
 							clearable={true}
 							date={maxTs}
-							label="Max datetimes"
+							label="To"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
