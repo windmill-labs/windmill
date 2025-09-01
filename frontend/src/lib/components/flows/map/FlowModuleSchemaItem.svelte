@@ -461,7 +461,7 @@
 
 		{#if deletable && !action}
 			<div
-				class="absolute -top-[20px] -right-[10px] flex flex-row gap-1 p-1 min-w-[52px] min-h-7 group justify-end"
+				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
 			>
 				{#if id !== 'preprocessor'}
 					<button
