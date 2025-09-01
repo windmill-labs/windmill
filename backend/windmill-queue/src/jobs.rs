@@ -4694,9 +4694,7 @@ pub async fn push<'c, 'd>(
     };
 
     let root_job = if root_job.is_some()
-        && (root_job == flow_innermost_root_job
-            || root_job == parent_job
-            || root_job.as_ref().unwrap() == &job_id)
+        && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
     {
         // We only save the root job if it's not the innermost root job, parent job, or the job itself as an optimization
         // Reference: see [`windmill_worker::common::get_root_job_id`] for logic on determining the root job.
