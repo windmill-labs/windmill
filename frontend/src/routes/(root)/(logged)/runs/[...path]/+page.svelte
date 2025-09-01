@@ -43,7 +43,7 @@
 	import { page } from '$app/state'
 	import RunOption from '$lib/components/runs/RunOption.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import DropownSelect from '$lib/components/DropownSelect.svelte'
+	import DropdownSelect from '$lib/components/DropdownSelect.svelte'
 	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -1056,7 +1056,7 @@
 					</ToggleButtonGroup>
 
 					{#if !graphIsRunsChart}
-						<DropownSelect
+						<DropdownSelect
 							items={[
 								{
 									displayName: 'None',
@@ -1091,7 +1091,7 @@
 									{/snippet}
 								</TooltipV2>
 							{/snippet}
-						</DropownSelect>
+						</DropdownSelect>
 					{/if}
 				</div>
 			</div>

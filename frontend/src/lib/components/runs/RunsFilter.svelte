@@ -15,7 +15,7 @@
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import RunOption from './RunOption.svelte'
-	import DropownSelect from '../DropownSelect.svelte'
+	import DropdownSelect from '../DropdownSelect.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 
 	interface Props {
@@ -473,7 +473,7 @@
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
 		{#if small && !calendarSmall}
-			<DropownSelect
+			<DropdownSelect
 				btnClasses="min-w-24"
 				items={[
 					{

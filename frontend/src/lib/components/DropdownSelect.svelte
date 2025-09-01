@@ -2,6 +2,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { ChevronDown } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		items?: Item[]

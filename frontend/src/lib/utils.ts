@@ -1307,6 +1307,7 @@ export type Item = {
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
 	extra?: Snippet
+	id?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {
