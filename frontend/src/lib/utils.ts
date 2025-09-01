@@ -229,7 +229,7 @@ export function removeTriggerKindIfUnused(
 	return usedTriggerKinds
 }
 
-export function msToReadableTime(ms: number | undefined): string {
+export function msToReadableTime(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
 
 	const seconds = Math.floor(ms / 1000)
@@ -244,7 +244,7 @@ export function msToReadableTime(ms: number | undefined): string {
 	} else if (minutes > 0) {
 		return `${minutes}m ${seconds % 60}s`
 	} else {
-		return `${msToSec(ms)}s`
+		return `${msToSec(ms, maximumFractionDigits)}s`
 	}
 }
 
@@ -1311,6 +1311,7 @@ export type Item = {
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
 	extra?: Snippet
+	id?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {

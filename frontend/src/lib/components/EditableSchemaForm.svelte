@@ -232,27 +232,12 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-
-		if (property.type !== 'object') {
-			return property.type
-		}
-
-		if (property.format === 'resource-s3_object') {
-			return 'S3'
-		}
-
-		if (property.format?.startsWith('dynselect-')) {
-			return 'dynselect'
-		}
-
-		if (property.format?.startsWith('dynmultiselect-')) {
-			return 'dynmultiselect'
-		}
-
-		if (property.oneOf && property.oneOf.length >= 2) {
-			return 'oneOf'
-		}
-
+		if (property.type !== 'object') return property.type
+		if (property.format === 'resource-s3_object') return 'S3'
+		if (property.format?.startsWith('dynselect-')) return 'dynselect'
+		if (property.format?.startsWith('dynmultiselect-')) return 'dynmultiselect'
+		if (property.oneOf && property.oneOf.length >= 2) return 'oneOf'
+		if (property.format?.startsWith('resource-')) return 'resource'
 		return 'object'
 	}
 
@@ -386,10 +371,11 @@
 		['Number', 'number'],
 		['Integer', 'integer'],
 		['Object', 'object'],
+		['Resource', 'resource'],
 		['OneOf', 'oneOf'],
 		['Array', 'array'],
 		['Boolean', 'boolean'],
-		['S3 Object', 'S3']
+		['S3', 'S3']
 	])
 
 	function initDynFn(lang: ScriptLang) {
@@ -567,9 +553,13 @@
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
-									on:change={() => {
-										schemaString = JSON.stringify(schema, null, '\t')
-										editor?.setCode(schemaString)
+									on:change={(e) => {
+										if (e.detail) {
+											schemaString = JSON.stringify(schema, null, '\t')
+											editor?.setCode(schemaString)
+										} else {
+											schema = JSON.parse(schemaString)
+										}
 									}}
 								/>
 							</div>
@@ -696,6 +686,7 @@
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
+																					const isResource = v == 'resource'
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
 																					const isDynSelect = v == 'dynselect'
@@ -717,12 +708,17 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
-
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
 																							type: 'object',
 																							format: 'resource-s3_object'
+																						}
+																					} else if (isResource) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'resource-'
 																						}
 																					} else if (isDynSelect || isDynMultiselect) {
 																						const functionName = argName.replace(/\s+/g, '_')

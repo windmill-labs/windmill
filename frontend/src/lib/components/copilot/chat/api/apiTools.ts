@@ -1,11 +1,11 @@
-import type { ChatCompletionTool } from 'openai/resources/index.mjs'
+import type { ChatCompletionFunctionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import type { EndpointTool } from '$lib/gen/types.gen'
 import { McpService } from '$lib/gen/services.gen'
 
-function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
+function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionFunctionTool {
 	// Build the parameters schema for OpenAI function calling
 	const parameters: Record<string, any> = {
 		type: 'object',
@@ -18,10 +18,13 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 		for (const [key, schema] of Object.entries(endpointTool.path_params_schema.properties)) {
 			// Skip workspace parameter as it's auto-filled
 			if (key === 'workspace') continue
-			
+
 			parameters.properties[key] = schema
-			
-			if (Array.isArray(endpointTool.path_params_schema.required) && endpointTool.path_params_schema.required.includes(key)) {
+
+			if (
+				Array.isArray(endpointTool.path_params_schema.required) &&
+				endpointTool.path_params_schema.required.includes(key)
+			) {
 				parameters.required.push(key)
 			}
 		}
@@ -31,8 +34,11 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 	if (endpointTool.query_params_schema?.properties) {
 		for (const [key, schema] of Object.entries(endpointTool.query_params_schema.properties)) {
 			parameters.properties[key] = schema
-			
-			if (Array.isArray(endpointTool.query_params_schema.required) && endpointTool.query_params_schema.required.includes(key)) {
+
+			if (
+				Array.isArray(endpointTool.query_params_schema.required) &&
+				endpointTool.query_params_schema.required.includes(key)
+			) {
 				parameters.required.push(key)
 			}
 		}
@@ -47,8 +53,11 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 			properties: endpointTool.body_schema.properties,
 			required: endpointTool.body_schema.required || []
 		}
-		
-		if (Array.isArray(endpointTool.body_schema.required) && endpointTool.body_schema.required.length > 0) {
+
+		if (
+			Array.isArray(endpointTool.body_schema.required) &&
+			endpointTool.body_schema.required.length > 0
+		) {
 			parameters.required.push('body')
 		}
 	}
@@ -63,16 +72,17 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionTool {
 	}
 }
 
-function buildToolsFromEndpoints(
-	endpointTools: EndpointTool[]
-): { tools: ChatCompletionTool[]; endpointMap: Record<string, { method: string; path: string }> } {
-	const tools: ChatCompletionTool[] = []
+function buildToolsFromEndpoints(endpointTools: EndpointTool[]): {
+	tools: ChatCompletionFunctionTool[]
+	endpointMap: Record<string, { method: string; path: string }>
+} {
+	const tools: ChatCompletionFunctionTool[] = []
 	const endpointMap: Record<string, { method: string; path: string }> = {}
 
 	for (const endpointTool of endpointTools) {
 		const tool = buildApiCallTool(endpointTool)
 		tools.push(tool)
-		
+
 		// Store the endpoint info in the map
 		endpointMap[endpointTool.name] = {
 			method: endpointTool.method,
@@ -84,17 +94,17 @@ function buildToolsFromEndpoints(
 }
 
 export function createApiTools(
-	chatTools: ChatCompletionTool[],
+	chatTools: ChatCompletionFunctionTool[],
 	endpointMap: Record<string, { method: string; path: string }> = {}
 ): Tool<{}>[] {
 	return chatTools.map((chatTool) => {
 		const toolName = chatTool.function.name
 		const endpoint = endpointMap[toolName]
 		const method = endpoint?.method?.toUpperCase() || 'GET'
-		
+
 		// Determine if tool needs confirmation based on method
 		const needsConfirmation = ['DELETE', 'POST', 'PUT', 'PATCH'].includes(method)
-		
+
 		return {
 			def: chatTool,
 			requiresConfirmation: needsConfirmation,
@@ -103,7 +113,7 @@ export function createApiTools(
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
 				const endpoint = endpointMap[toolName]
-				
+
 				if (!endpoint) {
 					throw new Error(`No endpoint mapping found for tool ${toolName}`)
 				}
@@ -111,7 +121,7 @@ export function createApiTools(
 				try {
 					const workspace = get(workspaceStore) as string
 					let path = endpoint.path.replace('{workspace}', workspace)
-					
+
 					// Build URL with path parameters
 					let url = `/api${path}`
 					const queryParams: Record<string, string> = {}
@@ -143,7 +153,7 @@ export function createApiTools(
 					}
 
 					toolCallbacks.setToolStatus(toolId, {
-						content: `Calling ${toolName}...`,
+						content: `Calling ${toolName}...`
 					})
 
 					const fetchOptions: RequestInit = {
@@ -173,7 +183,7 @@ export function createApiTools(
 						})
 						toolCallbacks.setToolStatus(toolId, {
 							content: `Call to ${toolName} completed`,
-							result: jsonResult,
+							result: jsonResult
 						})
 						return jsonResult
 					} else {
@@ -186,7 +196,7 @@ export function createApiTools(
 						toolCallbacks.setToolStatus(toolId, {
 							content: `Call to ${toolName} failed`,
 							result: jsonResult,
-							error: `HTTP ${response.status}: ${text}`,
+							error: `HTTP ${response.status}: ${text}`
 						})
 						return jsonResult
 					}
@@ -194,7 +204,7 @@ export function createApiTools(
 					const errorMessage = `Error calling API: ${error instanceof Error ? error.message : String(error)}`
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Call to ${toolName} failed`,
-						error: errorMessage,
+						error: errorMessage
 					})
 					console.error(`Error calling API:`, error)
 					return errorMessage
@@ -210,10 +220,10 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 		const endpointTools = await McpService.listMcpTools({
 			workspace: get(workspaceStore) as string
 		})
-		
+
 		// Build tools from the endpoint definitions
 		const { tools: apiTools, endpointMap } = buildToolsFromEndpoints(endpointTools)
-		
+
 		// Create executable tools
 		const executableApiTools = createApiTools(apiTools, endpointMap)
 		return executableApiTools
