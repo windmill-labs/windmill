@@ -4693,14 +4693,17 @@ pub async fn push<'c, 'd>(
         None
     };
 
-    let root_job =
-        if root_job.is_some() && (root_job == flow_innermost_root_job || root_job == parent_job) {
-            // We only save the root job if it's not the innermost root job or parent job as an optimization
-            // Reference: see [`windmill_worker::utils::get_root_job_id`] for logic on determining the root job.
-            None
-        } else {
-            root_job
-        };
+    let root_job = if root_job.is_some()
+        && (root_job == flow_innermost_root_job
+            || root_job == parent_job
+            || root_job.as_ref().unwrap() == &job_id)
+    {
+        // We only save the root job if it's not the innermost root job, parent job, or the job itself as an optimization
+        // Reference: see [`windmill_worker::common::get_root_job_id`] for logic on determining the root job.
+        None
+    } else {
+        root_job
+    };
 
     sqlx::query!(
         "WITH inserted_job AS (

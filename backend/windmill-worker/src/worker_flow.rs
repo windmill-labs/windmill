@@ -11,9 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{cached_result_path, save_in_cache};
+use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::utils::get_root_job_id;
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
@@ -2829,16 +2828,13 @@ async fn push_next_flow_job(
                 .or_else(|| Some(flow_job.id))
         };
 
+        let flow_root_job = get_root_job_id(&flow_job);
+
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> = {
-            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
-                get_job_perms(&mut *tx, root_job, &flow_job.workspace_id)
-                    .await?
-                    .map(|x| x.into())
-            } else {
-                None
-            }
-        };
+        let job_perms: Option<Authed> =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
+                .await?
+                .map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = if !matches!(step, Step::PreprocessorStep)
@@ -2859,7 +2855,6 @@ async fn push_next_flow_job(
             )
         };
 
-        let flow_root_job = get_root_job_id(&flow_job);
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
