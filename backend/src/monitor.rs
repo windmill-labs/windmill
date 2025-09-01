@@ -149,7 +149,9 @@ lazy_static::lazy_static! {
     static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
-    static ref STALE_JOB_TRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_TRESHOLD_MINUTES")
+    //legacy typo
+    static ref STALE_JOB_THRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_THRESHOLD_MINUTES").or_else(|_| std::env::var("STALE_JOB_THRESHOLD_MINUTES"))
+
     .ok()
     .and_then(|x| x.parse::<u64>().ok());
 }
@@ -1896,7 +1898,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 }
 
 async fn stale_job_cancellation(db: &Pool<Postgres>) {
-    if let Some(threshold) = *STALE_JOB_TRESHOLD_MINUTES {
+    if let Some(threshold) = *STALE_JOB_THRESHOLD_MINUTES {
         let stale_jobs = sqlx::query!(
             "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
             threshold.to_string()

@@ -14,13 +14,18 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher, tick, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
-	import { DynamicSelect, emptyString } from '$lib/utils'
+	import {
+		DynamicSelect,
+		emptyString,
+		generateRandomString,
+		readFieldsRecursively
+	} from '$lib/utils'
 	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -48,7 +53,6 @@
 		isAppInput?: boolean
 		displayWebhookWarning?: boolean
 		onlyMaskPassword?: boolean
-		dndType?: string | undefined
 		editTab:
 			| 'inputEditor'
 			| 'history'
@@ -75,6 +79,8 @@
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
 		extraTab?: import('svelte').Snippet
+		schemaFormClassName?: string
+		onChange?: (args: Record<string, any>) => void
 	}
 
 	let {
@@ -91,7 +97,6 @@
 		isAppInput = false,
 		displayWebhookWarning = false,
 		onlyMaskPassword = false,
-		dndType = undefined,
 		editTab,
 		previewSchema = undefined,
 		editPanelInitialSize = undefined,
@@ -110,7 +115,9 @@
 		openEditTab,
 		addProperty,
 		runButton,
-		extraTab
+		extraTab,
+		schemaFormClassName = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -122,6 +129,13 @@
 		}
 		if (dynSelectCode === undefined) {
 			dynSelectCode = schema?.['x-windmill-dyn-select-code'] || ''
+		}
+	})
+
+	$effect(() => {
+		if (onChange) {
+			readFieldsRecursively(args)
+			onChange(args ?? {})
 		}
 	})
 
@@ -154,9 +168,10 @@
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	let keys: string[] = $state(
-		Array.isArray(schema?.order)
+		(Array.isArray(schema?.order)
 			? [...schema.order]
 			: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
+		).filter((x) => !hiddenArgs?.includes(x))
 	)
 
 	function alignOrderWithProperties(schema: {
@@ -187,21 +202,17 @@
 		return hasChanged
 	}
 	function onSchemaChange() {
-		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
-			console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
-			editSchema = true
+			// console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
 		}
-		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
+		let lkeys = (schema?.order ?? Object.keys(schema?.properties ?? {})).filter(
+			(x) => !hiddenArgs?.includes(x)
+		)
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = [...lkeys]
-			editSchema = true
 			if (opened == undefined) {
 				opened = keys[0]
 			}
-		}
-		if (editSchema) {
-			schema = schema
 		}
 	}
 
@@ -209,15 +220,12 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-		return property.type !== 'object'
-			? property.type
-			: property.format === 'resource-s3_object'
-				? 'S3'
-				: property.format?.startsWith('dynselect-')
-					? 'dynselect'
-					: property.oneOf && property.oneOf.length >= 2
-						? 'oneOf'
-						: 'object'
+		if (property.type !== 'object') return property.type
+		if (property.format === 'resource-s3_object') return 'S3'
+		if (property.format?.startsWith('dynselect-')) return 'dynselect'
+		if (property.oneOf && property.oneOf.length >= 2) return 'oneOf'
+		if (property.format?.startsWith('resource-')) return 'resource'
+		return 'object'
 	}
 
 	export function openField(key: string) {
@@ -248,30 +256,31 @@
 			// clear the input
 			el.value = oldName
 		} else {
+			let newSchema = $state.snapshot(schema)
 			if (args) {
 				args[newName] = args[oldName]
 				delete args[oldName]
 			}
 
-			schema.properties[newName] = schema.properties[oldName]
-			delete schema.properties[oldName]
+			newSchema.properties[newName] = newSchema.properties[oldName]
+			delete newSchema.properties[oldName]
 
-			if (schema.required?.includes(oldName)) {
-				schema.required = schema.required?.map((x) => (x === oldName ? newName : x))
+			if (newSchema.required?.includes(oldName)) {
+				newSchema.required = newSchema.required?.map((x) => (x === oldName ? newName : x))
 			}
 
 			// Replace the old name with the new name in the order array
-			if (schema.order) {
-				const index = schema.order.indexOf(oldName)
+			if (newSchema.order) {
+				const index = newSchema.order.indexOf(oldName)
 				if (index !== -1) {
-					schema.order[index] = newName
+					newSchema.order[index] = newName
 				}
 			}
 
 			opened = newName
 
-			schema = $state.snapshot(schema)
-			dispatch('change', schema)
+			schema = newSchema
+
 			sendUserToast('Argument renamed')
 		}
 	}
@@ -347,10 +356,11 @@
 		['Number', 'number'],
 		['Integer', 'integer'],
 		['Object', 'object'],
+		['Resource', 'resource'],
 		['OneOf', 'oneOf'],
 		['Array', 'array'],
 		['Boolean', 'boolean'],
-		['S3 Object', 'S3']
+		['S3', 'S3']
 	]
 	if (showDynSelectOpt) {
 		typeOptions.push(['DynSelect', 'dynselect'])
@@ -368,6 +378,8 @@
 		const code = generateFn(functionName)
 		dynSelectCode = dynSelectCode ? dynSelectCode.concat(code) : code
 	}
+
+	let dndType = $state(generateRandomString())
 </script>
 
 <div class="w-full h-full">
@@ -404,15 +416,15 @@
 						class="min-h-0 overflow-y-auto grow rounded-md {runButton ? 'flex flex-col gap-2' : ''}"
 					>
 						<SchemaFormDnd
-							nestedClasses={'flex flex-col gap-1'}
+							{dndType}
+							nestedClasses={'flex flex-col gap-1 ' + (schemaFormClassName ?? '')}
 							bind:schema={
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
 									schema = newSchema
-									tick().then(() => dispatch('change', schema))
 								}
 							}
-							{dndType}
+							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
 							bind:args
@@ -420,11 +432,16 @@
 								opened = e.detail
 							}}
 							on:reorder={(e) => {
+								let order = e.detail
+								let newProperties = {}
+								for (let key of order) {
+									newProperties[key] = schema.properties[key]
+								}
 								schema = {
 									...schema,
+									properties: newProperties,
 									order: e.detail
 								}
-								tick().then(() => dispatch('change', schema))
 							}}
 							helperScript={{
 								type: 'inline',
@@ -436,9 +453,6 @@
 							{diff}
 							on:acceptChange
 							on:rejectChange
-							on:nestedChange={() => {
-								dispatch('change', schema)
-							}}
 							{shouldDispatchChanges}
 							bind:isValid
 							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
@@ -446,8 +460,8 @@
 
 						{@render runButton?.()}
 
-						<div class="h-full">
-							{#if dynSelectFunctions.length > 0}
+						{#if dynSelectFunctions.length > 0}
+							<div class="grow">
 								<Section
 									label="Dynamic select functions"
 									collapsable={true}
@@ -494,8 +508,8 @@
 										{/key}
 									</div>
 								</Section>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</Pane>
@@ -514,7 +528,7 @@
 					{#if jsonEnabled && customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
-								<AddPropertyV2 bind:schema on:change>
+								<AddPropertyV2 bind:schema>
 									{#snippet trigger()}
 										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
 									{/snippet}
@@ -531,9 +545,13 @@
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
-									on:change={() => {
-										schemaString = JSON.stringify(schema, null, '\t')
-										editor?.setCode(schemaString)
+									on:change={(e) => {
+										if (e.detail) {
+											schemaString = JSON.stringify(schema, null, '\t')
+											editor?.setCode(schemaString)
+										} else {
+											schema = JSON.parse(schemaString)
+										}
 									}}
 								/>
 							</div>
@@ -629,7 +647,7 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
@@ -650,10 +668,6 @@
 															bind:order={schema.properties[argName].order}
 															{isFlowInput}
 															{isAppInput}
-															on:change={() => {
-																schema = $state.snapshot(schema)
-																dispatch('change', schema)
-															}}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -664,6 +678,7 @@
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
+																					const isResource = v == 'resource'
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
 																					const isDynSelect = v == 'dynselect'
@@ -684,12 +699,17 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
-
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
 																							type: 'object',
 																							format: 'resource-s3_object'
+																						}
+																					} else if (isResource) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'resource-'
 																						}
 																					} else if (isDynSelect) {
 																						const functionName = argName.replace(/\s+/g, '_')
@@ -742,13 +762,9 @@
 																							type: v
 																						}
 																					}
+																					schema.properties = schema.properties
 																				}
 																			}
-																			on:selected={(e) => {
-																				schema = schema
-																				dispatch('change', schema)
-																				dispatch('schemaChange')
-																			}}
 																		>
 																			{#snippet children({ item })}
 																				{#each typeOptions as x}
@@ -762,6 +778,9 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	onDrawerClose={() => {
+																		dndType = generateRandomString()
+																	}}
 																	bind:defaultValue={schema.properties[argName].default}
 																	{variableEditor}
 																	{itemPicker}
@@ -792,12 +811,6 @@
 																				(x) => x !== argName
 																			)
 																		}
-																		dispatch('change', schema)
-																	}}
-																	on:schemaChange={(e) => {
-																		schema = $state.snapshot(schema)
-																		dispatch('change', schema)
-																		dispatch('schemaChange')
 																	}}
 																/>
 															{/if}
@@ -822,7 +835,6 @@
 									on:change={() => {
 										try {
 											schema = JSON.parse(schemaString)
-											dispatch('change', schema)
 											error = ''
 										} catch (err) {
 											error = err.message

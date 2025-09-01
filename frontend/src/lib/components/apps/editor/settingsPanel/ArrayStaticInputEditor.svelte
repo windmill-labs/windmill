@@ -237,6 +237,8 @@
 	$effect(() => {
 		items != undefined && handleItemsChange()
 	})
+
+	const rnd = generateRandomString()
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
@@ -286,7 +288,8 @@
 				use:dragHandleZone={{
 					items,
 					flipDurationMs,
-					dropTargetStyle: {}
+					dropTargetStyle: {},
+					type: rnd
 				}}
 				onconsider={handleConsider}
 				onfinalize={handleFinalize}

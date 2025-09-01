@@ -487,7 +487,7 @@
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),
-			untrack(() => preprocessorModule),
+			preprocessorModule,
 			eventHandler,
 			success,
 			$useDataflow,

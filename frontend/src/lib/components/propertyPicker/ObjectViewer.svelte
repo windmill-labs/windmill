@@ -83,6 +83,13 @@
 		if (Object.keys(arg).length === 1 && Object.keys(arg).includes('s3')) {
 			return 's3object'
 		}
+		if (
+			Object.keys(arg).length === 2 &&
+			Object.keys(arg).includes('s3') &&
+			Object.keys(arg).includes('filename')
+		) {
+			return 's3object'
+		}
 		return typeof arg
 	}
 
@@ -172,9 +179,12 @@
 	</span>
 {/snippet}
 
-<Portal name="object-viewer">
-	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
-</Portal>
+{#if getTypeAsString(jsonFiltered) === 's3object'}
+	<Portal name="object-viewer">
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
+	</Portal>
+{/if}
+
 {#if level == 0}
 	<div class="float-right">
 		{#if searchOpen}
