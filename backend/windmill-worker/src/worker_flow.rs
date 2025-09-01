@@ -2877,7 +2877,7 @@ async fn push_next_flow_job(
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
-            Some(flow_root_job.unwrap_or(flow_job.id)),
+            Some(flow_root_job),
             flow_innermost_root_job,
             None,
             true,

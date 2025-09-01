@@ -43,6 +43,7 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
+use crate::utils::get_root_job_id;
 use crate::{JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
 use windmill_common::client::AuthedClient;
 
@@ -212,25 +213,6 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
 }
 
 #[async_recursion]
-pub async fn get_root_job_id(job: &Uuid, db: &Pool<Postgres>) -> anyhow::Result<Uuid> {
-    let njob = sqlx::query_scalar!(
-        "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
-        job
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    if let Some(root_job) = njob {
-        if root_job == *job {
-            return Ok(job.to_owned());
-        }
-        get_root_job_id(&root_job, db).await
-    } else {
-        Ok(job.to_owned())
-    }
-}
-
-#[async_recursion]
 pub async fn transform_json_value(
     name: &str,
     client: &AuthedClient,
@@ -272,9 +254,7 @@ pub async fn transform_json_value(
                 Connection::Sql(db) => {
                     let encrypted = y.strip_prefix("$encrypted:").unwrap();
 
-                    let root_job_id =
-                        get_root_job_id(&job.flow_innermost_root_job.unwrap_or_else(|| job.id), db)
-                            .await?;
+                    let root_job_id = get_root_job_id(&job);
                     let mc = build_crypt_with_key_suffix(
                         &db,
                         &job.workspace_id,
@@ -463,6 +443,7 @@ pub async fn get_reserved_variables(
         job.schedule_path(),
         job.flow_step_id.clone(),
         job.flow_innermost_root_job.clone().map(|x| x.to_string()),
+        Some(get_root_job_id(job).to_string()),
         Some(job.scheduled_for.clone()),
     )
     .await

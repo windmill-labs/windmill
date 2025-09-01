@@ -181,7 +181,8 @@ pub async fn get_reserved_variables(
     flow_path: Option<String>,
     schedule_path: Option<String>,
     step_id: Option<String>,
-    root_flow_id: Option<String>,
+    flow_innermost_root_job: Option<String>,
+    root_job_id: Option<String>,
     scheduled_for: Option<chrono::DateTime<Utc>>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
@@ -292,8 +293,14 @@ pub async fn get_reserved_variables(
     },
     ContextualVariable {
         name: "WM_ROOT_FLOW_JOB_ID".to_string(),
-        value: root_flow_id.unwrap_or_else(|| "".to_string()),
-        description: "Job id of the root flow if the job is a flow step".to_string(),
+        value: flow_innermost_root_job.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the innermost root flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_ROOT_JOB_ID".to_string(),
+        value: root_job_id.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the root job".to_string(),
         is_custom: false,
     },
     ContextualVariable {
