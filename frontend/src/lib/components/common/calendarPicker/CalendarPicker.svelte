@@ -11,7 +11,6 @@
 	export let useDropdown: boolean = false
 	export let clearable: boolean = false
 	export let target: string | HTMLElement | undefined = undefined
-	export let classNames: string = ''
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement | undefined
@@ -29,7 +28,7 @@
 			title="Open calendar picker"
 			class={twMerge(
 				'absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer',
-				classNames
+				$$props.class
 			)}
 			aria-label="Open calendar picker"
 			on:click={() => {

@@ -934,9 +934,7 @@
 							clearable={true}
 							date={minTs}
 							label="From"
-							classNames={minTs || maxTs
-								? ''
-								: 'relative h-full top-0 bottom-0 left-0 right-0 h-[34px]'}
+							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
@@ -967,9 +965,7 @@
 							clearable={true}
 							date={maxTs}
 							label="To"
-							classNames={minTs || maxTs
-								? ''
-								: 'relative h-full top-0 bottom-0 left-0 right-0 h-[34px]'}
+							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
