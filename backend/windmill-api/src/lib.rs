@@ -106,7 +106,9 @@ mod integration;
 mod live_migrations;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
-mod s3_proxy;
+#[cfg(all(feature = "private"))]
+pub mod s3_proxy_ee;
+mod s3_proxy_oss;
 
 pub mod openapi;
 
@@ -758,7 +760,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/s3_proxy",
-                    s3_proxy::workspaced_unauthed_service(),
+                    s3_proxy_oss::workspaced_unauthed_service(),
                 )
                 .nest(
                     "/auth",
