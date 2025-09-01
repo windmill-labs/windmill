@@ -29,6 +29,7 @@ use crate::{
     },
     job_helpers_oss::{delete_s3_file_internal, read_object_streamable, DeleteS3FileQuery},
 };
+use async_stream::stream;
 
 pub fn workspaced_unauthed_service() -> Router {
     // Most routes are duplicated to support the s3://storage/path syntax
@@ -418,10 +419,29 @@ pub async fn convert_reqwest_to_axum_response(res: reqwest::Response) -> Result<
     let response = builder.body(Body::from_stream(bytes)).map_err(to_anyhow)?;
     Ok(response)
 }
+
 fn axum_body_to_reqwest_stream(axum_body: Body) -> reqwest::Body {
-    let stream = axum_body
-        .into_data_stream()
-        .map(|chunk| chunk.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err)));
+    let stream = stream! {
+        let mut axum_stream = axum_body.into_data_stream();
+        #[allow(unused_variables)]
+        let mut size = 0;
+        while let Some(result) = axum_stream.next().await {
+            match result {
+                Ok(bytes) => {
+                    size += bytes.len();
+                    #[cfg(not(feature = "enterprise"))]
+                    if size > 50 * 1024 * 1024 {
+                        // consume the rest of the body
+                        while let Some(_) = axum_stream.next().await {}
+                        yield Err(std::io::Error::new(std::io::ErrorKind::FileTooLarge, "Uploading files bigger than 50Mb is only permitted in Windmill EE"));
+                        break;
+                    }
+                    yield Ok(bytes);
+                }
+                Err(err) => yield Err(std::io::Error::new(std::io::ErrorKind::Other, err))
+            }
+        }
+    };
 
     reqwest::Body::wrap_stream(stream)
 }
