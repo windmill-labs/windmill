@@ -19,6 +19,7 @@
 		Bot,
 		Calendar,
 		Check,
+		Clock,
 		Code,
 		ExternalLink,
 		FastForward,
@@ -191,7 +192,7 @@
 						/>
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					Scheduled for {displayDate(job.scheduled_for)}
+					<Clock size={12} /> {displayDate(job.scheduled_for)}
 				{:else if job.canceled}
 					{#if job.type == 'CompletedJob'}
 						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
