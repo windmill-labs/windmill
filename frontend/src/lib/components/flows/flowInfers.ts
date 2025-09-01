@@ -125,7 +125,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'system_prompt',
 				'max_completion_tokens',
 				'temperature',
-				'structured_output',
 				'output_schema'
 			]
 		}

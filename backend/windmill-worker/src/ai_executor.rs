@@ -96,6 +96,22 @@ struct OpenAIRequest<'a> {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
+}
+
+#[derive(Serialize)]
+struct ResponseFormat {
+    r#type: String,
+    json_schema: JsonSchemaFormat,
+}
+
+#[derive(Serialize)]
+struct JsonSchemaFormat {
+    name: String,
+    schema: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strict: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -122,6 +138,7 @@ struct AIAgentArgs {
     user_message: String,
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
+    output_schema: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -587,6 +604,48 @@ async fn call_tool(
     }
 }
 
+/// Recursively adds "additionalProperties": false to all objects in the JSON schema
+/// and ensures all properties are in the required array for OpenAI's strict mode requirements
+fn make_schema_strict(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(mut obj) => {
+            // If this is an object type, add additionalProperties: false and ensure required array
+            if obj.get("type").and_then(|v| v.as_str()) == Some("object") {
+                obj.insert(
+                    "additionalProperties".to_string(),
+                    serde_json::Value::Bool(false),
+                );
+
+                // Ensure all properties are in the required array
+                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+                    let all_property_keys: Vec<serde_json::Value> = properties
+                        .keys()
+                        .map(|k| serde_json::Value::String(k.clone()))
+                        .collect();
+
+                    if !all_property_keys.is_empty() {
+                        obj.insert(
+                            "required".to_string(),
+                            serde_json::Value::Array(all_property_keys),
+                        );
+                    }
+                }
+            }
+
+            // Recursively process all nested values
+            for (_, v) in obj.iter_mut() {
+                *v = make_schema_strict(v.clone());
+            }
+
+            serde_json::Value::Object(obj)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(make_schema_strict).collect())
+        }
+        other => other,
+    }
+}
+
 async fn run_agent(
     // connection
     db: &DB,
@@ -639,6 +698,31 @@ async fn run_agent(
 
     for i in 0..MAX_AGENT_ITERATIONS {
         let response = {
+            // Build response format for structured output if schema is provided
+            let response_format = args.output_schema.as_ref().map(|schema| {
+                // Extract name from schema if present, otherwise use a default
+                let name = if let serde_json::Value::Object(obj) = schema {
+                    obj.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("structured_output")
+                        .to_string()
+                } else {
+                    "structured_output".to_string()
+                };
+
+                // Make schema compatible with strict mode by adding additionalProperties: false
+                let strict_schema = make_schema_strict(schema.clone());
+
+                ResponseFormat {
+                    r#type: "json_schema".to_string(),
+                    json_schema: JsonSchemaFormat {
+                        name,
+                        schema: strict_schema,
+                        strict: Some(true),
+                    },
+                }
+            });
+
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .bearer_auth(api_key)
@@ -648,6 +732,7 @@ async fn run_agent(
                     tools: tool_defs.as_ref(),
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
+                    response_format,
                 })
                 .send()
                 .await
