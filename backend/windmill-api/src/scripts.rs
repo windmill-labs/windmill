@@ -1433,7 +1433,9 @@ async fn raw_script_by_path_internal(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let cache_path = query.cache_key.map(|x| format!("{w_id}:{path}:{x}"));
+    let cache_path = query
+        .cache_key
+        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
     if let Some(cache_path) = cache_path.clone() {
         let cached_content = RAW_SCRIPT_CACHE.get(&cache_path);
         if let Some(cached_content) = cached_content {
