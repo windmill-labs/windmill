@@ -109,6 +109,11 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'number',
 					description:
 						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
+				},
+				output_schema: {
+					type: 'object',
+					description: 'JSON schema that the AI agent will follow for its response format',
+					format: 'json-schema'
 				}
 			},
 			required: ['provider', 'model', 'user_message'],
@@ -119,7 +124,9 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'user_message',
 				'system_prompt',
 				'max_completion_tokens',
-				'temperature'
+				'temperature',
+				'structured_output',
+				'output_schema'
 			]
 		}
 		let input_transforms = mod.input_transforms ?? {}

@@ -677,6 +677,19 @@
 					editTab="inputEditor"
 					noPreview
 					addPropertyInEditorTab
+					on:delete={(e) => {
+						// Handle property deletion
+						if (value && value.properties && value.properties[e.detail]) {
+							delete value.properties[e.detail]
+							// Also remove from order array if it exists
+							if (value.order) {
+								value.order = value.order.filter(key => key !== e.detail)
+							}
+							// Update the value to trigger reactivity
+							value = { ...value }
+							dispatch('change')
+						}
+					}}
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}

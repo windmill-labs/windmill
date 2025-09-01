@@ -151,6 +151,8 @@
 		}
 	})
 
+	$inspect('editable schema form', schema)
+
 	export function setDefaults() {
 		const nargs = {}
 

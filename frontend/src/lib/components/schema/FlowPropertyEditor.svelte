@@ -283,6 +283,7 @@
 					bind:selected={customObjectSelected}
 					class="my-2"
 					on:selected={(e) => {
+						console.log('e.detail', e.detail)
 						if (e.detail === 'editor') {
 							format = undefined
 						} else {
