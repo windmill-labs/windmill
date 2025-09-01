@@ -63,8 +63,8 @@ pub fn decode_without_verify<T: DeserializeOwned>(token: &str) -> anyhow::Result
 
 // header_and_payload: `{header}.{payload}`
 pub async fn generate_signature(header_and_payload: &str) -> anyhow::Result<String> {
-    let header_and_payload = header_and_payload.trim_start_matches("jwt_");
     let header_and_payload = header_and_payload.trim_start_matches("jwt_ext_");
+    let header_and_payload = header_and_payload.trim_start_matches("jwt_");
     let secret = JWT_SECRET.read().await;
 
     // Create HMAC-SHA256
