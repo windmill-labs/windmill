@@ -135,7 +135,7 @@
 	{/if}
 
 	<!-- Status -->
-	<div class="flex items-center justify-center">
+	<div class="flex items-center justify-start pl-2">
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
 				<ShieldQuestion size={14} />
@@ -192,7 +192,7 @@
 						/>
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					<Clock size={12} /> {displayDate(job.scheduled_for)}
+					{displayDate(job.scheduled_for)}<Clock size={12} />
 				{:else if job.canceled}
 					{#if job.type == 'CompletedJob'}
 						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />

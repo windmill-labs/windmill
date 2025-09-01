@@ -904,7 +904,6 @@
 				</div>
 
 				<!-- Queue -->
-
 				<RunsQueue
 					{success}
 					{queue_count}
@@ -1136,7 +1135,7 @@
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
-							class="flex flex-row gap-4 items-center px-4 py-1 grow-0 justify-between"
+							class="flex flex-row gap-4 items-center px-2 py-1 grow-0 justify-between"
 							bind:clientWidth={tableTopBarWidth}
 						>
 							<div class="flex flex-row gap-4 items-center">

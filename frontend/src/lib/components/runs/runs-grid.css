@@ -3,7 +3,7 @@
 /* Grid layouts with tag column */
 .grid-runs-table {
 	grid-template-columns:
-		80px /* Status (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(200px, 2.3fr) /* Path (~33% reduced for wider tag) */
@@ -14,7 +14,7 @@
 
 .grid-runs-table-with-labels {
 	grid-template-columns:
-		80px /* Status (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(150px, 1.6fr) /* Path (~25% reduced for labels and wider tag) */
@@ -52,7 +52,7 @@
 /* Grid layouts without tag column */
 .grid-runs-table-no-tag {
 	grid-template-columns:
-		80px /* Status (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
@@ -62,7 +62,7 @@
 
 .grid-runs-table-with-labels-no-tag {
 	grid-template-columns:
-		80px /* Status (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
@@ -73,8 +73,8 @@
 
 .grid-runs-table-selection-no-tag {
 	grid-template-columns:
-		50px /* Selection checkbox (fixed width) */
-		80px /* Status (fixed width) */
+		40px /* Selection checkbox (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(200px, 2.8fr) /* Path (~38% expanded without tag) */
@@ -85,7 +85,7 @@
 .grid-runs-table-with-labels-selection-no-tag {
 	grid-template-columns:
 		50px /* Selection checkbox (fixed width) */
-		80px /* Status (fixed width) */
+		60px /* Status (fixed width) */
 		minmax(100px, 0.8fr) /* Started time (~10%) */
 		minmax(60px, 0.5fr) /* Duration (~7%) */
 		minmax(150px, 1.8fr) /* Path (~30% expanded without tag) */
