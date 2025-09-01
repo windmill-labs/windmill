@@ -44,7 +44,6 @@
 
 	function clearTimers() {
 		clearDebounceClose()
-		clearDebounceOpen()
 	}
 
 	// Cleanup timers on component destruction
@@ -124,10 +123,6 @@
 		() => openOnHover && close(),
 		debounceDelay
 	)
-	let { debounced: debounceOpen, clearDebounce: clearDebounceOpen } = debounce(
-		() => openOnHover && open(),
-		debounceDelay
-	)
 </script>
 
 <button
@@ -135,7 +130,12 @@
 	use:melt={$trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}
-	on:mouseenter={debounceOpen}
+	on:mouseenter={() => {
+		if (openOnHover) {
+			open()
+			clearDebounceClose()
+		}
+	}}
 	on:mouseleave={debounceClose}
 	use:pointerDownOutside={{
 		capture: true,
@@ -160,7 +160,12 @@
 
 {#if isOpen && !disablePopup}
 	<div
-		on:mouseenter={debounceOpen}
+		on:mouseenter={() => {
+			if (openOnHover) {
+				open()
+				clearDebounceClose()
+			}
+		}}
 		on:mouseleave={debounceClose}
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
