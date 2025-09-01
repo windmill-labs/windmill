@@ -1791,6 +1791,7 @@
 			bind:hasPreprocessor
 			bind:captureTable
 			bind:assets={script.assets}
+			enablePreprocessorSnippet
 		/>
 	</div>
 {:else}
