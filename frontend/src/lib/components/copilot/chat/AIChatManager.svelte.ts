@@ -11,16 +11,13 @@ import HistoryManager from './HistoryManager.svelte'
 import {
 	extractCodeFromMarkdown,
 	getLatestAssistantMessage,
-	processToolCall,
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayMessage
 } from './shared'
 import type {
-	ChatCompletionChunk,
 	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
@@ -34,7 +31,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getCompletion, getModelContextWindow } from '../lib'
+import { getCompletion, getModelContextWindow, parseOpenAICompletion } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
@@ -47,6 +44,7 @@ import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
+import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -380,10 +378,8 @@ class AIChatManager {
 		}
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
-		let addedMessages: ChatCompletionMessageParam[] = []
 		try {
-			let completion: any = null
-
+			let addedMessages: ChatCompletionMessageParam[] = []
 			while (true) {
 				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const helpers = this.helpers
@@ -413,99 +409,28 @@ class AIChatManager {
 					}
 					this.pendingPrompt = ''
 				}
-				completion = await getCompletion(
+
+				const model = getCurrentModel()
+				const completionFn = model.provider === 'anthropic' ? getAnthropicCompletion : getCompletion
+				const parseFn =
+					model.provider === 'anthropic' ? parseAnthropicCompletion : parseOpenAICompletion
+
+				const completion = await completionFn(
 					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
 					abortController,
 					tools.map((t) => t.def)
 				)
 
 				if (completion) {
-					const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-					let answer = ''
-					for await (const chunk of completion) {
-						if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-							continue
-						}
-						const c = chunk as ChatCompletionChunk
-						const delta = c.choices[0].delta.content
-						if (delta) {
-							answer += delta
-							callbacks.onNewToken(delta)
-						}
-						const toolCalls = c.choices[0].delta.tool_calls || []
-						if (toolCalls.length > 0 && answer) {
-							// if tool calls are present but we have some textual content already, we need to display it to the user first
-							callbacks.onMessageEnd()
-							answer = ''
-						}
-						for (const toolCall of toolCalls) {
-							const { index } = toolCall
-							let finalToolCall = finalToolCalls[index]
-							if (!finalToolCall) {
-								finalToolCalls[index] = toolCall
-							} else {
-								if (toolCall.function?.arguments) {
-									if (!finalToolCall.function) {
-										finalToolCall.function = toolCall.function
-									} else {
-										finalToolCall.function.arguments =
-											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-									}
-								}
-							}
-							finalToolCall = finalToolCalls[index]
-							if (finalToolCall?.function) {
-								const {
-									function: { name: funcName },
-									id: toolCallId
-								} = finalToolCall
-								if (funcName && toolCallId) {
-									const tool = tools.find((t) => t.def.function.name === funcName)
-									if (tool && tool.preAction) {
-										tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
-									}
-								}
-							}
-						}
-					}
-
-					if (answer) {
-						const toAdd = { role: 'assistant' as const, content: answer }
-						addedMessages.push(toAdd)
-						messages.push(toAdd)
-					}
-
-					callbacks.onMessageEnd()
-
-					const toolCalls = Object.values(finalToolCalls).filter(
-						(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-					) as ChatCompletionMessageToolCall[]
-
-					if (toolCalls.length > 0) {
-						const toAdd = {
-							role: 'assistant' as const,
-							tool_calls: toolCalls.map((t) => ({
-								...t,
-								function: {
-									...t.function,
-									arguments: t.function.arguments || '{}'
-								}
-							}))
-						}
-						messages.push(toAdd)
-						addedMessages.push(toAdd)
-						for (const toolCall of toolCalls) {
-							const messageToAdd = await processToolCall({
-								tools,
-								toolCall,
-								helpers,
-								toolCallbacks: callbacks
-							})
-							messages.push(messageToAdd)
-							addedMessages.push(messageToAdd)
-						}
-					} else {
+					const continueCompletion = await parseFn(
+						completion as any,
+						callbacks,
+						messages,
+						addedMessages,
+						tools,
+						helpers
+					)
+					if (!continueCompletion) {
 						break
 					}
 				}
