@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.536.0",
+	"version": "1.537.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -92,7 +92,7 @@
 		"@scalar/openapi-parser": "^0.15.0",
 		"@tanstack/svelte-table": "npm:tanstack-table-8-svelte-5@^0.1",
 		"@tutorlatin/svelte-tiny-virtual-list": "^3.0.2",
-		"@windmill-labs/svelte-dnd-action": "^0.9.48",
+		"@windmill-labs/svelte-dnd-action": "^0.9.44",
 		"@xterm/addon-fit": "^0.10.0",
 		"@xyflow/svelte": "^1.0.0",
 		"ag-charts-community": "^9.0.1",

@@ -308,7 +308,7 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status")
+                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status, job_perms")
                         .execute(&db2)
                         .await
                     {

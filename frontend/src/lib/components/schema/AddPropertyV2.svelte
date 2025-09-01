@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { type Schema, modalToSchema, type ModalSchemaProperty } from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import AddPropertyFormV2 from './AddPropertyFormV2.svelte'
 	interface Props {
 		schema?: Schema | any
 		trigger?: import('svelte').Snippet
 		noPopover?: boolean
+		onAddNew?: (argName: string) => void
 	}
 
-	let { schema = $bindable(emptySchema()), trigger, noPopover }: Props = $props()
+	let { schema = $bindable(emptySchema()), trigger, noPopover, onAddNew }: Props = $props()
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',
@@ -17,8 +17,6 @@
 		name: '',
 		required: false
 	}
-
-	const dispatch = createEventDispatcher()
 
 	if (!schema) {
 		schema = emptySchema()
@@ -107,7 +105,6 @@
 			editing = false
 			oldArgName = undefined
 			schema = $state.snapshot(newSchema)
-			dispatch('change', schema)
 		}
 
 		if (argError !== '') {
@@ -139,14 +136,11 @@
 				if (modifiedObject.order) {
 					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
 				}
-				dispatch('change', schema)
 			} else {
 				throw Error('Argument not found!')
 			}
 			syncOrders(modifiedObject)
 			schema = $state.snapshot(modifiedObject)
-
-			dispatch('change', schema)
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
@@ -164,7 +158,7 @@
 				selectedType: 'string',
 				name: e.detail.name
 			})
-			dispatch('addNew', e.detail.name)
+			onAddNew?.(e.detail.name)
 		} catch (err) {
 			sendUserToast(`Could not add argument: ${err}`, true)
 		}
