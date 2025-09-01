@@ -417,8 +417,8 @@
 				</Label>
 			</div>
 
-			{#if !hideTarget}
-				<Section label="Runnable" class="flex flex-col gap-4">
+			<Section label={hideTarget ? 'Runnable options' : 'Runnable'} class="flex flex-col gap-4">
+				{#if !hideTarget}
 					<div>
 						<p class="text-xs mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} />
@@ -449,21 +449,21 @@
 							{/if}
 						</div>
 					</div>
+				{/if}
 
-					<Toggle
-						checked={can_return_message}
-						on:change={() => {
-							can_return_message = !can_return_message
-						}}
-						options={{
-							right: 'Send runnable result',
-							rightTooltip:
-								'Whether the runnable result should be sent as a message to the websocket server when not null.'
-						}}
-						disabled={!can_write}
-					/>
-				</Section>
-			{/if}
+				<Toggle
+					checked={can_return_message}
+					on:change={() => {
+						can_return_message = !can_return_message
+					}}
+					options={{
+						right: 'Send runnable result',
+						rightTooltip:
+							'Whether the runnable result should be sent as a message to the websocket server when not null.'
+					}}
+					disabled={!can_write}
+				/>
+			</Section>
 
 			<WebsocketEditorConfigSection
 				bind:url

@@ -7,9 +7,7 @@
 	import type VariableEditor from '../VariableEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import ArgInput from '../ArgInput.svelte'
-	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
-	import { Tab, TabContent } from '../common'
+	import ResourceNarrowing from '../ResourceNarrowing.svelte'
 	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -18,7 +16,6 @@
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
-	import Tooltip from '../Tooltip.svelte'
 
 	interface Props {
 		format?: string | undefined
@@ -49,6 +46,7 @@
 		order?: string[] | undefined
 		requiredProperty?: string[] | undefined
 		displayWebhookWarning?: boolean
+		onDrawerClose?: () => void
 	}
 
 	let {
@@ -72,10 +70,11 @@
 		properties = $bindable(undefined),
 		order = $bindable(undefined),
 		requiredProperty = $bindable(undefined),
-		displayWebhookWarning = true
+		displayWebhookWarning = true,
+		onDrawerClose = undefined
 	}: Props = $props()
 
-	let oneOfSelected: string | undefined = $state(undefined)
+	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
 
 	const dispatch = createEventDispatcher()
 
@@ -139,254 +138,215 @@
 	)
 </script>
 
-<div class="flex flex-col gap-2">
+<div class="flex flex-col gap-2 mt-2">
 	{#if type === 'object' && oneOf && oneOf.length >= 2}
-		<div class="flex flex-row gap-1 items-center justify-start">
-			<ToggleButtonGroup
-				bind:selected={oneOfSelected}
-				class="h-auto w-auto"
-				tabListClass="flex-wrap"
-			>
-				{#snippet children({ item })}
-					{#each oneOf ?? [] as obj}
-						<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
-					{/each}
-				{/snippet}
-			</ToggleButtonGroup>
+		<Label label="OneOf properties">
+			<div class="flex flex-row gap-1 items-center justify-start pt-2">
+				<ToggleButtonGroup
+					bind:selected={oneOfSelected}
+					class="h-auto w-auto"
+					tabListClass="flex-wrap"
+				>
+					{#snippet children({ item })}
+						{#each oneOf ?? [] as obj}
+							<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+						{/each}
+					{/snippet}
+				</ToggleButtonGroup>
 
-			<Popover placement="bottom-end" closeButton>
-				{#snippet trigger()}
-					<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
-				{/snippet}
-				{#snippet content({ close })}
-					<Label label="Label" class="p-2 flex flex-col gap-2">
-						<input
-							type="text"
-							class="w-full !bg-surface"
-							onkeydown={(event) => {
-								if (event.key === 'Enter') {
+				<Popover placement="bottom-end" closeButton>
+					{#snippet trigger()}
+						<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
+					{/snippet}
+					{#snippet content({ close })}
+						<Label label="Label" class="p-2 flex flex-col gap-2">
+							<input
+								type="text"
+								class="w-full !bg-surface"
+								onkeydown={(event) => {
+									if (event.key === 'Enter') {
+										createVariant(variantName)
+										close()
+									}
+								}}
+								bind:value={variantName}
+							/>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								on:click={() => {
 									createVariant(variantName)
 									close()
+								}}
+								disabled={variantName.length === 0}
+							>
+								Add
+							</Button>
+						</Label>
+					{/snippet}
+				</Popover>
+			</div>
+			<div class="flex flex-row gap-2 items-center ml-1 mt-4 mb-2">
+				<span class="font-semibold text-sm">{oneOfSelected}</span>
+
+				<Popover
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+					closeButton
+				>
+					{#snippet trigger()}
+						<Button
+							size="xs2"
+							color="light"
+							startIcon={{ icon: Pen }}
+							propagateEvent
+							iconOnly={false}
+							on:click={() => {
+								if (oneOfSelected) {
+									variantName = oneOfSelected
 								}
 							}}
-							bind:value={variantName}
 						/>
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							on:click={() => {
-								createVariant(variantName)
-								close()
-							}}
-							disabled={variantName.length === 0}
-						>
-							Add
-						</Button>
-					</Label>
-				{/snippet}
-			</Popover>
-		</div>
-		<div class="flex flex-row gap-2 items-center">
-			<span class="font-semibold text-sm">{oneOfSelected}</span>
-
-			<Popover
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				closeButton
-			>
-				{#snippet trigger()}
-					<Button
-						size="xs2"
-						color="light"
-						startIcon={{ icon: Pen }}
-						propagateEvent
-						iconOnly={false}
-						on:click={() => {
-							if (oneOfSelected) {
-								variantName = oneOfSelected
-							}
-						}}
-					/>
-				{/snippet}
-				{#snippet content({ close })}
-					<Label label="Label" class="p-2 flex flex-col gap-2">
-						<input
-							type="text"
-							class="w-full !bg-surface"
-							onkeydown={(event) => {
-								if (event.key === 'Enter') {
+					{/snippet}
+					{#snippet content({ close })}
+						<Label label="Label" class="p-2 flex flex-col gap-2">
+							<input
+								type="text"
+								class="w-full !bg-surface"
+								onkeydown={(event) => {
+									if (event.key === 'Enter') {
+										if (oneOfSelected) {
+											renameVariant(variantName, oneOfSelected)
+											close()
+										}
+									}
+								}}
+								bind:value={variantName}
+							/>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								on:click={() => {
 									if (oneOfSelected) {
 										renameVariant(variantName, oneOfSelected)
 										close()
 									}
-								}
-							}}
-							bind:value={variantName}
-						/>
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (oneOfSelected) {
-									renameVariant(variantName, oneOfSelected)
-									close()
-								}
-							}}
-							disabled={variantName.length === 0}
-						>
-							Rename
-						</Button>
-					</Label>
-				{/snippet}
-			</Popover>
-			<Button
-				size="xs2"
-				color="red"
-				startIcon={{ icon: Trash2 }}
-				iconOnly
-				disabled={(oneOf?.length ?? 0) <= 2}
-				on:click={() => {
-					if (oneOf && oneOfSelected) {
-						const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)
-						oneOf = oneOf.filter((_, i) => i !== idx)
-						oneOfSelected = oneOf[0].title
-					}
-				}}
-			/>
-		</div>
-		{#if oneOfSelected && oneOf}
-			{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
-			<EditableSchemaDrawer
-				bind:schema={
-					() => {
-						if (oneOf?.[idx]) {
-							let properties = Object.fromEntries(
-								Object.entries(oneOf[idx].properties ?? {}).filter(
-									([k]) => k !== 'label' && k !== 'kind'
-								)
-							)
-							return {
-								...oneOf[idx],
-								properties: properties,
-								order: Object.keys(properties),
-								required: oneOf[idx].required ?? []
-							}
+								}}
+								disabled={variantName.length === 0}
+							>
+								Rename
+							</Button>
+						</Label>
+					{/snippet}
+				</Popover>
+				<Button
+					size="xs2"
+					color="red"
+					startIcon={{ icon: Trash2 }}
+					iconOnly
+					disabled={(oneOf?.length ?? 0) <= 2}
+					on:click={() => {
+						if (oneOf && oneOfSelected) {
+							const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)
+							oneOf = oneOf.filter((_, i) => i !== idx)
+							oneOfSelected = oneOf[0].title
 						}
-					},
-					(v) => {
-						if (oneOf?.[idx]) {
-							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+					}}
+				/>
+			</div>
+			{#if oneOfSelected && oneOf}
+				{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
+				<div class="ml-1">
+					<EditableSchemaDrawer
+						onClose={() => {
+							onDrawerClose?.()
+						}}
+						bind:schema={oneOf[idx]}
+						hiddenArgs={[
+							oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 								? 'kind'
 								: 'label'
-							oneOf[idx] = {
-								...(v ?? {}),
-								type: 'object',
-								properties: {
-									...(v?.properties ?? {}),
-									[tagKey]: {
-										type: 'string',
-										enum: [v?.title ?? '']
-									}
+						]}
+					/>
+				</div>
+			{/if}
+		</Label>
+		<div class="py-2"></div>
+	{:else if type === 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object' && !isDynSelect}
+		<ResourceNarrowing bind:format />
+	{:else if type === 'object' && !format?.startsWith('resource-') && !isDynSelect}
+		<div class="py-2">
+			<Label label="Object properties">
+				<ToggleButtonGroup
+					bind:selected={customObjectSelected}
+					class="my-2"
+					on:selected={(e) => {
+						if (e.detail === 'editor') {
+							format = undefined
+						} else {
+							properties = undefined
+							order = undefined
+							requiredProperty = undefined
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="editor" label="Custom" {item} />
+						<ToggleButton
+							value="json-schema-resource"
+							label="Template"
+							{item}
+							tooltip="Select a JSON schema resource to specify the object's properties"
+							showTooltipIcon
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+				{#if customObjectSelected === 'editor'}
+					<EditableSchemaDrawer
+						bind:schema={
+							() => {
+								return {
+									properties: properties,
+									order: order,
+									required: requiredProperty
+								}
+							},
+							(v) => {
+								properties = v.properties
+								order = v.order
+								requiredProperty = v.required
+							}
+						}
+					/>
+				{:else if customObjectSelected === 'json-schema-resource'}
+					{#if format == undefined}
+						<div class="text-xs text-tertiary my-1">
+							Select a <code>json_schema</code> resource as a reusable JSON schema template
+						</div>
+					{/if}
+					<ResourcePicker
+						resourceType="json_schema"
+						bind:value={
+							() => {
+								if (format?.startsWith('jsonschema-')) {
+									return format.substring('jsonschema-'.length)
+								}
+								return undefined
+							},
+							(v) => {
+								if (v) {
+									format = 'jsonschema-' + v
+								} else {
+									format = undefined
 								}
 							}
 						}
-					}
-				}
-				on:change={() => {
-					dispatch('schemaChange')
-				}}
-			/>
-		{/if}
-	{:else if type === 'object' && format !== 'resource-s3_object' && !isDynSelect}
-		<Tabs
-			bind:selected={initialObjectSelected}
-			on:selected={(e) => {
-				if (e.detail === 'json-schema') {
-					format = 'json-schema'
-				} else {
-					format = ''
-				}
-			}}
-		>
-			<Tab value="resource">Resource</Tab>
-			<Tab value="custom-object">Custom Object</Tab>
-			<Tab value="json-schema">
-				JSON Schema
-				<Tooltip>
-					This displays a JSON schema editor, useful when a JSON schema input is expected.
-				</Tooltip>
-			</Tab>
-			{#snippet content()}
-				<div class="pt-2">
-					<TabContent value="custom-object">
-						<ToggleButtonGroup
-							bind:selected={customObjectSelected}
-							class="mb-2"
-							on:selected={(e) => {
-								if (e.detail === 'editor') {
-									format = undefined
-								} else {
-									properties = undefined
-									order = undefined
-									requiredProperty = undefined
-								}
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="editor" label="Editor" {item} />
-								<ToggleButton
-									value="json-schema-resource"
-									label="JSON Schema Resource"
-									{item}
-									tooltip="Select a JSON schema resource to specify the object's properties"
-									showTooltipIcon
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-						{#if customObjectSelected === 'editor'}
-							<EditableSchemaDrawer
-								bind:schema={
-									() => {
-										return {
-											properties: properties,
-											order: order,
-											required: requiredProperty
-										}
-									},
-									(v) => {
-										properties = v.properties
-										order = v.order
-										requiredProperty = v.required
-										dispatch('schemaChange')
-									}
-								}
-							/>
-						{:else if customObjectSelected === 'json-schema-resource'}
-							<ResourcePicker
-								resourceType="json_schema"
-								bind:value={
-									() => {
-										if (format?.startsWith('jsonschema-')) {
-											return format.substring('jsonschema-'.length)
-										}
-										return undefined
-									},
-									(v) => {
-										format = 'jsonschema-' + v
-									}
-								}
-							/>
-						{/if}
-					</TabContent>
-
-					<TabContent value="resource">
-						<ObjectTypeNarrowing on:change={() => dispatch('schemaChange')} bind:format />
-					</TabContent>
-				</div>
-			{/snippet}
-		</Tabs>
+					/>
+				{/if}
+			</Label>
+		</div>
 	{/if}
 
 	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDynSelect}

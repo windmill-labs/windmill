@@ -28,6 +28,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use itertools::Itertools;
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -1362,8 +1363,9 @@ async fn toggle_workspace_error_handler(
 async fn get_tokened_raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, token, path)): Path<(String, String, StripPath)>,
     Extension(cache): Extension<Arc<AuthCache>>,
+    Path((w_id, token, path)): Path<(String, String, StripPath)>,
+    Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
     let authed = cache
         .get_authed(Some(w_id.clone()), &token)
@@ -1374,6 +1376,7 @@ async fn get_tokened_raw_script_by_path(
         Extension(user_db),
         Extension(db),
         Path((w_id, path)),
+        Query(query),
     )
     .await;
 }
@@ -1382,13 +1385,21 @@ async fn get_empty_ts_script_by_path() -> String {
     return String::new();
 }
 
+#[derive(Deserialize)]
+struct RawScriptByPathQuery {
+    // used to make cache immutable with respect to importer
+    cache_key: Option<String>,
+    // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
+    cache_folders: Option<bool>,
+}
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, false).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await
 }
 
 async fn raw_script_by_path_unpinned(
@@ -1396,13 +1407,20 @@ async fn raw_script_by_path_unpinned(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query).await
 }
 
 lazy_static::lazy_static! {
     static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
         std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
+}
+
+lazy_static::lazy_static! {
+    pub static ref RAW_SCRIPT_CACHE: Cache<String, String> = Cache::new(1000);
+    pub static ref CACHE_FOLDERS_PATH: Cache<String, i64> = Cache::new(1000);
+
 }
 
 async fn raw_script_by_path_internal(
@@ -1412,9 +1430,20 @@ async fn raw_script_by_path_internal(
     authed: ApiAuthed,
     w_id: String,
     unpin: bool,
+    query: RawScriptByPathQuery,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
+    let cache_path = query
+        .cache_key
+        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
+    if let Some(cache_path) = cache_path.clone() {
+        let cached_content = RAW_SCRIPT_CACHE.get(&cache_path);
+        if let Some(cached_content) = cached_content {
+            return Ok(cached_content);
+        }
+    }
+
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
         && !path.ends_with(".go")
@@ -1432,6 +1461,27 @@ async fn raw_script_by_path_internal(
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");
+
+    // folder cache is only useful for python given it needs to recuse over all intermediate folders to find the package.
+    // When a script exists in a folder, we can cache the fact that the folder exists to avoid extra db calls.
+    let mut split_path = path.split("/").collect::<Vec<&str>>();
+    let folder_path = if query.cache_folders.is_some() && split_path.len() > 2 {
+        Some(format!("{w_id}:{path}/"))
+    } else {
+        None
+    };
+
+    let has_folder_cache = folder_path.is_some();
+    if let Some(cache_folders) = folder_path {
+        let cached_content = CACHE_FOLDERS_PATH.get(&cache_folders);
+        if let Some(cached_ts) = cached_content {
+            if cached_ts >= chrono::Utc::now().timestamp() - 300 {
+                // 5 minutes
+                return Ok("WINDMILL_IS_FOLDER".to_string());
+            }
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
@@ -1485,11 +1535,24 @@ async fn raw_script_by_path_internal(
 
     let content = not_found_if_none(content_o, "Script", path)?;
 
-    if unpin {
-        return Ok(remove_pinned_imports(&content)?);
+    let content = if unpin {
+        remove_pinned_imports(&content)?
     } else {
-        return Ok(content);
+        content
+    };
+
+    if has_folder_cache {
+        while split_path.len() >= 2 {
+            split_path.pop();
+            let npath = split_path.join("/");
+            CACHE_FOLDERS_PATH.insert(format!("{w_id}:{npath}/"), chrono::Utc::now().timestamp());
+        }
     }
+
+    if let Some(cache_path) = cache_path {
+        RAW_SCRIPT_CACHE.insert(cache_path, content.clone());
+    }
+    Ok(content)
 }
 
 async fn exists_script_by_path(
