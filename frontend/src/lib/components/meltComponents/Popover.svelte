@@ -11,7 +11,7 @@
 	import { fade } from 'svelte/transition'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { pointerDownOutside } from '$lib/utils'
+	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '$lib/components/common'
@@ -40,13 +40,11 @@
 	export let escapeBehavior: EscapeBehaviorType = 'close'
 
 	let fullScreen = false
-	let openTimer: ReturnType<typeof setTimeout> | undefined
-	let closeTimer: ReturnType<typeof setTimeout> | undefined
 	const dispatch = createEventDispatcher()
 
 	function clearTimers() {
-		if (openTimer) clearTimeout(openTimer)
-		if (closeTimer) clearTimeout(closeTimer)
+		clearDebounceClose()
+		clearDebounceOpen()
 	}
 
 	// Cleanup timers on component destruction
@@ -122,24 +120,11 @@
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
 
-	function debounceOpen() {
-		if (!openOnHover) return
-		clearTimers()
-		if (debounceDelay > 0) {
-			openTimer = setTimeout(open, debounceDelay)
-		} else {
-			open()
-		}
-	}
-	function debounceClose() {
-		if (!openOnHover) return
-		clearTimers()
-		if (debounceDelay > 0) {
-			closeTimer = setTimeout(close, debounceDelay)
-		} else {
-			close()
-		}
-	}
+	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
+		close,
+		debounceDelay
+	)
+	let { debounced: debounceOpen, clearDebounce: clearDebounceOpen } = debounce(open, debounceDelay)
 </script>
 
 <button
