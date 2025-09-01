@@ -1083,7 +1083,7 @@
 	}
 
 	// Set all tabs content to the same height to prevent layout jumps
-	let tabsHeigh = $state({
+	let tabsHeight = $state({
 		sequenceHeight: 0,
 		logsHeight: 0,
 		assetsHeight: 0,
@@ -1092,10 +1092,10 @@
 
 	let minTabHeight = $derived(
 		Math.max(
-			tabsHeigh.sequenceHeight,
-			tabsHeigh.logsHeight,
-			tabsHeigh.assetsHeight,
-			tabsHeigh.graphHeight
+			tabsHeight.sequenceHeight,
+			tabsHeight.logsHeight,
+			tabsHeight.assetsHeight,
+			tabsHeight.graphHeight
 		)
 	)
 </script>
@@ -1184,7 +1184,7 @@
 		{/if}
 		<div
 			class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto"
-			bind:clientHeight={tabsHeigh.sequenceHeight}
+			bind:clientHeight={tabsHeight.sequenceHeight}
 			style="min-height: {minTabHeight}px"
 		>
 			{#if isListJob}
@@ -1537,7 +1537,7 @@
 		</div>
 		<div
 			class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
-			bind:clientHeight={tabsHeigh.logsHeight}
+			bind:clientHeight={tabsHeight.logsHeight}
 			style="min-height: {minTabHeight}px"
 		>
 			<FlowLogViewerWrapper
@@ -1551,7 +1551,7 @@
 		{#if selected == 'assets' && render}
 			<div
 				class="p-2"
-				bind:clientHeight={tabsHeigh.assetsHeight}
+				bind:clientHeight={tabsHeight.assetsHeight}
 				style="min-height: {minTabHeight}px"
 			>
 				<JobAssetsViewer {job} />
@@ -1562,7 +1562,7 @@
 		{#if job.raw_flow && !isListJob}
 			<div
 				class="{selected != 'graph' ? 'hidden' : ''} grow mt-4"
-				bind:clientHeight={tabsHeigh.graphHeight}
+				bind:clientHeight={tabsHeight.graphHeight}
 				style="min-height: {minTabHeight}px"
 			>
 				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
