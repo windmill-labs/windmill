@@ -17,6 +17,7 @@
 	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import autosize from '$lib/autosize'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -30,6 +31,8 @@
 		['togetherai', 'Together AI'],
 		['customai', 'Custom AI']
 	]
+
+	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
 	let {
 		aiProviders = $bindable(),
@@ -54,15 +57,6 @@
 
 	// Custom system prompt settings
 	let selectedAiMode = $state<AIMode>(AIMode.ASK)
-
-	// Ensure all AI modes have entries in customPrompts
-	$effect(() => {
-		Object.values(AIMode).forEach((mode) => {
-			if (!(mode in customPrompts)) {
-				customPrompts[mode] = ''
-			}
-		})
-	})
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -375,7 +369,14 @@
 						placeholder="Enter a custom system prompt for {selectedAiMode} mode."
 						class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary resize-y"
 						rows="4"
+						maxlength={MAX_CUSTOM_PROMPT_LENGTH}
+						use:autosize
 					></textarea>
+					<div class="flex justify-end mt-1">
+						<span class="text-xs text-secondary">
+							{(customPrompts[selectedAiMode] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
+						</span>
+					</div>
 				</Label>
 			</div>
 		</div>
