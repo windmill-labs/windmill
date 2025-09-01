@@ -52,6 +52,7 @@
 			| 'tag'
 			| 'schedulePath'
 		small?: boolean
+		calendarSmall?: boolean
 	}
 
 	let {
@@ -77,7 +78,8 @@
 		folders = [],
 		allWorkspaces = $bindable(false),
 		filterBy = $bindable('path'),
-		small = false
+		small = false,
+		calendarSmall = false
 	}: Props = $props()
 
 	let copyArgFilter = $state(argFilter)
@@ -470,7 +472,7 @@
 
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
-		{#if small}
+		{#if small && !calendarSmall}
 			<DropownSelect
 				btnClasses="min-w-24"
 				items={[

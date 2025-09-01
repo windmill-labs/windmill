@@ -921,19 +921,23 @@
 
 			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
-				<div class="flex flex-row gap-1">
+				<div class="flex flex-row gap-2">
 					<RunOption label="From" for="min-datetimes">
-						<input
-							type="text"
-							value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min '}
-							disabled
-							name="min-datetimes"
-						/>
-
+						{#if minTs || maxTs}
+							<input
+								type="text"
+								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
+								disabled
+								name="min-datetimes"
+							/>
+						{/if}
 						<CalendarPicker
 							clearable={true}
 							date={minTs}
 							label="From"
+							classNames={minTs || maxTs
+								? ''
+								: 'relative h-full top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
@@ -952,16 +956,21 @@
 					</RunOption>
 
 					<RunOption label="To" for="max-datetimes">
-						<input
-							type="text"
-							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
-							name="max-datetimes"
-							disabled
-						/>
+						{#if maxTs || minTs}
+							<input
+								type="text"
+								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+								name="max-datetimes"
+								disabled
+							/>
+						{/if}
 						<CalendarPicker
 							clearable={true}
 							date={maxTs}
 							label="To"
+							classNames={minTs || maxTs
+								? ''
+								: 'relative h-full top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
@@ -979,9 +988,11 @@
 						/>
 					</RunOption>
 
-					<RunOption label="Reset" for="reset" noLabel>
-						<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
-					</RunOption>
+					{#if minTs || maxTs}
+						<RunOption label="Reset" for="reset" noLabel>
+							<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
+						</RunOption>
+					{/if}
 				</div>
 
 				<!-- Filters 1 -->
@@ -1015,6 +1026,7 @@
 						{paths}
 						mobile={innerWidth < verySmallScreenWidth}
 						small={innerWidth < smallScreenWidth}
+						calendarSmall={!minTs && !maxTs}
 					/>
 				</div>
 			</div>
