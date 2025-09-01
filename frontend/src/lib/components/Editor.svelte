@@ -186,6 +186,7 @@
 		key?: string | undefined
 		class?: string | undefined
 		moduleId?: string
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -212,7 +213,8 @@
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
-		moduleId = undefined
+		moduleId = undefined,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1672,7 +1674,7 @@
 	})
 
 	$effect(() => {
-		initialized && (lang === 'typescript' || lang === 'python')
+		initialized && (lang === 'typescript' || lang === 'python') && enablePreprocessorSnippet
 			? untrack(() => addPreprocessorCompletions(lang as 'typescript' | 'python'))
 			: preprocessorCompletor?.dispose()
 	})
