@@ -14,6 +14,9 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -46,6 +49,16 @@
 			aiProviderLabels.map(([provider]) => [provider, AI_DEFAULT_MODELS[provider]])
 		) as Record<AIProvider, string[]>
 	)
+
+	// Custom system prompt settings
+	let selectedAiMode = $state<AIMode>(AIMode.ASK)
+	let customPrompts = $state<Record<AIMode, string>>({
+		[AIMode.SCRIPT]: '',
+		[AIMode.FLOW]: '',
+		[AIMode.NAVIGATOR]: '',
+		[AIMode.API]: '',
+		[AIMode.ASK]: ''
+	})
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -309,6 +322,51 @@
 						</Label>
 					{/if}
 				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if Object.keys(aiProviders).length > 0}
+		<div class="flex flex-col gap-2">
+			<p class="font-semibold">Custom system prompts</p>
+			<div class="flex flex-col gap-4">
+				<Label label="AI Mode">
+					<ToggleButtonGroup
+						bind:selected={selectedAiMode}
+						on:selected={({ detail }) => {
+							selectedAiMode = detail
+						}}
+					>
+						{#snippet children({ item })}
+							{#each Object.values(AIMode) as mode}
+								<div class="relative">
+									<ToggleButton
+										value={mode}
+										label={mode.charAt(0).toUpperCase() + mode.slice(1)}
+										{item}
+									/>
+									{#if customPrompts[mode].length > 0}
+										<div
+											class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-surface"
+										></div>
+									{/if}
+								</div>
+							{/each}
+						{/snippet}
+					</ToggleButtonGroup>
+				</Label>
+
+				<Label
+					label="Custom system prompt for {selectedAiMode.charAt(0).toUpperCase() +
+						selectedAiMode.slice(1)} Mode"
+				>
+					<textarea
+						bind:value={customPrompts[selectedAiMode]}
+						placeholder="Enter a custom system prompt for {selectedAiMode} mode."
+						class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary resize-y"
+						rows="4"
+					></textarea>
+				</Label>
 			</div>
 		</div>
 	{/if}
