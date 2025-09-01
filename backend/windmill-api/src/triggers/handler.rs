@@ -3,14 +3,14 @@ use crate::{
     triggers::{StandardTriggerQuery, TriggerData},
 };
 use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
 use windmill_common::{
     db::UserDB,
-    error::{Error, Result},
-    utils::{paginate, Pagination},
+    error::{Error, JsonResult, Result},
+    utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -24,10 +24,6 @@ use axum::{
 };
 use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::{
-    error::{self, JsonResult},
-    utils::StripPath,
-};
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
@@ -381,7 +377,7 @@ async fn create_trigger<T: TriggerCrud>(
     })?;
 
     if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
-        return Err(error::Error::BadRequest(format!(
+        return Err(Error::BadRequest(format!(
             "{} triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host",
             T::TRIGGER_TYPE
         )));
@@ -535,7 +531,7 @@ async fn delete_trigger<T: TriggerCrud>(
         .await?;
 
     if !deleted {
-        return Err(error::Error::NotFound(format!(
+        return Err(Error::NotFound(format!(
             "Trigger not found at path: {}",
             path
         )));
@@ -594,7 +590,7 @@ async fn set_enabled_trigger<T: TriggerCrud>(
         .await?;
 
     if !updated {
-        return Err(error::Error::NotFound(format!(
+        return Err(Error::NotFound(format!(
             "Trigger not found at path: {}",
             path
         )));
@@ -641,7 +637,7 @@ async fn test_connection<T: TriggerCrud>(
     tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
         .await
         .map_err(|_| {
-            error::Error::BadConfig(format!("Timeout connecting to service after 30 seconds"))
+            Error::BadConfig(format!("Timeout connecting to service after 30 seconds"))
         })??;
     Ok(())
 }
@@ -742,4 +738,186 @@ pub fn generate_trigger_routers() -> Router {
     }
 
     router
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TriggerPrimarySchedule {
+    schedule: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TriggersCount {
+    primary_schedule: Option<TriggerPrimarySchedule>,
+    schedule_count: i64,
+    http_routes_count: i64,
+    webhook_count: i64,
+    email_count: i64,
+    websocket_count: i64,
+    kafka_count: i64,
+    nats_count: i64,
+    postgres_count: i64,
+    mqtt_count: i64,
+    sqs_count: i64,
+    gcp_count: i64,
+}
+
+pub async fn get_triggers_count_internal(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+) -> JsonResult<TriggersCount> {
+    let primary_schedule = sqlx::query_scalar!(
+        "SELECT schedule FROM schedule WHERE path = $1 AND script_path = $1 AND is_flow = $2 AND workspace_id = $3",
+        path,
+        is_flow,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let schedule_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM schedule WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
+        path,
+        is_flow,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    #[allow(unused)]
+    let mut tx = db.begin().await?;
+
+    #[cfg(feature = "http_trigger")]
+    let http_routes_count = {
+        use crate::triggers::http::handler::HttpTrigger;
+        let count = HttpTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "http_trigger"))]
+    let http_routes_count = 0;
+
+    #[cfg(feature = "websocket")]
+    let websocket_count = {
+        use crate::triggers::websocket::WebsocketTrigger;
+        let count = WebsocketTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "websocket"))]
+    let websocket_count = 0;
+
+    #[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+    let kafka_count = {
+        use crate::triggers::kafka::KafkaTrigger;
+        let count = KafkaTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(all(feature = "kafka", feature = "enterprise", feature = "private")))]
+    let kafka_count = 0;
+
+    #[cfg(all(feature = "nats", feature = "enterprise", feature = "private"))]
+    let nats_count = {
+        use crate::triggers::nats::NatsTrigger;
+        let count = NatsTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(all(feature = "nats", feature = "enterprise", feature = "private")))]
+    let nats_count = 0;
+
+    #[cfg(feature = "postgres_trigger")]
+    let postgres_count = {
+        use crate::triggers::postgres::PostgresTrigger;
+        let count = PostgresTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "postgres_trigger"))]
+    let postgres_count = 0;
+
+    #[cfg(feature = "mqtt_trigger")]
+    let mqtt_count = {
+        use crate::triggers::mqtt::MqttTrigger;
+        let count = MqttTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "mqtt_trigger"))]
+    let mqtt_count = 0;
+
+    #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
+    let sqs_count = {
+        use crate::triggers::sqs::SqsTrigger;
+        let count = SqsTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        count
+    };
+    #[cfg(not(all(feature = "sqs_trigger", feature = "enterprise", feature = "private")))]
+    let sqs_count = 0;
+
+    #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
+    let gcp_count = {
+        use crate::triggers::gcp::GcpTrigger;
+        let count = GcpTrigger.trigger_count(&mut tx, w_id, is_flow, path).await;
+        count
+    };
+    #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
+    let gcp_count = 0;
+    tx.commit().await?;
+
+    let webhook_count = (if is_flow {
+        sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM token WHERE label LIKE 'webhook-%' AND workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
+            w_id,
+            path,
+        )
+    } else {
+        sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM token WHERE label LIKE 'webhook-%' AND workspace_id = $1 AND scopes @> ARRAY['run:' || $2]::text[]",
+            w_id,
+            path,
+        )
+    }).fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    let email_count = (if is_flow {
+        sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM token WHERE label LIKE 'email-%' AND workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
+            w_id,
+            path,
+        )
+    } else {
+        sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM token WHERE label LIKE 'email-%' AND workspace_id = $1 AND scopes @> ARRAY['run:script/' || $2]::text[]",
+            w_id,
+            path,
+        )
+    }).fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    Ok(Json(TriggersCount {
+        primary_schedule: primary_schedule.map(|s| TriggerPrimarySchedule { schedule: s }),
+        schedule_count,
+        http_routes_count,
+        webhook_count,
+        email_count,
+        websocket_count,
+        kafka_count,
+        nats_count,
+        postgres_count,
+        mqtt_count,
+        gcp_count,
+        sqs_count,
+    }))
 }
