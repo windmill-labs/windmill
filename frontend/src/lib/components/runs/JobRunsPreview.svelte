@@ -16,7 +16,7 @@
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
 	import { createEventDispatcher, setContext, untrack } from 'svelte'
-	import { ListFilter } from 'lucide-svelte'
+	import { ListFilter, LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 
@@ -95,9 +95,16 @@
 			tabsHeigh.resultHeight
 		)
 	)
+
+	let jobIsLoading = $state(false)
 </script>
 
-<JobLoader workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
+<JobLoader
+	workspaceOverride={workspace}
+	bind:job={currentJob}
+	bind:isLoading={jobIsLoading}
+	bind:this={jobLoader}
+/>
 
 <div class="h-full overflow-y-auto">
 	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
@@ -209,10 +216,7 @@
 				{#if job?.type === 'CompletedJob'}
 					{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 						<div class="w-full mt-8 mb-20">
-							<FlowStatusViewer
-								jobId={job.id}
-								workspaceId={job.workspace_id}
-								wideResults
+							<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} wideResults
 							></FlowStatusViewer>
 						</div>
 					{:else}
@@ -305,6 +309,10 @@
 						/>
 					{/if}
 				{/if}
+			</div>
+		{:else if jobIsLoading}
+			<div class="mx-auto my-auto">
+				<LoaderCircle size={20} class="animate-spin" />
 			</div>
 		{/if}
 	</div>
