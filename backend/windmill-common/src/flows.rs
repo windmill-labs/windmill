@@ -275,7 +275,7 @@ pub struct FlowModule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
+    pub timeout: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow step level
     pub priority: Option<i16>,

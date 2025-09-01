@@ -1590,6 +1590,63 @@ struct FailureContext {
     flow_job_id: Uuid,
 }
 
+#[instrument(level = "trace", skip_all)]
+async fn eval_timeout_input_transform(
+    timeout_transform: &InputTransform,
+    last_result: Arc<Box<RawValue>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+    by_id: &IdContext,
+) -> error::Result<i32> {
+    let json_value = match timeout_transform {
+        InputTransform::Static { value } => Ok(value.clone()),
+        InputTransform::Javascript { expr } => {
+            let mut context = HashMap::with_capacity(2);
+            context.insert("result".to_string(), last_result.clone());
+            context.insert("previous_result".to_string(), last_result.clone());
+
+            serde_json::from_str(
+                eval_timeout(
+                    expr.to_string(),
+                    context,
+                    Some(flow_args.clone()),
+                    Some(client),
+                    Some(by_id),
+                    None,
+                )
+                .warn_after_seconds(3)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Error during timeout evaluation of `{expr}`:\n{e:#}"
+                    ))
+                })?
+                .get(),
+            )
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Error during deserialization of timeout result:\n{e:#}"
+                ))
+            })
+        }
+    }?;
+
+    let timeout_value = serde_json::from_str::<i32>(json_value.get()).map_err(|e| {
+        Error::ExecutionErr(format!(
+            "Error parsing timeout value as integer: {e:#}. Value was: {}",
+            json_value.get()
+        ))
+    })?;
+
+    if timeout_value < 0 {
+        return Err(Error::ExecutionErr(
+            "Timeout value cannot be negative".to_string(),
+        ));
+    }
+
+    Ok(timeout_value)
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
@@ -2862,6 +2919,26 @@ async fn push_next_flow_job(
                 flow_job.permissioned_as.to_owned(),
             )
         };
+
+        let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
+            let ctx = get_transform_context(&flow_job, &previous_id, &status)
+                .warn_after_seconds(3)
+                .await?;
+            Some(
+                eval_timeout_input_transform(
+                    timeout_transform,
+                    arc_last_job_result.clone(),
+                    arc_flow_job_args.clone(),
+                    client,
+                    &ctx,
+                )
+                .warn_after_seconds(3)
+                .await?,
+            )
+        } else {
+            payload_tag.timeout
+        };
+
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2886,7 +2963,7 @@ async fn push_next_flow_job(
             err,
             flow_job.visible_to_owner,
             tag,
-            payload_tag.timeout,
+            evaluated_timeout,
             Some(module.id.clone()),
             new_job_priority_override,
             job_perms.as_ref(),
@@ -3487,7 +3564,7 @@ async fn compute_next_flow_transform(
                 },
                 tag: tag.clone(),
                 delete_after_use,
-                timeout: module.timeout,
+                timeout: None,
                 on_behalf_of: None,
             };
             Ok(NextFlowTransform::Continue(
@@ -4107,7 +4184,7 @@ async fn payload_from_simple_module(
             },
             tag,
             delete_after_use,
-            timeout: module.timeout,
+            timeout: None, // timeout evaluation handled at higher level
             on_behalf_of: None,
         },
         _ => unreachable!("is simple flow"),
@@ -4141,7 +4218,7 @@ pub fn raw_script_to_payload(
         }),
         tag,
         delete_after_use,
-        timeout: module.timeout,
+        timeout: None, // timeout evaluation handled at higher level
         on_behalf_of: None,
     }
 }
@@ -4237,7 +4314,12 @@ pub async fn script_to_payload(
     // the module value overrides the value set at the script level. Defaults to false if both are unset.
     let final_delete_after_user =
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
-    let flow_step_timeout = module.timeout.or(script_timeout);
+
+    let flow_step_timeout = if module.timeout.is_some() {
+        None
+    } else {
+        script_timeout
+    };
     Ok(JobPayloadWithTag {
         payload,
         tag,
