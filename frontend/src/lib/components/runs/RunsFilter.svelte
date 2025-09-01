@@ -153,8 +153,8 @@
 {#snippet dependenciesTooltip()}
 	<TooltipV2 placement="right">
 		{#snippet text()}
-			'Deploying a script, flow or an app launch a dependency job that create and then attach the
-			lockfile to the deployed item. This mechanism ensure that logic is always executed with the
+			'Deploying a script, flow or an app launch a dependency job that creates and then attaches the
+			lockfile to the deployed item. This mechanism ensures that logic is always executed with the
 			exact same direct and indirect dependencies.'
 		{/snippet}
 	</TooltipV2>
@@ -163,7 +163,7 @@
 	<TooltipV2 placement="right">
 		{#snippet text()}
 			'Sync jobs that are triggered on every script deployment to sync the workspace with the Git
-			repository configured in the the workspace settings'
+			repository configured in the workspace settings'
 		{/snippet}
 	</TooltipV2>
 {/snippet}
