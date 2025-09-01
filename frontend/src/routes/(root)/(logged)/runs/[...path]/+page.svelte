@@ -1200,7 +1200,7 @@
 										<Clock size={16} />
 									</span>
 								</div>
-								<div class="flex flex-row gap-1 items-center">
+								<div class="flex flex-row gap-2 items-center">
 									<ManuelDatePicker
 										on:loadJobs={() => {
 											lastFetchWentToEnd = false
