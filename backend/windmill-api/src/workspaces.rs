@@ -887,6 +887,7 @@ async fn get_copilot_info(
             providers: None,
             default_model: None,
             code_completion_model: None,
+            custom_prompts: None,
         }))
     }
 }
