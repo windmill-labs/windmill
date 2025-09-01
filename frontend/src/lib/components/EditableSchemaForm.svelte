@@ -371,7 +371,7 @@
 		Object.entries(schema?.properties ?? {})
 			.filter(([_, property]) => {
 				const props = property as any
-				return props.type === 'object' && props.format?.startsWith('dyn')
+				return props.type === 'object' && DynamicInput.isDynInputFormat(props.format)
 			})
 			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
 	)

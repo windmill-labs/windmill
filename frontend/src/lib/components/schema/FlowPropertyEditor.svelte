@@ -19,6 +19,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import { DynamicInput } from '$lib/utils'
 
 	interface Props {
 		format?: string | undefined
@@ -134,7 +135,7 @@
 					? 'resource'
 					: 'custom-object'
 	)
-	let isDyn = $derived(format?.startsWith('dyn') ?? false)
+	let isDyn = $derived(DynamicInput.isDynInputFormat(format))
 
 	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
 		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
