@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -11,6 +12,8 @@
 	}
 
 	let { value = $bindable() }: Props = $props()
+
+	let lastValues = { domain: undefined, custom: undefined }
 
 	function changeDomain(domain, custom) {
 		if (value) {
@@ -32,8 +35,11 @@
 		}
 	}
 	let enabled = $derived(value != undefined)
-	$effect(() => {
-		changeDomain(value?.['domain'], value?.['custom'])
+	$effect.pre(() => {
+		if (value?.['domain'] != lastValues.domain || value?.['custom'] != lastValues.custom) {
+			lastValues = { domain: value?.['domain'], custom: value?.['custom'] }
+			untrack(() => changeDomain(value?.['domain'], value?.['custom']))
+		}
 	})
 </script>
 

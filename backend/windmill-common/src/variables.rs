@@ -7,6 +7,8 @@
  */
 
 use crate::error;
+use crate::scripts::ScriptHash;
+use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
@@ -77,13 +79,38 @@ pub struct CreateVariable {
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
-    let key = get_workspace_key(w_id, db).await?;
-    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", key, salt)
+    // Check cache first (300-second staleness)
+    let cached_key_o = WORKSPACE_CRYPT_CACHE.get(w_id).and_then(|(ts, key)| {
+        if ts > chrono::Utc::now().timestamp() - 300 {
+            Some(key)
+        } else {
+            None
+        }
+    });
+
+    let crypt = if let Some(cached_key) = cached_key_o {
+        cached_key
     } else {
-        key
+        let key = get_workspace_key(w_id, db).await?;
+        tracing::info!(
+            "crypt for workspace {} with key {} expired, refetching",
+            w_id,
+            key
+        );
+        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+            format!("{}{}", key, salt)
+        } else {
+            key
+        };
+        let ncrypt = magic_crypt::new_magic_crypt!(crypt_key, 256);
+        WORKSPACE_CRYPT_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), ncrypt.clone()),
+        );
+        ncrypt
     };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+
+    Ok(crypt)
 }
 
 pub async fn build_crypt_with_key_suffix(
@@ -106,8 +133,10 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
         w_id
     )
     .fetch_one(db)
+    .warn_after_seconds(5)
     .await
     .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
+
     Ok(key)
 }
 
@@ -164,6 +193,8 @@ pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 lazy_static::lazy_static! {
     pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
+    pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, MagicCrypt256)> = Cache::new(1000);
+
 }
 
 pub async fn get_reserved_variables(
@@ -181,6 +212,7 @@ pub async fn get_reserved_variables(
     step_id: Option<String>,
     root_flow_id: Option<String>,
     scheduled_for: Option<chrono::DateTime<Utc>>,
+    runnable_id: Option<ScriptHash>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -336,7 +368,13 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_WORKER_GROUP".to_string(),
         value: WORKER_GROUP.clone(),
-        description: "name of the worker group the job is running on".to_string(),
+        description: "Name of the worker group the job is running on".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_RUNNABLE_ID".to_string(),
+        value: runnable_id.map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
+        description: "Hash of the script. Useful as cache key for cache that should be runnable specific.".to_string(),
         is_custom: false,
     },
 ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {

@@ -11,7 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { capitalize, classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -305,6 +305,30 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+
+	async function checkTeamPlanStatus(workspace: string) {
+		const premiumInfo = await WorkspaceService.getPremiumInfo({
+			workspace,
+			skipSubscriptionFetch: true // won't load subscription status from stripe but only the past due status from db
+		})
+		if (premiumInfo.is_past_due) {
+			if (
+				premiumInfo.max_tolerated_executions === undefined ||
+				(premiumInfo.usage ?? 0) > premiumInfo.max_tolerated_executions
+			) {
+				sendUserToast(
+					'Your last invoice is unpaid, you cannot run any more jobs. Please update your payment method in the workspace settings to continue running jobs.',
+					true
+				)
+			} else {
+				sendUserToast(
+					'Your last invoice is unpaid. Please update your payment method in the workspace settings to prevent the interruption of your job executions.',
+					true
+				)
+			}
+		}
+	}
+
 	$effect(() => {
 		$page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
 	})
@@ -348,6 +372,15 @@
 			untrack(() => loadCriticalAlertsMuted())
 		} else {
 			mountModal = false
+		}
+	})
+
+	$effect(() => {
+		if (isCloudHosted()) {
+			const workspace = $workspaceStore
+			if (workspace) {
+				checkTeamPlanStatus(workspace)
+			}
 		}
 	})
 </script>

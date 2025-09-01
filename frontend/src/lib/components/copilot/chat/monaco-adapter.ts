@@ -24,6 +24,12 @@ export class AIChatEditorHandler {
 	reviewingChanges: Writable<boolean> = writable(false)
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
 
+	// Track review decisions
+	private reviewState: {
+		mode: 'apply' | 'revert'
+		onFinishedReview?: () => void
+	} | null = null
+
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
 	}
@@ -65,7 +71,16 @@ export class AIChatEditorHandler {
 		}
 	}
 
-	async finish() {
+	async finish(opts?: { disableReviewCallback?: boolean }) {
+		// expose mode getter relies on reviewState
+		// Call completion callback if we're tracking review state
+		if (this.reviewState?.onFinishedReview && !opts?.disableReviewCallback) {
+			this.reviewState.onFinishedReview()
+		}
+
+		// Reset review state
+		this.reviewState = null
+
 		this.clear()
 		this.allowWriting()
 		this.reviewingChanges.set(false)
@@ -74,16 +89,30 @@ export class AIChatEditorHandler {
 		})
 	}
 
-	async acceptAll() {
+	getReviewMode(): 'apply' | 'revert' | null {
+		return this.reviewState?.mode ?? null
+	}
+
+	async acceptAll(opts?: { disableReviewCallback?: boolean }) {
 		this.groupChanges.reverse()
 		for (const group of this.groupChanges) {
 			this.applyGroup(group)
 		}
-		this.finish()
+		this.finish(opts)
 	}
 
-	async rejectAll() {
-		this.finish()
+	async rejectAll(opts?: { disableReviewCallback?: boolean }) {
+		this.finish(opts)
+	}
+
+	// Keep all changes, used in revert mode
+	async keepAll(opts?: { disableReviewCallback?: boolean }) {
+		this.finish(opts)
+	}
+
+	// Revert all changes, used in revert mode
+	async revertAll(opts?: { disableReviewCallback?: boolean }) {
+		this.acceptAll(opts)
 	}
 
 	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {
@@ -167,23 +196,41 @@ export class AIChatEditorHandler {
 		return changedLines
 	}
 
-	async reviewAndApply(newCode: string, applyAll: boolean = false) {
-		if (aiChatManager.pendingNewCode === newCode) {
+	async reviewChanges(
+		targetCode: string,
+		opts?: {
+			applyAll?: boolean
+			mode?: 'apply' | 'revert'
+			onFinishedReview?: () => void
+		}
+	) {
+		if (aiChatManager.pendingNewCode === targetCode && opts?.mode === 'apply') {
 			this.acceptAll()
 			return
 		} else if (aiChatManager.pendingNewCode) {
 			this.clear()
 		}
-		aiChatManager.pendingNewCode = newCode
-		const changedLines = await this.calculateVisualChanges(newCode)
+
+		aiChatManager.pendingNewCode = targetCode
+		const changedLines = await this.calculateVisualChanges(targetCode)
 		if (changedLines.length === 0) return
+
+		// Initialize review state for tracking
+		this.reviewState = {
+			mode: opts?.mode ?? 'apply',
+			onFinishedReview: opts?.onFinishedReview
+		}
 
 		let indicesOfRejectedLineChanges: number[] = []
 
 		for (const [groupIndex, group] of this.groupChanges.entries()) {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
-			const acceptFn = () => {
+
+			const isRevert = opts?.mode === 'revert'
+
+			// Apply this group and continue with remaining changes
+			const onApply = () => {
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
@@ -196,9 +243,12 @@ export class AIChatEditorHandler {
 						newCodeWithRejects += change.value
 					}
 				}
-				this.reviewAndApply(newCodeWithRejects)
+				this.reviewChanges(newCodeWithRejects, opts)
 			}
-			const rejectFn = () => {
+
+			// Discard this group and continue with remaining changes
+			const onDiscard = () => {
+				// This group was not applied (not reverted in revert mode)
 				indicesOfRejectedLineChanges.push(...group.changes.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
@@ -211,28 +261,41 @@ export class AIChatEditorHandler {
 					this.finish()
 				}
 			}
+
+			// In revert mode: Accept = keep current code, Reject = revert to targetCode
+			// In apply mode: Accept = apply changes, Reject = discard changes
+			const acceptFn = isRevert ? onDiscard : onApply
+			const rejectFn = isRevert ? onApply : onDiscard
+
 			const changes = group.changes.map((c, i) => {
 				if (i === group.changes.length - 1) {
 					return {
 						...c,
-						options: { ...(c.options ?? {}), review: { acceptFn, rejectFn } }
+						options: {
+							...(c.options ?? {}),
+							review: {
+								acceptFn,
+								rejectFn
+							}
+						}
 					}
 				} else {
 					return c
 				}
 			})
 
-			if (!applyAll) {
+			if (!opts?.applyAll) {
 				;({ collection, ids } = await displayVisualChanges(
 					'editor-windmill-chat-style',
 					this.editor,
-					changes
+					changes,
+					isRevert
 				))
-					this.decorationsCollections.push(collection)
-					this.viewZoneIds.push(...ids)
+				this.decorationsCollections.push(collection)
+				this.viewZoneIds.push(...ids)
 			}
 		}
-		if (applyAll) {
+		if (opts?.applyAll) {
 			this.acceptAll()
 		}
 	}

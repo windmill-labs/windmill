@@ -1,4 +1,5 @@
 import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
+import { emitUiIntent } from './uiIntents'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -57,6 +58,23 @@ export interface FlowAIChatHelpers {
 	addBranch: (id: string) => Promise<void>
 	removeBranch: (id: string, branchIndex: number) => Promise<void>
 	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
+	setForLoopOptions: (
+		id: string,
+		opts: {
+			skip_failures?: boolean | null
+			parallel?: boolean | null
+			parallelism?: number | null
+		}
+	) => Promise<void>
+	setModuleControlOptions: (
+		id: string,
+		opts: {
+			stop_after_if?: boolean | null
+			stop_after_if_expr?: string | null
+			skip_if?: boolean | null
+			skip_if_expr?: string | null
+		}
+	) => Promise<void>
 	setCode: (id: string, code: string) => Promise<void>
 }
 
@@ -194,6 +212,67 @@ const setForLoopIteratorExpressionToolDef = createToolDef(
 	setForLoopIteratorExpressionSchema,
 	'set_forloop_iterator_expression',
 	'Set the iterator JavaScript expression for the given forloop step'
+)
+
+const setForLoopOptionsSchema = z.object({
+	id: z.string().describe('The id of the forloop step to configure'),
+	skip_failures: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Whether to skip failures in the loop (null to not change)'),
+	parallel: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Whether to run iterations in parallel (null to not change)'),
+	parallelism: z
+		.number()
+		.int()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe('Maximum number of parallel iterations (null to not change)')
+})
+
+const setForLoopOptionsToolDef = createToolDef(
+	setForLoopOptionsSchema,
+	'set_forloop_options',
+	'Set advanced options for a forloop step: skip_failures, parallel, and parallelism'
+)
+
+const setModuleControlOptionsSchema = z.object({
+	id: z.string().describe('The id of the module to configure'),
+	stop_after_if: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Early stop condition (true to set, false to clear, null to not change)'),
+	stop_after_if_expr: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'JavaScript expression for early stop condition. Can use `flow_input` or `result`. `result` is the result of the step. `results.<step_id>` is not supported, do not use it. Only used if stop_after_if is true. Example: `flow_input.x > 10` or `result === "failure"`'
+		),
+	skip_if: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe('Skip condition (true to set, false to clear, null to not change)'),
+	skip_if_expr: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'JavaScript expression for skip condition. Can use `flow_input` or `results.<step_id>`. Only used if skip_if is true. Example: `flow_input.x > 10` or `results.a === "failure"`'
+		)
+})
+
+const setModuleControlOptionsToolDef = createToolDef(
+	setModuleControlOptionsSchema,
+	'set_module_control_options',
+	'Set control options for any module: stop_after_if (early stop) and skip_if (conditional skip)'
 )
 
 const setBranchPredicateSchema = z.object({
@@ -559,6 +638,74 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
+		def: {
+			...setForLoopOptionsToolDef,
+			function: { ...setForLoopOptionsToolDef.function, strict: false }
+		},
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setForLoopOptionsSchema.parse(args)
+			await helpers.setForLoopOptions(parsedArgs.id, {
+				skip_failures: parsedArgs.skip_failures,
+				parallel: parsedArgs.parallel,
+				parallelism: parsedArgs.parallelism
+			})
+			helpers.selectStep(parsedArgs.id)
+
+			const message = `Set forloop '${parsedArgs.id}' options`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message
+			})
+			return `${message}: ${JSON.stringify(parsedArgs)}`
+		}
+	},
+	{
+		def: {
+			...setModuleControlOptionsToolDef,
+			function: { ...setModuleControlOptionsToolDef.function, strict: false }
+		},
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setModuleControlOptionsSchema.parse(args)
+			await helpers.setModuleControlOptions(parsedArgs.id, {
+				stop_after_if: parsedArgs.stop_after_if,
+				stop_after_if_expr: parsedArgs.stop_after_if_expr,
+				skip_if: parsedArgs.skip_if,
+				skip_if_expr: parsedArgs.skip_if_expr
+			})
+			helpers.selectStep(parsedArgs.id)
+
+			// Emit UI intent to show early-stop tab when stop_after_if is configured
+			const modules = helpers.getModules()
+			const module = findModuleById(modules, parsedArgs.id)
+			if (!module) {
+				throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
+			}
+			const moduleType = module?.value.type
+			const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
+			const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
+			if (typeof parsedArgs.stop_after_if === 'boolean') {
+				emitUiIntent({
+					kind: 'open_module_tab',
+					componentId: `${prefix}-${parsedArgs.id}`,
+					tab: 'early-stop'
+				})
+			}
+
+			if (typeof parsedArgs.skip_if === 'boolean') {
+				emitUiIntent({
+					kind: 'open_module_tab',
+					componentId: `${prefix}-${parsedArgs.id}`,
+					tab: 'skip'
+				})
+			}
+
+			const message = `Set module '${parsedArgs.id}' control options`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message
+			})
+			return `${message}: ${JSON.stringify(parsedArgs)}`
+		}
+	},
+	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
@@ -790,9 +937,16 @@ When creating new steps, follow this process for EACH step:
 
 ### Special Step Types
 For special step types, follow these additional steps:
-- For forloop steps: Set the iterator expression using set_forloop_iterator_expression
+- For forloop steps: 
+  - Set the iterator expression using set_forloop_iterator_expression
+  - Set advanced options (parallel, parallelism, skip_failures) using set_forloop_options
 - For branchone steps: Set the predicates for each branch using set_branch_predicate
 - For branchall steps: No additional setup needed
+
+### Module Control Options
+For any module type, you can set control flow options using set_module_control_options:
+- **stop_after_if**: Early stop condition - stops the module if expression evaluates to true. Can use "flow_input" or "result". "result" is the result of the step. "results.<step_id>" is not supported, do not use it. Example: "flow_input.x > 10" or "result === "failure""
+- **skip_if**: Skip condition - skips the module entirely if expression evaluates to true. Can use "flow_input" or "results.<step_id>". Example: "flow_input.x > 10" or "results.a === "failure""
 
 ### Step Insertion Rules
 When adding steps, carefully consider the execution order:
@@ -814,6 +968,7 @@ When adding steps, carefully consider the execution order:
 ### JavaScript Expressions
 For step inputs, forloop iterator expressions and branch predicates, use JavaScript expressions with these variables:
 - Step results: results.stepid or results.stepid.property_name
+- Break condition (stop_after_if) in for loops: result (contains the result of the last iteration)
 - Loop iterator: flow_input.iter.value (inside loops)
 - Flow inputs: flow_input.property_name
 - Static values: Use JavaScript syntax (e.g., "hello", true, 3)
@@ -821,6 +976,12 @@ For step inputs, forloop iterator expressions and branch predicates, use JavaScr
 Note: These variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They must be passed as script arguments using the set_step_inputs tool.
 
 For truly static values in step inputs (those not linked to previous steps or loop iterations), prefer using flow inputs by default unless explicitly specified otherwise. This makes the flow more configurable and reusable. For example, instead of hardcoding an email address in a step input, create a flow input for it.
+
+### For Loop Advanced Options
+When configuring for-loop steps, consider these options:
+- **parallel: true** - Run iterations in parallel for independent operations (significantly faster for I/O bound tasks)
+- **parallelism: N** - Limit concurrent iterations (only applies when parallel=true). Use to prevent overwhelming external APIs
+- **skip_failures: true** - Continue processing remaining iterations even if some fail. Failed iterations return error objects as results
 
 ### Special Modules
 - Preprocessor: Runs before the first step when triggered externally
