@@ -121,10 +121,13 @@
 	}
 
 	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
-		close,
+		() => openOnHover && close(),
 		debounceDelay
 	)
-	let { debounced: debounceOpen, clearDebounce: clearDebounceOpen } = debounce(open, debounceDelay)
+	let { debounced: debounceOpen, clearDebounce: clearDebounceOpen } = debounce(
+		() => openOnHover && open(),
+		debounceDelay
+	)
 </script>
 
 <button
