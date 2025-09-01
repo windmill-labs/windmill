@@ -569,7 +569,7 @@
 							size="xs"
 							color="red"
 							variant="contained"
-							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+							btnClasses="!h-[25.5px] !w-[36px] !p-1.5 gap-0.5"
 							on:click={async () => {
 								moduleTest?.cancelJob()
 							}}
