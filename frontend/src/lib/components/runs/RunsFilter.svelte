@@ -206,8 +206,13 @@
 							{ label: 'Worker', value: 'worker' }
 						]}
 						{item}
-						bind:selected={filterBy}
-						onSelected={(v) => resetFilter()}
+						bind:selected={
+							() => filterBy,
+							(v) => {
+								resetFilter()
+								filterBy = v
+							}
+						}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
@@ -551,8 +556,13 @@
 							}
 						]}
 						{item}
-						bind:selected={jobKindsCat}
-						onSelected={(v) => resetFilter()}
+						bind:selected={
+							() => jobKindsCat,
+							(v) => {
+								resetFilter()
+								jobKindsCat = v
+							}
+						}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>

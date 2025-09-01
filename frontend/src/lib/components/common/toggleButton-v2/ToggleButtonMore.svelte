@@ -18,7 +18,6 @@
 		item?: any | undefined
 		selected?: string | undefined
 		togglableItems: TogglableItem[]
-		onSelected?: (v: string) => void
 	}
 
 	let {
@@ -28,20 +27,12 @@
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
-		togglableItems,
-		onSelected
+		togglableItems
 	}: Props = $props()
-
-	function select(v: string) {
-		if (v !== selected) {
-			onSelected?.(v)
-		}
-		selected = v
-	}
 
 	let items = togglableItems.map((i) => ({
 		displayName: i.label,
-		action: () => select(i.value),
+		action: () => (selected = i.value),
 		tooltip: i.tooltip
 	}))
 
