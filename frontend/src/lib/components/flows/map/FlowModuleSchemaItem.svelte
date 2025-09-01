@@ -466,7 +466,7 @@
 				{#if id !== 'preprocessor'}
 					<button
 						class={twMerge(
-							'trash center-center py-1 px-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
 							hover ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
@@ -479,7 +479,7 @@
 				{/if}
 				<button
 					class={twMerge(
-						'rounded-full h-[20px] w-[20px] trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white',
+						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
 						selected || hover ? 'block' : '!hidden',
 						'group-hover:block',
 						'shadow-md rounded-md'
@@ -498,7 +498,7 @@
 				<Popover
 					class={twMerge(
 						'absolute -translate-y-[100%] top-1 -left-1',
-						'flex items-center justify-center rounded-b-none rounded-md py-1 px-1 shadow-md  duration-0 ',
+						'flex items-center justify-center rounded-b-none rounded-md p-1 shadow-md  duration-0 ',
 						id &&
 							Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
 								(x) => x.type === 'error'
