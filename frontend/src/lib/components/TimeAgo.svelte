@@ -6,10 +6,10 @@
 	export let date: string
 	export let agoOnlyIfRecent: boolean = false
 	export let noDate = false
+	export let isRecent: boolean = true
 
 	let computedTimeAgo: string | undefined = undefined
 
-	let isRecent = true
 	let interval
 
 	$: date && computeDate()

@@ -13,6 +13,7 @@
 	export let baseClass = 'text-center'
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
+	export let verySmall = false
 
 	let hidden = false
 	const colors: Record<BadgeColor, string> = {
@@ -46,11 +47,18 @@
 
 	$: badgeClass = classNames(
 		baseClass,
-		small ? 'text-xs' : large ? 'text-sm font-medium' : 'text-xs font-semibold',
+		small
+			? 'text-xs'
+			: verySmall
+				? 'text-2xs'
+				: large
+					? 'text-sm font-medium'
+					: 'text-xs font-semibold',
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
 		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
+		verySmall ? 'px-0.5 py-0.5' : '',
 		'flex flex-row gap-1 items-center',
 		$$props.class
 	)

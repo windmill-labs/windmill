@@ -7,6 +7,7 @@
 	type TogglableItem = {
 		label: string
 		value: string
+		tooltip?: string
 	}
 
 	interface Props {
@@ -29,11 +30,11 @@
 		togglableItems
 	}: Props = $props()
 
-	function select(v: string) {
-		selected = v
-	}
-
-	let items = togglableItems.map((i) => ({ displayName: i.label, action: () => select(i.value) }))
+	let items = togglableItems.map((i) => ({
+		displayName: i.label,
+		action: () => (selected = i.value),
+		tooltip: i.tooltip
+	}))
 
 	function isAnOptionSelected(selected: string | undefined) {
 		return togglableItems.some((i) => i.value === selected)
@@ -48,6 +49,7 @@
 >
 	<div {id} class="flex">
 		{#if isAnOptionSelected(selected)}
+			{@const tooltip = togglableItems.find((i) => i.value === selected)?.tooltip}
 			<ToggleButton
 				{disabled}
 				value={selected ?? ''}
@@ -56,6 +58,8 @@
 				{light}
 				{id}
 				label={togglableItems.find((i) => i.value === selected)?.label}
+				{tooltip}
+				showTooltipIcon={!!tooltip}
 			/>
 		{/if}
 		<div class="flex items-center">

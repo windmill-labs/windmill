@@ -95,14 +95,14 @@
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
 			<button
-				class="text-xs absolute top-0 right-4 text-tertiary"
+				class="text-xs absolute top-0 right-8 text-tertiary"
 				onclick={() => {
 					jsonViewerContent = value
 					jsonViewer?.toggleDrawer()
 				}}><Expand size={18} /></button
 			>
 		{/if}
-		<div class="max-h-60 overflow-auto">
+		<div class="max-h-60 overflow-auto" style="scrollbar-gutter: stable">
 			<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
 		</div>
 	</div>

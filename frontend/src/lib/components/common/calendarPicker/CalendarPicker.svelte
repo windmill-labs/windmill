@@ -4,6 +4,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Placement } from '@floating-ui/core'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let date: string | undefined
 	export let label: string
@@ -25,7 +26,10 @@
 	<svelte:fragment slot="trigger">
 		<button
 			title="Open calendar picker"
-			class="absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer"
+			class={twMerge(
+				'absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer',
+				$$props.class
+			)}
 			aria-label="Open calendar picker"
 			on:click={() => {
 				input?.focus()

@@ -11,7 +11,7 @@
 	import { fade } from 'svelte/transition'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { pointerDownOutside } from '$lib/utils'
+	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '$lib/components/common'
@@ -24,6 +24,7 @@
 	export let placement: Placement = 'bottom'
 	export let disablePopup: boolean = false
 	export let openOnHover: boolean = false
+	export let debounceDelay: number = 0
 	export let floatingConfig: any | undefined = undefined
 	export let usePointerDownOutside: boolean = false
 	export let closeOnOutsideClick: boolean = true
@@ -40,6 +41,15 @@
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
+
+	function clearTimers() {
+		clearDebounceClose()
+		clearDebounceOpen()
+	}
+
+	// Cleanup timers on component destruction
+	import { onDestroy } from 'svelte'
+	onDestroy(clearTimers)
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement, overlay },
@@ -109,6 +119,15 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
+
+	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
+		() => openOnHover && close(),
+		debounceDelay
+	)
+	let { debounced: debounceOpen, clearDebounce: clearDebounceOpen } = debounce(
+		() => openOnHover && open(),
+		debounceDelay
+	)
 </script>
 
 <button
@@ -116,8 +135,8 @@
 	use:melt={$trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}
-	on:mouseenter={() => (openOnHover ? open() : null)}
-	on:mouseleave={() => (openOnHover ? close() : null)}
+	on:mouseenter={debounceOpen}
+	on:mouseleave={debounceClose}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: false,
@@ -141,6 +160,8 @@
 
 {#if isOpen && !disablePopup}
 	<div
+		on:mouseenter={debounceOpen}
+		on:mouseleave={debounceClose}
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
 		class={twMerge(

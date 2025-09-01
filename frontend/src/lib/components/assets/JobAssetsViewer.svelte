@@ -65,30 +65,34 @@
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 </script>
 
-<ul class="flex flex-col divide-y mt-1">
-	{#each assets.value ?? [] as asset}
-		<li class="flex justify-between py-3 leading-4 text-sm pl-4">
-			<div class="flex flex-col flex-1 truncate">
-				{asset.path}
-				<span class="text-2xs text-tertiary">
-					{formatAssetKind({
-						...asset,
-						...(asset.kind === 'resource'
-							? { metadata: { resource_type: resourceDataCache[asset.path] } }
-							: {})
-					})}
-				</span>
-			</div>
-			<AssetButtons
-				{asset}
-				{resourceDataCache}
-				{dbManagerDrawer}
-				{resourceEditorDrawer}
-				{s3FilePicker}
-			/>
-		</li>
-	{/each}
-</ul>
+{#if assets.value && assets.value.length > 0}
+	<ul class="flex flex-col divide-y mt-1">
+		{#each assets.value ?? [] as asset}
+			<li class="flex justify-between py-3 leading-4 text-sm pl-4">
+				<div class="flex flex-col flex-1 truncate">
+					{asset.path}
+					<span class="text-2xs text-tertiary">
+						{formatAssetKind({
+							...asset,
+							...(asset.kind === 'resource'
+								? { metadata: { resource_type: resourceDataCache[asset.path] } }
+								: {})
+						})}
+					</span>
+				</div>
+				<AssetButtons
+					{asset}
+					{resourceDataCache}
+					{dbManagerDrawer}
+					{resourceEditorDrawer}
+					{s3FilePicker}
+				/>
+			</li>
+		{/each}
+	</ul>
+{:else}
+	<div class="text-sm text-tertiary">No assets found</div>
+{/if}
 
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
