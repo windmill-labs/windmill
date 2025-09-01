@@ -60,7 +60,7 @@ export function argSigToJsonSchemaType(
 					| null
 		  }
 		| { dynselect: string }
-		| { dynmultselect: string }
+		| { dynmultiselect: string }
 		| { str: string[] | null }
 		| { object: { name?: string; props?: { key: string; typ: any }[] } }
 		| {
