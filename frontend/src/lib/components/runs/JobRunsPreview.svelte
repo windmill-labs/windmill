@@ -80,7 +80,7 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	// Set all tabs content to the same height to prevent layout jumps
-	let tabsHeigh = $state({
+	let tabsHeight = $state({
 		codeHeight: 0,
 		logsHeight: 0,
 		assetsHeight: 0,
@@ -89,10 +89,10 @@
 
 	let minTabHeight = $derived(
 		Math.max(
-			tabsHeigh.codeHeight,
-			tabsHeigh.logsHeight,
-			tabsHeigh.assetsHeight,
-			tabsHeigh.resultHeight
+			tabsHeight.codeHeight,
+			tabsHeight.logsHeight,
+			tabsHeight.assetsHeight,
+			tabsHeight.resultHeight
 		)
 	)
 
@@ -235,7 +235,7 @@
 								{#if viewTab == 'logs'}
 									<div
 										class="w-full"
-										bind:clientHeight={tabsHeigh.logsHeight}
+										bind:clientHeight={tabsHeight.logsHeight}
 										style="min-height: {minTabHeight}px"
 									>
 										<LogViewer
@@ -250,7 +250,7 @@
 								{:else if viewTab == 'assets'}
 									<div
 										class="w-full h-full"
-										bind:clientHeight={tabsHeigh.assetsHeight}
+										bind:clientHeight={tabsHeight.assetsHeight}
 										style="min-height: {minTabHeight}px"
 									>
 										<JobAssetsViewer {job} />
@@ -258,7 +258,7 @@
 								{:else if viewTab == 'code'}
 									<div
 										class="text-xs"
-										bind:clientHeight={tabsHeigh.codeHeight}
+										bind:clientHeight={tabsHeight.codeHeight}
 										style="min-height: {minTabHeight}px"
 									>
 										{#if job && 'raw_code' in job && job.raw_code}
@@ -274,7 +274,7 @@
 								{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
 									<div
 										class="w-full"
-										bind:clientHeight={tabsHeigh.resultHeight}
+										bind:clientHeight={tabsHeight.resultHeight}
 										style="min-height: {minTabHeight}px"
 									>
 										<DisplayResult
