@@ -1021,9 +1021,9 @@
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 px-4 pt-12 w-full border-b">
+		<div class="p-2 px-4 pt-8 w-full border-b">
 			<div class="relative z-10">
-				<div class="absolute left-0 -top-10 flex flex-row gap-2 items-center min-w-24">
+				<div class="absolute left-0 -top-7 flex flex-row gap-2 items-center min-w-24">
 					<ToggleButtonGroup
 						selected={graph}
 						on:selected={({ detail }) => {
