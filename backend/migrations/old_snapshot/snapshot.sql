@@ -892,7 +892,9 @@ CREATE TABLE cloud_workspace_settings (
     workspace_id character varying(50) NOT NULL,
     threshold_alert_amount integer,
     last_alert_sent timestamp without time zone,
-    last_warning_sent timestamp without time zone
+    last_warning_sent timestamp without time zone,
+    is_past_due BOOLEAN NOT NULL DEFAULT FALSE,
+    max_tolerated_executions INTEGER
 );
 
 
@@ -5911,7 +5913,40 @@ CREATE POLICY webhook ON audit FOR INSERT TO windmill_user WITH CHECK (((usernam
 
 ALTER TABLE websocket_trigger ENABLE ROW LEVEL SECURITY;
 
---
--- PostgreSQL database dump complete
---
+CREATE TRIGGER script_insert_trigger
+AFTER INSERT ON script
+FOR EACH ROW
+WHEN (NEW.lock IS NOT NULL)
+EXECUTE FUNCTION notify_runnable_version_change('script');
 
+CREATE OR REPLACE FUNCTION notify_team_plan_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify('notify_workspace_premium_change', NEW.workspace_id); -- reuse the same channel as the one used for workspace premium change => clear cache
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER team_plan_status_change_trigger
+AFTER UPDATE OF is_past_due, max_tolerated_executions ON cloud_workspace_settings
+FOR EACH ROW
+EXECUTE FUNCTION notify_team_plan_status_change();
+
+CREATE OR REPLACE FUNCTION notify_workspace_key_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM pg_notify('notify_workspace_key_change', OLD.workspace_id);
+        RETURN OLD;
+    ELSE
+        PERFORM pg_notify('notify_workspace_key_change', NEW.workspace_id);
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER workspace_key_change_trigger
+AFTER INSERT OR UPDATE OF key OR DELETE ON workspace_key
+FOR EACH ROW
+EXECUTE FUNCTION notify_workspace_key_change();
