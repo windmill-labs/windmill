@@ -24,6 +24,7 @@
 	export let placement: Placement = 'bottom'
 	export let disablePopup: boolean = false
 	export let openOnHover: boolean = false
+	export let debounceDelay: number = 0
 	export let floatingConfig: any | undefined = undefined
 	export let usePointerDownOutside: boolean = false
 	export let closeOnOutsideClick: boolean = true
@@ -39,7 +40,18 @@
 	export let escapeBehavior: EscapeBehaviorType = 'close'
 
 	let fullScreen = false
+	let openTimer: ReturnType<typeof setTimeout> | undefined
+	let closeTimer: ReturnType<typeof setTimeout> | undefined
 	const dispatch = createEventDispatcher()
+
+	function clearTimers() {
+		if (openTimer) clearTimeout(openTimer)
+		if (closeTimer) clearTimeout(closeTimer)
+	}
+
+	// Cleanup timers on component destruction
+	import { onDestroy } from 'svelte'
+	onDestroy(clearTimers)
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement, overlay },
@@ -109,6 +121,25 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
+
+	function debounceOpen() {
+		if (!openOnHover) return
+		clearTimers()
+		if (debounceDelay > 0) {
+			openTimer = setTimeout(open, debounceDelay)
+		} else {
+			open()
+		}
+	}
+	function debounceClose() {
+		if (!openOnHover) return
+		clearTimers()
+		if (debounceDelay > 0) {
+			closeTimer = setTimeout(close, debounceDelay)
+		} else {
+			close()
+		}
+	}
 </script>
 
 <button
@@ -116,8 +147,8 @@
 	use:melt={$trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}
-	on:mouseenter={() => (openOnHover ? open() : null)}
-	on:mouseleave={() => (openOnHover ? close() : null)}
+	on:mouseenter={debounceOpen}
+	on:mouseleave={debounceClose}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: false,
@@ -141,6 +172,8 @@
 
 {#if isOpen && !disablePopup}
 	<div
+		on:mouseenter={debounceOpen}
+		on:mouseleave={debounceClose}
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
 		class={twMerge(
