@@ -155,6 +155,7 @@
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
+	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -663,6 +664,55 @@
 				}
 			})
 		}
+	}
+
+	let preprocessorCompletor: IDisposable | undefined = undefined
+	function addPreprocessorCompletions(lang: 'typescript' | 'python') {
+		if (preprocessorCompletor) {
+			preprocessorCompletor.dispose()
+		}
+		const preprocessorCode =
+			lang === 'typescript' ? TS_PREPROCESSOR_MODULE_CODE : PYTHON_PREPROCESSOR_MODULE_CODE
+		preprocessorCompletor = languages.registerCompletionItemProvider(lang, {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+
+				if (word.word.length >= 3 && 'preprocessor'.startsWith(word.word)) {
+					const range = {
+						startLineNumber: position.lineNumber,
+						endLineNumber: position.lineNumber,
+						startColumn: word.startColumn,
+						endColumn: word.endColumn
+					}
+					return {
+						suggestions: [
+							{
+								label: 'preprocessor (windmill)',
+								kind: languages.CompletionItemKind.Function,
+								insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+								insertText: preprocessorCode,
+								range,
+								additionalTextEdits: [
+									{
+										range: {
+											startLineNumber: position.lineNumber,
+											endLineNumber: position.lineNumber,
+											startColumn: 0,
+											endColumn: word.startColumn
+										},
+										text: ''
+									}
+								]
+							}
+						]
+					}
+				}
+
+				return {
+					suggestions: []
+				}
+			}
+		})
 	}
 
 	let reviewingChanges = $state(writable(false))
@@ -1568,6 +1618,7 @@
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
+		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
@@ -1618,6 +1669,12 @@
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
 			: sqlTypeCompletor?.dispose()
+	})
+
+	$effect(() => {
+		initialized && (lang === 'typescript' || lang === 'python')
+			? untrack(() => addPreprocessorCompletions(lang as 'typescript' | 'python'))
+			: preprocessorCompletor?.dispose()
 	})
 
 	let lastArg = undefined
