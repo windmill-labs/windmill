@@ -6,16 +6,18 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	interface Props {
 		defaultValues?: Record<string, any> | undefined
 		headless?: boolean
 		natsResourcePath: string
-		subjects: string[]
-		useJetstream: boolean
-		streamName: string
-		consumerName: string
+		natsCfg: {
+			subjects: string[]
+			use_jetstream: boolean
+			stream_name?: string
+			consumer_name?: string
+		}
 		path: string
 		can_write?: boolean
 		showTestingBadge?: boolean
@@ -27,10 +29,7 @@
 		defaultValues = undefined,
 		headless = false,
 		natsResourcePath = $bindable(),
-		subjects = $bindable(),
-		useJetstream = $bindable(),
-		streamName = $bindable(),
-		consumerName = $bindable(),
+		natsCfg = $bindable(),
 		path,
 		can_write = true,
 		showTestingBadge = false
@@ -38,7 +37,7 @@
 
 	let otherArgsValid = $state(false)
 	let globalError = $derived(
-		!useJetstream && subjects && subjects.length > 1
+		!natsCfg.use_jetstream && natsCfg.subjects && natsCfg.subjects.length > 1
 			? 'Only one subject is supported if not using JetStream.'
 			: ''
 	)
@@ -91,40 +90,27 @@
 		const valid =
 			isConnectionValid &&
 			otherArgsValid &&
-			!!subjects &&
-			subjects.length > 0 &&
-			subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
+			!!natsCfg.subjects &&
+			natsCfg.subjects.length > 0 &&
+			natsCfg.subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
 			globalError === ''
 		dispatch('valid-config', valid)
 	})
 
 	function setStreamAndConsumerNames() {
-		if (!streamName) {
-			streamName = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
+		if (!natsCfg.stream_name) {
+			natsCfg.stream_name = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
 		}
-		if (!consumerName) {
-			consumerName = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
-		}
-	}
-
-	function setNewArgs(args: Record<string, any>) {
-		subjects = args.subjects
-		useJetstream = args.use_jetstream
-		streamName = args.stream_name
-		consumerName = args.consumer_name
-		if (args.use_jetstream) {
-			setStreamAndConsumerNames()
+		if (!natsCfg.consumer_name) {
+			natsCfg.consumer_name = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
 		}
 	}
 
-	function getNatsArgsCfg() {
-		return {
-			subjects,
-			use_jetstream: useJetstream,
-			stream_name: streamName,
-			consumer_name: consumerName
+	$effect(() => {
+		if (natsCfg.use_jetstream) {
+			untrack(() => setStreamAndConsumerNames())
 		}
-	}
+	})
 </script>
 
 <div>
@@ -160,7 +146,7 @@
 				<Subsection headless={true}>
 					<SchemaForm
 						schema={argsSchema}
-						bind:args={getNatsArgsCfg, (args) => setNewArgs(args)}
+						bind:args={natsCfg}
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
 						disabled={!can_write}

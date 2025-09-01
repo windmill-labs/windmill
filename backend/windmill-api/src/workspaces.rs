@@ -35,7 +35,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::{build_crypt, decrypt, encrypt};
+use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
@@ -415,7 +415,9 @@ async fn is_premium(
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
-    let premium = windmill_common::workspaces::is_premium_workspace(&_db, &_w_id).await;
+    let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
+        .await
+        .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;
     Ok(Json(premium))
@@ -1926,6 +1928,8 @@ async fn set_encryption_key(
     .execute(&db)
     .await?;
 
+    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
     if !request.skip_reencrypt.unwrap_or(false) {
         let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
@@ -1948,7 +1952,13 @@ async fn set_encryption_key(
             if !variable.is_secret {
                 continue;
             }
-            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let decrypted_value =
+                decrypt(&previous_encryption_key, variable.value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?;
             let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
             sqlx::query!(
                 "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",

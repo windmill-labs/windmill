@@ -150,7 +150,7 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
-	import { editorPositionMap, readFieldsRecursively } from '$lib/utils'
+	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
@@ -544,9 +544,7 @@
 
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
-	async function updateSchema() {
-		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
-
+	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
@@ -676,7 +674,21 @@
 	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewAndApply(code, applyAll)
+		aiChatEditorHandler?.reviewChanges(code, { applyAll, mode: 'apply' })
+	}
+
+	export function reviewAppliedCode(
+		originalCode: string,
+		opts?: { onFinishedReview?: () => void }
+	) {
+		aiChatEditorHandler?.reviewChanges(originalCode, {
+			mode: 'revert',
+			onFinishedReview: opts?.onFinishedReview
+		})
+	}
+
+	export function getAiChatEditorHandler() {
+		return aiChatEditorHandler
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
@@ -1607,10 +1619,14 @@
 			? untrack(() => addSqlTypeCompletions())
 			: sqlTypeCompletor?.dispose()
 	})
+
+	let lastArg = undefined
 	$effect(() => {
-		console.log('updating schema', lang, $dbSchemas)
-		readFieldsRecursively(args)
-		lang && $dbSchemas && untrack(() => updateSchema())
+		let newArg = lang === 'graphql' ? args?.api : args?.database
+		if (newArg !== lastArg) {
+			lastArg = newArg
+			$dbSchemas && untrack(() => updateSchema(newArg))
+		}
 	})
 	$effect(() => {
 		console.log('updating db schema completions', dbSchema, lang)
@@ -1684,10 +1700,20 @@
 {#if $reviewingChanges}
 	<GlobalReviewButtons
 		onAcceptAll={() => {
-			aiChatEditorHandler?.acceptAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.keepAll()
+			} else {
+				aiChatEditorHandler?.acceptAll()
+			}
 		}}
 		onRejectAll={() => {
-			aiChatEditorHandler?.rejectAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.revertAll()
+			} else {
+				aiChatEditorHandler?.rejectAll()
+			}
 		}}
 	/>
 {/if}

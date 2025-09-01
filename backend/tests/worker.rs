@@ -4679,30 +4679,42 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
-    #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await;
         let port = server.addr.port();
 
-        let test = || async {
-            let result = RunJob::from(JobPayload::Dependencies {
-                path: "f/system/hello".to_string(),
-                hash: ScriptHash(123412),
-                language: ScriptLang::Deno,
-                dedicated_worker: None,
-            })
-            .run_until_complete(&db, port)
-            .await
-            .json_result()
-            .unwrap();
+        let result = RunJob::from(JobPayload::Dependencies {
+            path: "f/system/hello".to_string(),
+            hash: ScriptHash(123412),
+            language: ScriptLang::Deno,
+            dedicated_worker: None,
+        })
+        .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
 
-            assert_eq!(
-                result.get("status").unwrap(),
-                &json!("Successful lock file generation")
-            );
-        };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        assert_eq!(
+            result.get("status").unwrap(),
+            &json!("Successful lock file generation")
+        );
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dependencies_payload_min_1_427(db: Pool<Postgres>) {
+        *MIN_VERSION_IS_AT_LEAST_1_427.write().await = true;
+        test_dependencies_payload(db).await;
+    }
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dependencies_payload_min_1_432(db: Pool<Postgres>) {
+        *MIN_VERSION_IS_AT_LEAST_1_432.write().await = true;
+        test_dependencies_payload(db).await;
+    }
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dependencies_payload_min_1_440(db: Pool<Postgres>) {
+        *MIN_VERSION_IS_AT_LEAST_1_440.write().await = true;
+        test_dependencies_payload(db).await;
     }
 
     // Just test that deploying a flow work as expected.

@@ -1042,7 +1042,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
 
-        if module_step.is_preprocessor_step() {
+        if module_step.is_preprocessor_step() && success {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
             let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
@@ -1159,9 +1159,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     "error while updating args in preprocessing step: {e:#}"
                 ))
             })?;
-            if success {
-                return Ok(UpdateFlowStatusAfterJobCompletion::PreprocessingStep);
-            }
+            return Ok(UpdateFlowStatusAfterJobCompletion::PreprocessingStep);
         }
 
         let job_root = flow_job

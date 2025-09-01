@@ -937,11 +937,21 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								const prevValueKeys = Object.keys(
+								const selectedObjProperties =
 									oneOf?.find((o) => o.title == detail)?.properties ?? {}
-								)
+								const newValueKeys = Object.keys(selectedObjProperties)
 								const toKeep = {}
-								for (const key of prevValueKeys) {
+								for (const key of newValueKeys) {
+									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
+									if (
+										!['kind', 'label'].includes(key) &&
+										selectedObjProperties[key]?.enum &&
+										value &&
+										value[key] !== undefined &&
+										!selectedObjProperties[key].enum.includes(value[key])
+									) {
+										continue
+									}
 									toKeep[key] = value[key]
 								}
 								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
@@ -982,8 +992,11 @@
 													}
 												}
 												bind:args={value}
-												dndType={`nested-${title}`}
-												hiddenArgs={['label', 'kind']}
+												hiddenArgs={[
+													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+														? 'kind'
+														: 'label'
+												]}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -1076,20 +1089,14 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
-							bind:schema={
-								() => ({
-									properties,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object',
-									order
-								}),
-								(newSchema) => {
-									dispatch('nestedChange')
-								}
-							}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
 							bind:args={value}
-							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys

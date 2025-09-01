@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.537.1](https://github.com/windmill-labs/windmill/compare/v1.537.0...v1.537.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* fix error handling of pre-processor steps ([641d565](https://github.com/windmill-labs/windmill/commit/641d5651c5b6fa898e4fc8ad29a8508f9400c6d8))
+* fix preprocessor not displaying immediately on addition ([e28c9df](https://github.com/windmill-labs/windmill/commit/e28c9df60f20b70a4dcef802839750bb843b91a4))
+* skipPreprocessor on re-running job immedaitely from UI ([e2b344e](https://github.com/windmill-labs/windmill/commit/e2b344ed02b02972366a011c3e873e0f43ab2843))
+
+## [1.537.0](https://github.com/windmill-labs/windmill/compare/v1.536.0...v1.537.0) (2025-08-28)
+
+
+### Features
+
+* **aichat:** allow reverting specific line for inline script suggestions ([#6480](https://github.com/windmill-labs/windmill/issues/6480)) ([0cc11b3](https://github.com/windmill-labs/windmill/commit/0cc11b3f31aeee60a9d4a231cea5d4285d7ab37e))
+* autovacuum or high intensity tables ([4ad0d25](https://github.com/windmill-labs/windmill/commit/4ad0d255f3eea303e97eab5325f89930b26f9e52))
+
+
+### Bug Fixes
+
+* fix okta and oauth0 sso settings ([73a3f4c](https://github.com/windmill-labs/windmill/commit/73a3f4cc73271759650e9246f4eb2e0efb7c7e37))
+* fix relative imports cache invalidation ([#6468](https://github.com/windmill-labs/windmill/issues/6468)) ([006f326](https://github.com/windmill-labs/windmill/commit/006f32602c7609b282f15135989c5f164c109c1c))
+* fix workflow as code behavior with multithread ([4973c86](https://github.com/windmill-labs/windmill/commit/4973c860f2c28d9bdc2af94530d90eb177234e5d))
+
+## [1.536.0](https://github.com/windmill-labs/windmill/compare/v1.535.0...v1.536.0) (2025-08-27)
+
+
+### Features
+
+* **aichat:** give advanced options tools to flow mode ([#6463](https://github.com/windmill-labs/windmill/issues/6463)) ([b26cea9](https://github.com/windmill-labs/windmill/commit/b26cea9d3e2f9a0acae335aad12206da491ac733))
+* email triggers extra args in 'to' header ([#6476](https://github.com/windmill-labs/windmill/issues/6476)) ([ceb9150](https://github.com/windmill-labs/windmill/commit/ceb9150f43a0ae9f8579f1984e791f69e7a05366))
+
+
+### Bug Fixes
+
+* **cli:** specific items for file resource type ([#6464](https://github.com/windmill-labs/windmill/issues/6464)) ([2066a2a](https://github.com/windmill-labs/windmill/commit/2066a2ada2f3139474527f373dc505b7e61d5182))
+* do not require locked for scheduled jobs ([41a8727](https://github.com/windmill-labs/windmill/commit/41a872725282ba4b78e8f9912bb1ac929b8557f7))
+* **frontend:** ai agent step nits ([#6469](https://github.com/windmill-labs/windmill/issues/6469)) ([2b03133](https://github.com/windmill-labs/windmill/commit/2b03133b2245bd42f3c64b915d72dd3f62eb65a4))
+* **frontend:** nats config conditional fields ([#6473](https://github.com/windmill-labs/windmill/issues/6473)) ([f90d444](https://github.com/windmill-labs/windmill/commit/f90d44469e0e4b462a5fa5160b64e99eef95c317))
+* **go:** could not read Username for 'xyz': terminal prompts disabled ([#6478](https://github.com/windmill-labs/windmill/issues/6478)) ([5808840](https://github.com/windmill-labs/windmill/commit/5808840b78e94a0b39614f37161f9def347a5352))
+* **go:** exec: "git": executable file not found ([#6475](https://github.com/windmill-labs/windmill/issues/6475)) ([475f405](https://github.com/windmill-labs/windmill/commit/475f405d0626f1c22309ee6a1b630472a89dbb30))
+* save changes made in diff mode ([#6477](https://github.com/windmill-labs/windmill/issues/6477)) ([d9ca181](https://github.com/windmill-labs/windmill/commit/d9ca181b1d8d26c175ec2a05409c45daeab887a4))
+
 ## [1.535.0](https://github.com/windmill-labs/windmill/compare/v1.534.1...v1.535.0) (2025-08-25)
 
 
