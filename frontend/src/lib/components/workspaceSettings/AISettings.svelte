@@ -35,11 +35,13 @@
 		aiProviders = $bindable(),
 		codeCompletionModel = $bindable(),
 		defaultModel = $bindable(),
+		customPrompts = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable()
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
 		defaultModel: string | undefined
+		customPrompts: Record<string, string>
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
@@ -52,12 +54,14 @@
 
 	// Custom system prompt settings
 	let selectedAiMode = $state<AIMode>(AIMode.ASK)
-	let customPrompts = $state<Record<AIMode, string>>({
-		[AIMode.SCRIPT]: '',
-		[AIMode.FLOW]: '',
-		[AIMode.NAVIGATOR]: '',
-		[AIMode.API]: '',
-		[AIMode.ASK]: ''
+
+	// Ensure all AI modes have entries in customPrompts
+	$effect(() => {
+		Object.values(AIMode).forEach((mode) => {
+			if (!(mode in customPrompts)) {
+				customPrompts[mode] = ''
+			}
+		})
 	})
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
@@ -107,10 +111,16 @@
 				defaultModel && modelProviderMap[defaultModel]
 					? { model: defaultModel, provider: modelProviderMap[defaultModel] }
 					: undefined
+			// Convert customPrompts to include only non-empty prompts
+			const custom_prompts: Record<string, string> = Object.entries(customPrompts)
+				.filter(([_, prompt]) => prompt.trim().length > 0)
+				.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
+
 			const config: AIConfig = {
 				providers: aiProviders,
 				code_completion_model,
-				default_model
+				default_model,
+				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined
 			}
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -345,7 +355,7 @@
 										label={mode.charAt(0).toUpperCase() + mode.slice(1)}
 										{item}
 									/>
-									{#if customPrompts[mode].length > 0}
+									{#if customPrompts[mode]?.length > 0}
 										<div
 											class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-surface"
 										></div>

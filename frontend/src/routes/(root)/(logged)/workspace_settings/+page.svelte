@@ -81,6 +81,7 @@
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
 	let defaultModel: string | undefined = $state(undefined)
+	let customPrompts: Record<string, string> = $state({})
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -245,6 +246,7 @@
 		aiProviders = settings.ai_config?.providers ?? {}
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
+		customPrompts = settings.ai_config?.custom_prompts ?? {}
 
 		errorHandlerItemKind = settings.error_handler
 			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
@@ -804,6 +806,7 @@
 				bind:aiProviders
 				bind:codeCompletionModel
 				bind:defaultModel
+				bind:customPrompts
 				bind:usingOpenaiClientCredentialsOauth
 			/>
 		{:else if tab == 'windmill_lfs'}
