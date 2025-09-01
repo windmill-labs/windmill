@@ -1440,17 +1440,7 @@ async fn raw_script_by_path_internal(
             return Ok(cached_content);
         }
     }
-    let folder_path = if query.cache_folders.is_some() {
-        Some(format!("{w_id}:{path}"))
-    } else {
-        None
-    };
-    if let Some(cache_folders) = folder_path {
-        let cached_content = CACHE_FOLDERS_PATH.get(&path);
-        if let Some(cached_content) = cached_content {
-            return Ok(cached_content);
-        }
-    }
+
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
         && !path.ends_with(".go")
@@ -1468,6 +1458,27 @@ async fn raw_script_by_path_internal(
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");
+
+    // folder cache is only useful for python given it needs to recuse over all intermediate folders to find the package.
+    // When a script exists in a folder, we can cache the fact that the folder exists to avoid extra db calls.
+    let mut split_path = path.split("/").collect::<Vec<&str>>();
+    let folder_path = if query.cache_folders.is_some() && split_path.len() > 2 {
+        Some(format!("{w_id}:{path}/"))
+    } else {
+        None
+    };
+
+    let has_folder_cache = folder_path.is_some();
+    if let Some(cache_folders) = folder_path {
+        let cached_content = CACHE_FOLDERS_PATH.get(&cache_folders);
+        if let Some(cached_ts) = cached_content {
+            if cached_ts >= chrono::Utc::now().timestamp() - 300 {
+                // 5 minutes
+                return Ok("WINDMILL_IS_FOLDER".to_string());
+            }
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
@@ -1526,6 +1537,14 @@ async fn raw_script_by_path_internal(
     } else {
         content
     };
+
+    if has_folder_cache {
+        while split_path.len() >= 2 {
+            split_path.pop();
+            let npath = split_path.join("/");
+            CACHE_FOLDERS_PATH.insert(format!("{w_id}:{npath}/"), chrono::Utc::now().timestamp());
+        }
+    }
 
     if let Some(cache_path) = cache_path {
         RAW_SCRIPT_CACHE.insert(cache_path, content.clone());
