@@ -481,7 +481,7 @@ async fn trigger_runnable_inner(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-) -> Result<(Uuid, Option<bool>)> {
+) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let error_handler_args = error_handler_args.map(|args| {
         let args = args
             .0
@@ -492,10 +492,10 @@ async fn trigger_runnable_inner(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let (uuid, delete_after_use) = if is_flow {
+    let (uuid, delete_after_use, early_return) = if is_flow {
         let run_query = RunJobQuery::default();
         let path = StripPath(runnable_path.to_string());
-        let uuid = run_flow_by_path_inner(
+        let (uuid, early_return) = run_flow_by_path_inner(
             authed,
             db.clone(),
             user_db,
@@ -505,9 +505,9 @@ async fn trigger_runnable_inner(
             args,
         )
         .await?;
-        (uuid, None)
+        (uuid, None, early_return)
     } else {
-        trigger_script_internal(
+        let (uuid, delete_after_use) = trigger_script_internal(
             db,
             user_db,
             authed,
@@ -519,10 +519,11 @@ async fn trigger_runnable_inner(
             error_handler_args.as_ref(),
             trigger_path,
         )
-        .await?
+        .await?;
+        (uuid, delete_after_use, None)
     };
 
-    Ok((uuid, delete_after_use))
+    Ok((uuid, delete_after_use, early_return))
 }
 
 #[allow(dead_code)]
@@ -539,7 +540,7 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
 ) -> Result<axum::response::Response> {
-    let (uuid, _) = trigger_runnable_inner(
+    let (uuid, _, _) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -571,7 +572,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     trigger_path: String,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
-    let (uuid, delete_after_use) = trigger_runnable_inner(
+    let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -586,7 +587,8 @@ pub async fn trigger_runnable_and_wait_for_result(
     )
     .await?;
     let (result, success) =
-        run_wait_result_internal(db, uuid, workspace_id.to_string(), None, &username).await?;
+        run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
+            .await?;
 
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
@@ -610,7 +612,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     trigger_path: String,
 ) -> Result<Box<RawValue>> {
     let username = authed.username.clone();
-    let (uuid, delete_after_use) = trigger_runnable_inner(
+    let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -624,23 +626,6 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         trigger_path,
     )
     .await?;
-
-    let early_return = if is_flow {
-        sqlx::query_scalar!(
-            r#"SELECT flow_version.value->>'early_return' as early_return
-            FROM flow 
-            LEFT JOIN flow_version
-                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 and flow.workspace_id = $2"#,
-            runnable_path,
-            workspace_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten()
-    } else {
-        None
-    };
 
     let (result, success) =
         run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
