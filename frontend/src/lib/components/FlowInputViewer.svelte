@@ -4,8 +4,6 @@
 	import FieldHeader from './FieldHeader.svelte'
 
 	export let schema: Schema | { [key: string]: unknown } | undefined
-
-	console.log('flow input viewer', schema)
 </script>
 
 <ul class="my-2">

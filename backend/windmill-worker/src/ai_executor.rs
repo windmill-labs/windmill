@@ -756,10 +756,12 @@ async fn run_agent(
     };
 
     let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
+    let mut response_format: Option<ResponseFormat> = None;
+    let mut used_structured_output_tool = false;
 
-    // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
     if let Some(ref schema) = args.output_schema {
         if is_anthropic {
+            // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
             let output_tool = ToolDef {
                 r#type: "function".to_string(),
                 function: ToolDefFunction {
@@ -776,14 +778,8 @@ async fn run_agent(
             } else {
                 tool_defs = Some(vec![output_tool]);
             }
-        }
-    }
-
-    let mut response_format: Option<ResponseFormat> = None;
-
-    // if output schema is provided, and provider is openai, add a response_format with json_schema
-    if let Some(ref schema) = args.output_schema {
-        if !is_anthropic {
+        } else {
+            // if output schema is provided, and provider is openai, add a response_format with json_schema
             let strict_schema = schema.clone().make_strict();
             response_format = Some(ResponseFormat {
                 r#type: "json_schema".to_string(),
@@ -795,8 +791,6 @@ async fn run_agent(
             });
         }
     }
-
-    let mut used_structured_output_tool = false;
 
     for i in 0..MAX_AGENT_ITERATIONS {
         if used_structured_output_tool {

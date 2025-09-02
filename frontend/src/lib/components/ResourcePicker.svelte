@@ -44,8 +44,6 @@
 		excludedValues = undefined
 	}: Props = $props()
 
-	console.log('resourceType', resourceType)
-
 	if (initialValue && value == undefined) {
 		console.log('initialValue', initialValue)
 		value = initialValue
