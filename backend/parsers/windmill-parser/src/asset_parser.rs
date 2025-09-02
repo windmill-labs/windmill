@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetUsageAccessType {
     R,
@@ -10,7 +10,7 @@ pub enum AssetUsageAccessType {
 
 use AssetUsageAccessType::*;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetKind {
     S3Object,
