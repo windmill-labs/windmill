@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "807c920bff25f56b10e88900d879cf5e8484c147e457044d6b075323b163ebaa"
+}

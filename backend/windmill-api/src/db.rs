@@ -179,8 +179,12 @@ impl Migrate for CustomMigrator {
             } else {
                 let r = self.inner.apply(migration).await;
                 tracing::info!("Finished applying migration {}", migration.version);
+                if migration.version == 20250902170241 {
+                    insert_snapshot_migration(&mut *self.inner).await?;
+                }
                 return r;
             }
+
         }
         .boxed()
     }
@@ -301,16 +305,12 @@ Version missing: {e:#}"
             jh.await.map_err(|e| anyhow::anyhow!(e))?;
             tracing::info!("Live migrations for old snapshot finished");
         }
-    } else if !has_done_first_old_migration {
-        tracing::info!("Instance is fresh, going to snapshot point using the singular snapshot migration.");
-        match sqlx::migrate!("../migrations/old_snapshot")
-            .run_direct(custom_migrator)
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(err) => Err(err),
-        }?;
+        insert_snapshot_migration(db).await?;
     };
+    Ok(())
+}
+
+async fn insert_snapshot_migration<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<(), sqlx::Error> {
     tracing::info!("Inserting snapshot migration checkpoint");
     sqlx::query!("INSERT INTO windmill_migrations (name) VALUES  ('snapshot')")
         .execute(db)
@@ -318,6 +318,7 @@ Version missing: {e:#}"
     tracing::info!("Snapshot migration inserted");
     Ok(())
 }
+
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
