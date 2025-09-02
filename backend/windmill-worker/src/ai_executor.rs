@@ -604,8 +604,40 @@ async fn call_tool(
     }
 }
 
+/// Makes a property nullable by converting its type to a union with null
+fn make_property_nullable(mut prop: serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(ref mut obj) = prop {
+        if let Some(type_value) = obj.get("type") {
+            match type_value {
+                serde_json::Value::String(type_str) => {
+                    // Convert single type to array with null
+                    obj.insert(
+                        "type".to_string(),
+                        serde_json::Value::Array(vec![
+                            serde_json::Value::String(type_str.clone()),
+                            serde_json::Value::String("null".to_string()),
+                        ]),
+                    );
+                }
+                serde_json::Value::Array(type_array) => {
+                    // Add null to existing type array if not already present
+                    let mut new_types = type_array.clone();
+                    let has_null = new_types.iter().any(|t| t.as_str() == Some("null"));
+                    if !has_null {
+                        new_types.push(serde_json::Value::String("null".to_string()));
+                    }
+                    obj.insert("type".to_string(), serde_json::Value::Array(new_types));
+                }
+                _ => {} // Leave other type formats unchanged
+            }
+        }
+    }
+    prop
+}
+
 /// Recursively adds "additionalProperties": false to all objects in the JSON schema
 /// and ensures all properties are in the required array for OpenAI's strict mode requirements
+/// To emulate non required fields being nullable, we add null to the type array
 fn make_schema_strict(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(mut obj) => {
@@ -616,12 +648,41 @@ fn make_schema_strict(value: serde_json::Value) -> serde_json::Value {
                     serde_json::Value::Bool(false),
                 );
 
-                // Ensure all properties are in the required array
-                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+                // Handle required array and make non-required fields nullable
+                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()).cloned()
+                {
+                    let original_required = obj
+                        .get("required")
+                        .and_then(|r| r.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<std::collections::HashSet<_>>()
+                        })
+                        .unwrap_or_default();
+
+                    // Update properties to make non-required fields nullable
+                    let mut updated_properties = serde_json::Map::new();
+                    for (key, prop) in properties.iter() {
+                        let prop = prop.clone();
+                        if !original_required.contains(key.as_str()) {
+                            // Make non-required fields nullable by adding null to the type
+                            updated_properties.insert(key.clone(), make_property_nullable(prop));
+                        } else {
+                            updated_properties.insert(key.clone(), prop);
+                        }
+                    }
+
+                    // All properties must be in required array for strict mode
                     let all_property_keys: Vec<serde_json::Value> = properties
                         .keys()
                         .map(|k| serde_json::Value::String(k.clone()))
                         .collect();
+
+                    obj.insert(
+                        "properties".to_string(),
+                        serde_json::Value::Object(updated_properties),
+                    );
 
                     if !all_property_keys.is_empty() {
                         obj.insert(
