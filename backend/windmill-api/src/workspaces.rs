@@ -720,6 +720,7 @@ async fn edit_deploy_to() -> Result<String> {
 }
 
 pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
@@ -819,6 +820,20 @@ async fn edit_copilot_config(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Validate custom prompts length
+    if let Some(ref custom_prompts) = ai_config.custom_prompts {
+        for (mode, prompt) in custom_prompts.iter() {
+            if prompt.len() > MAX_CUSTOM_PROMPT_LENGTH {
+                return Err(Error::BadRequest(format!(
+                    "Custom prompt for mode '{}' exceeds maximum length of {} characters (current: {})",
+                    mode,
+                    MAX_CUSTOM_PROMPT_LENGTH,
+                    prompt.len()
+                )));
+            }
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -887,6 +902,7 @@ async fn get_copilot_info(
             providers: None,
             default_model: None,
             code_completion_model: None,
+            custom_prompts: None,
         }))
     }
 }

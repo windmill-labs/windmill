@@ -18,7 +18,7 @@
 	}: Props = $props()
 
 	function handleCopyClick() {
-		copyToClipboard(token)
+		copyToClipboard(mcpUrl || token)
 		onCopy?.()
 	}
 
