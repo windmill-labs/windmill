@@ -1299,8 +1299,6 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
-        "var_cache_invalidation",
-        "resource_cache_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
