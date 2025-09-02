@@ -201,8 +201,8 @@ pub async fn do_duckdb(
             };
 
             conn.execute_batch(&format!(
-                "INSTALL httpfs;
-                LOAD httpfs;
+                "INSTALL httpfs; LOAD httpfs;
+                INSTALL azure; LOAD azure;
                 CREATE OR REPLACE SECRET s3_secret (
                     TYPE s3,
                     PROVIDER config,

@@ -350,6 +350,18 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
+impl AzureBlobResource {
+    pub fn get_endpoint_url(&self) -> error::Result<String> {
+        Ok(render_endpoint(
+            self.endpoint.clone().unwrap_or_else(|| "".to_string()),
+            self.use_ssl.unwrap_or(false),
+            None,
+            None,
+            "".to_string(),
+        ))
+    }
+}
+
 fn as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::de::Deserializer<'de>,
@@ -1123,16 +1135,7 @@ impl ObjectStoreResource {
                 "https://storage.googleapis.com/{}",
                 gcs_resource.bucket
             )),
-            ObjectStoreResource::Azure(az_resource) => Ok(render_endpoint(
-                az_resource
-                    .endpoint
-                    .clone()
-                    .unwrap_or_else(|| "".to_string()),
-                az_resource.use_ssl.unwrap_or(false),
-                None,
-                None,
-                "".to_string(),
-            )),
+            ObjectStoreResource::Azure(az_resource) => az_resource.get_endpoint_url(),
         }
     }
 }
