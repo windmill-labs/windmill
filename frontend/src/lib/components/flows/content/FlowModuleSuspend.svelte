@@ -70,7 +70,6 @@
 	let jsonView: boolean = $state(false)
 </script>
 
-A{JSON.stringify(flowModule.suspend?.resume_form)}B
 <Section label="Suspend/Approval/Prompt" class="w-full">
 	{#snippet action()}
 		<SuspendDrawer text="Approval/Prompt helpers" />

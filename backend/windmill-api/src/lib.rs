@@ -89,12 +89,6 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
-#[cfg(feature = "http_trigger")]
-mod http_trigger_args;
-#[cfg(feature = "http_trigger")]
-mod http_trigger_auth;
-#[cfg(feature = "http_trigger")]
-pub mod http_triggers;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
@@ -109,6 +103,8 @@ mod postgres_triggers;
 #[cfg(all(feature = "private"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+
+mod trigger_helpers;
 
 pub mod openapi;
 
@@ -173,7 +169,6 @@ mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
-mod trigger_helpers;
 
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
@@ -185,7 +180,7 @@ pub mod teams_ee;
 mod teams_oss;
 mod token;
 mod tracing_init;
-mod triggers;
+pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
 pub mod users_ee;
@@ -309,7 +304,6 @@ pub async fn run_server(
     ));
     let argon2 = Arc::new(Argon2::default());
 
-
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()
         .map(|x| x == "true")
@@ -384,101 +378,14 @@ pub async fn run_server(
         }
     };
 
-    let kafka_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            kafka_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
-        {
-            Router::new()
-        }
-    };
-
-    let nats_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            nats_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "nats")))]
-        {
-            Router::new()
-        }
-    };
-
-    let mqtt_triggers_service = {
-        #[cfg(all(feature = "mqtt_trigger"))]
-        {
-            mqtt_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "mqtt_trigger"))]
-        {
-            Router::new()
-        }
-    };
-
-    let gcp_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            gcp_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
-        {
-            Router::new()
-        }
-    };
-
-    let sqs_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            sqs_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
-        {
-            Router::new()
-        }
-    };
-
-    let websocket_triggers_service = {
-        #[cfg(feature = "websocket")]
-        {
-            websocket_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "websocket"))]
-        Router::new()
-    };
-
-    let http_triggers_service = {
-        #[cfg(feature = "http_trigger")]
-        {
-            http_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "http_trigger"))]
-        Router::new()
-    };
-
+    // Initialize HTTP trigger refresh loop
     #[cfg(feature = "http_trigger")]
     {
         let http_killpill_rx = killpill_rx.resubscribe();
-        http_triggers::refresh_routers_loop(&db, http_killpill_rx).await;
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
     }
 
-    let postgres_triggers_service = {
-        #[cfg(feature = "postgres_trigger")]
-        {
-            postgres_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "postgres_trigger"))]
-        Router::new()
-    };
+    let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         #[cfg(feature = "websocket")]
@@ -622,14 +529,7 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", openapi::openapi_service())
-                        .nest("/http_triggers", http_triggers_service)
-                        .nest("/websocket_triggers", websocket_triggers_service)
-                        .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/mqtt_triggers", mqtt_triggers_service)
-                        .nest("/sqs_triggers", sqs_triggers_service)
-                        .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service),
+                        .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -782,7 +682,7 @@ pub async fn run_server(
                     {
                         #[cfg(feature = "http_trigger")]
                         {
-                            http_triggers::routes_global_service()
+                            triggers::http::handler::http_route_trigger_handler()
                         }
 
                         #[cfg(not(feature = "http_trigger"))]
@@ -795,11 +695,19 @@ pub async fn run_server(
                 .nest(
                     "/gcp/w/:workspace_id",
                     {
-                        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+                        #[cfg(all(
+                            feature = "enterprise",
+                            feature = "gcp_trigger",
+                            feature = "private"
+                        ))]
                         {
-                            gcp_triggers_oss::gcp_push_route_handler()
+                            triggers::gcp::handler_oss::gcp_push_route_handler()
                         }
-                        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+                        #[cfg(not(all(
+                            feature = "enterprise",
+                            feature = "gcp_trigger",
+                            feature = "private"
+                        )))]
                         {
                             Router::new()
                         }

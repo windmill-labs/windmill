@@ -919,7 +919,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 #[cfg(feature = "http_trigger")]
                                                 "notify_http_trigger_change" => {
                                                     tracing::info!("HTTP trigger change detected: {}", n.payload());
-                                                    match windmill_api::http_triggers::refresh_routers(&db).await {
+                                                    match windmill_api::triggers::http::refresh_routers(&db).await {
                                                         Ok((true, _)) => {
                                                             tracing::info!("Refreshed HTTP routers (trigger change)");
                                                         },
@@ -1299,8 +1299,6 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
-        "var_cache_invalidation",
-        "resource_cache_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
