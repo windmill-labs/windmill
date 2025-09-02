@@ -6,7 +6,9 @@ pub use crate::ee::*;
     any(feature = "nats", feature = "kafka", feature = "sqs_trigger"),
     not(feature = "private")
 ))]
-use {crate::db::ApiAuthed, windmill_common::DB};
+use windmill_common::DB;
+
+
 
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;
@@ -26,7 +28,7 @@ pub async fn jwt_ext_auth(
     _w_id: Option<&String>,
     _token: &str,
     _external_jwks: Option<Arc<RwLock<ExternalJwks>>>,
-) -> anyhow::Result<(ApiAuthed, usize)> {
+) -> anyhow::Result<(crate::db::ApiAuthed, usize)> {
     // Implementation is not open source
 
     Err(anyhow!("External JWT auth is not open source"))
