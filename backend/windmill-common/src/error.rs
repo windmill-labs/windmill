@@ -293,7 +293,7 @@ where
         Self(err.into())
     }
 }
-
+#[cfg(feature = "parquet")]
 impl From<object_store::Error> for Error {
     fn from(err: object_store::Error) -> Self {
         use object_store::Error::*;
