@@ -109,7 +109,7 @@ struct ResponseFormat {
 #[derive(Serialize)]
 struct JsonSchemaFormat {
     name: String,
-    schema: serde_json::Value,
+    schema: OpenAPISchema,
     #[serde(skip_serializing_if = "Option::is_none")]
     strict: Option<bool>,
 }
@@ -183,9 +183,23 @@ struct AIAgentResult<'a> {
     messages: Vec<Message<'a>>,
 }
 
-#[derive(Serialize, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+enum SchemaType {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl Default for SchemaType {
+    fn default() -> Self {
+        SchemaType::Single("object".to_string())
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 struct OpenAPISchema {
-    r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<SchemaType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<Box<OpenAPISchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -198,20 +212,29 @@ struct OpenAPISchema {
     format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     r#enum: Option<Vec<String>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "additionalProperties"
+    )]
+    additional_properties: Option<bool>,
 }
 
 impl OpenAPISchema {
     fn from_str(typ: &str) -> Self {
-        OpenAPISchema { r#type: typ.to_string(), ..Default::default() }
+        OpenAPISchema { r#type: Some(SchemaType::Single(typ.to_string())), ..Default::default() }
     }
 
     fn from_str_with_enum(typ: &str, enu: &Option<Vec<String>>) -> Self {
-        OpenAPISchema { r#type: typ.to_string(), r#enum: enu.clone(), ..Default::default() }
+        OpenAPISchema {
+            r#type: Some(SchemaType::Single(typ.to_string())),
+            r#enum: enu.clone(),
+            ..Default::default()
+        }
     }
 
     fn datetime() -> Self {
         Self {
-            r#type: "string".to_string(),
+            r#type: Some(SchemaType::Single("string".to_string())),
             format: Some("date-time".to_string()),
             ..Default::default()
         }
@@ -230,12 +253,12 @@ impl OpenAPISchema {
             Typ::Sql => Self::from_str("string"),
             Typ::DynSelect(_) => Self::from_str("string"),
             Typ::List(typ) => OpenAPISchema {
-                r#type: "array".to_string(),
+                r#type: Some(SchemaType::Single("array".to_string())),
                 items: Some(Box::new(Self::from_typ(typ))),
                 ..Default::default()
             },
             Typ::Object(typ) => OpenAPISchema {
-                r#type: "object".to_string(),
+                r#type: Some(SchemaType::Single("object".to_string())),
                 items: None,
                 properties: typ.props.as_ref().map(|props| {
                     props
@@ -250,13 +273,13 @@ impl OpenAPISchema {
                 ..Default::default()
             },
             Typ::OneOf(variants) => OpenAPISchema {
-                r#type: "object".to_string(),
+                r#type: Some(SchemaType::Single("object".to_string())),
                 one_of: Some(
                     variants
                         .iter()
                         .map(|variant| {
                             let schema = OpenAPISchema {
-                                r#type: "object".to_string(),
+                                r#type: Some(SchemaType::Single("object".to_string())),
                                 properties: Some(
                                     variant
                                         .properties
@@ -295,6 +318,81 @@ impl OpenAPISchema {
             },
             Typ::Unknown => Self::from_str("object"),
         }
+    }
+
+    /// Makes this schema compatible with OpenAI's strict mode by:
+    /// - Adding additionalProperties: false to all object types
+    /// - Making non-required properties nullable
+    /// - Ensuring all properties are in the required array
+    fn make_strict(mut self) -> Self {
+        // Handle this schema if it's an object type
+        if let Some(SchemaType::Single(ref type_str)) = self.r#type {
+            if type_str == "object" {
+                // Set additionalProperties to false
+                self.additional_properties = Some(false);
+
+                if let Some(properties) = self.properties.as_mut() {
+                    // Get original required fields
+                    let original_required = self.required.as_ref();
+
+                    if let Some(required) = original_required {
+                        // Update properties to make non-required fields nullable
+                        for (key, prop) in properties.iter_mut() {
+                            let mut new_prop = (**prop).clone();
+                            // Make non-required fields nullable
+                            if !required.contains(key) {
+                                new_prop = new_prop.make_nullable();
+                            }
+                            // Recursively make nested schemas strict
+                            new_prop = new_prop.make_strict();
+                            *prop = Box::new(new_prop);
+                        }
+                    }
+
+                    // All properties must be in required array for strict mode
+                    self.required = Some(properties.keys().cloned().collect());
+                }
+            }
+        }
+
+        // Recursively process nested schemas
+        if let Some(ref mut items) = self.items {
+            **items = items.as_ref().clone().make_strict();
+        }
+
+        if let Some(ref mut one_of) = self.one_of {
+            *one_of = one_of
+                .iter()
+                .map(|schema| Box::new(schema.as_ref().clone().make_strict()))
+                .collect();
+        }
+
+        self
+    }
+
+    /// Makes this property nullable by converting its type to a union with null
+    fn make_nullable(mut self) -> Self {
+        match &self.r#type.take() {
+            Some(SchemaType::Single(type_str)) => {
+                // Convert single type to array with null
+                self.r#type = Some(SchemaType::Multiple(vec![
+                    type_str.to_string(),
+                    "null".to_string(),
+                ]));
+            }
+            Some(SchemaType::Multiple(types)) => {
+                if !types.iter().any(|t| t == "null") {
+                    let mut new_types = types.clone();
+                    new_types.push("null".into());
+                    self.r#type = Some(SchemaType::Multiple(new_types));
+                }
+            }
+            None => {
+                // If no type specified, assume it can be null
+                self.r#type = Some(SchemaType::Single("null".to_string()));
+            }
+        }
+        self
     }
 }
 
@@ -366,7 +464,7 @@ fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<R
     let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
 
     let schema = OpenAPISchema {
-        r#type: "object".to_string(),
+        r#type: Some(SchemaType::default()),
         properties: Some(
             main_arg_signature
                 .args
@@ -604,109 +702,6 @@ async fn call_tool(
     }
 }
 
-/// Makes a property nullable by converting its type to a union with null
-fn make_property_nullable(mut prop: serde_json::Value) -> serde_json::Value {
-    if let serde_json::Value::Object(ref mut obj) = prop {
-        if let Some(type_value) = obj.get("type") {
-            match type_value {
-                serde_json::Value::String(type_str) => {
-                    // Convert single type to array with null
-                    obj.insert(
-                        "type".to_string(),
-                        serde_json::Value::Array(vec![
-                            serde_json::Value::String(type_str.clone()),
-                            serde_json::Value::String("null".to_string()),
-                        ]),
-                    );
-                }
-                serde_json::Value::Array(type_array) => {
-                    // Add null to existing type array if not already present
-                    let mut new_types = type_array.clone();
-                    let has_null = new_types.iter().any(|t| t.as_str() == Some("null"));
-                    if !has_null {
-                        new_types.push(serde_json::Value::String("null".to_string()));
-                    }
-                    obj.insert("type".to_string(), serde_json::Value::Array(new_types));
-                }
-                _ => {} // Leave other type formats unchanged
-            }
-        }
-    }
-    prop
-}
-
-/// Recursively adds "additionalProperties": false to all objects in the JSON schema
-/// and ensures all properties are in the required array for OpenAI's strict mode requirements
-/// To emulate non required fields being nullable, we add null to the type array
-fn make_schema_strict(value: serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Object(mut obj) => {
-            // If this is an object type, add additionalProperties: false and ensure required array
-            if obj.get("type").and_then(|v| v.as_str()) == Some("object") {
-                obj.insert(
-                    "additionalProperties".to_string(),
-                    serde_json::Value::Bool(false),
-                );
-
-                // Handle required array and make non-required fields nullable
-                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()).cloned()
-                {
-                    let original_required = obj
-                        .get("required")
-                        .and_then(|r| r.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<std::collections::HashSet<_>>()
-                        })
-                        .unwrap_or_default();
-
-                    // Update properties to make non-required fields nullable
-                    let mut updated_properties = serde_json::Map::new();
-                    for (key, prop) in properties.iter() {
-                        let prop = prop.clone();
-                        if !original_required.contains(key.as_str()) {
-                            // Make non-required fields nullable by adding null to the type
-                            updated_properties.insert(key.clone(), make_property_nullable(prop));
-                        } else {
-                            updated_properties.insert(key.clone(), prop);
-                        }
-                    }
-
-                    // All properties must be in required array for strict mode
-                    let all_property_keys: Vec<serde_json::Value> = properties
-                        .keys()
-                        .map(|k| serde_json::Value::String(k.clone()))
-                        .collect();
-
-                    obj.insert(
-                        "properties".to_string(),
-                        serde_json::Value::Object(updated_properties),
-                    );
-
-                    if !all_property_keys.is_empty() {
-                        obj.insert(
-                            "required".to_string(),
-                            serde_json::Value::Array(all_property_keys),
-                        );
-                    }
-                }
-            }
-
-            // Recursively process all nested values
-            for (_, v) in obj.iter_mut() {
-                *v = make_schema_strict(v.clone());
-            }
-
-            serde_json::Value::Object(obj)
-        }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.into_iter().map(make_schema_strict).collect())
-        }
-        other => other,
-    }
-}
-
 async fn run_agent(
     // connection
     db: &DB,
@@ -761,7 +756,18 @@ async fn run_agent(
         let response = {
             // Build response format for structured output if schema is provided
             let response_format = args.output_schema.as_ref().map(|schema| {
-                // Extract name from schema if present, otherwise use a default
+                // Parse the schema into our typed OpenAPISchema struct
+                let parsed_schema: OpenAPISchema = serde_json::from_value(schema.clone())
+                    .unwrap_or_else(|_| {
+                        // Fallback to a default object schema if parsing fails
+                        OpenAPISchema {
+                            r#type: Some(SchemaType::Single("object".to_string())),
+                            additional_properties: Some(false),
+                            ..Default::default()
+                        }
+                    });
+
+                // Extract name from original schema if present, otherwise use default
                 let name = if let serde_json::Value::Object(obj) = schema {
                     obj.get("name")
                         .and_then(|v| v.as_str())
@@ -771,8 +777,8 @@ async fn run_agent(
                     "structured_output".to_string()
                 };
 
-                // Make schema compatible with strict mode by adding additionalProperties: false
-                let strict_schema = make_schema_strict(schema.clone());
+                // Make schema compatible with OpenAI's strict mode
+                let strict_schema = parsed_schema.make_strict();
 
                 ResponseFormat {
                     r#type: "json_schema".to_string(),
