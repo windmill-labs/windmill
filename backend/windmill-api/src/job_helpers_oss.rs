@@ -135,6 +135,7 @@ pub async fn download_s3_file_internal(
     ))
 }
 
+#[allow(dead_code)]
 #[cfg(not(feature = "private"))]
 pub async fn read_object_streamable(
     _s3_client: Arc<dyn ObjectStore>,
@@ -145,6 +146,7 @@ pub async fn read_object_streamable(
     ))
 }
 
+#[allow(dead_code)]
 #[cfg(not(feature = "private"))]
 pub async fn delete_s3_file_internal(
     _authed: &ApiAuthed,
