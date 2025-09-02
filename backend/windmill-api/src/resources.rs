@@ -1270,7 +1270,12 @@ async fn update_resource_type(
     feature = "mqtt_trigger",
     all(
         feature = "enterprise",
-        any(feature = "sqs_trigger", feature = "gcp_trigger")
+        any(
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "kafka",
+            feature = "nats"
+        )
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(

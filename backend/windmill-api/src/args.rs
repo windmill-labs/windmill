@@ -20,7 +20,7 @@ use windmill_queue::PushArgsOwned;
 
 use crate::{
     db::ApiAuthed,
-    trigger_helpers::{get_runnable_format, RunnableId},
+    triggers::trigger_helpers::{get_runnable_format, RunnableId},
 };
 
 #[derive(Debug)]
