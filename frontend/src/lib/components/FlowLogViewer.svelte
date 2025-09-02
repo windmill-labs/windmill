@@ -21,6 +21,8 @@
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import type { GraphModuleState } from './graph/model'
+	import type { NavigationChain } from '$lib/keyboardChain'
+	import { updateLinks } from '$lib/keyboardChain'
 
 	type RootJobData = Partial<Job>
 
@@ -46,6 +48,8 @@
 		getSelectedIteration: (stepId: string) => number
 		flowSummary?: string
 		mode?: 'flow' | 'aiagent'
+		currentId?: string | null
+		navigationChain?: NavigationChain
 	}
 
 	let {
@@ -65,7 +69,9 @@
 		onSelectedIteration,
 		getSelectedIteration,
 		flowSummary,
-		mode = 'flow'
+		mode = 'flow',
+		currentId,
+		navigationChain = $bindable()
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -210,6 +216,97 @@
 		}
 	})
 
+	let subloopNavigationChains = $state<Record<string, NavigationChain>>({})
+
+	// Build navigation links directly (merged function)
+	function buildNavigationLinks(): NavigationChain {
+		const items: string[] = []
+
+		// Flow header (always first)
+		items.push(`flow-${flowId}`)
+
+		if (level > 0 && !isExpanded(`flow-${flowId}`)) {
+			return { [`flow-${flowId}`]: { upId: null, downId: null } }
+		}
+
+		// Flow input (if exists and shown)
+		if (showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0) {
+			items.push(`flow-${flowId}-input`)
+		}
+
+		// Add modules in order
+		modules.forEach((module) => {
+			items.push(module.id)
+
+			// If module is expanded, add its children
+			if (isExpanded(module.id)) {
+				// Check if it has subflows
+				const subflows = getSubflows(module)
+				if (subflows.length > 0) {
+					// Add subflow IDs
+					subflows.forEach((subflow) => {
+						items.push(`flow-${subflow.flowId}`)
+					})
+				} else {
+					// Add input if exists and shown (leaf nodes only)
+					if (
+						showResultsInputs &&
+						localModuleStates[module.id]?.args &&
+						Object.keys(localModuleStates[module.id].args).length > 0
+					) {
+						items.push(`${module.id}-input`)
+					}
+
+					// Add result if exists and shown (leaf nodes only)
+					if (showResultsInputs && localModuleStates[module.id]?.result !== undefined) {
+						items.push(`${module.id}-result`)
+					}
+				}
+			}
+		})
+
+		// Flow result (if exists and shown)
+		if (showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob') {
+			items.push(`flow-${flowId}-result`)
+		}
+
+		// Convert items to navigation links
+		let links = items.reduce((acc, itemId, index) => {
+			let upId: string | null = index > 0 ? items[index - 1] : null
+			let downId: string | null = index < items.length - 1 ? items[index + 1] : null
+
+			acc[itemId] = { upId, downId }
+			return acc
+		}, {} as NavigationChain)
+
+		Object.entries(subloopNavigationChains).forEach(([_, chain]) => {
+			links = updateLinks(links, chain)
+		})
+
+		return links
+	}
+
+	const links = $derived.by(buildNavigationLinks)
+
+	$effect(() => {
+		navigationChain = links
+	})
+
+	// Helper to check if an item is currently focused
+	function isCurrent(itemId: string): boolean {
+		return currentId === itemId
+	}
+
+	// Scroll current item into view
+	$effect(() => {
+		if (currentId) {
+			const element = document.querySelector(`[data-nav-id="${currentId}"]`)
+			if (element) {
+				element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+			}
+		}
+	})
+
 	function hasSubflows(module: FlowModule) {
 		return (
 			module.value.type === 'forloopflow' ||
@@ -311,9 +408,11 @@
 					class={twMerge(
 						'py-1 flex items-center justify-between pr-2',
 						level > 0 ? 'cursor-pointer' : '',
-						rootJob.type === undefined ? 'opacity-50' : ''
+						rootJob.type === undefined ? 'opacity-50' : '',
+						isCurrent(`flow-${flowId}`) ? 'bg-surface-hover' : ''
 					)}
 					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
+					data-nav-id={`flow-${flowId}`}
 				>
 					<div class="flex items-center gap-2 grow min-w-0">
 						<!-- Flow icon -->
@@ -382,8 +481,12 @@
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<div
-											class="py-1 flex items-center justify-between pr-2 cursor-pointer"
+											class={twMerge(
+												'py-1 flex items-center justify-between pr-2 cursor-pointer',
+												isCurrent(`flow-${flowId}-input`) ? 'bg-surface-hover' : ''
+											)}
 											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
+											data-nav-id={`flow-${flowId}-input`}
 										>
 											<div class="flex items-center gap-2 grow min-w-0">
 												<ArrowDownToLine size={10} />
@@ -439,9 +542,11 @@
 														status === 'WaitingForExecutor' ||
 														status === undefined
 														? 'opacity-50'
-														: ''
+														: '',
+													isCurrent(module.id) ? 'bg-surface-hover' : ''
 												)}
 												onclick={isCollapsible ? () => toggleExpanded(module.id) : undefined}
+												data-nav-id={module.id}
 											>
 												<div class="flex items-center gap-2 grow min-w-0">
 													<!-- Step icon -->
@@ -569,6 +674,8 @@
 																flowSummary={subflow.label}
 																{onSelectedIteration}
 																{getSelectedIteration}
+																{currentId}
+																bind:navigationChain={subloopNavigationChains[subflow.flowId]}
 															/>
 														</div>
 													{/each}
@@ -579,8 +686,12 @@
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
 																<div
-																	class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+																	class={twMerge(
+																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1',
+																		isCurrent(`${module.id}-input`) ? 'bg-surface-hover' : ''
+																	)}
 																	onclick={() => toggleExpanded(`${module.id}-input`)}
+																	data-nav-id={`${module.id}-input`}
 																>
 																	{#if isExpanded(`${module.id}-input`)}
 																		<ChevronDown size={8} />
@@ -625,8 +736,12 @@
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
 																<div
-																	class="flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1"
+																	class={twMerge(
+																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1',
+																		isCurrent(`${module.id}-result`) ? 'bg-surface-hover' : ''
+																	)}
 																	onclick={() => toggleExpanded(`${module.id}-result`)}
+																	data-nav-id={`${module.id}-result`}
 																>
 																	{#if isExpanded(`${module.id}-result`)}
 																		<ChevronDown size={8} />
@@ -669,8 +784,12 @@
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<div
-											class="py-1 flex items-center justify-between pr-2 cursor-pointer"
+											class={twMerge(
+												'py-1 flex items-center justify-between pr-2 cursor-pointer',
+												isCurrent(`flow-${flowId}-result`) ? 'bg-surface-hover' : ''
+											)}
 											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
+											data-nav-id={`flow-${flowId}-result`}
 										>
 											<div class="flex items-center gap-2 grow min-w-0">
 												<ArrowDownFromLine size={10} />

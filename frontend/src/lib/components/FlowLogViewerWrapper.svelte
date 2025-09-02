@@ -5,6 +5,7 @@
 	import { untrack } from 'svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
+	import type { NavigationChain } from '$lib/keyboardChain'
 
 	interface Props {
 		job: Partial<Job>
@@ -33,6 +34,10 @@
 	let allExpanded = $state(false)
 	let showResultsInputs = $state(true)
 
+	// Keyboard navigation state - incremental like expandedRows
+	let currentId = $state<string | null>(null)
+	let navigationChain = $state<NavigationChain>({})
+
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
 		readFieldsRecursively(job.raw_flow?.modules ?? [])
@@ -58,9 +63,49 @@
 		allExpanded = !allExpanded
 		expandedRows = {}
 	}
+
+	// Keyboard event handler using navigation links
+	function handleKeydown(event: KeyboardEvent) {
+		if (!currentId) return
+
+		switch (event.key) {
+			case 'ArrowDown':
+				event.preventDefault()
+				const downId = navigationChain[currentId]?.downId
+				if (downId) {
+					currentId = downId
+				}
+				break
+			case 'ArrowUp':
+				event.preventDefault()
+				const upId = navigationChain[currentId]?.upId
+				if (upId) {
+					currentId = upId
+				}
+				break
+			case 'Enter':
+				event.preventDefault()
+				toggleExpanded(currentId)
+				break
+		}
+	}
+
+	// Initialize navigation to root on mount
+	$effect(() => {
+		if (!currentId && job.raw_flow?.modules) {
+			currentId = 'flow-root'
+		}
+	})
+
+	$inspect('dbg navigationChain', navigationChain)
 </script>
 
-<div class="w-full rounded-md overflow-hidden border">
+<div
+	class="w-full rounded-md overflow-hidden border focus:border-gray-300 dark:focus:border-gray-400"
+	role="tree"
+	tabindex="0"
+	onkeydown={handleKeydown}
+>
 	<FlowLogViewer
 		{modules}
 		{localModuleStates}
@@ -77,5 +122,7 @@
 		flowId="root"
 		flowStatus={undefined}
 		{mode}
+		{currentId}
+		bind:navigationChain
 	/>
 </div>
