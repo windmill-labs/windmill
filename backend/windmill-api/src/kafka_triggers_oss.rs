@@ -5,18 +5,11 @@ pub use crate::kafka_triggers_ee::*;
 #[cfg(not(feature = "private"))]
 use crate::db::DB;
 #[cfg(not(feature = "private"))]
-use axum::Router;
-#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[cfg(not(feature = "private"))]
 pub struct KafkaResourceSecurity {}
-
-#[cfg(not(feature = "private"))]
-pub fn workspaced_service() -> Router {
-    Router::new()
-}
 
 #[cfg(not(feature = "private"))]
 pub fn start_kafka_consumers(
@@ -54,7 +47,9 @@ pub struct KafkaTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_args: Option<sqlx::types::Json<std::collections::HashMap<String, Box<serde_json::value::RawValue>>>>,
+    pub error_handler_args: Option<
+        sqlx::types::Json<std::collections::HashMap<String, Box<serde_json::value::RawValue>>>,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }

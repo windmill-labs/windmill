@@ -48,7 +48,7 @@ use crate::{
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
-    trigger_helpers::RunnableId,
+    triggers::trigger_helpers::RunnableId,
     users::{get_scope_tags, require_owner_of_path, OptAuthed},
     utils::{check_scopes, content_plain, require_super_admin},
 };

@@ -25,8 +25,11 @@ use crate::db::ApiAuthed;
 #[cfg(feature = "http_trigger")]
 use {
     crate::{
-        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-        http_triggers::AuthenticationMethod, resources::try_get_resource_from_db_as,
+        resources::try_get_resource_from_db_as,
+        triggers::http::{
+            http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
+            AuthenticationMethod,
+        },
     },
     itertools::Itertools,
 };
