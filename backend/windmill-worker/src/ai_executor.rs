@@ -119,6 +119,7 @@ struct JsonSchemaFormat {
 #[derive(Serialize, Clone, Debug)]
 struct ToolDefFunction {
     name: String,
+    description: Option<String>,
     parameters: Box<RawValue>,
 }
 
@@ -140,7 +141,7 @@ struct AIAgentArgs {
     user_message: String,
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
-    output_schema: Option<serde_json::Value>,
+    output_schema: Option<OpenAPISchema>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -754,76 +755,51 @@ async fn run_agent(
         Some(tools.iter().map(|t| t.def.clone()).collect())
     };
 
-    // Handle structured output based on provider
-    let (response_format, structured_output_tool): (Option<ResponseFormat>, Option<ToolDef>) =
-        match (&args.provider, &args.output_schema) {
-            (Provider::OpenAI { .. }, Some(schema)) => {
-                // OpenAI: Use response_format with json_schema
-                let parsed_schema: OpenAPISchema = serde_json::from_value(schema.clone())
-                    .unwrap_or_else(|_| {
-                        // Fallback to a default object schema if parsing fails
-                        OpenAPISchema {
-                            r#type: Some(SchemaType::Single("object".to_string())),
-                            additional_properties: Some(false),
-                            ..Default::default()
-                        }
-                    });
+    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
 
-                // Extract name from original schema if present, otherwise use default
-                let name = if let serde_json::Value::Object(obj) = schema {
-                    obj.get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("structured_output")
-                        .to_string()
-                } else {
-                    "structured_output".to_string()
-                };
-
-                // Make schema compatible with OpenAI's strict mode
-                let strict_schema = parsed_schema.make_strict();
-
-                let response_format = ResponseFormat {
-                    r#type: "json_schema".to_string(),
-                    json_schema: JsonSchemaFormat {
-                        name,
-                        schema: strict_schema,
-                        strict: Some(true),
-                    },
-                };
-
-                (Some(response_format), None)
+    // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
+    if let Some(ref schema) = args.output_schema {
+        if is_anthropic {
+            let output_tool = ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: "structured_output".to_string(),
+                    description: Some(
+                        "This tool MUST be used last to return a structured JSON object as the final output."
+                            .to_string(),
+                    ),
+                    parameters: to_raw_value(&schema),
+                },
+            };
+            if let Some(ref mut existing_tools) = tool_defs {
+                existing_tools.push(output_tool);
+            } else {
+                tool_defs = Some(vec![output_tool]);
             }
-            (Provider::Anthropic { .. }, Some(schema)) => {
-                // Anthropic: Use custom tool for structured output
-                let tool = ToolDef {
-                    r#type: "function".to_string(),
-                    function: ToolDefFunction {
-                        name: "structured_output".to_string(),
-                        parameters: to_raw_value(&schema),
-                    },
-                };
-                (None, Some(tool))
-            }
-            _ => {
-                // No structured output requested or unsupported provider
-                (None, None)
-            }
-        };
-
-    let has_anthropic_structured_output_tool = structured_output_tool.as_ref().is_some();
-
-    if let Some(output_tool) = structured_output_tool {
-        if let Some(ref mut existing_tools) = tool_defs {
-            existing_tools.push(output_tool);
-        } else {
-            tool_defs = Some(vec![output_tool]);
         }
     }
 
-    let mut should_break = false;
+    let mut response_format: Option<ResponseFormat> = None;
+
+    // if output schema is provided, and provider is openai, add a response_format with json_schema
+    if let Some(ref schema) = args.output_schema {
+        if !is_anthropic {
+            let strict_schema = schema.clone().make_strict();
+            response_format = Some(ResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: JsonSchemaFormat {
+                    name: "structured_output".to_string(),
+                    schema: strict_schema,
+                    strict: Some(true),
+                },
+            });
+        }
+    }
+
+    let mut used_structured_output_tool = false;
 
     for i in 0..MAX_AGENT_ITERATIONS {
-        if should_break {
+        if used_structured_output_tool {
             break;
         }
 
@@ -838,7 +814,7 @@ async fn run_agent(
                     tool_choice: None,
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
-                    response_format: match has_anthropic_structured_output_tool {
+                    response_format: match is_anthropic {
                         true => None,
                         false => response_format.clone(),
                     },
@@ -909,7 +885,9 @@ async fn run_agent(
         });
 
         for tool_call in tool_calls.iter() {
+            // Structured output tool is used, we stop here as this will be the final output
             if tool_call.function.name == "structured_output" {
+                used_structured_output_tool = true;
                 messages.push(OpenAIMessage {
                     role: "tool".to_string(),
                     content: Some("Successfully ran structured_output tool".to_string()),
@@ -919,10 +897,10 @@ async fn run_agent(
                 messages.push(OpenAIMessage {
                     role: "assistant".to_string(),
                     content: Some(tool_call.function.arguments.clone()),
+                    agent_action: Some(AgentAction::Message {}),
                     ..Default::default()
                 });
                 content = Some(tool_call.function.arguments.clone());
-                should_break = true;
                 break;
             }
 
@@ -1180,6 +1158,7 @@ pub async fn handle_ai_agent_job(
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
+                        description: None,
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
