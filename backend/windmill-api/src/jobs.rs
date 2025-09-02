@@ -332,21 +332,16 @@ async fn get_root_job(
     Ok(Json(res))
 }
 
-async fn compute_root_job_for_flow(db: &DB, w_id: &str, mut job_id: Uuid) -> error::Result<String> {
-    // TODO: use `root_job` ?
-    loop {
-        job_id = match sqlx::query_scalar!(
-            "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            w_id
-        )
-        .fetch_one(db)
-        .await
-        {
-            Ok(Some(job_id)) => job_id,
-            _ => return Ok(job_id.to_string()),
-        }
-    }
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let root_job = sqlx::query_scalar!(
+        r#"SELECT COALESCE(root_job, flow_innermost_root_job, parent_job, id) as "root_job!" FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    Ok(root_job.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
