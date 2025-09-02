@@ -380,7 +380,7 @@ fn format_pull_query(peek: String) -> String {
                 id, workspace_id, parent_job, created_by, created_at, runnable_id,
                 runnable_path, args, kind, trigger, trigger_kind,
                 permissioned_as, permissioned_as_email, script_lang,
-                flow_innermost_root_job, flow_step_id,
+                flow_innermost_root_job, root_job, flow_step_id,
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
@@ -391,7 +391,7 @@ fn format_pull_query(peek: String) -> String {
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
-            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job,
+            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
