@@ -46,7 +46,7 @@ use serde::de::DeserializeOwned;
 use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+use crate::triggers::kafka::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
