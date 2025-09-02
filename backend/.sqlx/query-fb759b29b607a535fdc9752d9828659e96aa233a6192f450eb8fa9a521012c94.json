@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = 20220123221901) as \"has_first_old!\",\n            EXISTS(SELECT 1 FROM windmill_migrations WHERE name = 'v2_script_lock_index') as \"has_latest_old!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_first_old!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "has_latest_old!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "fb759b29b607a535fdc9752d9828659e96aa233a6192f450eb8fa9a521012c94"
+}

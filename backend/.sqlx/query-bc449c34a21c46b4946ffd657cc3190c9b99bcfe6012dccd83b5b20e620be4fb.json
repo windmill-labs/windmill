@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO windmill_migrations (name) VALUES  ('snapshot')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bc449c34a21c46b4946ffd657cc3190c9b99bcfe6012dccd83b5b20e620be4fb"
+}

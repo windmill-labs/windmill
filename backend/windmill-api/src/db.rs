@@ -198,7 +198,7 @@ impl Migrate for CustomMigrator {
 
 const MORE_MIGRATIONS_MSG: &str = "Database had been applied more migrations than this container.
 This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
-Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change.";
+Please update the container to latest. Not critical, b ut may cause issues if migration introduced a breaking change.";
 
 pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
@@ -214,7 +214,7 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     .unwrap_or(false);
 
     if !is_past_snapshot {
-        migrate_up_to_snapshot(db).await?;
+        migrate_up_to_snapshot(db, &mut custom_migrator).await?;
     };
 
     match sqlx::migrate!("../migrations")
@@ -223,19 +223,25 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     {
         Ok(_) => Ok(()),
         Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!(
-                "{MORE_MIGRATIONS_MSG}
-Version missing: {e:#}"
-            );
+            if e != 20220123221901 {
+                tracing::error!(
+                    "{MORE_MIGRATIONS_MSG}
+    Version missing: {e:#}"
+                );
+            } else {
+                tracing::warn!("Pre-snapshot migration haven't been cleaned up yet.");
+            }
             custom_migrator.unlock().await?;
             Ok(())
         }
         Err(err) => Err(err),
     }?;
-    Ok(todo!())
+
+    let jh = crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    Ok(jh)
 }
 
-async fn migrate_up_to_snapshot(db: &DB) -> Result<(), Error> {
+async fn migrate_up_to_snapshot(db: &DB, custom_migrator: &mut CustomMigrator) -> Result<(), Error> {
     let (has_done_first_old_migration, has_done_latest_old_migration) = sqlx::query!(
         r#"
         SELECT
@@ -248,7 +254,8 @@ async fn migrate_up_to_snapshot(db: &DB) -> Result<(), Error> {
     .map(|res| (res.has_first_old, res.has_latest_old))
     .unwrap_or((false, false));
 
-    let jh = if has_done_first_old_migration && !has_done_latest_old_migration {
+    if has_done_first_old_migration && !has_done_latest_old_migration {
+        tracing::info!("Instance had migrations applied pre-snapshot. Going to snapshot point using the old granualr migrations.");
         if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
             .execute(db)
             .await
@@ -275,7 +282,7 @@ async fn migrate_up_to_snapshot(db: &DB) -> Result<(), Error> {
         }
 
         match sqlx::migrate!("../migrations/old")
-            .run_direct(&mut custom_migrator)
+            .run_direct(custom_migrator)
             .await
         {
             Ok(_) => Ok(()),
@@ -289,10 +296,15 @@ Version missing: {e:#}"
             }
             Err(err) => Err(err),
         }?;
-        crate::live_migrations::custom_migrations_old(&mut custom_migrator, db).await
+        if let Some(jh) = crate::live_migrations::custom_migrations_old(custom_migrator, db).await? {
+            tracing::info!("Running live migrations for old snapshot");
+            jh.await.map_err(|e| anyhow::anyhow!(e))?;
+            tracing::info!("Live migrations for old snapshot finished");
+        }
     } else if !has_done_first_old_migration {
+        tracing::info!("Instance is fresh, going to snapshot point using the singular snapshot migration.");
         match sqlx::migrate!("../migrations/old_snapshot")
-            .run_direct(&mut custom_migrator)
+            .run_direct(custom_migrator)
             .await
         {
             Ok(_) => Ok(()),

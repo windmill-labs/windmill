@@ -16,6 +16,14 @@ use crate::db::{CustomMigrator, DB};
 use sqlx::migrate::Migrate;
 use sqlx::Executor;
 
+pub async fn custom_migrations(
+    _migrator: &mut CustomMigrator,
+    _db: &DB,
+) -> Result<Option<JoinHandle<()>>, Error> {
+    Ok(None)
+}
+
+
 pub async fn custom_migrations_old(
     migrator: &mut CustomMigrator,
     db: &DB,
@@ -57,6 +65,8 @@ pub async fn custom_migrations_old(
 
     Ok(jh)
 }
+
+
 
 async fn fix_flow_versioning_migration(
     migrator: &mut CustomMigrator,
