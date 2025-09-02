@@ -29,7 +29,7 @@ pub struct ContextualVariable {
     pub is_custom: bool,
 }
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow, Clone)]
 
 pub struct ListableVariable {
     pub workspace_id: String,

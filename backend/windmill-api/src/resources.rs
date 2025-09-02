@@ -36,6 +36,7 @@ use windmill_common::{
     variables,
     worker::CLOUD_HOSTED,
 };
+use crate::var_resource_cache::{get_cached_resource, cache_resource};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -326,14 +327,29 @@ async fn exists_resource(
     Ok(Json(exists))
 }
 
+#[derive(Deserialize)]
+struct GetResourceQuery {
+    allow_cache: Option<bool>,
+}
+
 async fn get_resource_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Query(q): Query<GetResourceQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
+    
+    // Check cache first when explicitly allowed
+    let allow_cache = q.allow_cache.unwrap_or(false);
+    if allow_cache {
+        if let Some(cached_value) = get_cached_resource(&w_id, &path) {
+            return Ok(Json(Some(cached_value)));
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -350,6 +366,14 @@ async fn get_resource_value(
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
+    
+    // Cache the result if it exists and caching is allowed
+    if allow_cache {
+        if let Some(ref val) = value {
+            cache_resource(&w_id, &path, val.clone());
+        }
+    }
+    
     Ok(Json(value))
 }
 

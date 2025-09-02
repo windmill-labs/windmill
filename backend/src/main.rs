@@ -473,6 +473,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+        
+        // NOTE: Variable/resource cache initialization moved to API server in windmill-api
+        
         Connection::Sql(db)
     };
 
@@ -933,6 +936,26 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
                                                     windmill_api::auth::invalidate_token_from_cache(token);
                                                 },
+                                                "var_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) = 
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_variable_cache(&workspace_id, &path);
+                                                        }
+                                                    }
+                                                },
+                                                "resource_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) = 
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_resource_cache(&workspace_id, &path);
+                                                        }
+                                                    }
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -1276,6 +1299,8 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
+        "var_cache_invalidation",
+        "resource_cache_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
