@@ -79,6 +79,7 @@ pub mod tracing_init;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod var_resource_cache;
 pub mod worker;
 pub mod workspaces;
 pub mod triggers;

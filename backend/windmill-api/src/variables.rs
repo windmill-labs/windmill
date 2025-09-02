@@ -31,6 +31,7 @@ use windmill_common::{
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
+    var_resource_cache::{get_cached_variable, cache_variable},
     worker::CLOUD_HOSTED,
 };
 
@@ -144,6 +145,15 @@ async fn get_variable(
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
+    
+    // Check cache first for non-secret decryption requests
+    let decrypt_secret = q.decrypt_secret.unwrap_or(true);
+    if !decrypt_secret && q.include_encrypted.unwrap_or(false) == false {
+        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
+            return Ok(Json(cached_variable));
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
@@ -216,6 +226,11 @@ async fn get_variable(
     } else {
         variable
     };
+
+    // Cache the result if it's not a secret decryption request
+    if !decrypt_secret && q.include_encrypted.unwrap_or(false) == false && !r.is_secret {
+        cache_variable(&w_id, &path, r.clone());
+    }
 
     Ok(Json(r))
 }

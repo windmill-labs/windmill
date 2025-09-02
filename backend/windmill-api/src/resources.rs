@@ -34,6 +34,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
+    var_resource_cache::{get_cached_resource, cache_resource},
     worker::CLOUD_HOSTED,
 };
 
@@ -334,6 +335,12 @@ async fn get_resource_value(
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
+    
+    // Check cache first
+    if let Some(cached_value) = get_cached_resource(&w_id, &path) {
+        return Ok(Json(Some(cached_value)));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -350,6 +357,12 @@ async fn get_resource_value(
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
+    
+    // Cache the result if it exists
+    if let Some(ref val) = value {
+        cache_resource(&w_id, &path, val.clone());
+    }
+    
     Ok(Json(value))
 }
 
