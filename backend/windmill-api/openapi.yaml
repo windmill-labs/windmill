@@ -17613,8 +17613,6 @@ components:
           type: string
         public_resource:
           type: boolean
-        restrict_to_user_paths:
-          type: boolean
         secondary_storage:
           type: object
           additionalProperties:
@@ -17637,8 +17635,6 @@ components:
               gcs_resource_path:
                 type: string
               public_resource:
-                type: boolean
-              restrict_to_user_paths:
                 type: boolean
 
     DucklakeSettings:

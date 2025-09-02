@@ -221,15 +221,7 @@
 			</Button>
 		</svelte:fragment>
 		<svelte:fragment slot="content">
-			<div class="flex flex-col gap-3 mx-4 py-4 w-[40rem]">
-				<Toggle
-					bind:checked={storage.restrictToUserPaths}
-					options={{
-						right: 'Restrict access to u/username/** paths',
-						rightTooltip:
-							'If set, all users will be able to read and write objects with path u/username/**'
-					}}
-				/>
+			<div class="flex flex-col gap-3 mx-4 pb-4 w-[40rem]">
 				{#if storage.resourceType == 's3'}
 					<div class="flex flex-col mt-5 mb-1 gap-1">
 						<!-- this can be removed once parent moves to runes -->

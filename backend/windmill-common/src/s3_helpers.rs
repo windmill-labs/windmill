@@ -237,16 +237,6 @@ impl LargeFileStorage {
             LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
         }
     }
-    pub fn restrict_to_user_paths(&self) -> bool {
-        match self {
-            LargeFileStorage::S3Storage(lfs) => lfs.restrict_to_user_paths,
-            LargeFileStorage::S3AwsOidc(lfs) => lfs.restrict_to_user_paths,
-            LargeFileStorage::AzureBlobStorage(lfs) => lfs.restrict_to_user_paths,
-            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.restrict_to_user_paths,
-            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.restrict_to_user_paths,
-        }
-        .unwrap_or(false)
-    }
     pub fn is_public_resource(&self) -> bool {
         match self {
             LargeFileStorage::S3Storage(lfs) => lfs.public_resource,
@@ -264,8 +254,6 @@ pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restrict_to_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -273,8 +261,6 @@ pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restrict_to_user_paths: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -282,8 +268,6 @@ pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restrict_to_user_paths: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -1142,20 +1126,22 @@ impl ObjectStoreResource {
 
 pub fn check_lfs_object_path_permissions(
     lfs: &LargeFileStorage,
-    object_path: &str,
+    _object_path: &str,
     authed: &Authed,
 ) -> error::Result<()> {
     if authed.is_admin || lfs.is_public_resource() {
         return Ok(());
     }
-    let username = authed.username.as_str();
+    let _username = authed.username.as_str();
 
-    if lfs.restrict_to_user_paths() {
-        if !object_path.starts_with(&format!("u/{username}/")) {
-            return Err(error::Error::NotAuthorized(format!(
-                "Can only access paths u/{username}/**"
-            )));
-        }
-    }
+    // TODO : Extend permission possibilities
+
+    // if lfs.restrict_to_user_paths() {
+    //     if !object_path.starts_with(&format!("u/{username}/")) {
+    //         return Err(error::Error::NotAuthorized(format!(
+    //             "Can only access paths u/{username}/**"
+    //         )));
+    //     }
+    // }
     return Ok(());
 }
