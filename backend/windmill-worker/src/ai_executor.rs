@@ -41,6 +41,27 @@ lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
 }
 
+/// Find a unique tool name to avoid collisions with user-provided tools
+fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
+    let Some(tools) = existing_tools else {
+        return base_name.to_string();
+    };
+
+    if !tools.iter().any(|t| t.function.name == base_name) {
+        return base_name.to_string();
+    }
+
+    for i in 1..100 {
+        let candidate = format!("{}_{}", base_name, i);
+        if !tools.iter().any(|t| t.function.name == candidate) {
+            return candidate;
+        }
+    }
+
+    // Fallback with process id if somehow we can't find a unique name
+    format!("{}_{}_fallback", base_name, std::process::id())
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIFunction {
     name: String,
@@ -758,14 +779,18 @@ async fn run_agent(
     let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
+    let mut structured_output_tool_name: Option<String> = None;
 
     if let Some(ref schema) = args.output_schema {
         if is_anthropic {
             // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
+            let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
+            structured_output_tool_name = Some(unique_tool_name.clone());
+
             let output_tool = ToolDef {
                 r#type: "function".to_string(),
                 function: ToolDefFunction {
-                    name: "structured_output".to_string(),
+                    name: unique_tool_name,
                     description: Some(
                         "This tool MUST be used last to return a structured JSON object as the final output."
                             .to_string(),
@@ -880,7 +905,10 @@ async fn run_agent(
 
         for tool_call in tool_calls.iter() {
             // Structured output tool is used, we stop here as this will be the final output
-            if tool_call.function.name == "structured_output" {
+            if structured_output_tool_name
+                .as_ref()
+                .map_or(false, |name| tool_call.function.name == *name)
+            {
                 used_structured_output_tool = true;
                 messages.push(OpenAIMessage {
                     role: "tool".to_string(),
@@ -976,7 +1004,7 @@ async fn run_agent(
         .collect();
 
     Ok(to_raw_value(&AIAgentResult {
-        output: content.unwrap_or_default().clone(),
+        output: content.unwrap_or_default(),
         messages: final_messages,
     }))
 }
