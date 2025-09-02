@@ -439,6 +439,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
         false,
         true,
         None,
@@ -487,6 +488,7 @@ pub async fn push_periodic_bash_job<'c>(
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
+        None,
         None,
         None,
         None,
@@ -1267,6 +1269,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+            None,
             false,
             false,
             None,
@@ -2029,6 +2032,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2138,6 +2142,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2228,6 +2233,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2275,6 +2281,7 @@ pub struct MiniPulledJob {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub flow_innermost_root_job: Option<Uuid>,
+    pub root_job: Option<Uuid>,
     pub timeout: Option<i32>,
     pub flow_step_id: Option<String>,
     pub cache_ttl: Option<i32>,
@@ -2333,7 +2340,8 @@ impl MiniPulledJob {
             pre_run_error: job.pre_run_error.clone(),
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
-            flow_innermost_root_job: job.root_job.clone(),
+            flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
+            root_job: None,
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
@@ -2538,6 +2546,7 @@ pub async fn get_mini_pulled_job<'c>(
         concurrent_limit,
         concurrency_time_window_s,
         flow_innermost_root_job,
+        root_job,
         timeout,
         flow_step_id,
         cache_ttl,
@@ -3587,6 +3596,7 @@ pub async fn push<'c, 'd>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
+    flow_innermost_root_job: Option<Uuid>,
     job_id: Option<Uuid>,
     _is_flow_step: bool,
     mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running but started_at will not be set.
@@ -4647,6 +4657,16 @@ pub async fn push<'c, 'd>(
         None
     };
 
+    let root_job = if root_job.is_some()
+        && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
+    {
+        // We only save the root job if it's not the innermost root job, parent job, or the job itself as an optimization
+        // Reference: see [`windmill_worker::common::get_root_job_id`] for logic on determining the root job.
+        None
+    } else {
+        root_job
+    };
+
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4688,7 +4708,7 @@ pub async fn push<'c, 'd>(
         pre_run_error.map(|e| e.to_string()),
         email,
         visible_to_owner,
-        root_job,
+        flow_innermost_root_job,
         concurrent_limit,
         if concurrent_limit.is_some() {
             concurrency_time_window_s
@@ -4710,7 +4730,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        root_job.or(parent_job),
+        root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
     )
@@ -5101,6 +5121,7 @@ pub async fn get_same_worker_job(
                     v2_job.concurrent_limit,
                     v2_job.concurrency_time_window_s,
                     v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,

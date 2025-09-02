@@ -36,6 +36,7 @@ use windmill_common::{
     variables,
     worker::CLOUD_HOSTED,
 };
+use crate::var_resource_cache::{get_cached_resource, cache_resource};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -326,14 +327,29 @@ async fn exists_resource(
     Ok(Json(exists))
 }
 
+#[derive(Deserialize)]
+struct GetResourceQuery {
+    allow_cache: Option<bool>,
+}
+
 async fn get_resource_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Query(q): Query<GetResourceQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
+    
+    // Check cache first when explicitly allowed
+    let allow_cache = q.allow_cache.unwrap_or(false);
+    if allow_cache {
+        if let Some(cached_value) = get_cached_resource(&w_id, &path) {
+            return Ok(Json(Some(cached_value)));
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -350,6 +366,14 @@ async fn get_resource_value(
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
+    
+    // Cache the result if it exists and caching is allowed
+    if allow_cache {
+        if let Some(ref val) = value {
+            cache_resource(&w_id, &path, val.clone());
+        }
+    }
+    
     Ok(Json(value))
 }
 
@@ -549,12 +573,18 @@ pub async fn transform_json_value<'c>(
             let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
-                    email AS \"email!\",
-                    created_by AS \"created_by!\",
-                    parent_job, permissioned_as AS \"permissioned_as!\",
-                    script_path, schedule_path, flow_step_id, root_job,
-                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
-                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+                    v2_job.permissioned_as_email,
+                    v2_job.created_by,
+                    v2_job.parent_job,
+                    v2_job.permissioned_as,
+                    v2_job.runnable_path,
+                    CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    v2_job.flow_step_id,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
+                    v2_job_queue.scheduled_for AS \"scheduled_for: chrono::DateTime<chrono::Utc>\"
+                FROM v2_job INNER JOIN v2_job_queue ON v2_job.id = v2_job_queue.id
+                WHERE v2_job.id = $1 AND v2_job.workspace_id = $2",
                 job_id,
                 workspace
             )
@@ -581,15 +611,16 @@ pub async fn transform_json_value<'c>(
                 &db.into(),
                 workspace,
                 token,
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
                 &job.permissioned_as,
-                job.script_path.clone(),
+                job.runnable_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
                 None,
