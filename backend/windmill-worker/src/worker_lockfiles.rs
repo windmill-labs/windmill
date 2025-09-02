@@ -695,11 +695,41 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             .await
             .map_err(to_anyhow);
             match r {
-                Ok(Some(version)) => JobPayload::FlowDependencies {
-                    path: s.importer_path.clone(),
-                    dedicated_worker: None,
-                    version,
-                },
+                Ok(Some(cur_version)) => {
+                    // TODO: Test with drafts
+                    // TODO: Depend on relative import several times
+                    let new_version = sqlx::query_scalar!(
+                        "INSERT INTO flow_version
+                (workspace_id, path, value, schema, created_by)
+
+                SELECT workspace_id, path, value, schema, created_by
+                FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                RETURNING id",
+                        &s.importer_path,
+                        w_id,
+                        cur_version
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Error updating flow due to flow history insert: {e:#}"
+                        ))
+                    })?;
+
+                    sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+                        new_version,
+                        &s.importer_path,
+                        w_id,
+                    ).execute(db).await?;
+
+                    JobPayload::FlowDependencies {
+                        path: s.importer_path.clone(),
+                        dedicated_worker: None,
+                        version: new_version,
+                    }
+                }
                 Ok(None) => {
                     tracing::error!(
                         "no flow version found for path {path}",
@@ -843,9 +873,9 @@ pub async fn handle_flow_dependency_job(
     .clone();
 
     let mut tx = db.begin().await?;
-
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+
     if !skip_flow_update {
         sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
@@ -855,6 +885,7 @@ pub async fn handle_flow_dependency_job(
         .execute(&mut *tx)
         .await?;
     }
+
     clear_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
 
     let modified_ids;
@@ -878,6 +909,7 @@ pub async fn handle_flow_dependency_job(
         raw_deps,
     )
     .await?;
+
     if !errors.is_empty() {
         let error_message = errors
             .iter()
@@ -893,6 +925,7 @@ pub async fn handle_flow_dependency_job(
         .await?
         .flatten()
         .unwrap_or_else(|| "no logs".to_string());
+
         sqlx::query!(
             "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
             &format!("{logs2}\n{error_message}"),
@@ -901,6 +934,7 @@ pub async fn handle_flow_dependency_job(
         )
         .execute(db)
         .await?;
+
         return Err(Error::ExecutionErr(format!(
             "Error locking flow modules:\n{}\n\nlogs:\n{}",
             error_message,
@@ -915,6 +949,7 @@ pub async fn handle_flow_dependency_job(
         .execute(db)
         .await?;
     }
+
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
@@ -966,6 +1001,7 @@ pub async fn handle_flow_dependency_job(
             flow.same_worker,
         )
         .await?;
+
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
