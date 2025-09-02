@@ -13,7 +13,7 @@ use {
     std::collections::HashMap,
 };
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 use {
     crate::triggers::gcp::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
@@ -24,34 +24,34 @@ use {
 };
 
 #[cfg(any(
-    all(feature = "enterprise", feature = "gcp_trigger"),
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private"),
     feature = "postgres_trigger"
 ))]
 use windmill_common::utils::empty_as_none;
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 use windmill_common::auth::aws::AwsAuthResourceType;
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 use serde::de::DeserializeOwned;
 
 #[cfg(any(
     feature = "http_trigger",
     feature = "postgres_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 use windmill_common::error::Error;
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::triggers::kafka::KafkaTriggerConfigConnection;
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 use crate::triggers::nats::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
@@ -122,7 +122,7 @@ pub fn workspaced_unauthed_service() -> Router {
             head(|| async {}).fallback(http_payload)
         });
 
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
         let router = router.route("/gcp/:runnable_kind/*path", post(gcp_payload));
 
         router
@@ -146,7 +146,7 @@ struct HttpTriggerConfig {
     wrap_body: Option<bool>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     #[serde(flatten)]
@@ -155,7 +155,7 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
@@ -164,7 +164,7 @@ pub struct SqsTriggerConfig {
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
@@ -179,7 +179,7 @@ pub struct GcpTriggerConfig {
     pub auto_acknowledge_msg: Option<bool>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct NatsTriggerConfig {
     #[serde(flatten)]
@@ -231,15 +231,15 @@ enum TriggerConfig {
     Postgres(PostgresTriggerConfig),
     #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     Sqs(SqsTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
     Kafka(KafkaTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
 }
 
@@ -365,7 +365,7 @@ async fn set_postgres_trigger_config(
     Ok(capture_config)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn set_gcp_trigger_config(
     w_id: &str,
     authed: ApiAuthed,
@@ -399,7 +399,7 @@ async fn set_gcp_trigger_config(
 }
 
 #[inline]
-#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger", feature = "private")))]
 async fn set_gcp_trigger_config(
     _w_id: &str,
     _authed: ApiAuthed,
@@ -721,7 +721,7 @@ pub async fn get_active_capture_owner_and_email(
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
@@ -900,7 +900,7 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn gcp_payload(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

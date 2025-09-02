@@ -161,6 +161,7 @@ mod users;
 pub mod users_ee;
 mod users_oss;
 mod utils;
+pub mod var_resource_cache;
 mod variables;
 pub mod webhook_util;
 mod workers;
@@ -275,6 +276,7 @@ pub async fn run_server(
         ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
+
 
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()

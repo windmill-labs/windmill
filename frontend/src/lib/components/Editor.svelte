@@ -150,11 +150,12 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
-	import { editorPositionMap, readFieldsRecursively } from '$lib/utils'
+	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
+	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -185,6 +186,7 @@
 		key?: string | undefined
 		class?: string | undefined
 		moduleId?: string
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -211,7 +213,8 @@
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
-		moduleId = undefined
+		moduleId = undefined,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -544,9 +547,7 @@
 
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
-	async function updateSchema() {
-		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
-
+	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
@@ -667,6 +668,55 @@
 		}
 	}
 
+	let preprocessorCompletor: IDisposable | undefined = undefined
+	function addPreprocessorCompletions(lang: 'typescript' | 'python') {
+		if (preprocessorCompletor) {
+			preprocessorCompletor.dispose()
+		}
+		const preprocessorCode =
+			lang === 'typescript' ? TS_PREPROCESSOR_MODULE_CODE : PYTHON_PREPROCESSOR_MODULE_CODE
+		preprocessorCompletor = languages.registerCompletionItemProvider(lang, {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+
+				if (word.word.length >= 3 && 'preprocessor'.startsWith(word.word)) {
+					const range = {
+						startLineNumber: position.lineNumber,
+						endLineNumber: position.lineNumber,
+						startColumn: word.startColumn,
+						endColumn: word.endColumn
+					}
+					return {
+						suggestions: [
+							{
+								label: 'preprocessor (windmill)',
+								kind: languages.CompletionItemKind.Function,
+								insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+								insertText: preprocessorCode,
+								range,
+								additionalTextEdits: [
+									{
+										range: {
+											startLineNumber: position.lineNumber,
+											endLineNumber: position.lineNumber,
+											startColumn: 0,
+											endColumn: word.startColumn
+										},
+										text: ''
+									}
+								]
+							}
+						]
+					}
+				}
+
+				return {
+					suggestions: []
+				}
+			}
+		})
+	}
+
 	let reviewingChanges = $state(writable(false))
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = $state(undefined)
 
@@ -676,7 +726,21 @@
 	let selectedCode = $state('')
 
 	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewAndApply(code, applyAll)
+		aiChatEditorHandler?.reviewChanges(code, { applyAll, mode: 'apply' })
+	}
+
+	export function reviewAppliedCode(
+		originalCode: string,
+		opts?: { onFinishedReview?: () => void }
+	) {
+		aiChatEditorHandler?.reviewChanges(originalCode, {
+			mode: 'revert',
+			onFinishedReview: opts?.onFinishedReview
+		})
+	}
+
+	export function getAiChatEditorHandler() {
+		return aiChatEditorHandler
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
@@ -1556,6 +1620,7 @@
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
+		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
@@ -1607,10 +1672,20 @@
 			? untrack(() => addSqlTypeCompletions())
 			: sqlTypeCompletor?.dispose()
 	})
+
 	$effect(() => {
-		console.log('updating schema', lang, $dbSchemas)
-		readFieldsRecursively(args)
-		lang && $dbSchemas && untrack(() => updateSchema())
+		initialized && (lang === 'typescript' || lang === 'python') && enablePreprocessorSnippet
+			? untrack(() => addPreprocessorCompletions(lang as 'typescript' | 'python'))
+			: preprocessorCompletor?.dispose()
+	})
+
+	let lastArg = undefined
+	$effect(() => {
+		let newArg = lang === 'graphql' ? args?.api : args?.database
+		if (newArg !== lastArg) {
+			lastArg = newArg
+			$dbSchemas && untrack(() => updateSchema(newArg))
+		}
 	})
 	$effect(() => {
 		console.log('updating db schema completions', dbSchema, lang)
@@ -1684,10 +1759,20 @@
 {#if $reviewingChanges}
 	<GlobalReviewButtons
 		onAcceptAll={() => {
-			aiChatEditorHandler?.acceptAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.keepAll()
+			} else {
+				aiChatEditorHandler?.acceptAll()
+			}
 		}}
 		onRejectAll={() => {
-			aiChatEditorHandler?.rejectAll()
+			const mode = aiChatEditorHandler?.getReviewMode?.()
+			if (mode === 'revert') {
+				aiChatEditorHandler?.revertAll()
+			} else {
+				aiChatEditorHandler?.rejectAll()
+			}
 		}}
 	/>
 {/if}

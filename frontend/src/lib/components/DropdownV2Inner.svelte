@@ -47,7 +47,7 @@
 				aiDescription={item.displayName}
 			>
 				{#if item.icon}
-					<item.icon size={14} color={item.iconColor} />
+					<item.icon size={14} color={item.iconColor} class="shrink-0" />
 				{/if}
 				<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
 					{item.displayName}

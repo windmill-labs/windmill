@@ -439,6 +439,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
         false,
         true,
         None,
@@ -487,6 +488,7 @@ pub async fn push_periodic_bash_job<'c>(
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
+        None,
         None,
         None,
         None,
@@ -1267,6 +1269,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+            None,
             false,
             false,
             None,
@@ -1419,8 +1422,9 @@ fn apply_completed_job_cloud_usage(
         let email2 = email.clone();
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
-            let premium_workspace =
-                windmill_common::workspaces::is_premium_workspace(&db, &w_id).await;
+            let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
+                .await
+                .premium;
             tokio::time::timeout(std::time::Duration::from_secs(10), async move {
                 let _ = sqlx::query!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
@@ -2028,6 +2032,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2137,6 +2142,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2227,6 +2233,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         Some(job_id),
+        None,
         Some(job_id),
         None,
         false,
@@ -2274,6 +2281,7 @@ pub struct MiniPulledJob {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub flow_innermost_root_job: Option<Uuid>,
+    pub root_job: Option<Uuid>,
     pub timeout: Option<i32>,
     pub flow_step_id: Option<String>,
     pub cache_ttl: Option<i32>,
@@ -2332,7 +2340,8 @@ impl MiniPulledJob {
             pre_run_error: job.pre_run_error.clone(),
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
-            flow_innermost_root_job: job.root_job.clone(),
+            flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
+            root_job: None,
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
@@ -2537,6 +2546,7 @@ pub async fn get_mini_pulled_job<'c>(
         concurrent_limit,
         concurrency_time_window_s,
         flow_innermost_root_job,
+        root_job,
         timeout,
         flow_step_id,
         cache_ttl,
@@ -3586,6 +3596,7 @@ pub async fn push<'c, 'd>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
+    flow_innermost_root_job: Option<Uuid>,
     job_id: Option<Uuid>,
     _is_flow_step: bool,
     mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running but started_at will not be set.
@@ -3600,8 +3611,8 @@ pub async fn push<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let premium_workspace =
-            windmill_common::workspaces::is_premium_workspace(_db, workspace_id).await;
+        let team_plan_status =
+            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -3619,7 +3630,7 @@ pub async fn push<'c, 'd>(
                     .await
                     .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
 
-                let user_usage = if !premium_workspace {
+                let user_usage = if !team_plan_status.premium {
                     Some(sqlx::query_scalar!(
                         "INSERT INTO usage (id, is_workspace, month_, usage)
                         VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
@@ -3642,7 +3653,7 @@ pub async fn push<'c, 'd>(
             Ok((None, None))
         }?;
 
-        if !premium_workspace {
+        if !team_plan_status.premium || team_plan_status.is_past_due {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
                     .fetch_optional(_db)
@@ -3650,7 +3661,8 @@ pub async fn push<'c, 'd>(
                     .unwrap_or(false);
 
             if !is_super_admin {
-                if email != ERROR_HANDLER_USER_EMAIL
+                if !team_plan_status.premium
+                    && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
                     && email != "worker@windmill.dev"
@@ -3729,43 +3741,53 @@ pub async fn push<'c, 'd>(
                         .flatten()
                         .unwrap_or(1)
                     };
+                    if team_plan_status.premium {
+                        // team plan is premium but past due, we check if the workspace has exceeded the max tolerated executions
+                        if team_plan_status.max_tolerated_executions.is_none()
+                            || workspace_usage > team_plan_status.max_tolerated_executions.unwrap()
+                        {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings."
+                            )));
+                        }
+                    } else {
+                        if workspace_usage > MAX_FREE_EXECS
+                            && !matches!(job_payload, JobPayload::Dependencies { .. })
+                            && !matches!(job_payload, JobPayload::FlowDependencies { .. })
+                            && !matches!(job_payload, JobPayload::AppDependencies { .. })
+                        {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                            )));
+                        }
 
-                    if workspace_usage > MAX_FREE_EXECS
-                        && !matches!(job_payload, JobPayload::Dependencies { .. })
-                        && !matches!(job_payload, JobPayload::FlowDependencies { .. })
-                        && !matches!(job_payload, JobPayload::AppDependencies { .. })
-                    {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                        )));
-                    }
+                        let in_queue_workspace = sqlx::query_scalar!(
+                            "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
+                            workspace_id
+                        )
+                        .fetch_one(_db)
+                        .await?
+                        .unwrap_or(0);
 
-                    let in_queue_workspace = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
-                        workspace_id
-                    )
-                    .fetch_one(_db)
-                    .await?
-                    .unwrap_or(0);
+                        if in_queue_workspace > MAX_FREE_EXECS as i64 {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                            )));
+                        }
 
-                    if in_queue_workspace > MAX_FREE_EXECS as i64 {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                        )));
-                    }
-
-                    let concurrent_runs_workspace = sqlx::query_scalar!(
+                        let concurrent_runs_workspace = sqlx::query_scalar!(
                         "SELECT COUNT(id) FROM v2_job_queue WHERE running = true AND workspace_id = $1",
-                        workspace_id
-                    )
-                    .fetch_one(_db)
-                    .await?
-                    .unwrap_or(0);
+                            workspace_id
+                        )
+                        .fetch_one(_db)
+                        .await?
+                        .unwrap_or(0);
 
-                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
-                        return Err(error::Error::QuotaExceeded(format!(
-                            "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
-                        )));
+                        if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
+                            return Err(error::Error::QuotaExceeded(format!(
+                                "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                            )));
+                        }
                     }
                 }
             }
@@ -4635,6 +4657,16 @@ pub async fn push<'c, 'd>(
         None
     };
 
+    let root_job = if root_job.is_some()
+        && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
+    {
+        // We only save the root job if it's not the innermost root job, parent job, or the job itself as an optimization
+        // Reference: see [`windmill_worker::common::get_root_job_id`] for logic on determining the root job.
+        None
+    } else {
+        root_job
+    };
+
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4676,7 +4708,7 @@ pub async fn push<'c, 'd>(
         pre_run_error.map(|e| e.to_string()),
         email,
         visible_to_owner,
-        root_job,
+        flow_innermost_root_job,
         concurrent_limit,
         if concurrent_limit.is_some() {
             concurrency_time_window_s
@@ -4698,7 +4730,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        root_job.or(parent_job),
+        root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
     )
@@ -5089,6 +5121,7 @@ pub async fn get_same_worker_job(
                     v2_job.concurrent_limit,
                     v2_job.concurrency_time_window_s,
                     v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,

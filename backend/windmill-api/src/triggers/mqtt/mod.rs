@@ -189,7 +189,7 @@ pub struct MqttClientBuilder<'client> {
 }
 
 impl<'client> MqttClientBuilder<'client> {
-    fn new(
+    pub fn new(
         mqtt_resource: MqttResource,
         client_id: Option<&'client str>,
         subscribe_topics: Vec<SubscribeTopic>,
@@ -207,7 +207,7 @@ impl<'client> MqttClientBuilder<'client> {
         }
     }
 
-    async fn build_client(&self) -> Result<MqttClientResult, Error> {
+    pub async fn build_client(&self) -> Result<MqttClientResult, Error> {
         match self.mqtt_client_version {
             Some(MqttClientVersion::V5) | None => self.build_v5_client().await,
             Some(MqttClientVersion::V3) => self.build_v3_client().await,

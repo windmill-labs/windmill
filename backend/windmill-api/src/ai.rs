@@ -156,6 +156,7 @@ impl AIRequestConfig {
         let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
             || matches!(provider, AIProvider::AzureOpenAI);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
+        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
         let url = if is_azure && method != Method::GET {
             if base_url.ends_with("/deployments") {
@@ -167,6 +168,9 @@ impl AIRequestConfig {
             } else {
                 format!("{}/{}", base_url, path)
             }
+        } else if is_anthropic_sdk {
+            let truncated_base_url = base_url.trim_end_matches("/v1");
+            format!("{}/{}", truncated_base_url, path)
         } else {
             format!("{}/{}", base_url, path)
         };
@@ -349,6 +353,8 @@ pub struct AIConfig {
     pub default_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<ProviderModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_prompts: Option<HashMap<String, String>>,
 }
 
 pub fn global_service() -> Router {

@@ -58,6 +58,7 @@ impl TriggerCrud for PostgresTrigger {
         "publication_name",
         "NULL::text AS basic_mode",
     ];
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::PostgresTrigger { path }

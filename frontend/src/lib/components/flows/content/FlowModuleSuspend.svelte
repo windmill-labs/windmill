@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
@@ -49,7 +47,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		if ($workspaceStore && allUserGroups.length === 0) {
 			untrack(() => {
 				loadGroups()
@@ -57,9 +55,22 @@
 		}
 	})
 
+	$effect(() => {
+		// If the schema is empty, remove the form
+		if (Object.keys(flowModule?.suspend?.resume_form?.schema?.properties ?? {}).length === 0) {
+			untrack(() => {
+				tick().then(() => {
+					if (!flowModule.suspend) return
+					flowModule.suspend.resume_form = undefined
+				})
+			})
+		}
+	})
+
 	let jsonView: boolean = $state(false)
 </script>
 
+A{JSON.stringify(flowModule.suspend?.resume_form)}B
 <Section label="Suspend/Approval/Prompt" class="w-full">
 	{#snippet action()}
 		<SuspendDrawer text="Approval/Prompt helpers" />
@@ -234,21 +245,7 @@
 		<div class="grid grid-cols-4 mt-4 gap-8">
 			<div class="col-span-2">
 				{#if flowModule?.suspend?.resume_form}
-					<EditableSchemaDrawer
-						bind:schema={flowModule.suspend.resume_form.schema}
-						on:change={(e) => {
-							const schema = e.detail
-
-							// If the schema is empty, remove the form
-							if (Object.keys(schema?.properties ?? {}).length === 0) {
-								tick().then(() => {
-									if (!flowModule.suspend) return
-									flowModule.suspend.resume_form = undefined
-								})
-							}
-						}}
-						{jsonView}
-					/>
+					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} {jsonView} />
 				{:else if emptyString($enterpriseLicense)}
 					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 				{:else}

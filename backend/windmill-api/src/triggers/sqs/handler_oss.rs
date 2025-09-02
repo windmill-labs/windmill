@@ -4,7 +4,7 @@ pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
-    super::{SqsConfig, SqsTrigger, TestSqsConfig},
+    super::SqsTrigger,
     crate::{
         db::{ApiAuthed, DB},
         triggers::{Trigger, TriggerCrud, TriggerData},
@@ -20,9 +20,9 @@ use {
 #[cfg(not(feature = "private"))]
 impl TriggerCrud for SqsTrigger {
     type Trigger = Trigger<Self::TriggerConfig>;
-    type TriggerConfig = SqsConfig;
+    type TriggerConfig = ();
     type TriggerConfigRequest = ();
-    type TestConnectionConfig = TestSqsConfig;
+    type TestConnectionConfig = ();
 
     const TABLE_NAME: &'static str = "";
     const TRIGGER_TYPE: &'static str = "";
@@ -31,6 +31,7 @@ impl TriggerCrud for SqsTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/sqs_triggers";
     const DEPLOYMENT_NAME: &'static str = "";
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::SqsTrigger { path }

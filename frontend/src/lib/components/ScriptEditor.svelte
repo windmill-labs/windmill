@@ -48,6 +48,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import { editor as meditor } from 'monaco-editor'
 
 	interface Props {
 		// Exported
@@ -80,6 +81,7 @@
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -110,7 +112,8 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right
+		editor_bar_right,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -403,7 +406,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -624,10 +627,12 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						{enablePreprocessorSnippet}
 					/>
 					<DiffEditor
 						className="h-full"
 						bind:this={diffEditor}
+						modifiedModel={editor?.getModel() as meditor.ITextModel}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}

@@ -54,6 +54,8 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import { editor as meditor } from 'monaco-editor'
 
 	const {
 		selectedId,
@@ -134,6 +136,13 @@
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+
+	// UI Intent handling for AI tool control
+	useUiIntent(`flow-${flowModule.id}`, {
+		openTab: (tab) => {
+			selectAdvanced(tab)
+		}
+	})
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -216,7 +225,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -463,6 +472,7 @@
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
+												modifiedModel={editor?.getModel() as meditor.ITextModel}
 												automaticLayout
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}

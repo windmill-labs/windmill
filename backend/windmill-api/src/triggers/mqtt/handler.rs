@@ -9,7 +9,6 @@ use sqlx::{types::Json as SqlxJson, PgConnection};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -40,50 +39,25 @@ impl TriggerCrud for MqttTrigger {
         "client_id",
         "client_version",
     ];
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::MqttTrigger { path }
     }
 
-    async fn validate_new(
+    async fn validate_config(
         &self,
+        _db: &DB,
+        config: &Self::TriggerConfigRequest,
         _workspace_id: &str,
-        new: &Self::TriggerConfigRequest,
     ) -> Result<()> {
-        if new.mqtt_resource_path.trim().is_empty() {
+        if config.mqtt_resource_path.trim().is_empty() {
             return Err(Error::BadRequest(
                 "MQTT resource path cannot be empty".to_string(),
             ));
         }
 
-        if new.subscribe_topics.is_empty() {
-            return Err(Error::BadRequest(
-                "At least one subscribe topic must be specified".to_string(),
-            ));
-        }
-
-        if *CLOUD_HOSTED {
-            return Err(Error::BadRequest(
-                "MQTT triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        edit: &Self::TriggerConfigRequest,
-    ) -> Result<()> {
-        if edit.mqtt_resource_path.trim().is_empty() {
-            return Err(Error::BadRequest(
-                "MQTT resource path cannot be empty".to_string(),
-            ));
-        }
-
-        if edit.subscribe_topics.is_empty() {
+        if config.subscribe_topics.is_empty() {
             return Err(Error::BadRequest(
                 "At least one subscribe topic must be specified".to_string(),
             ));

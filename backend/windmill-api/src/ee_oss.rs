@@ -7,6 +7,12 @@ use crate::db::ApiAuthed;
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::ee::*;
+#[cfg(all(
+    feature = "enterprise",
+    any(feature = "nats", feature = "kafka", feature = "sqs_trigger"),
+    not(feature = "private")
+))]
+use {crate::db::ApiAuthed, windmill_common::DB};
 
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;

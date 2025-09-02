@@ -41,59 +41,25 @@ impl TriggerCrud for WebsocketTrigger {
         "url_runnable_args",
         "can_return_message",
     ];
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::WebsocketTrigger { path }
     }
 
-
-    async fn validate_new(
+    async fn validate_config(
         &self,
+        _db: &DB,
+        config: &Self::TriggerConfigRequest,
         _workspace_id: &str,
-        new: &Self::TriggerConfigRequest,
     ) -> Result<()> {
-        if new.url.trim().is_empty() {
+        if config.url.trim().is_empty() {
             return Err(Error::BadRequest(
                 "WebSocket URL cannot be empty".to_string(),
             ));
         }
 
-        if !new.url.starts_with("ws://") && !new.url.starts_with("wss://") {
-            return Err(Error::BadRequest(
-                "WebSocket URL must start with ws:// or wss://".to_string(),
-            ));
-        }
-
-        if let Some(args) = &new.url_runnable_args {
-            if !args.is_object() {
-                return Err(Error::BadRequest(
-                    "url_runnable_args must be an object".to_string(),
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn validate_edit(
-        &self,
-        _workspace_id: &str,
-        _path: &str,
-        edit: &Self::TriggerConfigRequest,
-    ) -> Result<()> {
-        if edit.url.trim().is_empty() {
-            return Err(Error::BadRequest(
-                "WebSocket URL cannot be empty".to_string(),
-            ));
-        }
-
-        if !edit.url.starts_with("ws://") && !edit.url.starts_with("wss://") {
-            return Err(Error::BadRequest(
-                "WebSocket URL must start with ws:// or wss://".to_string(),
-            ));
-        }
-
-        if let Some(args) = &edit.url_runnable_args {
+        if let Some(args) = &config.url_runnable_args {
             if !args.is_object() {
                 return Err(Error::BadRequest(
                     "url_runnable_args must be an object".to_string(),

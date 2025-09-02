@@ -57,10 +57,17 @@ export async function getApiTools(): Promise<Tool<{}>[]> {
 
 export const apiTools: Tool<{}>[] = [getDocumentationTool]
 
-export function prepareApiSystemMessage(): ChatCompletionSystemMessageParam {
+export function prepareApiSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
+	let content = CHAT_SYSTEM_PROMPT(get(userStore)?.username ?? '')
+
+	// If there's a custom prompt, append it to the system prompt
+	if (customPrompt?.trim()) {
+		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	}
+
 	return {
 		role: 'system',
-		content: CHAT_SYSTEM_PROMPT(get(userStore)?.username ?? '')
+		content
 	}
 }
 
