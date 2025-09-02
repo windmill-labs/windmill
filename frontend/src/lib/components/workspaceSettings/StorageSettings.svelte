@@ -135,6 +135,7 @@
 						<option value="azure_blob">Azure Blob</option>
 						<option value="s3_aws_oidc">AWS OIDC</option>
 						<option value="azure_workload_identity">Azure Workload Identity</option>
+						<option value="gcloud_storage">Google Cloud Storage</option>
 					</select>
 					<!-- this can be removed once parent moves to runes -->
 					<!-- svelte-ignore binding_property_non_reactive -->
