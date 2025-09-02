@@ -116,8 +116,6 @@ struct OpenAIRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<ResponseFormat>,
@@ -776,12 +774,19 @@ async fn run_agent(
         Some(tools.iter().map(|t| t.def.clone()).collect())
     };
 
+    let has_output_properties = args
+        .output_schema
+        .as_ref()
+        .and_then(|schema| schema.properties.as_ref())
+        .map(|props| !props.is_empty())
+        .unwrap_or(false);
     let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
 
-    if let Some(ref schema) = args.output_schema {
+    if has_output_properties {
+        let schema = args.output_schema.as_ref().unwrap(); // we know it's some because of the check above
         if is_anthropic {
             // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
             let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
@@ -830,10 +835,9 @@ async fn run_agent(
                     model: args.provider.get_model(),
                     messages: &messages,
                     tools: tool_defs.as_ref(),
-                    tool_choice: None,
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
-                    response_format: match is_anthropic {
+                    response_format: match is_anthropic || !has_output_properties {
                         true => None,
                         false => response_format.clone(),
                     },
