@@ -1288,6 +1288,7 @@ where
         &resource_path,
         None,
         "",
+        false,
     )
     .await?;
 
