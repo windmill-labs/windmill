@@ -394,24 +394,22 @@ impl OpenAPISchema {
 
     /// Makes this property nullable by converting its type to a union with null
     fn make_nullable(mut self) -> Self {
-        match &self.r#type.take() {
+        match self.r#type.take() {
             Some(SchemaType::Single(type_str)) => {
-                // Convert single type to array with null
-                self.r#type = Some(SchemaType::Multiple(vec![
-                    type_str.to_string(),
-                    "null".to_string(),
-                ]));
-            }
-            Some(SchemaType::Multiple(types)) => {
-                if !types.iter().any(|t| t == "null") {
-                    let mut new_types = types.clone();
-                    new_types.push("null".into());
-                    self.r#type = Some(SchemaType::Multiple(new_types));
+                if type_str != "null" {
+                    self.r#type = Some(SchemaType::Multiple(vec![type_str, "null".into()]));
+                } else {
+                    self.r#type = Some(SchemaType::Single("null".into()));
                 }
             }
+            Some(SchemaType::Multiple(mut types)) => {
+                if !types.iter().any(|t| t == "null") {
+                    types.push("null".into());
+                }
+                self.r#type = Some(SchemaType::Multiple(types));
+            }
             None => {
-                // If no type specified, assume it can be null
-                self.r#type = Some(SchemaType::Single("null".to_string()));
+                self.r#type = Some(SchemaType::Single("null".into()));
             }
         }
         self
