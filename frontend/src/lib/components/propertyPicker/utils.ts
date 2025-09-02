@@ -8,13 +8,17 @@ function filterObject(obj: any, key: string, filterValue: boolean): any {
 		}
 	} else if (Array.isArray(obj)) {
 		let a = obj
-			.map((o) =>
-				typeof o == 'object'
+			.map((o, k) => {
+				// match index
+				if (String(k).toLowerCase().includes(keyLower)) {
+					return o
+				}
+				return typeof o == 'object'
 					? filterObject(o, key, filterValue)
-					: String(o).toLowerCase().includes(keyLower)
+					: filterValue && String(o).toLowerCase().includes(keyLower)
 						? o
 						: undefined
-			)
+			})
 			.filter((v) => v !== undefined)
 		if (a.length === 0) {
 			return undefined
