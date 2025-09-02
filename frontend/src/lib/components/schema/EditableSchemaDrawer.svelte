@@ -61,8 +61,6 @@
 		hiddenArgs = undefined
 	}: Props = $props()
 
-	console.log('schema', schema)
-
 	// let schema = $state(structuredClone($state.snapshot(schema)))
 
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
