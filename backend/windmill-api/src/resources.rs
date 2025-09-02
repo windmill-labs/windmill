@@ -573,12 +573,18 @@ pub async fn transform_json_value<'c>(
             let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
-                    email AS \"email!\",
-                    created_by AS \"created_by!\",
-                    parent_job, permissioned_as AS \"permissioned_as!\",
-                    script_path, schedule_path, flow_step_id, root_job,
-                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
-                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+                    v2_job.permissioned_as_email,
+                    v2_job.created_by,
+                    v2_job.parent_job,
+                    v2_job.permissioned_as,
+                    v2_job.runnable_path,
+                    CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    v2_job.flow_step_id,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
+                    v2_job_queue.scheduled_for AS \"scheduled_for: chrono::DateTime<chrono::Utc>\"
+                FROM v2_job INNER JOIN v2_job_queue ON v2_job.id = v2_job_queue.id
+                WHERE v2_job.id = $1 AND v2_job.workspace_id = $2",
                 job_id,
                 workspace
             )
@@ -605,15 +611,16 @@ pub async fn transform_json_value<'c>(
                 &db.into(),
                 workspace,
                 token,
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
                 &job.permissioned_as,
-                job.script_path.clone(),
+                job.runnable_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
                 None,
