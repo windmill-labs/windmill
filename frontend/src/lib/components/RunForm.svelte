@@ -262,11 +262,12 @@
 									type: 'hash',
 									hash: runnable.hash
 								}
-							: runnable.schema?.['x-windmill-dyn-code'] && runnable.schema?.['x-windmill-dyn-lang']
+							: runnable.schema?.['x-windmill-dyn-select-code'] &&
+								  runnable.schema?.['x-windmill-dyn-select-lang']
 								? {
 										type: 'inline',
-										code: runnable.schema['x-windmill-dyn-code'] as string,
-										lang: runnable.schema['x-windmill-dyn-lang'] as ScriptLang
+										code: runnable.schema['x-windmill-dyn-select-code'] as string,
+										lang: runnable.schema['x-windmill-dyn-select-lang'] as ScriptLang
 									}
 								: undefined}
 						prettifyHeader

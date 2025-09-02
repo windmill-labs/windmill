@@ -124,23 +124,11 @@
 		if (args == undefined) {
 			args = {}
 		}
-
-		if (schema) {
-			if (schema['x-windmill-dyn-select-code'] && !schema['x-windmill-dyn-code']) {
-				schema['x-windmill-dyn-code'] = schema['x-windmill-dyn-select-code']
-				delete schema['x-windmill-dyn-select-code']
-			}
-			if (schema['x-windmill-dyn-select-lang'] && !schema['x-windmill-dyn-lang']) {
-				schema['x-windmill-dyn-lang'] = schema['x-windmill-dyn-select-lang']
-				delete schema['x-windmill-dyn-select-lang']
-			}
-		}
-
 		if (dynLang === undefined) {
-			dynLang = schema?.['x-windmill-dyn-lang'] || 'bun'
+			dynLang = schema?.['x-windmill-dyn-select-lang'] || 'bun'
 		}
 		if (dynCode === undefined) {
-			dynCode = schema?.['x-windmill-dyn-code'] || ''
+			dynCode = schema?.['x-windmill-dyn-select-code'] || ''
 		}
 	})
 
@@ -154,11 +142,11 @@
 	$effect(() => {
 		if (schema && dynCode !== undefined && dynLang !== undefined) {
 			if (dynCode && dynCode.trim()) {
-				schema['x-windmill-dyn-code'] = dynCode.trim()
-				schema['x-windmill-dyn-lang'] = dynLang
+				schema['x-windmill-dyn-select-code'] = dynCode.trim()
+				schema['x-windmill-dyn-select-lang'] = dynLang
 			} else {
-				delete schema['x-windmill-dyn-code']
-				delete schema['x-windmill-dyn-lang']
+				delete schema['x-windmill-dyn-select-code']
+				delete schema['x-windmill-dyn-select-lang']
 			}
 		}
 	})
