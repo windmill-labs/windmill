@@ -48,9 +48,9 @@
 
 	const SUCCESS_COLOR = '#4ade80'
 	// const SUCCESS_COLOR_TRANSPARENT = '#c9b638'
-	const SUCCESS_COLOR_TRANSPARENT = $derived(mergeColors(SUCCESS_COLOR, getBackgorundColor(), 0.8))
+	const SUCCESS_COLOR_TRANSPARENT = $derived(mergeColors(SUCCESS_COLOR, getBackgroundColor(), 0.8))
 	const FAIL_COLOR = '#f87171'
-	const FAIL_COLOR_TRANSPARENT = $derived(mergeColors(FAIL_COLOR, getBackgorundColor(), 0.8))
+	const FAIL_COLOR_TRANSPARENT = $derived(mergeColors(FAIL_COLOR, getBackgroundColor(), 0.8))
 
 	ChartJS.register(
 		Title,
@@ -96,7 +96,7 @@
 		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
 	})
 
-	function getBackgorundColor(): string {
+	function getBackgroundColor(): string {
 		return darkMode ? '#2e3440' : '#ffffff'
 	}
 	function hexToRgb(hexColor: string): number[] {

@@ -26,6 +26,7 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    scripts::ScriptHash,
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -38,6 +39,7 @@ use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use crate::var_resource_cache::{get_cached_variable, cache_variable};
 
 lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -76,7 +78,9 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some(chrono::offset::Utc::now()),
+            Some(ScriptHash(1234567890)),
         )
         .await
         .to_vec(),
@@ -131,6 +135,7 @@ async fn list_variables(
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
+    allow_cache: Option<bool>,
 }
 
 async fn get_variable(
@@ -142,6 +147,18 @@ async fn get_variable(
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
+    
+    // Check cache first when explicitly allowed (and for appropriate requests)
+    let decrypt_secret = q.decrypt_secret.unwrap_or(true);
+    let allow_cache = q.allow_cache.unwrap_or(false);
+    let include_encrypted = q.include_encrypted.unwrap_or(false);
+    
+    if allow_cache && (!decrypt_secret || include_encrypted) {
+        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
+            return Ok(Json(cached_variable));
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
@@ -214,6 +231,11 @@ async fn get_variable(
     } else {
         variable
     };
+
+    // Cache the result when explicitly allowed and caching appropriate
+    if allow_cache && (!decrypt_secret || include_encrypted) {
+        cache_variable(&w_id, &path, r.clone());
+    }
 
     Ok(Json(r))
 }

@@ -332,21 +332,16 @@ async fn get_root_job(
     Ok(Json(res))
 }
 
-async fn compute_root_job_for_flow(db: &DB, w_id: &str, mut job_id: Uuid) -> error::Result<String> {
-    // TODO: use `root_job` ?
-    loop {
-        job_id = match sqlx::query_scalar!(
-            "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            w_id
-        )
-        .fetch_one(db)
-        .await
-        {
-            Ok(Some(job_id)) => job_id,
-            _ => return Ok(job_id.to_string()),
-        }
-    }
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let root_job = sqlx::query_scalar!(
+        r#"SELECT COALESCE(root_job, flow_innermost_root_job, parent_job, id) as "root_job!" FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    Ok(root_job.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
@@ -3741,7 +3736,7 @@ async fn batch_rerun_handle_job(
                 PushArgsOwned { extra: None, args },
             )
             .await;
-            if let Ok(uuid) = result {
+            if let Ok((uuid, _)) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -3798,7 +3793,7 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    let uuid =
+    let (uuid, _) =
         run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -3812,7 +3807,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<Uuid> {
+) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -3828,6 +3823,7 @@ pub async fn run_flow_by_path_inner(
         has_preprocessor,
         on_behalf_of_email,
         edited_by,
+        early_return,
         ..
     } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
 
@@ -3874,6 +3870,7 @@ pub async fn run_flow_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -3889,7 +3886,7 @@ pub async fn run_flow_by_path_inner(
     )
     .await?;
     tx.commit().await?;
-    Ok(uuid)
+    Ok((uuid, early_return))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -3969,6 +3966,7 @@ pub async fn restart_flow(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4065,6 +4063,7 @@ pub async fn run_script_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4214,6 +4213,7 @@ pub async fn run_workflow_as_code(
         scheduled_for,
         None,
         Some(job_id),
+        None,
         job.root_job.or(Some(job_id)),
         run_query.job_id,
         false,
@@ -4745,6 +4745,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4896,6 +4897,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -5011,6 +5013,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -5129,6 +5132,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -5197,6 +5201,7 @@ async fn run_preview_script(
         username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
         scheduled_for,
+        None,
         None,
         None,
         None,
@@ -5308,6 +5313,7 @@ async fn run_bundle_preview_script(
                 username_to_permissioned_as(&authed.username),
                 authed.token_prefix.as_deref(),
                 scheduled_for,
+                None,
                 None,
                 None,
                 None,
@@ -5478,6 +5484,7 @@ async fn run_dependencies_job(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -5539,6 +5546,7 @@ async fn run_flow_dependencies_job(
         &authed.email,
         username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -5884,6 +5892,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        None,
         run_query.job_id,
         false,
         false,
@@ -6023,6 +6032,7 @@ pub async fn run_job_by_hash_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
