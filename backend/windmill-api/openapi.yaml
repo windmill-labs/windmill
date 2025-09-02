@@ -3254,6 +3254,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: allow_cache
+          description: |
+            allow getting a cached value for improved performance
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: variable
@@ -4017,6 +4023,11 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: allow_cache
+          description: allow getting a cached value for improved performance
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource value
@@ -15233,7 +15244,7 @@ components:
           nu,
           java,
           ruby,
-          duckdb
+          duckdb,
           # for related places search: ADD_NEW_LANG
         ]
 
