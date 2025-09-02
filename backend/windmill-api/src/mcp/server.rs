@@ -190,9 +190,10 @@ impl ServerHandler for Runner {
         }
 
         // Continue with script/flow logic
-        let (tool_type, path, is_hub) =
-            reverse_transform(&request.name).unwrap_or_default();
-
+        let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
+            Error::internal_error(format!("Failed to reverse transform path: {}", e), None)
+        })?;
+        
         let item_schema = if is_hub {
             get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
