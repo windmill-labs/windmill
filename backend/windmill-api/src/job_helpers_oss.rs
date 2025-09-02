@@ -137,8 +137,8 @@ pub async fn download_s3_file_internal(
 
 #[cfg(not(feature = "private"))]
 pub async fn read_object_streamable(
-    s3_client: Arc<dyn ObjectStore>,
-    file_key: &str,
+    _s3_client: Arc<dyn ObjectStore>,
+    _file_key: &str,
 ) -> error::Result<Response> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
@@ -147,11 +147,11 @@ pub async fn read_object_streamable(
 
 #[cfg(not(feature = "private"))]
 pub async fn delete_s3_file_internal(
-    authed: &ApiAuthed,
-    db: &DB,
-    token: &str,
-    w_id: &str,
-    query: DeleteS3FileQuery,
+    _authed: &ApiAuthed,
+    _db: &DB,
+    _token: &str,
+    _w_id: &str,
+    _query: DeleteS3FileQuery,
 ) -> error::Result<()> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
@@ -160,6 +160,7 @@ pub async fn delete_s3_file_internal(
 
 #[cfg(not(feature = "private"))]
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct DeleteS3FileQuery {
     pub file_key: String,
     pub storage: Option<String>,
