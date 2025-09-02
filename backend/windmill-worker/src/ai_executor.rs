@@ -41,13 +41,13 @@ lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIFunction {
     name: String,
     arguments: String,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIToolCall {
     id: String,
     function: OpenAIFunction,
@@ -91,22 +91,24 @@ struct OpenAIRequest<'a> {
     model: &'a str,
     messages: &'a Vec<OpenAIMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<&'a Vec<&'a ToolDef>>,
+    tools: Option<&'a Vec<ToolDef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<ResponseFormat>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Debug)]
 struct ResponseFormat {
     r#type: String,
     json_schema: JsonSchemaFormat,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Debug)]
 struct JsonSchemaFormat {
     name: String,
     schema: OpenAPISchema,
@@ -114,13 +116,13 @@ struct JsonSchemaFormat {
     strict: Option<bool>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 struct ToolDefFunction {
     name: String,
     parameters: Box<RawValue>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 struct ToolDef {
     r#type: String,
     function: ToolDefFunction,
@@ -746,17 +748,17 @@ async fn run_agent(
     let base_url = args.provider.get_base_url();
     let api_key = args.provider.get_api_key();
 
-    let tool_defs = if tools.is_empty() {
+    let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
         None
     } else {
-        Some(tools.iter().map(|t| &t.def).collect())
+        Some(tools.iter().map(|t| t.def.clone()).collect())
     };
 
-    for i in 0..MAX_AGENT_ITERATIONS {
-        let response = {
-            // Build response format for structured output if schema is provided
-            let response_format = args.output_schema.as_ref().map(|schema| {
-                // Parse the schema into our typed OpenAPISchema struct
+    // Handle structured output based on provider
+    let (response_format, structured_output_tool): (Option<ResponseFormat>, Option<ToolDef>) =
+        match (&args.provider, &args.output_schema) {
+            (Provider::OpenAI { .. }, Some(schema)) => {
+                // OpenAI: Use response_format with json_schema
                 let parsed_schema: OpenAPISchema = serde_json::from_value(schema.clone())
                     .unwrap_or_else(|_| {
                         // Fallback to a default object schema if parsing fails
@@ -780,16 +782,52 @@ async fn run_agent(
                 // Make schema compatible with OpenAI's strict mode
                 let strict_schema = parsed_schema.make_strict();
 
-                ResponseFormat {
+                let response_format = ResponseFormat {
                     r#type: "json_schema".to_string(),
                     json_schema: JsonSchemaFormat {
                         name,
                         schema: strict_schema,
                         strict: Some(true),
                     },
-                }
-            });
+                };
 
+                (Some(response_format), None)
+            }
+            (Provider::Anthropic { .. }, Some(schema)) => {
+                // Anthropic: Use custom tool for structured output
+                let tool = ToolDef {
+                    r#type: "function".to_string(),
+                    function: ToolDefFunction {
+                        name: "structured_output".to_string(),
+                        parameters: to_raw_value(&schema),
+                    },
+                };
+                (None, Some(tool))
+            }
+            _ => {
+                // No structured output requested or unsupported provider
+                (None, None)
+            }
+        };
+
+    let has_anthropic_structured_output_tool = structured_output_tool.as_ref().is_some();
+
+    if let Some(output_tool) = structured_output_tool {
+        if let Some(ref mut existing_tools) = tool_defs {
+            existing_tools.push(output_tool);
+        } else {
+            tool_defs = Some(vec![output_tool]);
+        }
+    }
+
+    let mut should_break = false;
+
+    for i in 0..MAX_AGENT_ITERATIONS {
+        if should_break {
+            break;
+        }
+
+        let response = {
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .bearer_auth(api_key)
@@ -797,9 +835,13 @@ async fn run_agent(
                     model: args.provider.get_model(),
                     messages: &messages,
                     tools: tool_defs.as_ref(),
+                    tool_choice: None,
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
-                    response_format,
+                    response_format: match has_anthropic_structured_output_tool {
+                        true => None,
+                        false => response_format.clone(),
+                    },
                 })
                 .send()
                 .await
@@ -867,6 +909,23 @@ async fn run_agent(
         });
 
         for tool_call in tool_calls.iter() {
+            if tool_call.function.name == "structured_output" {
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some("Successfully ran structured_output tool".to_string()),
+                    tool_call_id: Some(tool_call.id.clone()),
+                    ..Default::default()
+                });
+                messages.push(OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: Some(tool_call.function.arguments.clone()),
+                    ..Default::default()
+                });
+                content = Some(tool_call.function.arguments.clone());
+                should_break = true;
+                break;
+            }
+
             let tool = tools
                 .iter()
                 .find(|t| t.def.function.name == tool_call.function.name);
