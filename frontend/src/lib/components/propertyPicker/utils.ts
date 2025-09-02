@@ -1,16 +1,19 @@
 function filterObject(obj: any, key: string, filterValue: boolean): any {
+	const keyLower = key.toLowerCase()
 	if (typeof obj !== 'object' || obj === null) {
 		if (!filterValue || obj === undefined || obj === null) {
 			return undefined
 		} else {
-			return obj.toString().includes(key) ? obj : undefined
+			return obj.toString().toLowerCase().includes(keyLower) ? obj : undefined
 		}
 	} else if (Array.isArray(obj)) {
 		let a = obj
 			.map((k, o) =>
 				typeof o == 'object'
 					? filterObject(o, key, filterValue)
-					: String(k - 1).includes(key)
+					: String(k - 1)
+								.toLowerCase()
+								.includes(keyLower)
 						? o
 						: undefined
 			)
@@ -23,7 +26,9 @@ function filterObject(obj: any, key: string, filterValue: boolean): any {
 	} else {
 		let o = Object.fromEntries(
 			Object.entries(obj)
-				.map(([k, v]) => (k.includes(key) ? [k, v] : [k, filterObject(v, key, filterValue)]))
+				.map(([k, v]) =>
+					k.toLowerCase().includes(keyLower) ? [k, v] : [k, filterObject(v, key, filterValue)]
+				)
 				.filter(([k, v]) => v !== undefined)
 		)
 		if (Object.keys(o).length === 0) {
