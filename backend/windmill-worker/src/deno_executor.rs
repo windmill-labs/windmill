@@ -161,6 +161,7 @@ pub async fn generate_deno_lock(
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await?;
     } else {
@@ -431,6 +432,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

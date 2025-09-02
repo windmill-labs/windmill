@@ -16,8 +16,9 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
-        read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, listen_for_is_stream_tx,
+        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
+        write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
@@ -167,6 +168,7 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
+                None,
                 None,
             )
             .await?;
@@ -374,6 +376,7 @@ pub async fn install_bun_lockfile(
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await?;
     } else {
@@ -546,6 +549,7 @@ pub async fn generate_wrapper_mjs(
         false,
         occupancy_metrics,
         None,
+        None,
     )
     .await?;
     fs::rename(
@@ -596,6 +600,7 @@ pub async fn generate_bun_bundle(
             timeout,
             false,
             occupancy_metrics,
+            None,
             None,
         )
         .await?;
@@ -1463,6 +1468,8 @@ try {{
         .await?
     };
 
+    let is_stream_tx = listen_for_is_stream_tx(job, conn);
+
     let handle_result = handle_child(
         &job.id,
         conn,
@@ -1477,6 +1484,7 @@ try {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        is_stream_tx,
     )
     .await?;
 
