@@ -1,7 +1,7 @@
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{value::RawValue, Value};
 use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
@@ -203,7 +203,7 @@ impl Provider {
 
 #[derive(Serialize)]
 struct AIAgentResult<'a> {
-    output: String,
+    output: Value,
     messages: Vec<Message<'a>>,
 }
 
@@ -1003,8 +1003,17 @@ async fn run_agent(
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
 
+    // Parse content as JSON, fallback to string if it fails
+    let output_value = match content {
+        Some(content_str) => match serde_json::from_str::<Value>(&content_str) {
+            Ok(parsed) => parsed,
+            Err(_) => Value::String(content_str),
+        },
+        None => Value::String(String::new()),
+    };
+
     Ok(to_raw_value(&AIAgentResult {
-        output: content.unwrap_or_default(),
+        output: output_value,
         messages: final_messages,
     }))
 }
