@@ -31,7 +31,6 @@ use windmill_common::{
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
-    var_resource_cache::{get_cached_variable, cache_variable},
     worker::CLOUD_HOSTED,
 };
 
@@ -40,6 +39,7 @@ use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use crate::var_resource_cache::{get_cached_variable, cache_variable};
 
 lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -134,6 +134,7 @@ async fn list_variables(
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
+    allow_cache: Option<bool>,
 }
 
 async fn get_variable(
@@ -146,9 +147,12 @@ async fn get_variable(
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
     
-    // Check cache first for non-secret decryption requests
+    // Check cache first when explicitly allowed (and for appropriate requests)
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
-    if !decrypt_secret && q.include_encrypted.unwrap_or(false) == false {
+    let allow_cache = q.allow_cache.unwrap_or(false);
+    let include_encrypted = q.include_encrypted.unwrap_or(false);
+    
+    if allow_cache && (!decrypt_secret || include_encrypted) {
         if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
             return Ok(Json(cached_variable));
         }
@@ -227,8 +231,8 @@ async fn get_variable(
         variable
     };
 
-    // Cache the result if it's not a secret decryption request
-    if !decrypt_secret && q.include_encrypted.unwrap_or(false) == false && !r.is_secret {
+    // Cache the result when explicitly allowed and caching appropriate
+    if allow_cache && (!decrypt_secret || include_encrypted) {
         cache_variable(&w_id, &path, r.clone());
     }
 

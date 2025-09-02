@@ -474,10 +474,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
         
-        // Initialize variable/resource cache invalidation system
-        if let Err(e) = windmill_common::var_resource_cache::initialize_cache_invalidation(&db).await {
-            tracing::error!("Failed to initialize variable/resource cache system: {}", e);
-        }
+        // NOTE: Variable/resource cache initialization moved to API server in windmill-api
         
         Connection::Sql(db)
     };

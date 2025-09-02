@@ -7,64 +7,65 @@
  */
 
 use quick_cache::sync::Cache;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::broadcast;
 use sqlx::{Pool, Postgres};
 use tracing::{debug, error, info, warn};
-use crate::variables::ListableVariable;
+use windmill_common::variables::ListableVariable;
 
 /// Cache TTL for variables and resources (60 seconds)
-const CACHE_TTL: Duration = Duration::from_secs(60);
+const CACHE_TTL_SECS: u64 = 60;
 
-/// Cache entry with expiration
-#[derive(Clone)]
+/// Cache entry with timestamp and value (following raw script cache pattern)
+#[derive(Clone, Debug)]
 pub struct CacheEntry<T> {
-    pub data: T,
-    pub expires_at: Instant,
+    pub timestamp: u64,
+    pub value: T,
 }
 
 impl<T> CacheEntry<T> {
-    pub fn new(data: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self {
-            data,
-            expires_at: Instant::now() + CACHE_TTL,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            value,
         }
     }
 
     pub fn is_expired(&self) -> bool {
-        Instant::now() > self.expires_at
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        now > self.timestamp + CACHE_TTL_SECS
     }
+}
+
+/// Invalidation message types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InvalidationMessage {
+    Variable { workspace_id: String, path: String },
+    Resource { workspace_id: String, path: String },
 }
 
 lazy_static::lazy_static! {
     /// Cache for individual variable values: key = "workspace_id:path"
-    pub static ref VARIABLE_CACHE: Cache<String, CacheEntry<ListableVariable>> = Cache::new(1000);
+    static ref VARIABLE_CACHE: Cache<String, CacheEntry<ListableVariable>> = Cache::new(1000);
     
-    /// Cache for resource values: key = "workspace_id:path"
-    pub static ref RESOURCE_CACHE: Cache<String, CacheEntry<Value>> = Cache::new(1000);
-    
-    /// Cache for variable lists: key = "workspace_id:query_hash"
-    pub static ref VARIABLE_LIST_CACHE: Cache<String, CacheEntry<Vec<ListableVariable>>> = Cache::new(100);
-    
-    /// Cache for resource lists: key = "workspace_id:query_hash"  
-    pub static ref RESOURCE_LIST_CACHE: Cache<String, CacheEntry<Vec<serde_json::Value>>> = Cache::new(100);
+    /// Cache for resource values: key = "workspace_id:path"  
+    static ref RESOURCE_CACHE: Cache<String, CacheEntry<Value>> = Cache::new(1000);
     
     /// Broadcast channel for invalidation notifications
-    pub static ref INVALIDATION_SENDER: RwLock<Option<broadcast::Sender<InvalidationMessage>>> = RwLock::new(None);
-}
-
-/// Invalidation message types
-#[derive(Debug, Clone)]
-pub enum InvalidationMessage {
-    Variable { workspace_id: String, path: String },
-    Resource { workspace_id: String, path: String },
-    AllVariables { workspace_id: String },
-    AllResources { workspace_id: String },
+    static ref INVALIDATION_SENDER: tokio::sync::RwLock<Option<broadcast::Sender<InvalidationMessage>>> = 
+        tokio::sync::RwLock::new(None);
 }
 
 /// Initialize the PostgreSQL LISTEN/NOTIFY system
-pub async fn initialize_cache_invalidation(db: &Pool<Postgres>) -> Result<(), crate::error::Error> {
+pub async fn initialize_cache_invalidation(db: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     // Create broadcast channel for invalidation
     let (tx, _rx) = broadcast::channel(1000);
     {
@@ -79,68 +80,8 @@ pub async fn initialize_cache_invalidation(db: &Pool<Postgres>) -> Result<(), cr
             error!("Cache invalidation listener failed: {}", e);
         }
     });
-
-    // Create database triggers for cache invalidation
-    create_database_triggers(db).await?;
     
     info!("Variable/resource cache invalidation system initialized");
-    Ok(())
-}
-
-/// Create PostgreSQL triggers for cache invalidation
-async fn create_database_triggers(db: &Pool<Postgres>) -> Result<(), crate::error::Error> {
-    let mut conn = db.acquire().await?;
-    
-    // Create notification function
-    sqlx::query(r#"
-        CREATE OR REPLACE FUNCTION notify_variable_resource_change()
-        RETURNS TRIGGER AS $$
-        BEGIN
-            IF TG_TABLE_NAME = 'variable' THEN
-                PERFORM pg_notify('variable_changed', 
-                    json_build_object(
-                        'workspace_id', COALESCE(NEW.workspace_id, OLD.workspace_id),
-                        'path', COALESCE(NEW.path, OLD.path),
-                        'operation', TG_OP
-                    )::text
-                );
-            ELSIF TG_TABLE_NAME = 'resource' THEN
-                PERFORM pg_notify('resource_changed',
-                    json_build_object(
-                        'workspace_id', COALESCE(NEW.workspace_id, OLD.workspace_id),
-                        'path', COALESCE(NEW.path, OLD.path),
-                        'operation', TG_OP
-                    )::text
-                );
-            END IF;
-            RETURN COALESCE(NEW, OLD);
-        END;
-        $$ LANGUAGE plpgsql;
-    "#)
-    .execute(&mut *conn)
-    .await?;
-
-    // Create triggers for variable table
-    sqlx::query(r#"
-        DROP TRIGGER IF EXISTS variable_cache_invalidate ON variable;
-        CREATE TRIGGER variable_cache_invalidate
-            AFTER INSERT OR UPDATE OR DELETE ON variable
-            FOR EACH ROW EXECUTE FUNCTION notify_variable_resource_change();
-    "#)
-    .execute(&mut *conn)
-    .await?;
-
-    // Create triggers for resource table
-    sqlx::query(r#"
-        DROP TRIGGER IF EXISTS resource_cache_invalidate ON resource;
-        CREATE TRIGGER resource_cache_invalidate
-            AFTER INSERT OR UPDATE OR DELETE ON resource
-            FOR EACH ROW EXECUTE FUNCTION notify_variable_resource_change();
-    "#)
-    .execute(&mut *conn)
-    .await?;
-
-    debug!("Database triggers for cache invalidation created");
     Ok(())
 }
 
@@ -148,11 +89,11 @@ async fn create_database_triggers(db: &Pool<Postgres>) -> Result<(), crate::erro
 async fn listen_for_invalidations(
     db: Pool<Postgres>,
     tx: broadcast::Sender<InvalidationMessage>,
-) -> Result<(), crate::error::Error> {
+) -> Result<(), sqlx::Error> {
     let mut listener = sqlx::postgres::PgListener::connect_with(&db).await?;
     
-    listener.listen("variable_changed").await?;
-    listener.listen("resource_changed").await?;
+    listener.listen("var_cache_invalidation").await?;
+    listener.listen("resource_cache_invalidation").await?;
     
     debug!("Started listening for cache invalidation notifications");
 
@@ -160,7 +101,7 @@ async fn listen_for_invalidations(
         let notification = listener.recv().await?;
         
         match notification.channel() {
-            "variable_changed" => {
+            "var_cache_invalidation" => {
                 if let Ok(payload) = serde_json::from_str::<serde_json::Value>(notification.payload()) {
                     if let (Some(workspace_id), Some(path)) = 
                         (payload.get("workspace_id").and_then(|v| v.as_str()),
@@ -179,7 +120,7 @@ async fn listen_for_invalidations(
                     }
                 }
             }
-            "resource_changed" => {
+            "resource_cache_invalidation" => {
                 if let Ok(payload) = serde_json::from_str::<serde_json::Value>(notification.payload()) {
                     if let (Some(workspace_id), Some(path)) = 
                         (payload.get("workspace_id").and_then(|v| v.as_str()),
@@ -210,12 +151,7 @@ pub fn cache_key(workspace_id: &str, path: &str) -> String {
     format!("{}:{}", workspace_id, path)
 }
 
-/// Generate cache key for list queries
-pub fn list_cache_key(workspace_id: &str, query_hash: &str) -> String {
-    format!("{}:list:{}", workspace_id, query_hash)
-}
-
-/// Get cached variable if available and not expired
+/// Get cached variable if available and not expired  
 pub fn get_cached_variable(workspace_id: &str, path: &str) -> Option<ListableVariable> {
     let key = cache_key(workspace_id, path);
     VARIABLE_CACHE.get(&key).and_then(|entry| {
@@ -224,7 +160,7 @@ pub fn get_cached_variable(workspace_id: &str, path: &str) -> Option<ListableVar
             None
         } else {
             debug!("Cache hit for variable {}", key);
-            Some(entry.data.clone())
+            Some(entry.value.clone())
         }
     })
 }
@@ -246,7 +182,7 @@ pub fn get_cached_resource(workspace_id: &str, path: &str) -> Option<Value> {
             None
         } else {
             debug!("Cache hit for resource {}", key);
-            Some(entry.data.clone())
+            Some(entry.value.clone())
         }
     })
 }
@@ -263,19 +199,6 @@ pub fn cache_resource(workspace_id: &str, path: &str, resource: Value) {
 pub fn invalidate_variable_cache(workspace_id: &str, path: &str) {
     let key = cache_key(workspace_id, path);
     VARIABLE_CACHE.remove(&key);
-    
-    // Also invalidate related list caches
-    let list_prefix = format!("{}:list:", workspace_id);
-    let keys_to_remove: Vec<String> = VARIABLE_LIST_CACHE
-        .iter()
-        .map(|(k, _)| k.clone())
-        .filter(|k| k.starts_with(&list_prefix))
-        .collect();
-    
-    for key in keys_to_remove {
-        VARIABLE_LIST_CACHE.remove(&key);
-    }
-    
     debug!("Invalidated variable cache for {}", key);
 }
 
@@ -283,38 +206,26 @@ pub fn invalidate_variable_cache(workspace_id: &str, path: &str) {
 pub fn invalidate_resource_cache(workspace_id: &str, path: &str) {
     let key = cache_key(workspace_id, path);
     RESOURCE_CACHE.remove(&key);
-    
-    // Also invalidate related list caches
-    let list_prefix = format!("{}:list:", workspace_id);
-    let keys_to_remove: Vec<String> = RESOURCE_LIST_CACHE
-        .iter()
-        .map(|(k, _)| k.clone())
-        .filter(|k| k.starts_with(&list_prefix))
-        .collect();
-    
-    for key in keys_to_remove {
-        RESOURCE_LIST_CACHE.remove(&key);
-    }
-    
     debug!("Invalidated resource cache for {}", key);
 }
 
 /// Subscribe to invalidation notifications
+#[allow(dead_code)]
 pub async fn subscribe_to_invalidations() -> Option<broadcast::Receiver<InvalidationMessage>> {
     let sender = INVALIDATION_SENDER.read().await;
     sender.as_ref().map(|s| s.subscribe())
 }
 
 /// Clear all caches (for testing/debugging)
+#[allow(dead_code)]
 pub fn clear_all_caches() {
     VARIABLE_CACHE.clear();
     RESOURCE_CACHE.clear();
-    VARIABLE_LIST_CACHE.clear();
-    RESOURCE_LIST_CACHE.clear();
     debug!("All variable/resource caches cleared");
 }
 
 /// Health check for cache system
+#[allow(dead_code)]
 pub async fn cache_health_check() -> bool {
     // Check if invalidation sender is initialized
     let sender_ok = {

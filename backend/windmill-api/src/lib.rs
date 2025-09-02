@@ -188,6 +188,7 @@ mod users;
 pub mod users_ee;
 mod users_oss;
 mod utils;
+mod var_resource_cache;
 mod variables;
 pub mod webhook_util;
 #[cfg(feature = "websocket")]
@@ -304,6 +305,11 @@ pub async fn run_server(
         ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
+
+    // Initialize variable/resource cache invalidation system
+    if let Err(e) = crate::var_resource_cache::initialize_cache_invalidation(&db).await {
+        tracing::error!("Failed to initialize variable/resource cache system: {}", e);
+    }
 
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()
