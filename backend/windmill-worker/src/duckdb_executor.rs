@@ -203,7 +203,7 @@ pub async fn do_duckdb(
             conn.execute_batch(&format!(
                 "INSTALL httpfs;
                 LOAD httpfs;
-                CREATE OR REPLACE SECRET secret (
+                CREATE OR REPLACE SECRET s3_secret (
                     TYPE s3,
                     PROVIDER config,
                     KEY_ID '{s3_access_key}',
@@ -211,7 +211,15 @@ pub async fn do_duckdb(
                     ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
                     URL_STYLE path,
                     USE_SSL {s3_endpoint_ssl}
-                );",
+                );
+                CREATE OR REPLACE SECRET gcs_secret (
+                    TYPE gcs,
+                    KEY_ID '{s3_access_key}',
+                    SECRET '{s3_secret_key}',
+                    ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+                    USE_SSL {s3_endpoint_ssl}
+                );
+                ",
             ))
             .map_err(|e| {
                 Error::ExecutionErr(format!("Error setting up S3 secret: {}", e.to_string()))
