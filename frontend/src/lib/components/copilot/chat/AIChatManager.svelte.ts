@@ -37,7 +37,8 @@ import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { getCurrentModel, type DBSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { getCurrentModel, type DBSchemas, copilotInfo } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
@@ -208,7 +209,8 @@ class AIChatManager {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			this.systemMessage = prepareScriptSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareScriptSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
@@ -243,20 +245,24 @@ class AIChatManager {
 				}
 			}
 		} else if (mode === AIMode.FLOW) {
-			this.systemMessage = prepareFlowSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
-			this.systemMessage = prepareNavigatorSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
 			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
-			this.systemMessage = prepareAskSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareAskSystemMessage(customPrompt)
 			this.tools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
-			this.systemMessage = prepareApiSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
 		}

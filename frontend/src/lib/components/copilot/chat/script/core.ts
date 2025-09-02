@@ -452,10 +452,19 @@ WINDMILL LANGUAGE CONTEXT:
 
 `
 
-export function prepareScriptSystemMessage(): ChatCompletionSystemMessageParam {
+export function prepareScriptSystemMessage(
+	customPrompt?: string
+): ChatCompletionSystemMessageParam {
+	let content = CHAT_SYSTEM_PROMPT
+
+	// If there's a custom prompt, prepend it to the system prompt
+	if (customPrompt?.trim()) {
+		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	}
+
 	return {
 		role: 'system',
-		content: CHAT_SYSTEM_PROMPT
+		content
 	}
 }
 

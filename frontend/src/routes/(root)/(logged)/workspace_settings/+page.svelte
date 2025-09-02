@@ -19,9 +19,7 @@
 		ResourceService,
 		SettingService,
 		type AIConfig,
-
 		type ErrorHandler
-
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -57,6 +55,7 @@
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
+	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -81,6 +80,7 @@
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
 	let defaultModel: string | undefined = $state(undefined)
+	let customPrompts: Record<string, string> = $state({})
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -245,7 +245,12 @@
 		aiProviders = settings.ai_config?.providers ?? {}
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
-
+		customPrompts = settings.ai_config?.custom_prompts ?? {}
+		for (const mode of Object.values(AIMode)) {
+			if (!(mode in customPrompts)) {
+				customPrompts[mode] = ''
+			}
+		}
 		errorHandlerItemKind = settings.error_handler
 			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
 			: 'script'
@@ -318,7 +323,7 @@
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -328,7 +333,7 @@
 				requestBody: {
 					error_handler: undefined,
 					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined,
+					error_handler_muted_on_cancel: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
@@ -804,6 +809,7 @@
 				bind:aiProviders
 				bind:codeCompletionModel
 				bind:defaultModel
+				bind:customPrompts
 				bind:usingOpenaiClientCredentialsOauth
 			/>
 		{:else if tab == 'windmill_lfs'}

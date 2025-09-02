@@ -350,10 +350,17 @@ export const navigatorTools: Tool<{}>[] = [
 	getAvailableResourcesTool
 ]
 
-export function prepareNavigatorSystemMessage(): ChatCompletionSystemMessageParam {
+export function prepareNavigatorSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
+	let content = CHAT_SYSTEM_PROMPT
+
+	// If there's a custom prompt, append it to the system prompt
+	if (customPrompt?.trim()) {
+		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	}
+
 	return {
 		role: 'system',
-		content: CHAT_SYSTEM_PROMPT
+		content
 	}
 }
 

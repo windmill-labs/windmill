@@ -14,6 +14,10 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import autosize from '$lib/autosize'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -28,15 +32,19 @@
 		['customai', 'Custom AI']
 	]
 
+	const MAX_CUSTOM_PROMPT_LENGTH = 5000
+
 	let {
 		aiProviders = $bindable(),
 		codeCompletionModel = $bindable(),
 		defaultModel = $bindable(),
+		customPrompts = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable()
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
 		defaultModel: string | undefined
+		customPrompts: Record<string, string>
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
@@ -46,6 +54,9 @@
 			aiProviderLabels.map(([provider]) => [provider, AI_DEFAULT_MODELS[provider]])
 		) as Record<AIProvider, string[]>
 	)
+
+	// Custom system prompt settings
+	let selectedAiMode = $state<AIMode>(AIMode.ASK)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -94,10 +105,16 @@
 				defaultModel && modelProviderMap[defaultModel]
 					? { model: defaultModel, provider: modelProviderMap[defaultModel] }
 					: undefined
+			// Convert customPrompts to include only non-empty prompts
+			const custom_prompts: Record<string, string> = Object.entries(customPrompts)
+				.filter(([_, prompt]) => prompt.trim().length > 0)
+				.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
+
 			const config: AIConfig = {
 				providers: aiProviders,
 				code_completion_model,
-				default_model
+				default_model,
+				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined
 			}
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -309,6 +326,58 @@
 						</Label>
 					{/if}
 				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if Object.keys(aiProviders).length > 0}
+		<div class="flex flex-col gap-2">
+			<p class="font-semibold">Custom system prompts</p>
+			<div class="flex flex-col gap-4">
+				<Label label="AI Mode">
+					<ToggleButtonGroup
+						bind:selected={selectedAiMode}
+						on:selected={({ detail }) => {
+							selectedAiMode = detail
+						}}
+					>
+						{#snippet children({ item })}
+							{#each Object.values(AIMode) as mode}
+								<div class="relative">
+									<ToggleButton
+										value={mode}
+										label={mode.charAt(0).toUpperCase() + mode.slice(1)}
+										{item}
+									/>
+									{#if customPrompts[mode]?.length > 0}
+										<div
+											class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-surface"
+										></div>
+									{/if}
+								</div>
+							{/each}
+						{/snippet}
+					</ToggleButtonGroup>
+				</Label>
+
+				<Label
+					label="Custom system prompt for {selectedAiMode.charAt(0).toUpperCase() +
+						selectedAiMode.slice(1)} Mode"
+				>
+					<textarea
+						bind:value={customPrompts[selectedAiMode]}
+						placeholder="Enter a custom system prompt for {selectedAiMode} mode."
+						class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary resize-y"
+						rows="4"
+						maxlength={MAX_CUSTOM_PROMPT_LENGTH}
+						use:autosize
+					></textarea>
+					<div class="flex justify-end mt-1">
+						<span class="text-xs text-secondary">
+							{(customPrompts[selectedAiMode] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
+						</span>
+					</div>
+				</Label>
 			</div>
 		</div>
 	{/if}
