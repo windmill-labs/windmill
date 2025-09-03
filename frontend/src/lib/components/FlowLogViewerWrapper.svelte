@@ -66,7 +66,11 @@
 
 	// Keyboard event handler using navigation links
 	function handleKeydown(event: KeyboardEvent) {
-		if (!currentId) return
+		if (!currentId && job.raw_flow?.modules) {
+			currentId = 'flow-root'
+		} else if (!currentId) {
+			return
+		}
 
 		switch (event.key) {
 			case 'ArrowDown':
@@ -89,17 +93,10 @@
 				break
 		}
 	}
-
-	// Initialize navigation to root on mount
-	$effect(() => {
-		if (!currentId && job.raw_flow?.modules) {
-			currentId = 'flow-root'
-		}
-	})
 </script>
 
 <div
-	class="w-full rounded-md overflow-hidden border focus:border-gray-300 dark:focus:border-gray-400"
+	class="w-full rounded-md overflow-hidden border focus:border-gray-400 dark:focus:border-gray-400"
 	role="tree"
 	tabindex="0"
 	onkeydown={handleKeydown}
