@@ -219,79 +219,85 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="relative w-full h-full {wrapperClass}">
-	<div
-		bind:this={div}
-		class="w-full h-full overflow-auto relative bg-surface-secondary {noMaxH ? '' : 'max-h-screen'}"
-		data-nav-id={navigationId}
-	>
-		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
-			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				{#if jobId && download}
-					<div class="flex items-center">
-						<a
-							class="text-primary pb-0.5"
-							target="_blank"
-							href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-							download="windmill_logs_{jobId}.txt"
-							><Download size="14" />
-						</a>
-					</div>
-				{/if}
-				<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
-				{#if !noAutoScroll}
-					<div
-						class="{small ? '' : 'py-2'} pr-2 {small
-							? '!text-2xs'
-							: '!text-xs'} flex gap-2 text-tertiary items-center"
-					>
-						Auto scroll
-						<input class="windmillapp" type="checkbox" bind:checked={scroll} />
-					</div>
-				{/if}
-			</div>
-		</div>
-		{#if isLoading}
-			<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
-				<Loader2 class="animate-spin" />
-				{#if tag}
-					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
-							>{tagLabel ?? 'tag'}: {tag}</div
-						>
-						<NoWorkerWithTagWarning {tagLabel} {tag} />
-					</div>
-				{/if}
-			</div>
-		{:else if duration}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'} left-2">took {duration}ms</span
-			>
-		{/if}
-		{#if mem}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
-			>
-		{/if}
-		<pre
-			class={twMerge(
-				'whitespace-pre break-words w-full',
-				small ? '!text-2xs' : '!text-xs',
-				noPadding ? '' : 'p-2'
-			)}
-			>{#if content}{@const len =
-					(content?.length ?? 0) +
-					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button onclick={getStoreLogs}
-						>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-					/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
-					>{@html html}</span
-				>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+<div class="w-full h-full {wrapperClass}">
+	<div class="w-full h-full relative">
+		<div
+			bind:this={div}
+			class="w-full h-full overflow-auto bg-surface-secondary pt-5 {noMaxH ? '' : 'max-h-screen'}"
+			data-nav-id={navigationId}
 		>
+			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-sm">
+				<div class="flex gap-2">
+					{#if jobId && download}
+						<div class="flex items-center">
+							<a
+								class="text-primary pb-0.5"
+								target="_blank"
+								href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+								download="windmill_logs_{jobId}.txt"
+								><Download size="14" />
+							</a>
+						</div>
+					{/if}
+					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
+					{#if !noAutoScroll}
+						<div
+							class="{small ? '' : 'py-2'} pr-2 {small
+								? '!text-2xs'
+								: '!text-xs'} flex gap-2 text-tertiary items-center"
+						>
+							Auto scroll
+							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
+						</div>
+					{/if}
+				</div>
+			</div>
+			{#if isLoading}
+				<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
+					<Loader2 class="animate-spin" />
+					{#if tag}
+						<div class="flex flex-row items-center gap-1">
+							<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
+								>{tagLabel ?? 'tag'}: {tag}</div
+							>
+							<NoWorkerWithTagWarning {tagLabel} {tag} />
+						</div>
+					{/if}
+				</div>
+			{:else if duration}
+				<span
+					class={twMerge(
+						'absolute  text-tertiary dark:text-gray-400',
+						small ? '!text-2xs' : '!text-xs',
+						small ? 'top-0' : 'top-2',
+						noPadding ? '' : 'left-2'
+					)}>took {duration}ms</span
+				>
+			{/if}
+			{#if mem}
+				<span
+					class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
+						? 'top-0'
+						: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
+				>
+			{/if}
+			<pre
+				class={twMerge(
+					'whitespace-pre break-words w-full',
+					small ? '!text-2xs' : '!text-xs',
+					noPadding ? '' : 'p-2'
+				)}
+				>{#if content}{@const len =
+						(content?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
+							onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
+						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
+						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
+						>{@html html}</span
+					>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+			>
+		</div>
 	</div>
 </div>
 
