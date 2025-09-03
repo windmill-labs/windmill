@@ -776,14 +776,10 @@ async fn run_agent(
         .and_then(|schema| schema.properties.as_ref())
         .map(|props| !props.is_empty())
         .unwrap_or(false);
-<<<<<<< HEAD
     let provider_is_anthropic = args.provider.kind.is_anthropic();
     let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
         && args.provider.model.starts_with("anthropic/");
     let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
-=======
-    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
->>>>>>> main
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
