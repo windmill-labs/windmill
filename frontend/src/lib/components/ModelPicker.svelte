@@ -38,7 +38,7 @@
 		}))
 	)
 
-	async function loadModels() {
+	async function loadModels(signal?: AbortSignal) {
 		if (!provider || !resourcePath) {
 			return
 		}
@@ -52,30 +52,44 @@
 
 		try {
 			const workspace = get(workspaceStore) || ''
-			const models = await fetchAvailableModels(resourcePath, workspace, provider)
+			const models = await fetchAvailableModels(resourcePath, workspace, provider, signal)
+			if (signal?.aborted) {
+				return
+			}
 			availableModels = models
 			modelsCache.set(provider, models)
 		} catch (e) {
+			if (signal?.aborted) {
+				return
+			}
 			// Fall back to default models for this provider
 			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
 			availableModels = defaultModels
 		} finally {
-			loading = false
+			if (!signal?.aborted) {
+				loading = false
+			}
 		}
 	}
 
 	// Reload models when provider or resourcePath changes
 	$effect(() => {
+		const abortController = new AbortController()
+
 		filterText = ''
 		value = undefined
 		if (provider && resourcePath) {
-			loadModels()
+			loadModels(abortController.signal)
 		} else {
 			const defaultModels = provider
 				? AI_PROVIDERS[provider as AIProvider]?.defaultModels || []
 				: []
 			availableModels = defaultModels
 			loading = false
+		}
+
+		return () => {
+			abortController.abort()
 		}
 	})
 </script>

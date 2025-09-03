@@ -101,9 +101,11 @@ export interface ModelResponse {
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
-	provider: AIProvider
+	provider: AIProvider,
+	signal?: AbortSignal
 ): Promise<string[]> {
 	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		signal,
 		headers: {
 			'X-Resource-Path': resourcePath,
 			'X-Provider': provider,
