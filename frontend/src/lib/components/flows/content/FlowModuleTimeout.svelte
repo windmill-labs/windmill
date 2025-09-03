@@ -10,8 +10,9 @@
 	import { Alert, SecondsInput } from '../../common'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { getStepPropPicker } from '../previousResults'
 
 	interface Props {
 		flowModule: FlowModule
@@ -20,16 +21,27 @@
 
 	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let schema = $state(emptySchema())
 	schema.properties['timeout'] = {
 		type: 'number'
 	}
 
-	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
+	)
 
-	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	let editor: SimpleEditor | undefined = $state(undefined)
 
 	let istimeoutEnabled = $derived(Boolean(flowModule.timeout))
 </script>
@@ -62,11 +74,9 @@
 		{#if flowModule.timeout && schema.properties['timeout']}
 			<div class="border">
 				<PropPickerWrapper
-					noFlowPlugConnect={true}
+					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
-					{result}
-					displayContext={false}
-					pickableProperties={undefined}
+					pickableProperties={stepPropPicker.pickableProperties}
 					on:select={({ detail }) => {
 						editor?.insertAtCursor(detail)
 						editor?.focus()
