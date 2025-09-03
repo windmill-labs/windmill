@@ -1,7 +1,7 @@
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Value};
+use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
@@ -201,7 +201,7 @@ impl Provider {
 
 #[derive(Serialize)]
 struct AIAgentResult<'a> {
-    output: Value,
+    output: Box<RawValue>,
     messages: Vec<Message<'a>>,
 }
 
@@ -835,9 +835,10 @@ async fn run_agent(
                     tools: tool_defs.as_ref(),
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
-                    response_format: match is_anthropic || !has_output_properties {
-                        true => None,
-                        false => response_format.clone(),
+                    response_format: if has_output_properties && !is_anthropic {
+                        response_format.clone()
+                    } else {
+                        None
                     },
                 })
                 .send()
@@ -1007,11 +1008,11 @@ async fn run_agent(
 
     // Parse content as JSON, fallback to string if it fails
     let output_value = match content {
-        Some(content_str) => match serde_json::from_str::<Value>(&content_str) {
+        Some(content_str) => match serde_json::from_str::<Box<RawValue>>(&content_str) {
             Ok(parsed) => parsed,
-            Err(_) => Value::String(content_str),
+            Err(_) => to_raw_value(&content_str),
         },
-        None => Value::String(String::new()),
+        None => to_raw_value(&String::new()),
     };
 
     Ok(to_raw_value(&AIAgentResult {
