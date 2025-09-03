@@ -124,6 +124,7 @@ backon.workspace = true
 winapi = { workspace = true, optional = true }
 pep440_rs.workspace = true
 process-wrap.workspace = true
+async-once-cell.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

@@ -15753,6 +15753,7 @@ name = "windmill-worker"
 version = "1.538.0"
 dependencies = [
  "anyhow",
+ "async-once-cell",
  "async-recursion",
  "async-stream",
  "backon",

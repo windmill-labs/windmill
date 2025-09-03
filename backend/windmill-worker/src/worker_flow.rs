@@ -20,6 +20,7 @@ use crate::{
 };
 
 use anyhow::Context;
+use async_once_cell::Lazy;
 use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
@@ -56,9 +57,8 @@ use windmill_common::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Step, Suspend},
 };
-use windmill_queue::flow_status::Step;
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
@@ -222,6 +222,7 @@ fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
     let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
     return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
 }
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -344,14 +345,33 @@ pub async fn update_flow_status_after_job_completion_internal(
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
+        let args = Arc::pin(Lazy::new(async move {
+            let args = sqlx::query_scalar!(
+                r#"
+            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
+            FROM v2_job
+            WHERE id = $1
+            "#,
+                flow
+            )
+            .fetch_one(db)
+            .await;
+            args
+        }));
+
+        let from_result_to_args =
+            |args: &Result<Option<Json<HashMap<String, Box<RawValue>>>>, sqlx::Error>| {
+                let args = args.as_ref().map_err(|e| {
+                    Error::internal_err(format!("retrieval of args from state: {e:#}"))
+                })?;
+
+                Ok::<_, Error>(args.clone())
+            };
+
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if let Some(se) = stop_early_override {
                 //do not stop early if module is a flow step
-                let step = match module_step {
-                    Step::PreprocessorStep => None,
-                    Step::FailureStep => None,
-                    Step::Step(i) => Some(i),
-                };
+                let step = module_step.get_step_index();
 
                 let is_flow = if let Some(_) = step {
                     #[derive(Deserialize)]
@@ -375,7 +395,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 } else {
                     (true, None, se, false)
                 }
-            } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
+            } else if is_failure_step || module_step.is_preprocessor_step() {
                 (false, None, false, false)
             } else if let Some(current_module) = current_module {
                 let stop_early = success
@@ -394,18 +414,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 )),
                                 _ => None,
                             };
-                        let args = sqlx::query_scalar!(
-                            "SELECT
-                                 args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                             FROM v2_job
-                             WHERE id = $1",
-                            flow
-                        )
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("retrieval of args from state: {e:#}"))
-                        })?;
+                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args.unwrap_or_default().0),
@@ -820,7 +829,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        next_retry(&retry, &old_status.retry).is_none()
+                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+
+                        evaluate_retry(
+                            &retry,
+                            &old_status.retry,
+                            result.clone(),
+                            Marc::new(args.unwrap_or_default().0),
+                            Some(client),
+                        )
+                        .await?
+                        .is_none()
                     } else {
                         false
                     };
@@ -901,7 +920,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "error while setting flow status in failure step: {e:#}"
                     ))
                 })?;
-            } else if matches!(module_step, Step::PreprocessorStep) {
+            } else if module_step.is_preprocessor_step() {
                 sqlx::query!(
                     "UPDATE v2_job_status
                      SET flow_status = JSONB_SET(flow_status, ARRAY['preprocessor_module'], $1)
@@ -968,16 +987,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .as_ref()
                     .and_then(|m| m.stop_after_all_iters_if.as_ref())
                 {
-                    let args = sqlx::query_scalar!(
-                        "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                         FROM v2_job WHERE id = $1",
-                        flow
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("retrieval of args from state: {e:#}"))
-                    })?;
+                    let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
                     let should_stop = compute_bool_from_expr(
                         &stop_after_all_iters_if.expr,
@@ -1025,7 +1035,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
 
-        if matches!(module_step, Step::PreprocessorStep) && success {
+        if module_step.is_preprocessor_step() && success {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
             let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
@@ -1150,6 +1160,28 @@ pub async fn update_flow_status_after_job_completion_internal(
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
 
+        let should_retry = async move || -> error::Result<bool> {
+            let default_retry = Retry::default();
+            let retry_config = flow_value
+                .get_flow_module_at_step(module_step)
+                .ok()
+                .and_then(|flow_module| flow_module.retry.as_ref())
+                .unwrap_or(&default_retry);
+            let args = from_result_to_args(args.as_ref().await.get_ref())?;
+
+            let should_retry = evaluate_retry(
+                retry_config,
+                &old_status.retry,
+                result.clone(),
+                Marc::new(args.unwrap_or_default().0),
+                Some(client),
+            )
+            .await?
+            .is_some();
+
+            Ok(should_retry)
+        };
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.is_canceled() => false,
@@ -1158,30 +1190,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
-            false
-                if next_retry(
-                    match module_step {
-                        Step::PreprocessorStep => flow_value
-                            .preprocessor_module
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                        Step::Step(i) => flow_value
-                            .modules
-                            .get(i)
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                        Step::FailureStep => flow_value
-                            .failure_module
-                            .as_ref()
-                            .and_then(|m| m.retry.as_ref()),
-                    }
-                    .unwrap_or(&Retry::default()),
-                    &old_status.retry,
-                )
-                .is_some() =>
-            {
-                true
-            }
+            false if should_retry().await? => true,
             false
                 if !is_failure_step
                     && !has_triggered_error_handler
@@ -1532,11 +1541,39 @@ async fn compute_skip_branchall_failure<'c>(
 //         )))
 // }
 
-fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u32, Duration)> {
-    (status.fail_count <= MAX_RETRY_ATTEMPTS)
-        .then(|| &retry)
-        .and_then(|retry| retry.interval(status.fail_count, false))
-        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
+async fn evaluate_retry(
+    retry: &Retry,
+    status: &RetryStatus,
+    result: Arc<Box<RawValue>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    client: Option<&AuthedClient>,
+) -> anyhow::Result<Option<(u32, Duration)>> {
+    if status.fail_count > MAX_RETRY_ATTEMPTS {
+        return Ok(None);
+    }
+
+    if let Some(retry_if) = &retry.retry_if {
+        let should_retry = compute_bool_from_expr(
+            &retry_if.expr,
+            flow_args,
+            result,
+            None,
+            None,
+            client,
+            None,
+            None,
+        )
+        .await?;
+
+        if !should_retry {
+            tracing::debug!("Retry condition evaluated to false, not retrying");
+            return Ok(None);
+        }
+    }
+
+    Ok(retry
+        .interval(status.fail_count, false)
+        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL))))
 }
 
 async fn compute_bool_from_expr(
@@ -1959,7 +1996,7 @@ async fn push_next_flow_job(
     let arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
-    } else if matches!(step, Step::Step(0)) || matches!(step, Step::PreprocessorStep) {
+    } else if matches!(step, Step::Step(0)) || step.is_preprocessor_step() {
         // if it's the first job executed in the flow, pass the flow args
         Arc::new(to_raw_value(&flow_job.args))
     } else {
@@ -2270,20 +2307,7 @@ async fn push_next_flow_job(
         }
     }
 
-    let mut module = match step {
-        Step::Step(i) => flow
-            .modules
-            .get(i)
-            .with_context(|| format!("no module at index {}", i))?,
-        Step::PreprocessorStep => flow
-            .preprocessor_module
-            .as_ref()
-            .with_context(|| format!("no preprocessor module"))?,
-        Step::FailureStep => flow
-            .failure_module
-            .as_deref()
-            .with_context(|| format!("no failure module"))?,
-    };
+    let mut module = flow.get_flow_module_at_step(step)?;
 
     let current_id = &module.id;
     let mut previous_id = match step {
@@ -2365,7 +2389,14 @@ async fn push_next_flow_job(
 
     let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
         let retry = &module.retry.clone().unwrap_or_default();
-        next_retry(retry, &status.retry)
+        evaluate_retry(
+            retry,
+            &status.retry,
+            arc_last_job_result.clone(),
+            arc_flow_job_args.clone(),
+            Some(client),
+        )
+        .await?
     } else {
         None
     };
@@ -2497,7 +2528,7 @@ async fn push_next_flow_job(
         } else {
             Ok(Marc::new(HashMap::new()))
         }
-    } else if matches!(step, Step::PreprocessorStep) {
+    } else if step.is_preprocessor_step() {
         let mut hm = (*arc_flow_job_args).clone();
         hm.insert(
             ENTRYPOINT_OVERRIDE.to_string(),
@@ -2835,7 +2866,7 @@ async fn push_next_flow_job(
                 .map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if !matches!(step, Step::PreprocessorStep)
+        let tag = if !step.is_preprocessor_step()
             && (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
         {
             payload_tag.tag.clone()
