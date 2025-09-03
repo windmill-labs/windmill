@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.538.0](https://github.com/windmill-labs/windmill/compare/v1.537.1...v1.538.0) (2025-09-01)
+
+
+### Features
+
+* **aichat:** cache prompts when using anthropic models ([#6489](https://github.com/windmill-labs/windmill/issues/6489)) ([8b3ae19](https://github.com/windmill-labs/windmill/commit/8b3ae1984c745164bbf3938e6f8fc3cf02a0e2c1))
+* **frontend:** preprocessor snippet completion in code editor ([#6502](https://github.com/windmill-labs/windmill/issues/6502)) ([a5a9a33](https://github.com/windmill-labs/windmill/commit/a5a9a33d10fcac802834b1c046a3c116ab5b3454))
+* **perf:** add 300-second local cache for variable crypt retrieval ([#6483](https://github.com/windmill-labs/windmill/issues/6483)) ([8f46066](https://github.com/windmill-labs/windmill/commit/8f46066a6478a48411e00f5c4e1f9b9fdb49c1fc))
+
+
+### Bug Fixes
+
+* **backend:** http triggers early return ([#6501](https://github.com/windmill-labs/windmill/issues/6501)) ([c01ed2d](https://github.com/windmill-labs/windmill/commit/c01ed2d62a440b0ade624ed1def6bb2a54f5aa81))
+* **frontend:** capture/trigger UI nits ([#6494](https://github.com/windmill-labs/windmill/issues/6494)) ([8cd1c64](https://github.com/windmill-labs/windmill/commit/8cd1c6474b3c55d706683f83b40ef5569245b559))
+* **frontend:** Improve runs page ux ([#6485](https://github.com/windmill-labs/windmill/issues/6485)) ([768c600](https://github.com/windmill-labs/windmill/commit/768c60049413277e2764ef889274d4f8691412aa))
+* **frontend:** make resource a separate top-level type in schema editor for clarity ([0f6a742](https://github.com/windmill-labs/windmill/commit/0f6a74256dba0f571e9fcfa876e78971385ba541))
+* schema editor reactivity improvements ([#6496](https://github.com/windmill-labs/windmill/issues/6496)) ([6e46058](https://github.com/windmill-labs/windmill/commit/6e46058c5a9af6cd9fb8c1f08bb58dc123d5323e))
+
 ## [1.537.1](https://github.com/windmill-labs/windmill/compare/v1.537.0...v1.537.1) (2025-08-29)
 
 

@@ -26,6 +26,7 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    scripts::ScriptHash,
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -38,6 +39,7 @@ use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use crate::var_resource_cache::{get_cached_variable, cache_variable};
 
 lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -76,7 +78,9 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some(chrono::offset::Utc::now()),
+            Some(ScriptHash(1234567890)),
         )
         .await
         .to_vec(),
@@ -142,6 +146,7 @@ async fn get_variable(
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
@@ -215,20 +220,25 @@ async fn get_variable(
         variable
     };
 
+
     Ok(Json(r))
 }
 
+#[derive(Deserialize)]
+struct GetValueQuery {
+    allow_cache: Option<bool>,
+}
 async fn get_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(q): Query<GetValueQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed)
+    return get_value_internal(tx, &db, &w_id, &path, &authed, q.allow_cache.unwrap_or(false))
         .await
         .map(Json);
 }
@@ -690,7 +700,16 @@ pub async fn get_value_internal<'c>(
     w_id: &str,
     path: &str,
     audit_author: &impl AuditAuthorable,
+    allow_cache: bool,
 ) -> Result<String> {
+
+        
+    if allow_cache {
+        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
+            return Ok(cached_variable);
+        }
+    }
+
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
@@ -706,6 +725,8 @@ pub async fn get_value_internal<'c>(
         unreachable!()
     };
 
+
+        
     let r = if variable.is_secret {
         audit_log(
             &mut *tx,
@@ -742,6 +763,12 @@ pub async fn get_value_internal<'c>(
     } else {
         variable.value
     };
+
+    // Cache the result when explicitly allowed and caching appropriate
+    if allow_cache {
+        cache_variable(&w_id, &path,  audit_author.email(), r.clone());
+    }
+
 
     Ok(r)
 }

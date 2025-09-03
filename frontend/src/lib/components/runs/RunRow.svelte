@@ -337,7 +337,7 @@
 				>
 					<Calendar size={14} />
 				</Button>
-				<div class="text-xs truncate text-ellipsis text-lef" dir="rtl" title={job.schedule_path}>
+				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.schedule_path}>
 					{job.schedule_path}
 				</div>
 				<DropdownV2

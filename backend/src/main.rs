@@ -473,6 +473,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+
+        // NOTE: Variable/resource cache initialization moved to API server in windmill-api
+
         Connection::Sql(db)
     };
 
@@ -722,6 +725,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_mode,
                         mcp_mode,
                         base_internal_url.clone(),
+                        None,
                     )
                     .await?;
                 }
@@ -916,7 +920,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 #[cfg(feature = "http_trigger")]
                                                 "notify_http_trigger_change" => {
                                                     tracing::info!("HTTP trigger change detected: {}", n.payload());
-                                                    match windmill_api::http_triggers::refresh_routers(&db).await {
+                                                    match windmill_api::triggers::http::refresh_routers(&db).await {
                                                         Ok((true, _)) => {
                                                             tracing::info!("Refreshed HTTP routers (trigger change)");
                                                         },
@@ -932,6 +936,26 @@ Windmill Community Edition {GIT_VERSION}
                                                     let token = n.payload();
                                                     tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
                                                     windmill_api::auth::invalidate_token_from_cache(token);
+                                                },
+                                                "var_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) =
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_variable_cache(&workspace_id, &path);
+                                                        }
+                                                    }
+                                                },
+                                                "resource_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) =
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_resource_cache(&workspace_id, &path);
+                                                        }
+                                                    }
                                                 },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());

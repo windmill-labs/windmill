@@ -81,7 +81,7 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 							onclick?.()
 						})
 					)}
-					title="Edit Id"><Pencil size={14} /></button
+					title="Edit Id"><Pencil size={12} /></button
 				>
 			{/if}
 		{:else if id?.startsWith('subflow:')}
