@@ -20,6 +20,7 @@ use crate::{
 };
 
 use anyhow::Context;
+use async_once_cell::Lazy;
 use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
@@ -221,6 +222,7 @@ fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
     let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
     return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
 }
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -343,36 +345,28 @@ pub async fn update_flow_status_after_job_completion_internal(
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let cached_args = Arc::new(std::sync::Mutex::new(
-            None::<Option<Json<HashMap<String, Box<RawValue>>>>>,
-        ));
-        let fetch_args_once = {
-            let cached_args = cached_args.clone();
-            async move || {
-                {
-                    let cached = cached_args.lock().unwrap();
-                    if let Some(ref args) = *cached {
-                        return Ok::<Option<Json<HashMap<String, Box<RawValue>>>>, Error>(
-                            args.clone(),
-                        );
-                    }
-                }
+        let args = Arc::pin(Lazy::new(async move {
+            let args = sqlx::query_scalar!(
+                r#"
+            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
+            FROM v2_job
+            WHERE id = $1
+            "#,
+                flow
+            )
+            .fetch_one(db)
+            .await;
+            args
+        }));
 
-                let args = sqlx::query_scalar!(
-                    "SELECT
-                             args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                         FROM v2_job
-                         WHERE id = $1",
-                    flow
-                )
-                .fetch_one(db)
-                .await
-                .map_err(|e| Error::internal_err(format!("retrieval of args from state: {e:#}")))?;
+        let from_result_to_args =
+            |args: &Result<Option<Json<HashMap<String, Box<RawValue>>>>, sqlx::Error>| {
+                let args = args.as_ref().map_err(|e| {
+                    Error::internal_err(format!("retrieval of args from state: {e:#}"))
+                })?;
 
-                *cached_args.lock().unwrap() = Some(args.clone());
-                Ok(args)
-            }
-        };
+                Ok::<_, Error>(args.clone())
+            };
 
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if let Some(se) = stop_early_override {
@@ -404,7 +398,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if is_failure_step || module_step.is_preprocessor_step() {
                 (false, None, false, false)
             } else if let Some(current_module) = current_module {
-                let stop_early = success
+                let stop_early = !success
                     && !is_branch_all
                     && if let Some(expr) = current_module
                         .stop_after_if
@@ -420,7 +414,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 )),
                                 _ => None,
                             };
-                        let args = fetch_args_once().await?;
+                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args.unwrap_or_default().0),
@@ -835,7 +829,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        let args = fetch_args_once().await?;
+                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+
                         evaluate_retry(
                             &retry,
                             &old_status.retry,
@@ -992,7 +987,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .as_ref()
                     .and_then(|m| m.stop_after_all_iters_if.as_ref())
                 {
-                    let args = fetch_args_once().await?;
+                    let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
                     let should_stop = compute_bool_from_expr(
                         &stop_after_all_iters_if.expr,
@@ -1172,8 +1167,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .ok()
                 .and_then(|flow_module| flow_module.retry.as_ref())
                 .unwrap_or(&default_retry);
+            let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-            let args = fetch_args_once().await?;
             let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
