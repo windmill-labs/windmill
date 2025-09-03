@@ -80,6 +80,7 @@ pub mod users;
 pub mod utils;
 pub mod variables;
 pub mod worker;
+pub mod worker_group_job_stats;
 pub mod workspaces;
 pub mod result_stream;
 pub mod stream;
