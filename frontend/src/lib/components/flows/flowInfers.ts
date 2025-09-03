@@ -73,7 +73,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 							model: {
 								type: 'string',
 								format: 'ai-model',
-								default: details.defaultModels[0]
+								default: details.defaultModels?.[0] ?? undefined
 							}
 						},
 						required: ['kind', 'resource', 'model']
