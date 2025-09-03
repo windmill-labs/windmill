@@ -307,6 +307,8 @@
 		if (currentId) {
 			const element = document.querySelector(`[data-nav-id="${currentId}"]`)
 			if (element) {
+				;(element as HTMLElement).focus?.({ preventScroll: true })
+
 				element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 			}
 		}
@@ -401,6 +403,7 @@
 						rootJob.type === undefined ? 'opacity-50' : '',
 						isCurrent(`flow-${flowId}`) ? 'bg-surface-hover' : ''
 					)}
+					tabindex="-1"
 					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
 					data-nav-id={`flow-${flowId}`}
 				>
@@ -464,6 +467,7 @@
 												'py-1 flex items-center justify-between pr-2 cursor-pointer',
 												isCurrent(`flow-${flowId}-input`) ? 'bg-surface-hover' : ''
 											)}
+											tabindex="-1"
 											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
 											data-nav-id={`flow-${flowId}-input`}
 										>
@@ -508,6 +512,7 @@
 														: '',
 													isCurrent(module.id) ? 'bg-surface-hover' : ''
 												)}
+												tabindex="-1"
 												onclick={isCollapsible ? () => toggleExpanded(module.id) : undefined}
 												data-nav-id={module.id}
 											>
@@ -645,24 +650,39 @@
 													<!-- Show input arguments -->
 													{#if getSubflows(module).length === 0}
 														{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
-															<div class="mb-2">
-																<!-- svelte-ignore a11y_click_events_have_key_events -->
-																<!-- svelte-ignore a11y_no_static_element_interactions -->
-																<div
+															<div
+																class={twMerge(
+																	'mb-2',
+																	isCurrent(`${module.id}-input`)
+																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																		: ''
+																)}
+															>
+																<button
 																	class={twMerge(
-																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1',
+																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium h-6 w-full pl-1',
 																		isCurrent(`${module.id}-input`) ? 'bg-surface-hover' : ''
 																	)}
+																	tabindex="-1"
 																	onclick={() => toggleExpanded(`${module.id}-input`)}
 																	data-nav-id={`${module.id}-input`}
 																>
 																	{#if isExpanded(`${module.id}-input`)}
-																		<ChevronDown size={8} />
+																		<ChevronDown
+																			size={8}
+																			strokeWidth={isCurrent(`${module.id}-input`) ? 4 : 2}
+																		/>
 																	{:else}
-																		<ChevronRight size={8} />
+																		<ChevronRight
+																			size={8}
+																			strokeWidth={isCurrent(`${module.id}-input`) ? 4 : 2}
+																		/>
 																	{/if}
-																	Input
-																</div>
+																	<div class="flex items-center gap-2 grow min-w-0">
+																		<ArrowDownFromLine size={10} />
+																		<span class="text-xs font-mono">Input</span>
+																	</div>
+																</button>
 																{#if isExpanded(`${module.id}-input`)}
 																	<div class="pl-4">
 																		<ObjectViewer json={args} pureViewer={true} />
@@ -682,8 +702,13 @@
 																noAutoScroll={true}
 																tag={undefined}
 																noPadding
-																wrapperClass="w-full mb-2 pr-2"
-																putFocus={isCurrent(`${module.id}-logs`)}
+																wrapperClass={twMerge(
+																	'w-full mb-2 px-2',
+																	isCurrent(`${module.id}-logs`)
+																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																		: ''
+																)}
+																navigationId={`${module.id}-logs`}
 															/>
 														{:else if jobId && !hasSubflows(module)}
 															<div class="mb-2">
@@ -696,24 +721,39 @@
 														<!-- Show result if completed -->
 
 														{#if showResultsInputs && isLeafStep && result !== undefined && (status === 'Success' || status === 'Failure')}
-															<div class="mb-2 mt-2">
-																<!-- svelte-ignore a11y_click_events_have_key_events -->
-																<!-- svelte-ignore a11y_no_static_element_interactions -->
-																<div
+															<div
+																class={twMerge(
+																	'mb-2',
+																	isCurrent(`${module.id}-result`)
+																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																		: ''
+																)}
+															>
+																<button
 																	class={twMerge(
-																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium mb-1',
+																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium h-6 w-full pl-1',
 																		isCurrent(`${module.id}-result`) ? 'bg-surface-hover' : ''
 																	)}
+																	tabindex="-1"
 																	onclick={() => toggleExpanded(`${module.id}-result`)}
 																	data-nav-id={`${module.id}-result`}
 																>
 																	{#if isExpanded(`${module.id}-result`)}
-																		<ChevronDown size={8} />
+																		<ChevronDown
+																			size={8}
+																			strokeWidth={isCurrent(`${module.id}-result`) ? 4 : 2}
+																		/>
 																	{:else}
-																		<ChevronRight size={8} />
+																		<ChevronRight
+																			size={8}
+																			strokeWidth={isCurrent(`${module.id}-result`) ? 4 : 2}
+																		/>
 																	{/if}
-																	Result
-																</div>
+																	<div class="flex items-center gap-2 grow min-w-0">
+																		<ArrowDownFromLine size={10} />
+																		<span class="text-xs font-mono">Result</span>
+																	</div>
+																</button>
 																{#if isExpanded(`${module.id}-result`)}
 																	<div class="pl-4">
 																		<ObjectViewer json={result} pureViewer={true} />
@@ -741,6 +781,7 @@
 												'py-1 flex items-center justify-between pr-2 cursor-pointer',
 												isCurrent(`flow-${flowId}-result`) ? 'bg-surface-hover' : ''
 											)}
+											tabindex="-1"
 											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
 											data-nav-id={`flow-${flowId}-result`}
 										>
@@ -809,7 +850,7 @@
 {/snippet}
 
 {#snippet collapsibleButton(id: string, isCollapsible: boolean, isRunning?: boolean)}
-	<div class={twMerge('align-top', isCurrent(id) ? 'border-l border-l-gray-400 -ml-[1px]' : '')}>
+	<div class={twMerge('align-top', isCurrent(id) ? 'border-l-2 border-l-gray-400 -ml-[2px]' : '')}>
 		{#if isCollapsible}
 			<button
 				class={twMerge(
@@ -834,5 +875,10 @@
 <style>
 	.transition-all {
 		transition: all 0.2s ease-in-out;
+	}
+
+	[data-nav-id]:focus-visible {
+		outline: none;
+		outline-offset: 0;
 	}
 </style>

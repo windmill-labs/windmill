@@ -34,7 +34,7 @@
 		customEmptyMessage?: string
 		tagLabel?: string
 		noPadding?: boolean
-		putFocus?: boolean
+		navigationId?: string
 	}
 
 	let {
@@ -53,7 +53,7 @@
 		customEmptyMessage = 'No logs are available yet',
 		tagLabel = undefined,
 		noPadding = false,
-		putFocus = false
+		navigationId = undefined
 	}: Props = $props()
 
 	// @ts-ignore
@@ -173,13 +173,6 @@
 				: truncatedContent
 		)
 	)
-
-	$effect(() => {
-		console.log('putFocus', putFocus, div)
-		if (putFocus) {
-			div?.focus()
-		}
-	})
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
@@ -230,6 +223,7 @@
 	<div
 		bind:this={div}
 		class="w-full h-full overflow-auto relative bg-surface-secondary {noMaxH ? '' : 'max-h-screen'}"
+		data-nav-id={navigationId}
 	>
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
@@ -504,5 +498,10 @@
 	}
 	.dark .ansi-bright-white-bg {
 		background-color: rgb(229, 233, 240);
+	}
+
+	[data-nav-id]:focus-visible {
+		outline: none;
+		outline-offset: 0;
 	}
 </style>
