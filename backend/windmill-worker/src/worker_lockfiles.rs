@@ -708,6 +708,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             match r {
                 // TODO: Fallback - remove eventually.
                 Ok(Some(version)) if *WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ => {
+                    tracing::warn!("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.");
                     JobPayload::FlowDependencies {
                         path: s.importer_path.clone(),
                         dedicated_worker: None,
