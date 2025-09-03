@@ -723,12 +723,14 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
-                    // TODO: Test with drafts
-                    // TODO: BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
-                    // TODO: Depend on relative import several times
-                    // TODO: Test with relative imports caching
-                    // TODO: Use transaction
-                    // TODO: BUG: If pg notification to reset latest version is triggered, then it will call server to get new one, which will probably be the same (bc new version is not marked as viewable yet).
+                    // TODO: [] Check if works in nested manner
+                    // TODO: [] Test for ts
+                    // TODO: [x] Test with drafts
+                    // TODO: [] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
+                    // TODO: [x] Depend on relative import several times
+                    // TODO: [x] Test with relative imports caching
+                    // TODO: [x] Use transaction
+                    // TODO: [x] BUG: If pg notification to reset latest version is triggered, then it will call server to get new one, which will probably be the same (bc new version is not marked as viewable yet).
 
                     // Find out what would be the next version.
                     // Also clone current flow_version to get new_version (which is usually c_v + 1).
@@ -1501,12 +1503,31 @@ async fn insert_flow_node<'c>(
     code: Option<&String>,
     lock: Option<&String>,
     flow: Option<&Json<Box<RawValue>>>,
+    language: Option<ScriptLang>,
 ) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
     let hash = {
         let mut hasher = sha2::Sha256::new();
         hasher.update(code.unwrap_or(&Default::default()));
         hasher.update(lock.unwrap_or(&Default::default()));
         hasher.update(flow.unwrap_or(&Default::default()).get());
+
+        if let Some(imports) = extract_relative_imports(
+            code.map(|s| s.as_str()).unwrap_or_default(),
+            path,
+            &language,
+        ) {
+            // We also want to take into account hashes of relative imports.
+            // TODO: May be use bytemuck or cast it in different, more proper way.
+            hasher.update(&format!(
+                "{:?}",
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT hash FROM script WHERE path = ANY($1) AND archived = false"
+                )
+                .bind(imports)
+                .fetch_all(&mut *tx)
+                .await?
+            ));
+        }
         format!("{:x}", hasher.finalize())
     };
 
@@ -1599,6 +1620,8 @@ async fn insert_flow_modules<'c>(
             same_worker,
             ..Default::default()
         }))),
+        // TODO: ?
+        None,
     )
     .await?;
     *modules_node = Some(id);
@@ -1643,9 +1666,16 @@ async fn reduce_flow<'c>(
                     unreachable!()
                 };
                 let id;
-                (tx, id) =
-                    insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None)
-                        .await?;
+                (tx, id) = insert_flow_node(
+                    tx,
+                    path,
+                    workspace_id,
+                    Some(&content),
+                    lock.as_ref(),
+                    None,
+                    Some(language),
+                )
+                .await?;
                 val = FlowScript {
                     input_transforms,
                     id,
