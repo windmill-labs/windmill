@@ -6,11 +6,11 @@
 		ArrowDownToLine,
 		ArrowDownFromLine,
 		FoldVertical,
-		UnfoldVertical
+		UnfoldVertical,
+		ExternalLink
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
-	import { truncateRev } from '$lib/utils'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
@@ -411,12 +411,12 @@
 					{#if flowInfo.jobId}
 						<a
 							href={getJobLink(flowInfo.jobId)}
-							class="text-xs text-primary hover:underline font-mono"
+							class="text-xs text-gray-400 hover:text-primary pl-1"
 							target="_blank"
 							rel="noopener noreferrer"
 							onclick={(e) => e.stopPropagation()}
 						>
-							{truncateRev(flowInfo.jobId, 6)}
+							<ExternalLink size={12} />
 						</a>
 					{/if}
 				</div>
@@ -485,8 +485,7 @@
 									{#snippet label()}
 										<div
 											class={twMerge(
-												'flex items-center justify-between pr-2',
-												isCollapsible ? 'cursor-pointer' : '',
+												'flex items-center justify-between',
 												status === 'WaitingForPriorSteps' ||
 													status === 'WaitingForEvents' ||
 													status === 'WaitingForExecutor' ||
@@ -504,7 +503,7 @@
 												)}
 
 												<div class="flex items-center gap-2">
-													<span class="text-xs font-mono">
+													<span class="text-xs font-mono text-left">
 														<b>
 															{mode === 'aiagent'
 																? module.summary
@@ -570,11 +569,11 @@
 												{#if jobId}
 													<a
 														href={getJobLink(jobId ?? '')}
-														class="text-xs text-primary hover:underline font-mono"
+														class="text-xs text-gray-400 hover:text-primary pl-1"
 														target="_blank"
 														rel="noopener noreferrer"
 													>
-														{truncateRev(jobId ?? '', 6)}
+														<ExternalLink size={12} />
 													</a>
 												{/if}
 											{/if}

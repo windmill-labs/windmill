@@ -52,7 +52,7 @@
 				{/if}
 			{:else}
 				<!-- Empty subflow - no collapse button, just spacing -->
-				<div class="w-4"></div>
+				<div class="w-2"></div>
 			{/if}
 		</div>
 		<div class="w-full leading-tight">
