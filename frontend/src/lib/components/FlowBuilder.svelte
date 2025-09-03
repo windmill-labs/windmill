@@ -682,7 +682,7 @@
 				}
 				break
 			case 'ArrowDown': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
 					let idx = ids.indexOf($selectedIdStore)
 					if (idx > -1 && idx < ids.length - 1) {
@@ -693,7 +693,7 @@
 				break
 			}
 			case 'ArrowUp': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
 					let idx = ids.indexOf($selectedIdStore)
 					if (idx > 0 && idx < ids.length) {
