@@ -96,14 +96,11 @@ jobs:
           SQLX_OFFLINE: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          model: claude-opus-4-1-20250805
+          fallback_model: claude-sonnet-4-20250514
           timeout_minutes: "60"
           allowed_tools: "mcp__github__create_pull_request,Bash"
           allowed_bots: "windmill-internal-app[bot]"
-          # claude_args: |
-          #   --max-turns 10
-          #   --model claude-4-0-sonnet-20250805
-          model: claude-opus-4-1-20250805
-          fallback_model: claude-sonnet-4-20250514
           custom_instructions: |
             ## IMPORTANT INSTRUCTIONS
             - Your branch name should be a short description of the requested changes.
