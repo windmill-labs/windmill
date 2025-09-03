@@ -95,7 +95,9 @@ jobs:
         env:
           SQLX_OFFLINE: true
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          model: claude-opus-4-1-20250805
+          fallback_model: claude-sonnet-4-20250514
           timeout_minutes: "60"
           allowed_tools: "mcp__github__create_pull_request,Bash"
           allowed_bots: "windmill-internal-app[bot]"

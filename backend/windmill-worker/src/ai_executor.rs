@@ -9,11 +9,12 @@ use windmill_common::{
     auth::get_job_perms,
     cache,
     client::AuthedClient,
+    db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
     flows::{FlowModule, FlowModuleValue},
     get_latest_hash_for_path,
-    jobs::{JobKind, DB},
+    jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
@@ -41,13 +42,34 @@ lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+/// Find a unique tool name to avoid collisions with user-provided tools
+fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
+    let Some(tools) = existing_tools else {
+        return base_name.to_string();
+    };
+
+    if !tools.iter().any(|t| t.function.name == base_name) {
+        return base_name.to_string();
+    }
+
+    for i in 1..100 {
+        let candidate = format!("{}_{}", base_name, i);
+        if !tools.iter().any(|t| t.function.name == candidate) {
+            return candidate;
+        }
+    }
+
+    // Fallback with process id if somehow we can't find a unique name
+    format!("{}_{}_fallback", base_name, std::process::id())
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIFunction {
     name: String,
     arguments: String,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIToolCall {
     id: String,
     function: OpenAIFunction,
@@ -91,20 +113,37 @@ struct OpenAIRequest<'a> {
     model: &'a str,
     messages: &'a Vec<OpenAIMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<&'a Vec<&'a ToolDef>>,
+    tools: Option<&'a Vec<ToolDef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
+struct ResponseFormat {
+    r#type: String,
+    json_schema: JsonSchemaFormat,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct JsonSchemaFormat {
+    name: String,
+    schema: OpenAPISchema,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strict: Option<bool>,
+}
+
+#[derive(Serialize, Clone, Debug)]
 struct ToolDefFunction {
     name: String,
+    description: Option<String>,
     parameters: Box<RawValue>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 struct ToolDef {
     r#type: String,
     function: ToolDefFunction,
@@ -122,6 +161,7 @@ struct AIAgentArgs {
     user_message: String,
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
+    output_schema: Option<OpenAPISchema>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -162,13 +202,27 @@ impl Provider {
 
 #[derive(Serialize)]
 struct AIAgentResult<'a> {
-    output: String,
+    output: Box<RawValue>,
     messages: Vec<Message<'a>>,
 }
 
-#[derive(Serialize, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+enum SchemaType {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl Default for SchemaType {
+    fn default() -> Self {
+        SchemaType::Single("object".to_string())
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 struct OpenAPISchema {
-    r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<SchemaType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<Box<OpenAPISchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -181,20 +235,29 @@ struct OpenAPISchema {
     format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     r#enum: Option<Vec<String>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "additionalProperties"
+    )]
+    additional_properties: Option<bool>,
 }
 
 impl OpenAPISchema {
     fn from_str(typ: &str) -> Self {
-        OpenAPISchema { r#type: typ.to_string(), ..Default::default() }
+        OpenAPISchema { r#type: Some(SchemaType::Single(typ.to_string())), ..Default::default() }
     }
 
     fn from_str_with_enum(typ: &str, enu: &Option<Vec<String>>) -> Self {
-        OpenAPISchema { r#type: typ.to_string(), r#enum: enu.clone(), ..Default::default() }
+        OpenAPISchema {
+            r#type: Some(SchemaType::Single(typ.to_string())),
+            r#enum: enu.clone(),
+            ..Default::default()
+        }
     }
 
     fn datetime() -> Self {
         Self {
-            r#type: "string".to_string(),
+            r#type: Some(SchemaType::Single("string".to_string())),
             format: Some("date-time".to_string()),
             ..Default::default()
         }
@@ -213,12 +276,12 @@ impl OpenAPISchema {
             Typ::Sql => Self::from_str("string"),
             Typ::DynSelect(_) => Self::from_str("string"),
             Typ::List(typ) => OpenAPISchema {
-                r#type: "array".to_string(),
+                r#type: Some(SchemaType::Single("array".to_string())),
                 items: Some(Box::new(Self::from_typ(typ))),
                 ..Default::default()
             },
             Typ::Object(typ) => OpenAPISchema {
-                r#type: "object".to_string(),
+                r#type: Some(SchemaType::Single("object".to_string())),
                 items: None,
                 properties: typ.props.as_ref().map(|props| {
                     props
@@ -233,13 +296,13 @@ impl OpenAPISchema {
                 ..Default::default()
             },
             Typ::OneOf(variants) => OpenAPISchema {
-                r#type: "object".to_string(),
+                r#type: Some(SchemaType::Single("object".to_string())),
                 one_of: Some(
                     variants
                         .iter()
                         .map(|variant| {
                             let schema = OpenAPISchema {
-                                r#type: "object".to_string(),
+                                r#type: Some(SchemaType::Single("object".to_string())),
                                 properties: Some(
                                     variant
                                         .properties
@@ -278,6 +341,79 @@ impl OpenAPISchema {
             },
             Typ::Unknown => Self::from_str("object"),
         }
+    }
+
+    /// Makes this schema compatible with OpenAI's strict mode by:
+    /// - Adding additionalProperties: false to all object types
+    /// - Making non-required properties nullable
+    /// - Ensuring all properties are in the required array
+    fn make_strict(mut self) -> Self {
+        // Handle this schema if it's an object type
+        if let Some(SchemaType::Single(ref type_str)) = self.r#type {
+            if type_str == "object" {
+                // Set additionalProperties to false
+                self.additional_properties = Some(false);
+
+                if let Some(properties) = self.properties.as_mut() {
+                    // Get original required fields
+                    let original_required = self.required.as_ref();
+
+                    if let Some(required) = original_required {
+                        // Update properties to make non-required fields nullable
+                        for (key, prop) in properties.iter_mut() {
+                            let mut new_prop = (**prop).clone();
+                            // Make non-required fields nullable
+                            if !required.contains(key) {
+                                new_prop = new_prop.make_nullable();
+                            }
+                            // Recursively make nested schemas strict
+                            new_prop = new_prop.make_strict();
+                            *prop = Box::new(new_prop);
+                        }
+                    }
+
+                    // All properties must be in required array for strict mode
+                    self.required = Some(properties.keys().cloned().collect());
+                }
+            }
+        }
+
+        // Recursively process nested schemas
+        if let Some(ref mut items) = self.items {
+            **items = items.as_ref().clone().make_strict();
+        }
+
+        if let Some(ref mut one_of) = self.one_of {
+            *one_of = one_of
+                .iter()
+                .map(|schema| Box::new(schema.as_ref().clone().make_strict()))
+                .collect();
+        }
+
+        self
+    }
+
+    /// Makes this property nullable by converting its type to a union with null
+    fn make_nullable(mut self) -> Self {
+        match self.r#type.take() {
+            Some(SchemaType::Single(type_str)) => {
+                if type_str != "null" {
+                    self.r#type = Some(SchemaType::Multiple(vec![type_str, "null".into()]));
+                } else {
+                    self.r#type = Some(SchemaType::Single("null".into()));
+                }
+            }
+            Some(SchemaType::Multiple(mut types)) => {
+                if !types.iter().any(|t| t == "null") {
+                    types.push("null".into());
+                }
+                self.r#type = Some(SchemaType::Multiple(types));
+            }
+            None => {
+                self.r#type = Some(SchemaType::Single("null".into()));
+            }
+        }
+        self
     }
 }
 
@@ -349,7 +485,7 @@ fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<R
     let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
 
     let schema = OpenAPISchema {
-        r#type: "object".to_string(),
+        r#type: Some(SchemaType::default()),
         properties: Some(
             main_arg_signature
                 .args
@@ -483,6 +619,7 @@ async fn call_tool(
         None,
         agent_job.schedule_path(),
         Some(agent_job.id),
+        None,
         None,
         Some(job_id),
         false,
@@ -631,13 +768,65 @@ async fn run_agent(
     let base_url = args.provider.get_base_url();
     let api_key = args.provider.get_api_key();
 
-    let tool_defs = if tools.is_empty() {
+    let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
         None
     } else {
-        Some(tools.iter().map(|t| &t.def).collect())
+        Some(tools.iter().map(|t| t.def.clone()).collect())
     };
 
+    let has_output_properties = args
+        .output_schema
+        .as_ref()
+        .and_then(|schema| schema.properties.as_ref())
+        .map(|props| !props.is_empty())
+        .unwrap_or(false);
+    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
+    let mut response_format: Option<ResponseFormat> = None;
+    let mut used_structured_output_tool = false;
+    let mut structured_output_tool_name: Option<String> = None;
+
+    if has_output_properties {
+        let schema = args.output_schema.as_ref().unwrap(); // we know it's some because of the check above
+        if is_anthropic {
+            // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
+            let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
+            structured_output_tool_name = Some(unique_tool_name.clone());
+
+            let output_tool = ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: unique_tool_name,
+                    description: Some(
+                        "This tool MUST be used last to return a structured JSON object as the final output."
+                            .to_string(),
+                    ),
+                    parameters: to_raw_value(&schema),
+                },
+            };
+            if let Some(ref mut existing_tools) = tool_defs {
+                existing_tools.push(output_tool);
+            } else {
+                tool_defs = Some(vec![output_tool]);
+            }
+        } else {
+            // if output schema is provided, and provider is openai, add a response_format with json_schema
+            let strict_schema = schema.clone().make_strict();
+            response_format = Some(ResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: JsonSchemaFormat {
+                    name: "structured_output".to_string(),
+                    schema: strict_schema,
+                    strict: Some(true),
+                },
+            });
+        }
+    }
+
     for i in 0..MAX_AGENT_ITERATIONS {
+        if used_structured_output_tool {
+            break;
+        }
+
         let response = {
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
@@ -648,6 +837,11 @@ async fn run_agent(
                     tools: tool_defs.as_ref(),
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
+                    response_format: if has_output_properties && !is_anthropic {
+                        response_format.clone()
+                    } else {
+                        None
+                    },
                 })
                 .send()
                 .await
@@ -715,6 +909,28 @@ async fn run_agent(
         });
 
         for tool_call in tool_calls.iter() {
+            // Structured output tool is used, we stop here as this will be the final output
+            if structured_output_tool_name
+                .as_ref()
+                .map_or(false, |name| tool_call.function.name == *name)
+            {
+                used_structured_output_tool = true;
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some("Successfully ran structured_output tool".to_string()),
+                    tool_call_id: Some(tool_call.id.clone()),
+                    ..Default::default()
+                });
+                messages.push(OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: Some(tool_call.function.arguments.clone()),
+                    agent_action: Some(AgentAction::Message {}),
+                    ..Default::default()
+                });
+                content = Some(tool_call.function.arguments.clone());
+                break;
+            }
+
             let tool = tools
                 .iter()
                 .find(|t| t.def.function.name == tool_call.function.name);
@@ -792,8 +1008,19 @@ async fn run_agent(
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
 
+    // Parse content as JSON, fallback to string if it fails
+    let output_value = match content {
+        Some(content_str) => match has_output_properties {
+            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|e| {
+                Error::internal_err(format!("Failed to parse structured output: {}", e))
+            })?,
+            false => to_raw_value(&content_str),
+        },
+        None => to_raw_value(&""),
+    };
+
     Ok(to_raw_value(&AIAgentResult {
-        output: content.unwrap_or_default().clone(),
+        output: output_value,
         messages: final_messages,
     }))
 }
@@ -969,6 +1196,7 @@ pub async fn handle_ai_agent_job(
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
+                        description: None,
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",

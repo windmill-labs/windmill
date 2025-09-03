@@ -78,6 +78,7 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some(chrono::offset::Utc::now()),
             Some(ScriptHash(1234567890)),
         )
@@ -134,7 +135,6 @@ async fn list_variables(
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
-    allow_cache: Option<bool>,
 }
 
 async fn get_variable(
@@ -146,17 +146,6 @@ async fn get_variable(
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
-    
-    // Check cache first when explicitly allowed (and for appropriate requests)
-    let decrypt_secret = q.decrypt_secret.unwrap_or(true);
-    let allow_cache = q.allow_cache.unwrap_or(false);
-    let include_encrypted = q.include_encrypted.unwrap_or(false);
-    
-    if allow_cache && (!decrypt_secret || include_encrypted) {
-        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
-            return Ok(Json(cached_variable));
-        }
-    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -231,25 +220,25 @@ async fn get_variable(
         variable
     };
 
-    // Cache the result when explicitly allowed and caching appropriate
-    if allow_cache && (!decrypt_secret || include_encrypted) {
-        cache_variable(&w_id, &path, r.clone());
-    }
 
     Ok(Json(r))
 }
 
+#[derive(Deserialize)]
+struct GetValueQuery {
+    allow_cache: Option<bool>,
+}
 async fn get_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(q): Query<GetValueQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed)
+    return get_value_internal(tx, &db, &w_id, &path, &authed, q.allow_cache.unwrap_or(false))
         .await
         .map(Json);
 }
@@ -711,7 +700,16 @@ pub async fn get_value_internal<'c>(
     w_id: &str,
     path: &str,
     audit_author: &impl AuditAuthorable,
+    allow_cache: bool,
 ) -> Result<String> {
+
+        
+    if allow_cache {
+        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
+            return Ok(cached_variable);
+        }
+    }
+
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
@@ -727,6 +725,8 @@ pub async fn get_value_internal<'c>(
         unreachable!()
     };
 
+
+        
     let r = if variable.is_secret {
         audit_log(
             &mut *tx,
@@ -763,6 +763,12 @@ pub async fn get_value_internal<'c>(
     } else {
         variable.value
     };
+
+    // Cache the result when explicitly allowed and caching appropriate
+    if allow_cache {
+        cache_variable(&w_id, &path,  audit_author.email(), r.clone());
+    }
+
 
     Ok(r)
 }
