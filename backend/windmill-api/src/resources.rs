@@ -9,10 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    db::{ApiAuthed, DB},
-    users::{maybe_refresh_folders, require_owner_of_path, Tokened},
-    utils::check_scopes,
-    webhook_util::{WebhookMessage, WebhookShared},
+    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path, Tokened}, utils::check_scopes, var_resource_cache::{cache_resource, get_cached_resource}, webhook_util::{WebhookMessage, WebhookShared}
 };
 use axum::{
     body::Body,
@@ -36,7 +33,6 @@ use windmill_common::{
     variables,
     worker::CLOUD_HOSTED,
 };
-use crate::var_resource_cache::{get_cached_resource, cache_resource};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -327,28 +323,16 @@ async fn exists_resource(
     Ok(Json(exists))
 }
 
-#[derive(Deserialize)]
-struct GetResourceQuery {
-    allow_cache: Option<bool>,
-}
 
 async fn get_resource_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Query(q): Query<GetResourceQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
     
-    // Check cache first when explicitly allowed
-    let allow_cache = q.allow_cache.unwrap_or(false);
-    if allow_cache {
-        if let Some(cached_value) = get_cached_resource(&w_id, &path) {
-            return Ok(Json(Some(cached_value)));
-        }
-    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -367,12 +351,7 @@ async fn get_resource_value(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     
-    // Cache the result if it exists and caching is allowed
-    if allow_cache {
-        if let Some(ref val) = value {
-            cache_resource(&w_id, &path, val.clone());
-        }
-    }
+
     
     Ok(Json(value))
 }
@@ -440,7 +419,9 @@ async fn custom_component(
 #[derive(Deserialize)]
 struct JobInfo {
     job_id: Option<Uuid>,
+    allow_cache: Option<bool>,
 }
+
 async fn get_resource_value_interpolated(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -452,6 +433,7 @@ async fn get_resource_value_interpolated(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+        
     return get_resource_value_interpolated_internal(
         &authed,
         Some(user_db),
@@ -460,6 +442,7 @@ async fn get_resource_value_interpolated(
         path,
         job_info.job_id,
         token.as_str(),
+        job_info.allow_cache.unwrap_or(false),
     )
     .await
     .map(|success| Json(success));
@@ -476,7 +459,13 @@ pub async fn get_resource_value_interpolated_internal(
     path: &str,
     job_id: Option<Uuid>,
     token: &str,
+    allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    if allow_cache {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path) {
+            return Ok(Some(cached_value));
+        }
+    }
     let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -493,18 +482,20 @@ pub async fn get_resource_value_interpolated_internal(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        Ok(Some(
-            transform_json_value(
-                authed,
-                user_db.clone(),
-                db,
-                workspace,
-                value,
-                &job_id,
-                token,
-            )
-            .await?,
-        ))
+        let r = transform_json_value(
+            authed,
+            user_db.clone(),
+            db,
+            workspace,
+            value,
+            &job_id,
+            token,
+        )
+        .await?;
+        if allow_cache {
+            cache_resource(&workspace, &path, r.clone());
+        }
+        Ok(Some(r))
     } else {
         Ok(None)
     }
@@ -540,6 +531,7 @@ pub async fn transform_json_value<'c>(
                         username_override: None,
                         token_prefix: None,
                     }),
+                false
             )
             .await?;
             Ok(Value::String(v))
@@ -1270,7 +1262,12 @@ async fn update_resource_type(
     feature = "mqtt_trigger",
     all(
         feature = "enterprise",
-        any(feature = "sqs_trigger", feature = "gcp_trigger")
+        any(
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "kafka",
+            feature = "nats"
+        )
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
@@ -1291,6 +1288,7 @@ where
         &resource_path,
         None,
         "",
+        false,
     )
     .await?;
 

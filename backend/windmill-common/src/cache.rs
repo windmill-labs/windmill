@@ -539,7 +539,7 @@ pub mod flow {
 }
 
 pub mod script {
-    use crate::{worker::Connection, DB};
+    use crate::{db::DB, worker::Connection};
 
     use super::*;
 

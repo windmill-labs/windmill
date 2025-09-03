@@ -2517,6 +2517,7 @@ async fn build_args(
                         &path,
                         None,
                         "",
+                        false
                     )
                     .await?;
                     if res.is_none() {

@@ -185,7 +185,7 @@ fn do_snowflake_inner<'a>(
 
             if s3.is_none() && response.resultSetMetaData.numRows > 10000 {
                 return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows or use S3 streaming for larger datasets: https://windmill.dev/docs/core_concepts/sql_to_s3_streaming"
                         .to_string(),
                 ));
             }

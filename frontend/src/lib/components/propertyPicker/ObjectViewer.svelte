@@ -3,7 +3,7 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
+	import { createEventDispatcher, tick, untrack, type Snippet } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
@@ -139,6 +139,7 @@
 	let closeBracket = $derived(isArray ? ']' : '}')
 	let keyLimit = $derived(isArray ? 5 : 100)
 	let fullyCollapsed = $derived(keys.length > 1 && collapsed)
+	let searchInput: HTMLInputElement | undefined = $state(undefined)
 </script>
 
 {#snippet renderScalar(k: string, v: any)}
@@ -200,6 +201,7 @@
 					class="!h-6 !text-2xs mt-0.5"
 					bind:value={search}
 					placeholder="Search..."
+					bind:this={searchInput}
 				/>
 				<button
 					class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
@@ -215,7 +217,10 @@
 				iconOnly
 				btnClasses="text-tertiary hover:text-primary"
 				startIcon={{ icon: Search }}
-				on:click={() => (searchOpen = true)}
+				on:click={() => {
+					searchOpen = true
+					tick().then(() => searchInput?.focus())
+				}}
 			></Button>
 		{/if}
 	</div>

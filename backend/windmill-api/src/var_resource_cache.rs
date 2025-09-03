@@ -9,10 +9,9 @@
 use quick_cache::sync::Cache;
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
-use windmill_common::variables::ListableVariable;
 
-/// Cache TTL for variables and resources (60 seconds)
-const CACHE_TTL_SECS: u64 = 60;
+/// Cache TTL for variables and resources (30seconds)
+const CACHE_TTL_SECS: u64 = 30;
 
 /// Cache entry with timestamp and value (following raw script cache pattern)
 #[derive(Clone, Debug)]
@@ -41,9 +40,10 @@ impl<T> CacheEntry<T> {
     }
 }
 
+
 lazy_static::lazy_static! {
     /// Cache for individual variable values: key = "workspace_id:path"
-    pub static ref VARIABLE_CACHE: Cache<String, CacheEntry<ListableVariable>> = Cache::new(1000);
+    pub static ref VARIABLE_CACHE: Cache<String, CacheEntry<String>> = Cache::new(1000);
     
     /// Cache for resource values: key = "workspace_id:path"  
     pub static ref RESOURCE_CACHE: Cache<String, CacheEntry<Value>> = Cache::new(1000);
@@ -56,7 +56,7 @@ pub fn cache_key(workspace_id: &str, path: &str) -> String {
 }
 
 /// Get cached variable if available and not expired  
-pub fn get_cached_variable(workspace_id: &str, path: &str) -> Option<ListableVariable> {
+pub fn get_cached_variable(workspace_id: &str, path: &str) -> Option<String> {
     let key = cache_key(workspace_id, path);
     VARIABLE_CACHE.get(&key).and_then(|entry| {
         if entry.is_expired() {
@@ -70,8 +70,8 @@ pub fn get_cached_variable(workspace_id: &str, path: &str) -> Option<ListableVar
 }
 
 /// Cache variable data
-pub fn cache_variable(workspace_id: &str, path: &str, variable: ListableVariable) {
-    let key = cache_key(workspace_id, path);
+pub fn cache_variable(workspace_id: &str, path: &str, email: &str, variable: String) {
+    let key = format!("{}:{}", email, cache_key(workspace_id, path));
     let entry = CacheEntry::new(variable);
     VARIABLE_CACHE.insert(key.clone(), entry);
     tracing::debug!("Cached variable {}", key);
