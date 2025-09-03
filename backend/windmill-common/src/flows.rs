@@ -711,6 +711,7 @@ pub struct ListFlowQuery {
     pub with_deployment_msg: Option<bool>,
 }
 
+// TODO: ???!
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
     if modules.len() > 0
         && (modules[modules.len() - 1].sleep.is_some()
@@ -737,6 +738,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
     }
 }
 
+// TODO: Check if flow as code works with new approach
 /// Resolve the value of a flow if any.
 pub async fn resolve_maybe_value<T>(
     e: &sqlx::PgPool,

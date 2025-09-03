@@ -646,6 +646,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         if already_visited.contains(&s.importer_path) {
             continue;
         }
+
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
@@ -725,6 +726,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
                     // TODO: [] Check if works in nested manner
                     // TODO: [] Test for ts
+                    // TODO: [] Check if cache invalidation is not called too often (trigger is not triggered too often)
                     // TODO: [x] Test with drafts
                     // TODO: [] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
                     // TODO: [x] Depend on relative import several times
@@ -1061,7 +1063,7 @@ pub async fn handle_flow_dependency_job(
 
         // NOTE: Temporary solution.
         // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
-        if triggered_by_relative_import {
+        if triggered_by_relative_import && !*WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ {
             // Making new version viewable as the current one.
             // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
             // which will invalidate cache for the latest flow versions for all workers.
@@ -1511,22 +1513,24 @@ async fn insert_flow_node<'c>(
         hasher.update(lock.unwrap_or(&Default::default()));
         hasher.update(flow.unwrap_or(&Default::default()).get());
 
-        if let Some(imports) = extract_relative_imports(
-            code.map(|s| s.as_str()).unwrap_or_default(),
-            path,
-            &language,
-        ) {
-            // We also want to take into account hashes of relative imports.
-            // TODO: May be use bytemuck or cast it in different, more proper way.
-            hasher.update(&format!(
-                "{:?}",
-                sqlx::query_scalar::<_, i64>(
-                    "SELECT hash FROM script WHERE path = ANY($1) AND archived = false"
-                )
-                .bind(imports)
-                .fetch_all(&mut *tx)
-                .await?
-            ));
+        if !*WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ {
+            if let Some(imports) = extract_relative_imports(
+                code.map(|s| s.as_str()).unwrap_or_default(),
+                path,
+                &language,
+            ) {
+                // We also want to take into account hashes of relative imports.
+                // TODO: May be use bytemuck or cast it in different, more proper way.
+                hasher.update(&format!(
+                    "{:?}",
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT hash FROM script WHERE path = ANY($1) AND archived = false"
+                    )
+                    .bind(imports)
+                    .fetch_all(&mut *tx)
+                    .await?
+                ));
+            }
         }
         format!("{:x}", hasher.finalize())
     };
