@@ -5,5 +5,3 @@ DROP INDEX IF EXISTS workspace_parent_idx;
 
 -- Remove the columns
 ALTER TABLE workspace DROP COLUMN IF EXISTS parent_workspace_id;
-ALTER TABLE workspace DROP COLUMN IF EXISTS created_by;
-ALTER TABLE workspace DROP COLUMN IF EXISTS created_at;
