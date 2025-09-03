@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status\n                SET flow_status = jsonb_set(\n                    jsonb_set(\n                        flow_status,\n                        ARRAY['stream_jobs'],\n                        COALESCE(flow_status->'stream_jobs', '{}'::jsonb)\n                    ),\n                    ARRAY['stream_jobs', $1::TEXT],\n                    CASE \n                        WHEN flow_status->'stream_jobs'->$1::TEXT IS NULL THEN \n                            jsonb_build_array($2::UUID::TEXT)\n                        WHEN NOT (flow_status->'stream_jobs'->$1::TEXT @> jsonb_build_array($2::UUID::TEXT)) THEN\n                            flow_status->'stream_jobs'->$1::TEXT || jsonb_build_array($2::UUID::TEXT)\n                        ELSE \n                            flow_status->'stream_jobs'->$1::TEXT\n                    END\n                )\n                WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ca1985b0edc4efe9e0aae2a9e51b3d5aff3f55835f85a54818851cfe837246f"
+}
