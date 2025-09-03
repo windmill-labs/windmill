@@ -17,7 +17,7 @@ export function updateLinks(navigationChain: NavigationChain, newChain: Navigati
 		// connect the beginning of the new chain to the beginning of the chain
 		newChain[firstLink].upId = cleaned[firstLink]?.upId
 
-		//connect the end of new the chain to the beginning of the chain
+		//connect the end of new the new chain to the beginning of the chain
 		const nextLink = cleaned[firstLink]?.downId
 		if (nextLink) {
 			newChain[lastLink].downId = nextLink
@@ -32,8 +32,7 @@ export function updateLinks(navigationChain: NavigationChain, newChain: Navigati
 			const toDelete: string[] = []
 
 			let current = cleaned[firstLink]?.downId
-
-			while (current && current !== lastLink) {
+			while (current && current !== lastLink && !toDelete.includes(current)) {
 				toDelete.push(current)
 				current = cleaned[current]?.downId
 			}

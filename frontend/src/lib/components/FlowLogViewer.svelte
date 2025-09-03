@@ -279,8 +279,9 @@
 			return acc
 		}, {} as NavigationChain)
 
+		// Add subflow chains
 		Object.entries(subloopNavigationChains).forEach(([_, chain]) => {
-			links = updateLinks(links, chain)
+			links = updateLinks($state.snapshot(links), $state.snapshot(chain))
 		})
 
 		return links
@@ -384,23 +385,8 @@
 	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
 		<!-- Flow entry -->
 		<li class="border-b flex flex-row">
-			<div class="py-2 leading-tight align-top">
-				{#if level > 0}
-					<button
-						class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-						onclick={() => toggleExpanded(`flow-${flowId}`)}
-					>
-						{#if isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
-							<ChevronDown size={8} />
-						{:else}
-							<ChevronRight size={8} />
-						{/if}
-					</button>
-				{:else}
-					<!-- Root flow - no collapse button, just spacing -->
-					<div class="w-4"></div>
-				{/if}
-			</div>
+			{@render collapsibleButton(`flow-${flowId}`, level > 0, rootJob.type === 'QueuedJob')}
+
 			<div class="grow min-w-0 leading-tight">
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -464,18 +450,7 @@
 							<!-- Flow inputs as first row entry -->
 							{#if showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0}
 								<li class="border-b flex flex-row w-full">
-									<div class="py-2 leading-tight align-top">
-										<button
-											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
-										>
-											{#if isExpanded(`flow-${flowId}-input`)}
-												<ChevronDown size={8} />
-											{:else}
-												<ChevronRight size={8} />
-											{/if}
-										</button>
-									</div>
+									{@render collapsibleButton(`flow-${flowId}-input`, true)}
 
 									<div class="grow min-w-0 leading-tight">
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -513,23 +488,7 @@
 									{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 									{@const isCollapsible = !hasEmptySubflowValue}
 									<li class="border-b flex flex-row">
-										<div class="py-2 leading-tight align-top">
-											{#if isCollapsible}
-												<button
-													class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-													onclick={() => toggleExpanded(module.id)}
-												>
-													{#if isExpanded(module.id, isRunning)}
-														<ChevronDown size={8} />
-													{:else}
-														<ChevronRight size={8} />
-													{/if}
-												</button>
-											{:else}
-												<!-- Empty subflow - no collapse button, just spacing -->
-												<div class="w-4"></div>
-											{/if}
-										</div>
+										{@render collapsibleButton(module.id, isCollapsible, isRunning)}
 										<div class="w-full leading-tight grow min-w-0">
 											<!-- svelte-ignore a11y_click_events_have_key_events -->
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -768,18 +727,7 @@
 							<!-- Flow result as last row entry -->
 							{#if showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob'}
 								<li class="border-b flex">
-									<div class="py-2 leading-tight align-top">
-										<button
-											class="w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary transition-colors"
-											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
-										>
-											{#if isExpanded(`flow-${flowId}-result`)}
-												<ChevronDown size={8} />
-											{:else}
-												<ChevronRight size={8} />
-											{/if}
-										</button>
-									</div>
+									{@render collapsibleButton(`flow-${flowId}-result`, true)}
 									<div class="w-full leading-tight">
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -851,6 +799,29 @@
 		{/if}
 		{#if hasErrors && status !== 'Failure'}
 			<span class="text-red-500 -ml-0.5 -mr-1.5" title="A subflow or a step has failed">!</span>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet collapsibleButton(id: string, isCollapsible: boolean, isRunning?: boolean)}
+	<div class={twMerge('align-top', isCurrent(id) ? 'border-l border-l-gray-400 -ml-[1px]' : '')}>
+		{#if isCollapsible}
+			<button
+				class={twMerge(
+					'py-2 leading-tight w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary',
+					isCurrent(id) ? 'bg-surface-hover ' : ''
+				)}
+				onclick={() => toggleExpanded(id)}
+			>
+				{#if isExpanded(id, isRunning)}
+					<ChevronDown size={8} strokeWidth={isCurrent(id) ? 4 : 2} />
+				{:else}
+					<ChevronRight size={8} strokeWidth={isCurrent(id) ? 4 : 2} />
+				{/if}
+			</button>
+		{:else}
+			<!-- Empty subflow - no collapse button, just spacing -->
+			<div class="w-4"></div>
 		{/if}
 	</div>
 {/snippet}

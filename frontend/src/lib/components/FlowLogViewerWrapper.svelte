@@ -96,8 +96,6 @@
 			currentId = 'flow-root'
 		}
 	})
-
-	$inspect('dbg navigationChain', navigationChain)
 </script>
 
 <div
