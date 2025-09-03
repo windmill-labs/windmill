@@ -769,6 +769,7 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
+    _is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
