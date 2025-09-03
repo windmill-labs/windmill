@@ -378,7 +378,7 @@
 	$effect(() => {
 		if (isCloudHosted()) {
 			const workspace = $workspaceStore
-			if (workspace) {
+			if (workspace && $userStore?.is_admin) {
 				checkTeamPlanStatus(workspace)
 			}
 		}
