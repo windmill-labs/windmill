@@ -683,6 +683,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 }
             }
         } else if kind == "flow" {
+            let mut flow_tx = db.begin().await?;
             args.insert(
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
@@ -691,13 +692,17 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
                 w_id,
-            ).fetch_one(db)
+            ).fetch_one(&mut *flow_tx)
             .await
             .map_err(to_anyhow);
             match r {
                 Ok(Some(cur_version)) => {
                     // TODO: Test with drafts
+                    // TODO: BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
                     // TODO: Depend on relative import several times
+                    // TODO: Test with relative imports caching
+                    // TODO: Use transaction
+                    // TODO: BUG: If pg notification to reset latest version is triggered, then it will call server to get new one, which will probably be the same (bc new version is not marked as viewable yet).
                     let new_version = sqlx::query_scalar!(
                         "INSERT INTO flow_version
                 (workspace_id, path, value, schema, created_by)
@@ -710,7 +715,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         w_id,
                         cur_version
                     )
-                    .fetch_one(db)
+                    .fetch_one(&mut *flow_tx)
                     .await
                     .map_err(|e| {
                         error::Error::internal_err(format!(
@@ -718,12 +723,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         ))
                     })?;
 
-                    sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
-                        new_version,
-                        &s.importer_path,
-                        w_id,
-                    ).execute(db).await?;
-
+                    flow_tx.commit().await?;
                     JobPayload::FlowDependencies {
                         path: s.importer_path.clone(),
                         dedicated_worker: None,
@@ -1010,6 +1010,14 @@ pub async fn handle_flow_dependency_job(
         )
         .execute(&mut *tx)
         .await?;
+
+        // TODO: What if something fails before updating versions in flow?
+        // NOTE: Trigger cache invalidation
+        sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND NOT (versions @> ARRAY[$1::bigint])",
+            version,
+            &job_path,
+            &job.workspace_id,
+        ).execute(&mut *tx).await?;
 
         tx.commit().await?;
 
