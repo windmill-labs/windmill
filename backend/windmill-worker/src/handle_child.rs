@@ -8,7 +8,6 @@ use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
 use windmill_common::result_stream::extract_stream_from_logs;
-use windmill_common::DB;
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -53,7 +52,7 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{get_root_job_id, resolve_job_timeout, OccupancyMetrics};
+use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
@@ -489,15 +488,15 @@ pub async fn write_lines(
             let is_stream = is_stream.clone();
             (do_write, write_result) = tokio::spawn(async move {
                 if !nstream.is_empty() {
-                    if !is_stream.load(Ordering::SeqCst) {
-                        if let Some(tx) = is_stream_tx {
+                    if let Some(tx) = is_stream_tx {
+                        if !is_stream.load(Ordering::SeqCst) {
                             if let Err(err) = tx.send(()).await {
                                 tracing::error!(
                                     "Could not notify about stream job {job_id}: {err:#?}"
                                 );
                             };
+                            is_stream.store(true, Ordering::SeqCst);
                         }
-                        is_stream.store(true, Ordering::SeqCst);
                     }
 
                     if let Err(err) = append_result_stream(&conn, &w_id, &job_id, &nstream).await {

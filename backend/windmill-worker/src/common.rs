@@ -1070,107 +1070,37 @@ async fn update_root_job_status_with_stream_job(
     tokio::spawn(async move {
         tracing::info!("updating root job status with stream job: {job_id} {root_id} {step_id}");
 
-        // Try to update directly first - if the key doesn't exist, it will be created
-        let update_result = sqlx::query!(
-            r#"UPDATE v2_job_status
-                SET flow_status = jsonb_set(
-                    jsonb_set(
-                        flow_status,
-                        ARRAY['pending_streams'],
-                        COALESCE(flow_status->'pending_streams', '{}'::jsonb)
-                    ),
-                    ARRAY['pending_streams', $1::TEXT],
-                    to_jsonb($2::UUID::TEXT)
-                )
-                WHERE id = $3
-                AND (flow_status->'pending_streams'->>$1::TEXT IS NULL 
-                     OR flow_status->'pending_streams'->>$1::TEXT = $2::UUID::TEXT)"#,
-            step_id,
-            job_id,
-            root_id
-        )
-        .execute(&db)
-        .await;
-
-        match update_result {
-            Ok(result) if result.rows_affected() > 0 => {
-                // Update was successful - either key didn't exist or same job_id
-                return;
-            }
-            Ok(_) => {
-                // Update didn't affect any rows, meaning there's a different job_id
-                // Now we need to find the next available suffix
-            }
-            Err(e) => {
-                tracing::error!("Error when updating streaming step {step_id} of root job {root_id} status with job {job_id}: {e:#}");
-                return;
-            }
-        }
-
-        tracing::info!(
-            "have to find the next available suffix for {step_id} of root job {root_id}"
-        );
-
-        // Handle the case where there's already a different job_id
-        // ... rest of the suffix logic remains the same
-        let existing_suffixes = match sqlx::query_scalar!(
-            r#"SELECT jsonb_object_keys(flow_status->'pending_streams') as "existing_suffixes!"
-                FROM v2_job_status 
-                WHERE id = $1 
-                AND flow_status->'pending_streams' IS NOT NULL"#,
-            root_id
-        )
-        .fetch_all(&db)
-        .await
-        {
-            Ok(ex) => ex,
-            Err(e) => {
-                tracing::error!(
-                    "Error fetching existing suffixes for {step_id} of root job {root_id}: {e:#}"
-                );
-                return;
-            }
-        };
-
-        // Find the highest suffix number for this step_id
-        let mut max_suffix = 0;
-        let prefix = format!("{}:", step_id);
-
-        for key in existing_suffixes {
-            if key.starts_with(&prefix) {
-                if let Some(suffix_part) = key.strip_prefix(&prefix) {
-                    if let Ok(suffix_num) = suffix_part.parse::<u32>() {
-                        max_suffix = max_suffix.max(suffix_num);
-                    }
-                }
-            }
-        }
-
-        let final_step_id = format!("{}:{}", step_id, max_suffix + 1);
-
+        // Update the stream_jobs to append job_id to the array for this step_id
+        // If the array doesn't exist, create it with the job_id
+        // If the job_id is already in the array, do nothing
         if let Err(e) = sqlx::query!(
             r#"UPDATE v2_job_status
                 SET flow_status = jsonb_set(
                     jsonb_set(
                         flow_status,
-                        ARRAY['pending_streams'],
-                        COALESCE(flow_status->'pending_streams', '{}'::jsonb)
+                        ARRAY['stream_jobs'],
+                        COALESCE(flow_status->'stream_jobs', '{}'::jsonb)
                     ),
-                    ARRAY['pending_streams', $1::TEXT],
-                    to_jsonb($2::UUID::TEXT)
+                    ARRAY['stream_jobs', $1::TEXT],
+                    CASE 
+                        WHEN flow_status->'stream_jobs'->$1::TEXT IS NULL THEN 
+                            jsonb_build_array($2::UUID::TEXT)
+                        WHEN NOT (flow_status->'stream_jobs'->$1::TEXT @> jsonb_build_array($2::UUID::TEXT)) THEN
+                            flow_status->'stream_jobs'->$1::TEXT || jsonb_build_array($2::UUID::TEXT)
+                        ELSE 
+                            flow_status->'stream_jobs'->$1::TEXT
+                    END
                 )
                 WHERE id = $3"#,
-            final_step_id,
+            step_id,
             job_id,
             root_id
         )
         .execute(&db)
         .await
         {
-            tracing::error!(
-                "Could not update {final_step_id} of root job {root_id} status with job {job_id}: {e:#}"
-            );
-        };
+            tracing::error!("Error when updating streaming step {step_id} of root job {root_id} status with job {job_id}: {e:#}");
+        }
     });
 }
 
@@ -1195,7 +1125,6 @@ pub fn listen_for_is_stream_tx(
 
         tokio::spawn(async move {
             if let Some(_) = is_stream_rx.recv().await {
-                tracing::info!("received is_stream_tx");
                 update_root_job_status_with_stream_job(job_id, root_job_id, db, flow_step_id).await;
             }
         });

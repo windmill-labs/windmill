@@ -1313,6 +1313,8 @@ try {{
 
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
+            let is_stream_tx = listen_for_is_stream_tx(job, conn);
+
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
                 inner_content.clone(),
@@ -1328,6 +1330,7 @@ try {{
                 &job.workspace_id,
                 false,
                 occupancy_metrics,
+                is_stream_tx,
             )
             .await?;
             tracing::info!(

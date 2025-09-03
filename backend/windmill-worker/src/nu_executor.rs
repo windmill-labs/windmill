@@ -339,6 +339,7 @@ async fn run<'a>(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
     Ok(())

@@ -11,7 +11,7 @@ use axum::extract::Request;
 use axum::http::HeaderValue;
 #[cfg(feature = "deno_core")]
 use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
-use futures::{StreamExt, TryFutureExt, stream::select_all};
+use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -285,7 +285,7 @@ pub fn workspace_unauthed_service() -> Router {
         )
         .route("/getupdate/:id", get(get_job_update))
         .route("/getupdate_sse/:id", get(get_job_update_sse))
-        .route("/stream_result/:id", get(stream_result))
+        .route("/get_flow_stream/:id", get(get_flow_stream))
         .route("/get_log_file/*file_path", get(get_log_file))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route(
@@ -1651,6 +1651,7 @@ pub struct RunJobQuery {
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
+    pub stream: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -5150,7 +5151,17 @@ pub async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    if run_query.stream.unwrap_or(false) {
+        get_flow_stream_inner(
+            Some(authed), 
+            OptTokened { token: None }, // unused if opt_authed is some, 
+            db, 
+            w_id, 
+            uuid
+        ).await
+    } else {
+        run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    }
 }
 
 async fn run_preview_script(
@@ -6247,22 +6258,30 @@ async fn get_job_update_sse(
 }
 
 
-struct FlowStreamStatus {
-    running: Option<bool>,
-    stream_jobs: Option<sqlx::types::Json<HashMap<String, Uuid>>>,
-}
-
-
-async fn stream_result(
+async fn get_flow_stream(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
+    get_flow_stream_inner(opt_authed, opt_tokened, db, w_id, job_id).await
+}
+
+struct FlowStreamStatus {
+    running: Option<bool>,
+    stream_jobs: Option<sqlx::types::Json<HashMap<String, Vec<Uuid>>>>,
+}
+
+
+async fn get_flow_stream_inner(
+    opt_authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
+    db: DB,
+    w_id: String,
+    job_id: Uuid,
+) -> error::Result<Response> {
 
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-
-
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
         format!(
@@ -6279,7 +6298,7 @@ async fn stream_result(
                 FlowStreamStatus,
                 r#"SELECT 
                         jq.running as "running: _",
-                        COALESCE(js.flow_status, jc.flow_status, '{}'::JSONB)->'pending_streams' as "stream_jobs: _"
+                        COALESCE(js.flow_status, jc.flow_status, '{}'::JSONB)->'stream_jobs' as "stream_jobs: _"
                     FROM v2_job j
                     LEFT JOIN v2_job_completed jc ON jc.id = j.id AND jc.workspace_id = j.workspace_id
                     LEFT JOIN v2_job_queue jq ON jq.id = j.id AND jq.workspace_id = j.workspace_id
@@ -6302,31 +6321,57 @@ async fn stream_result(
             };
 
             if let Some(sqlx::types::Json(stream_jobs)) = flow_stream_status.stream_jobs {
-                for (step_id, stream_job_id) in stream_jobs {
-                    if !tracked_stream_jobs.contains(&stream_job_id) {
-                        tracked_stream_jobs.push(stream_job_id);
-                        start_job_update_sse_stream(
-                            opt_authed.clone(),
-                            opt_tokened.clone(),
-                            db.clone(),
-                            w_id.clone(),
-                            stream_job_id,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(true),
-                            Some(true),
-                            None,
-                            Some(step_id),
-                            tx.clone(),
-                        );
+                for (step_id, stream_job_ids) in stream_jobs {
+                    for (index, job_id) in stream_job_ids.into_iter().enumerate() {
+                        if !tracked_stream_jobs.contains(&job_id) {
+                            tracked_stream_jobs.push(job_id);
+                            start_job_update_sse_stream(
+                                opt_authed.clone(),
+                                opt_tokened.clone(),
+                                db.clone(),
+                                w_id.clone(),
+                                job_id,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(true),
+                                Some(true),
+                                None,
+                                Some(if index == 0 { step_id.clone() } else { format!("{}:{}", step_id, index) }),
+                                tx.clone(),
+                            );
+                        }
                     }
                 }
             }
 
-            if flow_stream_status.running.is_none() || flow_stream_status.running.is_some_and(|x| !x) {
-                tracing::info!("Job completed: {}", job_id);
+            if flow_stream_status.running.is_none() {
+                // job completed
+                match get_job_update_data(
+                    &opt_authed,
+                    &opt_tokened,
+                    &db,
+                    &w_id,
+                    &job_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    true,
+                    false, // ignored when only_result is true
+                    Some(true),
+                    None,
+                    None,
+                ).await {
+                    Ok(result) => {
+                        tx.send(JobUpdateSSEStream::Update(result)).await.unwrap();
+                    }
+                    Err(e) => {
+                        tx.send(JobUpdateSSEStream::Error { error: format!("Error getting completed flow job update: {}", e) }).await.unwrap();
+                        tracing::error!("Error getting completed flow job update: {}", e);
+                    }
+                }
                 break;
             }
 

@@ -790,6 +790,7 @@ pub async fn eval_fetch_timeout(
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
+    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     use windmill_queue::append_logs;
 
@@ -923,11 +924,23 @@ pub async fn eval_fetch_timeout(
             let w_id = w_id_.clone();
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
+                let mut is_stream = false;
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
                         use crate::job_logger::append_result_stream;
+
+                        if let Some(tx) = is_stream_tx.clone() {
+                            if !is_stream {
+                                is_stream = true;
+                                if let Err(err) = tx.send(()).await {
+                                    tracing::error!(
+                                        "Could not notify about stream job {job_id}: {err:#?}"
+                                    );
+                                };
+                            }
+                        }
 
                         result_stream.push_str(&stream);
                         if let Err(e) = append_result_stream(&conn_, &w_id, &job_id, &stream).await
