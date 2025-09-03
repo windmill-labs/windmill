@@ -154,52 +154,35 @@ async function createWorkspaceFork(
 }
 
 async function deleteWorkspaceFork(
-  opts: GlobalOptions,
-  name: string,
+  opts: GlobalOptions & {
+    yes?: boolean;
+  },
+  workspace_id: string,
 ) {
-  log.info(colors.blue(`Deleting forked workspace: ${name}`));
-
-  // Remove workspace from local config
-  log.info("Removing workspace from local configuration...");
-  await removeWorkspace(name, false, opts);
-
-  // Switch to main branch and delete fork branch
-  log.info("Cleaning up git branch...");
-
-  // Check current branch
-  const currentBranchResult = await runGitCommand(["branch", "--show-current"]);
-  const currentBranch = currentBranchResult.output;
-
-  // If we're on the fork branch, switch to main
-  if (currentBranch === `${WM_FORKED_PREFIX}/${name}`) {
-    const switchResult = await runGitCommand(["checkout", "main"]);
-    if (!switchResult.success) {
-      log.warn(
-        colors.yellow(
-          `Warning: Could not switch to main branch: ${switchResult.output}`,
-        ),
+  if (!workspace_id.startsWith(WM_FORKED_PREFIX)) {
+      throw new Error(
+        `You can only deleted forked workspaces where the workspace id starts with \`${WM_FORKED_PREFIX}.\` Failed while attempting to delete \`${workspace_id}\``,
       );
-    }
   }
 
-  // Delete the fork branch
-  const deleteResult = await runGitCommand([
-    "branch",
-    "-D",
-    `${WM_FORKED_PREFIX}/${name}`,
-  ]);
-  if (!deleteResult.success) {
-    log.warn(
-      colors.yellow(
-        `Warning: Could not delete git branch ${WM_FORKED_PREFIX}/${name}: ${deleteResult.output}`,
-      ),
-    );
-  } else {
-    log.info(colors.green(`✅ Deleted git branch: ${WM_FORKED_PREFIX}/${name}`));
+  if (!opts.yes) {
+        const { Select } = await import("../../../deps.ts");
+        const choice = await Select.prompt({
+          message: `Are you sure you want to delete the forked workspace with id: \`${workspace_id}\`? This action will delete the workspace `,
+          options: [
+            { name: "Yes", value: "confirm" },
+            { name: "No", value: "cancel" },
+          ],
+        });
+
+        if (choice === "cancel") {
+          log.info("Operation cancelled");
+          return;
+        }
   }
 
   log.info(
-    colors.green(`✅ Forked workspace '${name}' deleted successfully!`),
+    colors.green(`✅ Forked workspace '${workspace_id}' deleted successfully!`),
   );
 }
 
@@ -220,7 +203,7 @@ const forkCommand = new Command()
 
 const deleteForkCommand = new Command()
   .description("Delete a forked workspace and git branch")
-  .arguments("<name:string>")
+  .arguments("<forked_workspace_id:string>")
   .action(async (opts: GlobalOptions, name: string) => {
     await deleteWorkspaceFork(opts, name);
   });
