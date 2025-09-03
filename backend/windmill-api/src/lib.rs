@@ -284,6 +284,7 @@ pub async fn run_server(
     server_mode: bool,
     mcp_mode: bool,
     _base_internal_url: String,
+    name: Option<String>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -735,13 +736,17 @@ pub async fn run_server(
         )
     };
 
+    if let Some(name) = name.as_ref() {
+        tracing::info!("server starting for name={name}");
+    }
     let server = axum::serve(listener, app.into_make_service());
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
-        "server started on port={} and addr={}",
+        "server started on port={} and addr={} {}",
         port,
-        ip
+        ip,
+        name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
     port_tx
