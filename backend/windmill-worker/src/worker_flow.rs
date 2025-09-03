@@ -398,7 +398,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if is_failure_step || module_step.is_preprocessor_step() {
                 (false, None, false, false)
             } else if let Some(current_module) = current_module {
-                let stop_early = !success
+                let stop_early = success
                     && !is_branch_all
                     && if let Some(expr) = current_module
                         .stop_after_if
