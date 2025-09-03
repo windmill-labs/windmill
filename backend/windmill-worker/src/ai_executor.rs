@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
+    ai_providers::AIProvider,
     auth::get_job_perms,
     cache,
     client::AuthedClient,
@@ -155,7 +156,7 @@ struct Tool {
 
 #[derive(Deserialize, Debug)]
 struct AIAgentArgs {
-    provider: Provider,
+    provider: ProviderWithResource,
     system_prompt: Option<String>,
     user_message: String,
     temperature: Option<f32>,
@@ -167,35 +168,30 @@ struct AIAgentArgs {
 struct ProviderResource {
     #[serde(alias = "apiKey")]
     api_key: String,
+    #[serde(alias = "baseUrl")]
+    base_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(tag = "kind")]
-enum Provider {
-    OpenAI { resource: ProviderResource, model: String },
-    Anthropic { resource: ProviderResource, model: String },
+struct ProviderWithResource {
+    kind: AIProvider,
+    resource: ProviderResource,
+    model: String,
 }
 
-impl Provider {
+impl ProviderWithResource {
     fn get_api_key(&self) -> &str {
-        match self {
-            Provider::OpenAI { resource, .. } => &resource.api_key,
-            Provider::Anthropic { resource, .. } => &resource.api_key,
-        }
+        &self.resource.api_key
     }
 
     fn get_model(&self) -> &str {
-        match self {
-            Provider::OpenAI { model, .. } => model,
-            Provider::Anthropic { model, .. } => model,
-        }
+        &self.model
     }
 
-    fn get_base_url(&self) -> &str {
-        match self {
-            Provider::OpenAI { .. } => "https://api.openai.com/v1",
-            Provider::Anthropic { .. } => "https://api.anthropic.com/v1",
-        }
+    async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
+        self.kind
+            .get_base_url(self.resource.base_url.clone(), db)
+            .await
     }
 }
 
@@ -763,7 +759,7 @@ async fn run_agent(
 
     let mut content = None;
 
-    let base_url = args.provider.get_base_url();
+    let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key();
 
     let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
@@ -778,7 +774,7 @@ async fn run_agent(
         .and_then(|schema| schema.properties.as_ref())
         .map(|props| !props.is_empty())
         .unwrap_or(false);
-    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
+    let is_anthropic = args.provider.kind.is_anthropic();
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;

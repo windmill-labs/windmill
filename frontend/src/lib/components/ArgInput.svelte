@@ -46,8 +46,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import ModelPicker from './ModelPicker.svelte'
-	import { AI_PROVIDERS } from './copilot/lib'
-	import type { AIProvider } from '$lib/gen'
 
 	interface Props {
 		label?: string
@@ -1274,9 +1272,7 @@
 		{:else if inputCat == 'ai-model'}
 			<ModelPicker
 				bind:value
-				provider={Object.keys(AI_PROVIDERS).find(
-					(k) => AI_PROVIDERS[k].label === otherArgs?.kind
-				) as AIProvider | undefined}
+				provider={otherArgs?.kind}
 				resourcePath={otherArgs?.resource
 					? otherArgs?.resource.startsWith('$res:')
 						? otherArgs?.resource.split(':')[1]

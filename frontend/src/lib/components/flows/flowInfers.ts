@@ -63,9 +63,9 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'object',
 					oneOf: Object.entries(AI_PROVIDERS).map(([provider, details]) => ({
 						type: 'object',
-						title: details.label,
+						title: provider,
 						properties: {
-							kind: { type: 'string', enum: [details.label] },
+							kind: { type: 'string', enum: [provider] },
 							resource: {
 								type: 'object',
 								format: `resource-${provider}`

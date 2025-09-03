@@ -25,6 +25,7 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod agent_workers;
+pub mod ai_providers;
 pub mod apps;
 pub mod assets;
 pub mod auth;
