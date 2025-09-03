@@ -1,7 +1,5 @@
 <script lang="ts">
 	import {
-		ChevronDown,
-		ChevronRight,
 		GitBranch,
 		Repeat,
 		Code,
@@ -23,6 +21,7 @@
 	import type { GraphModuleState } from './graph/model'
 	import type { NavigationChain } from '$lib/keyboardChain'
 	import { updateLinks } from '$lib/keyboardChain'
+	import FlowLogRow from './FlowLogRow.svelte'
 
 	type RootJobData = Partial<Job>
 
@@ -257,9 +256,7 @@
 						items.push(`${module.id}-input`)
 					}
 
-					if (localModuleStates[module.id]?.logs) {
-						items.push(`${module.id}-logs`)
-					}
+					items.push(`${module.id}-logs`)
 
 					// Add result if exists and shown (leaf nodes only)
 					if (showResultsInputs && localModuleStates[module.id]?.result !== undefined) {
@@ -308,7 +305,6 @@
 			const element = document.querySelector(`[data-nav-id="${currentId}"]`)
 			if (element) {
 				;(element as HTMLElement).focus?.({ preventScroll: true })
-
 				element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 			}
 		}
@@ -390,36 +386,26 @@
 	{/if}
 	<ul class="w-full font-mono text-xs bg-surface-secondary list-none">
 		<!-- Flow entry -->
-		<li class="border-b flex flex-row">
-			{@render collapsibleButton(`flow-${flowId}`, level > 0, rootJob.type === 'QueuedJob')}
+		<FlowLogRow
+			id={`flow-${flowId}`}
+			isCollapsible={level > 0}
+			isRunning={rootJob.type === 'QueuedJob'}
+			{isCurrent}
+			{isExpanded}
+			{toggleExpanded}
+			class={rootJob.type === undefined ? 'opacity-50' : ''}
+		>
+			{#snippet label()}
+				<div class="flex items-center gap-2">
+					<!-- Flow icon -->
+					{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo.hasErrors)}
 
-			<div class="grow min-w-0 leading-tight">
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					class={twMerge(
-						'py-1 flex items-center justify-between pr-2',
-						level > 0 ? 'cursor-pointer' : '',
-						rootJob.type === undefined ? 'opacity-50' : '',
-						isCurrent(`flow-${flowId}`) ? 'bg-surface-hover' : ''
-					)}
-					tabindex="-1"
-					onclick={level > 0 ? () => toggleExpanded(`flow-${flowId}`) : undefined}
-					data-nav-id={`flow-${flowId}`}
-				>
-					<div class="flex items-center gap-2 grow min-w-0">
-						<!-- Flow icon -->
-						{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo.hasErrors)}
-
-						<div class="flex items-center gap-2">
-							<span class="text-xs font-mono">
-								{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
-								{#if flowInfo.label}
-									: {flowInfo.label}
-								{/if}
-								<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
-							</span>
-						</div>
+					<div class="text-xs text-left font-mono grow min-w-0">
+						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
+						{#if flowInfo.label}
+							: {flowInfo.label}
+						{/if}
+						<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
 					</div>
 
 					{#if flowInfo.jobId}
@@ -434,378 +420,322 @@
 						</a>
 					{/if}
 				</div>
+			{/snippet}
 
-				{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
-					<div class="mb-2 transition-all duration-200 ease-in-out w-full">
-						<!-- Flow logs -->
-						{#if flowInfo.logs}
-							<LogViewer
-								content={flowInfo.logs}
-								jobId={flowInfo.jobId}
-								isLoading={false}
-								small={true}
-								download={false}
-								noAutoScroll={true}
-								tag={undefined}
-								noPadding
-								wrapperClass="w-full mb-2 pr-2"
-							/>
+			{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
+				<div class="mb-2 transition-all duration-200 ease-in-out w-full">
+					<!-- Flow logs -->
+					{#if flowInfo.logs}
+						<LogViewer
+							content={flowInfo.logs}
+							jobId={flowInfo.jobId}
+							isLoading={false}
+							small={true}
+							download={false}
+							noAutoScroll={true}
+							tag={undefined}
+							noPadding
+							wrapperClass="w-full mb-2 pr-2"
+						/>
+					{/if}
+
+					<!-- Flow steps - nested as children -->
+					<ul class="w-full font-mono text-xs bg-surface-secondary list-none border-l">
+						<!-- Flow inputs as first row entry -->
+						{#if showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0}
+							<FlowLogRow
+								id={`flow-${flowId}-input`}
+								isCollapsible={true}
+								isRunning={false}
+								{isCurrent}
+								{isExpanded}
+								{toggleExpanded}
+							>
+								{#snippet label()}
+									<div class="flex items-center gap-2 grow min-w-0">
+										<ArrowDownToLine size={10} />
+										<span class="text-xs font-mono">Inputs</span>
+									</div>
+								{/snippet}
+								{#if isExpanded(`flow-${flowId}-input`)}
+									<div class="my-1 transition-all duration-200 ease-in-out">
+										<div class="pl-4">
+											<ObjectViewer json={flowInfo.inputs} pureViewer={true} />
+										</div>
+									</div>
+								{/if}
+							</FlowLogRow>
 						{/if}
 
-						<!-- Flow steps - nested as children -->
-						<ul class="w-full font-mono text-xs bg-surface-secondary list-none border-l">
-							<!-- Flow inputs as first row entry -->
-							{#if showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0}
-								<li class="border-b flex flex-row w-full">
-									{@render collapsibleButton(`flow-${flowId}-input`, true)}
-
-									<div class="grow min-w-0 leading-tight">
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
+						{#if modules.length > 0}
+							{#each modules as module (module.id)}
+								{@const isLeafStep = !hasSubflows(module)}
+								{@const status = localModuleStates[module.id]?.type}
+								{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
+								{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
+								{@const isCollapsible = !hasEmptySubflowValue}
+								<FlowLogRow
+									id={module.id}
+									{isCollapsible}
+									{isRunning}
+									{isCurrent}
+									{isExpanded}
+									{toggleExpanded}
+								>
+									{#snippet label()}
 										<div
 											class={twMerge(
-												'py-1 flex items-center justify-between pr-2 cursor-pointer',
-												isCurrent(`flow-${flowId}-input`) ? 'bg-surface-hover' : ''
+												'flex items-center justify-between pr-2',
+												isCollapsible ? 'cursor-pointer' : '',
+												status === 'WaitingForPriorSteps' ||
+													status === 'WaitingForEvents' ||
+													status === 'WaitingForExecutor' ||
+													status === undefined
+													? 'opacity-50'
+													: ''
 											)}
-											tabindex="-1"
-											onclick={() => toggleExpanded(`flow-${flowId}-input`)}
-											data-nav-id={`flow-${flowId}-input`}
 										>
 											<div class="flex items-center gap-2 grow min-w-0">
-												<ArrowDownToLine size={10} />
-												<span class="text-xs font-mono">Inputs</span>
-											</div>
-										</div>
-
-										{#if isExpanded(`flow-${flowId}-input`)}
-											<div class="my-1 transition-all duration-200 ease-in-out">
-												<div class="pl-4">
-													<ObjectViewer json={flowInfo.inputs} pureViewer={true} />
-												</div>
-											</div>
-										{/if}
-									</div>
-								</li>
-							{/if}
-
-							{#if modules.length > 0}
-								{#each modules as module (module.id)}
-									{@const isLeafStep = !hasSubflows(module)}
-									{@const status = localModuleStates[module.id]?.type}
-									{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
-									{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
-									{@const isCollapsible = !hasEmptySubflowValue}
-									<li class="border-b flex flex-row">
-										{@render collapsibleButton(module.id, isCollapsible, isRunning)}
-										<div class="w-full leading-tight grow min-w-0">
-											<!-- svelte-ignore a11y_click_events_have_key_events -->
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<div
-												class={twMerge(
-													'py-1 flex items-center justify-between pr-2',
-													isCollapsible ? 'cursor-pointer' : '',
-													status === 'WaitingForPriorSteps' ||
-														status === 'WaitingForEvents' ||
-														status === 'WaitingForExecutor' ||
-														status === undefined
-														? 'opacity-50'
-														: '',
-													isCurrent(module.id) ? 'bg-surface-hover' : ''
+												<!-- Step icon -->
+												{@render stepIcon(
+													module.value.type,
+													status as FlowStatusModule['type'],
+													flowInfo.parentsWithErrors.has(module.id)
 												)}
-												tabindex="-1"
-												onclick={isCollapsible ? () => toggleExpanded(module.id) : undefined}
-												data-nav-id={module.id}
-											>
-												<div class="flex items-center gap-2 grow min-w-0">
-													<!-- Step icon -->
-													{@render stepIcon(
-														module.value.type,
-														status as FlowStatusModule['type'],
-														flowInfo.parentsWithErrors.has(module.id)
-													)}
 
-													<div class="flex items-center gap-2">
-														<span class="text-xs font-mono">
-															<b>
-																{mode === 'aiagent'
-																	? module.summary
-																		? 'Tool call'
-																		: 'Message'
-																	: module.id}
-															</b>
-															{#if mode === 'flow'}
-																{#if module.value.type === 'forloopflow'}
-																	For loop
-																{:else if module.value.type === 'whileloopflow'}
-																	While loop
-																{:else if module.value.type === 'branchall'}
-																	Branch to all
-																{:else if module.value.type === 'branchone'}
-																	Branch to one
-																{:else if module.value.type === 'flow'}
-																	Subflow
-																{:else}
-																	Step
-																{/if}
+												<div class="flex items-center gap-2">
+													<span class="text-xs font-mono">
+														<b>
+															{mode === 'aiagent'
+																? module.summary
+																	? 'Tool call'
+																	: 'Message'
+																: module.id}
+														</b>
+														{#if mode === 'flow'}
+															{#if module.value.type === 'forloopflow'}
+																For loop
+															{:else if module.value.type === 'whileloopflow'}
+																While loop
+															{:else if module.value.type === 'branchall'}
+																Branch to all
+															{:else if module.value.type === 'branchone'}
+																Branch to one
+															{:else if module.value.type === 'flow'}
+																Subflow
+															{:else}
+																Step
 															{/if}
-															{#if module.summary}
-																: {module.summary}
-															{/if}
-															{#if hasEmptySubflowValue}
-																<span class="text-tertiary">
-																	{#if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
-																		(empty loop)
-																	{:else if module.value.type === 'branchall' || module.value.type === 'branchone'}
-																		(no branch)
-																	{/if}
-																</span>
-															{/if}
-														</span>
-														{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
-															<span
-																class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
-															>
-																<span onclick={(e) => e.stopPropagation()}>
-																	<FlowJobsMenu
-																		moduleId={module.id}
-																		id={module.id}
-																		{onSelectedIteration}
-																		flowJobsSuccess={localModuleStates[module.id]
-																			?.flow_jobs_success}
-																		flowJobs={localModuleStates[module.id]?.flow_jobs}
-																		selected={localModuleStates[module.id]?.selectedForloopIndex ??
-																			0}
-																		selectedManually={localModuleStates[module.id]
-																			?.selectedForLoopSetManually ?? false}
-																		showIcon={false}
-																	/>
-																</span>
-																{#if module.value.type === 'forloopflow'}
-																	{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
+														{/if}
+														{#if module.summary}
+															: {module.summary}
+														{/if}
+														{#if hasEmptySubflowValue}
+															<span class="text-tertiary">
+																{#if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
+																	(empty loop)
+																{:else if module.value.type === 'branchall' || module.value.type === 'branchone'}
+																	(no branch)
 																{/if}
 															</span>
 														{/if}
-													</div>
-												</div>
-
-												{#if isLeafStep}
-													{@const jobId = localModuleStates[module.id]?.job_id}
-													{#if jobId}
-														<a
-															href={getJobLink(jobId ?? '')}
-															class="text-xs text-primary hover:underline font-mono"
-															target="_blank"
-															rel="noopener noreferrer"
+													</span>
+													{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
+														<span
+															class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
 														>
-															{truncateRev(jobId ?? '', 6)}
-														</a>
+															<button onclick={(e) => e.stopPropagation()}>
+																<FlowJobsMenu
+																	moduleId={module.id}
+																	id={module.id}
+																	{onSelectedIteration}
+																	flowJobsSuccess={localModuleStates[module.id]?.flow_jobs_success}
+																	flowJobs={localModuleStates[module.id]?.flow_jobs}
+																	selected={localModuleStates[module.id]?.selectedForloopIndex ?? 0}
+																	selectedManually={localModuleStates[module.id]
+																		?.selectedForLoopSetManually ?? false}
+																	showIcon={false}
+																/>
+															</button>
+															{#if module.value.type === 'forloopflow'}
+																{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
+															{/if}
+														</span>
 													{/if}
-												{/if}
+												</div>
 											</div>
 
-											{#if isCollapsible && isExpanded(module.id, isRunning)}
-												{@const args = localModuleStates[module.id]?.args}
-												{@const logs = localModuleStates[module.id]?.logs}
-												{@const result = localModuleStates[module.id]?.result}
+											{#if isLeafStep}
 												{@const jobId = localModuleStates[module.id]?.job_id}
-												<div class="my-1 transition-all duration-200 ease-in-out">
-													<!-- Show child steps if they exist -->
-													{#each getSubflows(module) as subflow}
-														{@const subflowJob = {
-															id: jobId,
-															type:
-																localModuleStates[module.id]?.type === 'Failure' ||
-																localModuleStates[module.id]?.type === 'Success'
-																	? 'CompletedJob'
-																	: ('QueuedJob' as Job['type']),
-															logs,
-															result,
-															args,
-															success: localModuleStates[module.id]?.type === 'Success'
-														}}
-														<div class="border-l mb-2">
-															<!-- Recursively render child steps using FlowLogViewer -->
-															<FlowLogViewer
-																modules={subflow.modules}
-																{localModuleStates}
-																rootJob={subflowJob}
-																flowStatus={localModuleStates[module.id]?.type}
-																{expandedRows}
-																{allExpanded}
-																{showResultsInputs}
-																{toggleExpanded}
-																toggleExpandAll={undefined}
-																{workspaceId}
-																{render}
-																level={level + 1}
-																flowId={subflow.flowId}
-																flowSummary={subflow.label}
-																{onSelectedIteration}
-																{getSelectedIteration}
-																{currentId}
-																bind:navigationChain={subloopNavigationChains[subflow.flowId]}
-															/>
-														</div>
-													{/each}
-													<!-- Show input arguments -->
-													{#if getSubflows(module).length === 0}
-														{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
-															<div
-																class={twMerge(
-																	'mb-2',
-																	isCurrent(`${module.id}-input`)
-																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
-																		: ''
-																)}
-															>
-																<button
-																	class={twMerge(
-																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium h-6 w-full pl-1',
-																		isCurrent(`${module.id}-input`) ? 'bg-surface-hover' : ''
-																	)}
-																	tabindex="-1"
-																	onclick={() => toggleExpanded(`${module.id}-input`)}
-																	data-nav-id={`${module.id}-input`}
-																>
-																	{#if isExpanded(`${module.id}-input`)}
-																		<ChevronDown
-																			size={8}
-																			strokeWidth={isCurrent(`${module.id}-input`) ? 4 : 2}
-																		/>
-																	{:else}
-																		<ChevronRight
-																			size={8}
-																			strokeWidth={isCurrent(`${module.id}-input`) ? 4 : 2}
-																		/>
-																	{/if}
-																	<div class="flex items-center gap-2 grow min-w-0">
-																		<ArrowDownFromLine size={10} />
-																		<span class="text-xs font-mono">Input</span>
-																	</div>
-																</button>
-																{#if isExpanded(`${module.id}-input`)}
-																	<div class="pl-4">
-																		<ObjectViewer json={args} pureViewer={true} />
-																	</div>
-																{/if}
-															</div>
-														{/if}
-
-														<!-- Show logs if they exist -->
-														{#if logs}
-															<LogViewer
-																content={logs}
-																jobId={jobId ?? ''}
-																isLoading={false}
-																small={true}
-																download={false}
-																noAutoScroll={true}
-																tag={undefined}
-																noPadding
-																wrapperClass={twMerge(
-																	'w-full mb-2 px-2',
-																	isCurrent(`${module.id}-logs`)
-																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
-																		: ''
-																)}
-																navigationId={`${module.id}-logs`}
-															/>
-														{:else if jobId && !hasSubflows(module)}
-															<div class="mb-2">
-																<div class="text-xs text-tertiary font-mono">
-																	No logs available
-																</div>
-															</div>
-														{/if}
-
-														<!-- Show result if completed -->
-
-														{#if showResultsInputs && isLeafStep && result !== undefined && (status === 'Success' || status === 'Failure')}
-															<div
-																class={twMerge(
-																	'mb-2',
-																	isCurrent(`${module.id}-result`)
-																		? 'border-l-2 border-l-gray-400 -ml-[2px]'
-																		: ''
-																)}
-															>
-																<button
-																	class={twMerge(
-																		'flex items-center gap-1 cursor-pointer hover:text-primary text-xs font-mono font-medium h-6 w-full pl-1',
-																		isCurrent(`${module.id}-result`) ? 'bg-surface-hover' : ''
-																	)}
-																	tabindex="-1"
-																	onclick={() => toggleExpanded(`${module.id}-result`)}
-																	data-nav-id={`${module.id}-result`}
-																>
-																	{#if isExpanded(`${module.id}-result`)}
-																		<ChevronDown
-																			size={8}
-																			strokeWidth={isCurrent(`${module.id}-result`) ? 4 : 2}
-																		/>
-																	{:else}
-																		<ChevronRight
-																			size={8}
-																			strokeWidth={isCurrent(`${module.id}-result`) ? 4 : 2}
-																		/>
-																	{/if}
-																	<div class="flex items-center gap-2 grow min-w-0">
-																		<ArrowDownFromLine size={10} />
-																		<span class="text-xs font-mono">Result</span>
-																	</div>
-																</button>
-																{#if isExpanded(`${module.id}-result`)}
-																	<div class="pl-4">
-																		<ObjectViewer json={result} pureViewer={true} />
-																	</div>
-																{/if}
-															</div>
-														{/if}
-													{/if}
-												</div>
+												{#if jobId}
+													<a
+														href={getJobLink(jobId ?? '')}
+														class="text-xs text-primary hover:underline font-mono"
+														target="_blank"
+														rel="noopener noreferrer"
+													>
+														{truncateRev(jobId ?? '', 6)}
+													</a>
+												{/if}
 											{/if}
 										</div>
-									</li>
-								{/each}
-							{/if}
+									{/snippet}
 
-							<!-- Flow result as last row entry -->
-							{#if showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob'}
-								<li class="border-b flex">
-									{@render collapsibleButton(`flow-${flowId}-result`, true)}
-									<div class="w-full leading-tight">
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<div
-											class={twMerge(
-												'py-1 flex items-center justify-between pr-2 cursor-pointer',
-												isCurrent(`flow-${flowId}-result`) ? 'bg-surface-hover' : ''
-											)}
-											tabindex="-1"
-											onclick={() => toggleExpanded(`flow-${flowId}-result`)}
-											data-nav-id={`flow-${flowId}-result`}
-										>
-											<div class="flex items-center gap-2 grow min-w-0">
-												<ArrowDownFromLine size={10} />
-												<span class="text-xs font-mono">Results</span>
-											</div>
-										</div>
-
-										{#if isExpanded(`flow-${flowId}-result`)}
-											<div class="my-1 transition-all duration-200 ease-in-out">
-												<div class="pl-4">
-													<ObjectViewer json={flowInfo.result} pureViewer={true} />
+									{#if isCollapsible && isExpanded(module.id, isRunning)}
+										{@const args = localModuleStates[module.id]?.args}
+										{@const logs = localModuleStates[module.id]?.logs}
+										{@const result = localModuleStates[module.id]?.result}
+										{@const jobId = localModuleStates[module.id]?.job_id}
+										<div class="my-1 transition-all duration-200 ease-in-out border-l">
+											<!-- Show child steps if they exist -->
+											{#each getSubflows(module) as subflow}
+												{@const subflowJob = {
+													id: jobId,
+													type:
+														localModuleStates[module.id]?.type === 'Failure' ||
+														localModuleStates[module.id]?.type === 'Success'
+															? 'CompletedJob'
+															: ('QueuedJob' as Job['type']),
+													logs,
+													result,
+													args,
+													success: localModuleStates[module.id]?.type === 'Success'
+												}}
+												<div class="border-l mb-2">
+													<!-- Recursively render child steps using FlowLogViewer -->
+													<FlowLogViewer
+														modules={subflow.modules}
+														{localModuleStates}
+														rootJob={subflowJob}
+														flowStatus={localModuleStates[module.id]?.type}
+														{expandedRows}
+														{allExpanded}
+														{showResultsInputs}
+														{toggleExpanded}
+														toggleExpandAll={undefined}
+														{workspaceId}
+														{render}
+														level={level + 1}
+														flowId={subflow.flowId}
+														flowSummary={subflow.label}
+														{onSelectedIteration}
+														{getSelectedIteration}
+														{currentId}
+														bind:navigationChain={subloopNavigationChains[subflow.flowId]}
+													/>
 												</div>
-											</div>
-										{/if}
+											{/each}
+
+											{#if getSubflows(module).length === 0}
+												<!-- Show input arguments -->
+												{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
+													<FlowLogRow
+														id={`${module.id}-input`}
+														isCollapsible={true}
+														isRunning={false}
+														{isCurrent}
+														{isExpanded}
+														{toggleExpanded}
+													>
+														{#snippet label()}
+															<div class="flex items-center gap-2 grow min-w-0">
+																<ArrowDownFromLine size={10} />
+																<span class="text-xs font-mono">Input</span>
+															</div>
+														{/snippet}
+														{#if isExpanded(`${module.id}-input`)}
+															<div class="pl-4">
+																<ObjectViewer json={args} pureViewer={true} />
+															</div>
+														{/if}
+													</FlowLogRow>
+												{/if}
+
+												<!-- Show logs if they exist -->
+												{#if logs}
+													<LogViewer
+														content={logs}
+														jobId={jobId ?? ''}
+														isLoading={false}
+														small={true}
+														download={false}
+														noAutoScroll={true}
+														tag={undefined}
+														noPadding
+														wrapperClass={twMerge(
+															'w-full mb-2 px-2',
+															isCurrent(`${module.id}-logs`)
+																? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																: ''
+														)}
+														navigationId={`${module.id}-logs`}
+													/>
+												{:else if jobId && !hasSubflows(module)}
+													<div
+														class={twMerge(
+															'w-full mb-2 px-2',
+															isCurrent(`${module.id}-logs`)
+																? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																: ''
+														)}
+													>
+														<div class="text-xs text-tertiary font-mono"> No logs available </div>
+													</div>
+												{/if}
+
+												<!-- Show result if completed -->
+												{#if showResultsInputs && isLeafStep && result !== undefined && (status === 'Success' || status === 'Failure')}
+													<FlowLogRow
+														id={`${module.id}-result`}
+														isCollapsible={true}
+														isRunning={false}
+														{isCurrent}
+														{isExpanded}
+														{toggleExpanded}
+													>
+														{#snippet label()}
+															<div class="flex items-center gap-2 grow min-w-0">
+																<ArrowDownFromLine size={10} />
+																<span class="text-xs font-mono">Result</span>
+															</div>
+														{/snippet}
+														{#if isExpanded(`${module.id}-result`)}
+															<div class="pl-4">
+																<ObjectViewer json={result} pureViewer={true} />
+															</div>
+														{/if}
+													</FlowLogRow>
+												{/if}
+											{/if}
+										</div>
+									{/if}
+								</FlowLogRow>
+							{/each}
+						{/if}
+
+						<!-- Flow result as last row entry -->
+						{#if showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob'}
+							<FlowLogRow
+								id={`flow-${flowId}-result`}
+								isCollapsible={true}
+								isRunning={false}
+								{isCurrent}
+								{isExpanded}
+								{toggleExpanded}
+							>
+								{#snippet label()}
+									<div class="flex items-center gap-2 grow min-w-0">
+										<ArrowDownFromLine size={10} />
+										<span class="text-xs font-mono">Results</span>
 									</div>
-								</li>
-							{/if}
-						</ul>
-					</div>
-				{/if}
-			</div>
-		</li>
+								{/snippet}
+								<ObjectViewer json={flowInfo.result} pureViewer={true} />
+							</FlowLogRow>
+						{/if}
+					</ul>
+				</div>
+			{/if}
+		</FlowLogRow>
 	</ul>
 {/if}
 
@@ -848,37 +778,3 @@
 		{/if}
 	</div>
 {/snippet}
-
-{#snippet collapsibleButton(id: string, isCollapsible: boolean, isRunning?: boolean)}
-	<div class={twMerge('align-top', isCurrent(id) ? 'border-l-2 border-l-gray-400 -ml-[2px]' : '')}>
-		{#if isCollapsible}
-			<button
-				class={twMerge(
-					'py-2 leading-tight w-4 flex items-center justify-center text-xs text-tertiary hover:text-primary',
-					isCurrent(id) ? 'bg-surface-hover ' : ''
-				)}
-				onclick={() => toggleExpanded(id)}
-			>
-				{#if isExpanded(id, isRunning)}
-					<ChevronDown size={8} strokeWidth={isCurrent(id) ? 4 : 2} />
-				{:else}
-					<ChevronRight size={8} strokeWidth={isCurrent(id) ? 4 : 2} />
-				{/if}
-			</button>
-		{:else}
-			<!-- Empty subflow - no collapse button, just spacing -->
-			<div class="w-4"></div>
-		{/if}
-	</div>
-{/snippet}
-
-<style>
-	.transition-all {
-		transition: all 0.2s ease-in-out;
-	}
-
-	[data-nav-id]:focus-visible {
-		outline: none;
-		outline-offset: 0;
-	}
-</style>
