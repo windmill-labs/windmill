@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.537.1
+  version: 1.538.0
   title: Windmill API
 
   contact:
@@ -3254,6 +3254,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: allow_cache
+          description: |
+            allow getting a cached value for improved performance
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: variable
@@ -4017,6 +4023,11 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: allow_cache
+          description: allow getting a cached value for improved performance
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource value
@@ -14137,6 +14148,10 @@ components:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
+        custom_prompts:
+          type: object
+          additionalProperties:
+            type: string
 
     Alert:
       type: object
@@ -15229,7 +15244,7 @@ components:
           nu,
           java,
           ruby,
-          duckdb
+          duckdb,
           # for related places search: ADD_NEW_LANG
         ]
 

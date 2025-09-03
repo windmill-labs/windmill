@@ -81,6 +81,7 @@
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -111,7 +112,8 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right
+		editor_bar_right,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -625,6 +627,7 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						{enablePreprocessorSnippet}
 					/>
 					<DiffEditor
 						className="h-full"

@@ -9,10 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    db::{ApiAuthed, DB},
-    users::{maybe_refresh_folders, require_owner_of_path, Tokened},
-    utils::check_scopes,
-    webhook_util::{WebhookMessage, WebhookShared},
+    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path, Tokened}, utils::check_scopes, var_resource_cache::{cache_resource, get_cached_resource}, webhook_util::{WebhookMessage, WebhookShared}
 };
 use axum::{
     body::Body,
@@ -326,6 +323,7 @@ async fn exists_resource(
     Ok(Json(exists))
 }
 
+
 async fn get_resource_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -334,6 +332,8 @@ async fn get_resource_value(
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
+    
+
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -350,6 +350,9 @@ async fn get_resource_value(
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
+    
+
+    
     Ok(Json(value))
 }
 
@@ -416,7 +419,9 @@ async fn custom_component(
 #[derive(Deserialize)]
 struct JobInfo {
     job_id: Option<Uuid>,
+    allow_cache: Option<bool>,
 }
+
 async fn get_resource_value_interpolated(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -428,6 +433,7 @@ async fn get_resource_value_interpolated(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+        
     return get_resource_value_interpolated_internal(
         &authed,
         Some(user_db),
@@ -436,6 +442,7 @@ async fn get_resource_value_interpolated(
         path,
         job_info.job_id,
         token.as_str(),
+        job_info.allow_cache.unwrap_or(false),
     )
     .await
     .map(|success| Json(success));
@@ -452,7 +459,13 @@ pub async fn get_resource_value_interpolated_internal(
     path: &str,
     job_id: Option<Uuid>,
     token: &str,
+    allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    if allow_cache {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path) {
+            return Ok(Some(cached_value));
+        }
+    }
     let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -469,18 +482,20 @@ pub async fn get_resource_value_interpolated_internal(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        Ok(Some(
-            transform_json_value(
-                authed,
-                user_db.clone(),
-                db,
-                workspace,
-                value,
-                &job_id,
-                token,
-            )
-            .await?,
-        ))
+        let r = transform_json_value(
+            authed,
+            user_db.clone(),
+            db,
+            workspace,
+            value,
+            &job_id,
+            token,
+        )
+        .await?;
+        if allow_cache {
+            cache_resource(&workspace, &path, r.clone());
+        }
+        Ok(Some(r))
     } else {
         Ok(None)
     }
@@ -516,6 +531,7 @@ pub async fn transform_json_value<'c>(
                         username_override: None,
                         token_prefix: None,
                     }),
+                false
             )
             .await?;
             Ok(Value::String(v))
@@ -549,12 +565,18 @@ pub async fn transform_json_value<'c>(
             let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
-                    email AS \"email!\",
-                    created_by AS \"created_by!\",
-                    parent_job, permissioned_as AS \"permissioned_as!\",
-                    script_path, schedule_path, flow_step_id, root_job,
-                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
-                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+                    v2_job.permissioned_as_email,
+                    v2_job.created_by,
+                    v2_job.parent_job,
+                    v2_job.permissioned_as,
+                    v2_job.runnable_path,
+                    CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    v2_job.flow_step_id,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
+                    v2_job_queue.scheduled_for AS \"scheduled_for: chrono::DateTime<chrono::Utc>\"
+                FROM v2_job INNER JOIN v2_job_queue ON v2_job.id = v2_job_queue.id
+                WHERE v2_job.id = $1 AND v2_job.workspace_id = $2",
                 job_id,
                 workspace
             )
@@ -581,17 +603,19 @@ pub async fn transform_json_value<'c>(
                 &db.into(),
                 workspace,
                 token,
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
                 &job.permissioned_as,
-                job.script_path.clone(),
+                job.runnable_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
+                None,
             )
             .await;
 
@@ -1238,7 +1262,12 @@ async fn update_resource_type(
     feature = "mqtt_trigger",
     all(
         feature = "enterprise",
-        any(feature = "sqs_trigger", feature = "gcp_trigger")
+        any(
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "kafka",
+            feature = "nats"
+        )
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
@@ -1259,6 +1288,7 @@ where
         &resource_path,
         None,
         "",
+        false,
     )
     .await?;
 

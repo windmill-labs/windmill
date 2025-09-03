@@ -85,7 +85,7 @@ ${Object.entries(args)
 					{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
 						<Row>
 							<Cell first>{arg}</Cell>
-							<Cell last><ArgInfo {value} /></Cell>
+							<Cell><ArgInfo {value} /></Cell>
 						</Row>
 					{/each}
 				{:else if args}

@@ -10,11 +10,12 @@ use windmill_common::{
     auth::get_job_perms,
     cache,
     client::AuthedClient,
+    db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
     flows::{FlowModule, FlowModuleValue},
     get_latest_hash_for_path,
-    jobs::{JobKind, DB},
+    jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
@@ -615,6 +616,7 @@ async fn call_tool(
         agent_job.schedule_path(),
         Some(agent_job.id),
         None,
+        None,
         Some(job_id),
         false,
         false,
@@ -774,10 +776,14 @@ async fn run_agent(
         .and_then(|schema| schema.properties.as_ref())
         .map(|props| !props.is_empty())
         .unwrap_or(false);
+<<<<<<< HEAD
     let provider_is_anthropic = args.provider.kind.is_anthropic();
     let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
         && args.provider.model.starts_with("anthropic/");
     let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
+=======
+    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
+>>>>>>> main
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;

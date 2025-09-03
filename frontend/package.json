@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.537.1",
+	"version": "1.538.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -116,7 +116,7 @@
 		"highlight.js": "^11.8.0",
 		"idb": "^8.0.2",
 		"lru-cache": "^11.1.0",
-		"lucide-svelte": "^0.399.0",
+		"lucide-svelte": "^0.540.0",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~20.2.1",
 		"monaco-editor-wrapper": "6.12.0",
