@@ -338,7 +338,7 @@ impl ScopeDomain {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
             "flows" => Some(Self::Flows),
-            "apps" => Some(Self::Apps),
+            "apps" | "apps_u" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
             "schedules" => Some(Self::Schedules),
@@ -418,8 +418,7 @@ impl ScopeAction {
     }
 }
 
-pub fn 
-check_route_access(
+pub fn check_route_access(
     token_scopes: &[String],
     route_path: &str,
     http_method: &str,
@@ -435,6 +434,7 @@ check_route_access(
         return Ok(());
     }
 
+    // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
@@ -447,6 +447,7 @@ check_route_access(
                     required_kind.as_deref(),
                     route_suffix.as_deref(),
                 )? {
+                    // tracing::error!("Scope grants access: {:?}", scope);
                     return Ok(());
                 }
             }
