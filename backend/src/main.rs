@@ -473,9 +473,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
-        
+
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
-        
+
         Connection::Sql(db)
     };
 
@@ -725,6 +725,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_mode,
                         mcp_mode,
                         base_internal_url.clone(),
+                        None,
                     )
                     .await?;
                 }
@@ -919,7 +920,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 #[cfg(feature = "http_trigger")]
                                                 "notify_http_trigger_change" => {
                                                     tracing::info!("HTTP trigger change detected: {}", n.payload());
-                                                    match windmill_api::http_triggers::refresh_routers(&db).await {
+                                                    match windmill_api::triggers::http::refresh_routers(&db).await {
                                                         Ok((true, _)) => {
                                                             tracing::info!("Refreshed HTTP routers (trigger change)");
                                                         },
@@ -938,7 +939,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 "var_cache_invalidation" => {
                                                     if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) = 
+                                                        if let (Some(workspace_id), Some(path)) =
                                                             (payload.get("workspace_id").and_then(|v| v.as_str()),
                                                              payload.get("path").and_then(|v| v.as_str())) {
                                                             tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
@@ -948,7 +949,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 "resource_cache_invalidation" => {
                                                     if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) = 
+                                                        if let (Some(workspace_id), Some(path)) =
                                                             (payload.get("workspace_id").and_then(|v| v.as_str()),
                                                              payload.get("path").and_then(|v| v.as_str())) {
                                                             tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
@@ -1299,8 +1300,6 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
-        "var_cache_invalidation",
-        "resource_cache_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
