@@ -7,7 +7,8 @@
 		ArrowDownFromLine,
 		FoldVertical,
 		UnfoldVertical,
-		ExternalLink
+		ExternalLink,
+		Keyboard
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
@@ -22,6 +23,7 @@
 	import type { NavigationChain } from '$lib/keyboardChain'
 	import { updateLinks } from '$lib/keyboardChain'
 	import FlowLogRow from './FlowLogRow.svelte'
+	import { Tooltip } from './meltComponents'
 
 	type RootJobData = Partial<Job>
 
@@ -362,6 +364,12 @@
 {#if render}
 	{#if level === 0 && toggleExpandAll}
 		<div class="flex justify-end gap-4 items-center p-2 bg-surface-secondary border-b">
+			<Tooltip>
+				{#snippet text()}
+					Keyboard navigation available - ↑/↓/Enter
+				{/snippet}
+				<Keyboard size={16} class="text-tertiary" />
+			</Tooltip>
 			<div class="flex items-center gap-2 whitespace-nowrap">
 				<label
 					for="showResultsInputs"
