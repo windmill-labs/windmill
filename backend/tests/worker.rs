@@ -136,7 +136,8 @@ impl ApiServer {
         let addr = sock.local_addr().unwrap();
         drop(sock);
         let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
-
+        let name = next_worker_name();
+        tracing::info!("starting api server for name={name}");
         let task = tokio::task::spawn(windmill_api::run_server(
             db.clone(),
             None,
@@ -147,9 +148,13 @@ impl ApiServer {
             false,
             false,
             format!("http://localhost:{}", addr.port()),
+            Some(name.clone()),
         ));
 
-        _port_rx.await.expect("failed to receive port");
+        tracing::info!("waiting for server port for name={name}");
+        _port_rx
+            .await
+            .expect(format!("failed to receive port for name={name}").as_str());
 
         // clear the cache between tests
         windmill_common::cache::clear();
@@ -949,6 +954,7 @@ impl RunJob {
             /* schedule_path */ None,
             /* parent_job */ None,
             /* root job  */ None,
+            /* flow_innermost_root_job */ None,
             /* job_id */ None,
             /* is_flow_step */ false,
             /* same_worker */ false,

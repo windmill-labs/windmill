@@ -10,11 +10,10 @@ use std::collections::HashMap;
 
 use crate::utils::WithStarredInfoQuery;
 use crate::{
+    auth::{list_tokens_internal, TruncatedTokenWithEmail},
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
-    triggers::{
-        get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
-    },
+    triggers::{get_triggers_count_internal, TriggersCount},
     users::{maybe_refresh_folders, require_owner_of_path},
     utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -510,6 +509,7 @@ async fn create_flow(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -972,6 +972,7 @@ async fn update_flow(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,

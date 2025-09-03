@@ -60,6 +60,7 @@ pub enum RunnableId {
 }
 
 impl RunnableId {
+    #[allow(dead_code)]
     pub fn from_script_hash(hash: ScriptHash) -> Self {
         Self::ScriptId(ScriptId::ScriptHash(hash))
     }
@@ -78,6 +79,7 @@ impl RunnableId {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[allow(unused)]
 pub enum ScriptId {
     ScriptPath(String),
     ScriptHash(ScriptHash),
@@ -769,6 +771,7 @@ async fn trigger_script_with_retry_and_error_handler(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
