@@ -12,7 +12,7 @@ use windmill_common::{
     db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue},
+    flows::{FlowModule, FlowModuleValue, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -21,9 +21,8 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 use windmill_queue::{
-    flow_status::{get_step_of_flow_status, Step},
-    get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
-    PushIsolationLevel,
+    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy, JobCompleted,
+    MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
 use crate::{
