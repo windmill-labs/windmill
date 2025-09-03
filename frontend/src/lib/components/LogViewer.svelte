@@ -34,6 +34,7 @@
 		customEmptyMessage?: string
 		tagLabel?: string
 		noPadding?: boolean
+		putFocus?: boolean
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		download = true,
 		customEmptyMessage = 'No logs are available yet',
 		tagLabel = undefined,
-		noPadding = false
+		noPadding = false,
+		putFocus = false
 	}: Props = $props()
 
 	// @ts-ignore
@@ -171,6 +173,13 @@
 				: truncatedContent
 		)
 	)
+
+	$effect(() => {
+		console.log('putFocus', putFocus, div)
+		if (putFocus) {
+			div?.focus()
+		}
+	})
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">

@@ -257,6 +257,10 @@
 						items.push(`${module.id}-input`)
 					}
 
+					if (localModuleStates[module.id]?.logs) {
+						items.push(`${module.id}-logs`)
+					}
+
 					// Add result if exists and shown (leaf nodes only)
 					if (showResultsInputs && localModuleStates[module.id]?.result !== undefined) {
 						items.push(`${module.id}-result`)
@@ -679,6 +683,7 @@
 																tag={undefined}
 																noPadding
 																wrapperClass="w-full mb-2 pr-2"
+																putFocus={isCurrent(`${module.id}-logs`)}
 															/>
 														{:else if jobId && !hasSubflows(module)}
 															<div class="mb-2">
