@@ -58,6 +58,7 @@ lazy_static::lazy_static! {
 
 pub struct CustomMigrator {
     inner: PoolConnection<Postgres>,
+    is_fresh: bool,
 }
 impl Migrate for CustomMigrator {
     fn ensure_migrations_table(
@@ -198,7 +199,19 @@ impl Migrate for CustomMigrator {
 
 pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
-    let mut custom_migrator = CustomMigrator { inner: migrator };
+
+    let is_fresh = !sqlx::query_scalar!(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = '_sqlx_migrations'
+        )"
+    )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(true);
+
+    let mut custom_migrator = CustomMigrator { inner: migrator, is_fresh };
 
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE 
@@ -226,7 +239,11 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
         Err(err) => Err(err),
     }?;
 
-    return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
+    if is_fresh {
+        return Ok(None);
+    } else {
+        return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
+    }
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
