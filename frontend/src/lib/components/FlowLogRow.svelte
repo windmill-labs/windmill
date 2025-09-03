@@ -12,6 +12,7 @@
 		children: import('svelte').Snippet
 		label: import('svelte').Snippet
 		class?: string
+		select: (id: string) => void
 	}
 
 	let {
@@ -23,8 +24,16 @@
 		toggleExpanded,
 		children,
 		label,
-		class: className = ''
+		class: className = '',
+		select
 	}: Props = $props()
+
+	function handleClick() {
+		if (isCollapsible) {
+			toggleExpanded(id)
+		}
+		select(id)
+	}
 </script>
 
 <li
@@ -40,7 +49,7 @@
 			className
 		)}
 		tabindex="-1"
-		onclick={() => isCollapsible && toggleExpanded(id)}
+		onclick={handleClick}
 		data-nav-id={id}
 	>
 		<div class="px-1">

@@ -49,6 +49,7 @@
 		mode?: 'flow' | 'aiagent'
 		currentId?: string | null
 		navigationChain?: NavigationChain
+		select: (id: string) => void
 	}
 
 	let {
@@ -70,7 +71,8 @@
 		flowSummary,
 		mode = 'flow',
 		currentId,
-		navigationChain = $bindable()
+		navigationChain = $bindable(),
+		select
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -399,6 +401,7 @@
 			{isExpanded}
 			{toggleExpanded}
 			class={rootJob.type === undefined ? 'opacity-50' : ''}
+			{select}
 		>
 			{#snippet label()}
 				<div class="flex items-center gap-2">
@@ -455,6 +458,7 @@
 								{isCurrent}
 								{isExpanded}
 								{toggleExpanded}
+								{select}
 							>
 								{#snippet label()}
 									<div class="flex items-center gap-2 grow min-w-0">
@@ -486,6 +490,7 @@
 									{isCurrent}
 									{isExpanded}
 									{toggleExpanded}
+									{select}
 								>
 									{#snippet label()}
 										<div
@@ -626,6 +631,7 @@
 														{getSelectedIteration}
 														{currentId}
 														bind:navigationChain={subloopNavigationChains[subflow.flowId]}
+														{select}
 													/>
 												</div>
 											{/each}
@@ -640,6 +646,7 @@
 														{isCurrent}
 														{isExpanded}
 														{toggleExpanded}
+														{select}
 													>
 														{#snippet label()}
 															<div class="flex items-center gap-2 grow min-w-0">
@@ -656,24 +663,28 @@
 												{/if}
 
 												<!-- Show logs if they exist -->
+												<!-- svelte-ignore a11y_click_events_have_key_events -->
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
 												{#if logs}
-													<LogViewer
-														content={logs}
-														jobId={jobId ?? ''}
-														isLoading={false}
-														small={true}
-														download={false}
-														noAutoScroll={true}
-														tag={undefined}
-														noPadding
-														wrapperClass={twMerge(
-															'w-full mb-2 px-2',
-															isCurrent(`${module.id}-logs`)
-																? 'border-l-2 border-l-gray-400 -ml-[2px]'
-																: ''
-														)}
-														navigationId={`${module.id}-logs`}
-													/>
+													<div onclick={() => select(`${module.id}-logs`)}>
+														<LogViewer
+															content={logs}
+															jobId={jobId ?? ''}
+															isLoading={false}
+															small={true}
+															download={false}
+															noAutoScroll={true}
+															tag={undefined}
+															noPadding
+															wrapperClass={twMerge(
+																'w-full mb-2 px-2',
+																isCurrent(`${module.id}-logs`)
+																	? 'border-l-2 border-l-gray-400 -ml-[2px]'
+																	: ''
+															)}
+															navigationId={`${module.id}-logs`}
+														/>
+													</div>
 												{:else if jobId && !hasSubflows(module)}
 													<div
 														class={twMerge(
@@ -696,6 +707,7 @@
 														{isCurrent}
 														{isExpanded}
 														{toggleExpanded}
+														{select}
 													>
 														{#snippet label()}
 															<div class="flex items-center gap-2 grow min-w-0">
@@ -726,6 +738,7 @@
 								{isCurrent}
 								{isExpanded}
 								{toggleExpanded}
+								{select}
 							>
 								{#snippet label()}
 									<div class="flex items-center gap-2 grow min-w-0">

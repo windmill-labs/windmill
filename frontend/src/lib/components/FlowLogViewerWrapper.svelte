@@ -35,7 +35,7 @@
 	let showResultsInputs = $state(true)
 
 	// Keyboard navigation state - incremental like expandedRows
-	let currentId = $state<string | null>(null)
+	let currentId = $state<string | null>('flow-root')
 	let navigationChain = $state<NavigationChain>({})
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
@@ -93,6 +93,10 @@
 				break
 		}
 	}
+
+	function select(id: string) {
+		currentId = id
+	}
 </script>
 
 <div
@@ -119,5 +123,6 @@
 		{mode}
 		{currentId}
 		bind:navigationChain
+		{select}
 	/>
 </div>
