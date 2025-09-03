@@ -2,8 +2,8 @@
  * This file contains shared AI provider utilities used by both the API and worker.
  */
 
+use crate::db::DB;
 use crate::error::{Error, Result};
-use crate::jobs::DB;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
