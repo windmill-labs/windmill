@@ -217,7 +217,6 @@
 
 	let subloopNavigationChains = $state<Record<string, NavigationChain>>({})
 
-	// Build navigation links directly (merged function)
 	function buildNavigationLinks(): NavigationChain {
 		const items: string[] = []
 
@@ -238,7 +237,13 @@
 			items.push(module.id)
 
 			// If module is expanded, add its children
-			if (isExpanded(module.id)) {
+			if (
+				isExpanded(
+					module.id,
+					localModuleStates[module.id]?.type === 'InProgress' ||
+						localModuleStates[module.id]?.type === 'WaitingForExecutor'
+				)
+			) {
 				// Check if it has subflows
 				const subflows = getSubflows(module)
 				if (subflows.length > 0) {

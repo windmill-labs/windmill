@@ -11,22 +11,23 @@ export function updateLinks(navigationChain: NavigationChain, newChain: Navigati
 	if (!firstLink || !lastLink) return navigationChain
 
 	const cleaned = { ...navigationChain }
+	const inserted = { ...newChain }
 
 	// Check if the chain needs to be inserted
 	if (!cleaned[lastLink] && cleaned[firstLink]) {
 		// connect the beginning of the new chain to the beginning of the chain
-		newChain[firstLink].upId = cleaned[firstLink]?.upId
+		inserted[firstLink].upId = cleaned[firstLink]?.upId
 
 		//connect the end of new the new chain to the beginning of the chain
 		const nextLink = cleaned[firstLink]?.downId
 		if (nextLink) {
-			newChain[lastLink].downId = nextLink
+			inserted[lastLink].downId = nextLink
 			cleaned[nextLink].upId = lastLink
 		}
 	} else if (cleaned[lastLink] && cleaned[firstLink]) {
 		// If the end of the chain matches a link in the navigationChain, and the beginning delete the chain in the middle and replace it with the new chain
-		newChain[firstLink].upId = cleaned[firstLink]?.upId
-		newChain[lastLink].downId = cleaned[lastLink]?.downId
+		inserted[firstLink].upId = cleaned[firstLink]?.upId
+		inserted[lastLink].downId = cleaned[lastLink]?.downId
 
 		if (firstLink !== lastLink) {
 			const toDelete: string[] = []
@@ -42,5 +43,5 @@ export function updateLinks(navigationChain: NavigationChain, newChain: Navigati
 		}
 	}
 
-	return { ...cleaned, ...newChain }
+	return { ...cleaned, ...inserted }
 }

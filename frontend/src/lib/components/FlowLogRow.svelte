@@ -36,7 +36,7 @@
 	<button
 		class={twMerge(
 			'py-1 leading-tight w-full flex items-center justify-left text-xs text-tertiary hover:text-primary ',
-			isCurrent(id) ? 'bg-surface-hover ' : '',
+			isCurrent(id) ? 'bg-surface-hover text-primary' : '',
 			className
 		)}
 		tabindex="-1"
