@@ -200,29 +200,15 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
-    }
-
-    // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
-    }
-
-    // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
     if let Err(err) = sqlx::query!(
-        "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+        "DELETE FROM _sqlx_migrations WHERE 
+        version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR 
+        version=20250201145631 OR version=20250201145632"
     )
     .execute(db)
     .await
     {
-        tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
+        tracing::info!("Could not remove sqlx migrations: {err:#}");
     }
 
     match sqlx::migrate!("../migrations")
