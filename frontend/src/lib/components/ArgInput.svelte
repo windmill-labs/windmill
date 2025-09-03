@@ -45,6 +45,9 @@
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
+	import ModelPicker from './ModelPicker.svelte'
+	import { AI_PROVIDERS } from './copilot/lib'
+	import type { AIProvider } from '$lib/gen'
 
 	interface Props {
 		label?: string
@@ -683,7 +686,7 @@
 							delete value.properties[e.detail]
 							// Also remove from order array if it exists
 							if (value.order) {
-								value.order = value.order.filter(key => key !== e.detail)
+								value.order = value.order.filter((key) => key !== e.detail)
 							}
 							// Update the value to trigger reactivity
 							value = { ...value }
@@ -1267,6 +1270,21 @@
 					? format.substring('resource-'.length)
 					: undefined}
 				{showSchemaExplorer}
+			/>
+		{:else if inputCat == 'ai-model'}
+			<ModelPicker
+				bind:value
+				provider={Object.keys(AI_PROVIDERS).find(
+					(k) => AI_PROVIDERS[k].label === otherArgs?.kind
+				) as AIProvider | undefined}
+				resourcePath={otherArgs?.resource
+					? otherArgs?.resource.startsWith('$res:')
+						? otherArgs?.resource.split(':')[1]
+						: otherArgs?.resource
+					: undefined}
+				{disabled}
+				placeholder={placeholder ?? 'Select model'}
+				{actions}
 			/>
 		{:else if inputCat == 'email'}
 			<input

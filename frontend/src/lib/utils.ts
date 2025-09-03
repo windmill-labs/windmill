@@ -593,6 +593,7 @@ export type InputCat =
 	| 'oneOf'
 	| 'dynselect'
 	| 'json-schema'
+	| 'ai-model'
 
 export namespace DynamicSelect {
 	export type HelperScript =
@@ -673,6 +674,8 @@ export function setInputCat(
 		return 'email'
 	} else if (type == 'string' && format == 'currency') {
 		return 'currency'
+	} else if (type == 'string' && format == 'ai-model') {
+		return 'ai-model'
 	} else if (type == 'oneOf') {
 		return 'oneOf'
 	} else {

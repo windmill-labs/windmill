@@ -3,6 +3,7 @@ import { loadSchemaFlow } from '$lib/scripts'
 import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
+import { AI_PROVIDERS } from '../copilot/lib'
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
@@ -60,41 +61,23 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			properties: {
 				provider: {
 					type: 'object',
-					oneOf: [
-						{
-							type: 'object',
-							title: 'OpenAI',
-							properties: {
-								kind: { type: 'string', enum: ['OpenAI'] },
-								resource: {
-									type: 'object',
-									format: 'resource-openai'
-								},
-
-								model: {
-									type: 'string',
-									enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
-								}
+					oneOf: Object.entries(AI_PROVIDERS).map(([provider, details]) => ({
+						type: 'object',
+						title: details.label,
+						properties: {
+							kind: { type: 'string', enum: [details.label] },
+							resource: {
+								type: 'object',
+								format: `resource-${provider}`
 							},
-							required: ['kind', 'resource', 'model']
+							model: {
+								type: 'string',
+								format: 'ai-model',
+								default: details.defaultModels[0]
+							}
 						},
-						{
-							type: 'object',
-							title: 'Anthropic',
-							properties: {
-								kind: { type: 'string', enum: ['Anthropic'] },
-								resource: {
-									type: 'object',
-									format: 'resource-anthropic'
-								},
-								model: {
-									type: 'string',
-									enum: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest']
-								}
-							},
-							required: ['kind', 'resource', 'model']
-						}
-					]
+						required: ['kind', 'resource', 'model']
+					}))
 				},
 				user_message: {
 					type: 'string'
