@@ -4,5 +4,6 @@ CREATE TRIGGER flow_versions_append_trigger
 AFTER UPDATE ON flow
 FOR EACH ROW
 -- Trigger only when versions are different
+-- TODO: PERF: Compare by lengths?
 WHEN (NEW.versions <> OLD.versions)
 EXECUTE FUNCTION notify_runnable_version_change('flow');

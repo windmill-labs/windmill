@@ -966,7 +966,7 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
-            version: version,
+            version,
         },
         windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,

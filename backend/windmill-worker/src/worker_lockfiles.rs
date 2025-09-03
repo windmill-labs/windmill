@@ -41,6 +41,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel}
 lazy_static::lazy_static! {
     // TODO: To be removed in future versions
     static ref WMDEBUG_NO_HASH_CHANGE_ON_DJ: bool = std::env::var("WMDEBUG_NO_HASH_CHANGE_ON_DJ").is_ok();
+    static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
 }
 
 use crate::common::OccupancyMetrics;
@@ -667,6 +668,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
             match r {
+                // We will create Dependency job as is. But the Dep Job Handler will detect that the job originates
+                // from [[trigger_dependents_to_recompute_dependencies]] and will create new script with new hash instead
                 Ok(r) => JobPayload::Dependencies {
                     path: s.importer_path.clone(),
                     hash: ScriptHash(r.hash),
@@ -683,11 +686,17 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 }
             }
         } else if kind == "flow" {
+            // Unlike 'script', 'flow' will not delegate redeployment of new flow to the Dep Job Handler.
+            // We will create new flow in-place.
+            // It would be harder to do otherwise.
+
+            // Create transaction to make operation atomic.
             let mut flow_tx = db.begin().await?;
             args.insert(
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
             );
+
             let r = sqlx::query_scalar!(
                 "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
@@ -695,14 +704,33 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             ).fetch_one(&mut *flow_tx)
             .await
             .map_err(to_anyhow);
+
             match r {
+                // TODO: Fallback - remove eventually.
+                Ok(Some(version)) if *WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ => {
+                    JobPayload::FlowDependencies {
+                        path: s.importer_path.clone(),
+                        dedicated_worker: None,
+                        version,
+                    }
+                }
+                // Get current version of current flow.
                 Ok(Some(cur_version)) => {
+                    // NOTE: Temporary solution. See the usage for more details.
+                    args.insert(
+                        "triggered_by_relative_import".to_string(),
+                        to_raw_value(&()),
+                    );
+
                     // TODO: Test with drafts
                     // TODO: BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
                     // TODO: Depend on relative import several times
                     // TODO: Test with relative imports caching
                     // TODO: Use transaction
                     // TODO: BUG: If pg notification to reset latest version is triggered, then it will call server to get new one, which will probably be the same (bc new version is not marked as viewable yet).
+
+                    // Find out what would be the next version.
+                    // Also clone current flow_version to get new_version (which is usually c_v + 1).
                     let new_version = sqlx::query_scalar!(
                         "INSERT INTO flow_version
                 (workspace_id, path, value, schema, created_by)
@@ -723,10 +751,17 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         ))
                     })?;
 
+                    // Commit the transaction.
+                    // NOTE:
+                    // We do not append flow.versions with new version.
+                    // We will do this in the end of the dependency job handler.
+                    // Otherwise it might become a source of race-conditions.
                     flow_tx.commit().await?;
                     JobPayload::FlowDependencies {
                         path: s.importer_path.clone(),
                         dedicated_worker: None,
+                        // Point Dep Job to the new version.
+                        // We do this since we want to assume old ones are immutable.
                         version: new_version,
                     }
                 }
@@ -735,6 +770,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no flow version found for path {path}",
                         path = s.importer_path
                     );
+                    // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
                 Err(err) => {
@@ -742,6 +778,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "error getting latest deployed flow version for path {path}: {err}",
                         path = s.importer_path,
                     );
+                    // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
             }
@@ -858,6 +895,12 @@ pub async fn handle_flow_dependency_job(
                 .flatten()
         })
         .flatten();
+
+    let triggered_by_relative_import = job
+        .args
+        .as_ref()
+        .map(|x| x.get("triggered_by_relative_import").is_some())
+        .unwrap_or_default();
 
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
@@ -1012,12 +1055,19 @@ pub async fn handle_flow_dependency_job(
         .await?;
 
         // TODO: What if something fails before updating versions in flow?
-        // NOTE: Trigger cache invalidation
-        sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND NOT (versions @> ARRAY[$1::bigint])",
-            version,
-            &job_path,
-            &job.workspace_id,
-        ).execute(&mut *tx).await?;
+
+        // NOTE: Temporary solution.
+        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
+        if triggered_by_relative_import {
+            // Making new version viewable as the current one.
+            // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
+            // which will invalidate cache for the latest flow versions for all workers.
+            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND NOT (versions @> ARRAY[$1::bigint])",
+                version,
+                &job_path,
+                &job.workspace_id,
+            ).execute(&mut *tx).await?;
+        }
 
         tx.commit().await?;
 
