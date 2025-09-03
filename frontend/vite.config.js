@@ -15,6 +15,18 @@ const config = {
 		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz'],
 		port: 3000,
 		proxy: {
+			'^/api/w/[^/]+/s3_proxy/.*': {
+				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
+				changeOrigin: false, // Important for signature to be correct
+				cookieDomainRewrite: 'localhost',
+				configure: (proxy, options) => {
+					proxy.on('proxyReq', (proxyReq, req, res) => {
+						// Prevent collapsing slashes during URL normalization
+						const originalPath = req.url
+						proxyReq.path = originalPath
+					})
+				}
+			},
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
 				changeOrigin: true,
