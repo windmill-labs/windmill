@@ -200,8 +200,6 @@ struct Workspace {
     premium: bool,
     color: Option<String>,
     parent_workspace_id: Option<String>,
-    created_by: Option<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -470,7 +468,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.created_by, workspace.created_at
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -2061,9 +2059,7 @@ async fn list_workspaces_as_super_admin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\",
-            workspace.created_by AS \"created_by\",
-            workspace.created_at AS \"created_at!\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -2426,58 +2422,13 @@ async fn update_workspace_settings(
     target_workspace_id: &str,
     _target_username: &str,
 ) -> Result<()> {
-    // sqlx::query!(
-    //     r#"
-    //     UPDATE workspace_settings
-    //     SET slack_team_id = source_ws.slack_team_id,
-    //         slack_name = source_ws.slack_name,
-    //         slack_command_script = source_ws.slack_command_script,
-    //         slack_email = source_ws.slack_email,
-    //         auto_invite_domain = source_ws.auto_invite_domain,
-    //         auto_invite_operator = source_ws.auto_invite_operator,
-    //         customer_id = source_ws.customer_id,
-    //         plan = source_ws.plan,
-    //         webhook = source_ws.webhook,
-    //         deploy_to = source_ws.deploy_to,
-    //         error_handler = source_ws.error_handler,
-    //         ai_config = source_ws.ai_config,
-    //         error_handler_extra_args = source_ws.error_handler_extra_args,
-    //         error_handler_muted_on_cancel = source_ws.error_handler_muted_on_cancel,
-    //         large_file_storage = source_ws.large_file_storage,
-    //         git_sync = source_ws.git_sync,
-    //         default_app = source_ws.default_app,
-    //         auto_add = source_ws.auto_add,
-    //         default_scripts = source_ws.default_scripts,
-    //         deploy_ui = source_ws.deploy_ui,
-    //         mute_critical_alerts = source_ws.mute_critical_alerts,
-    //         operator_settings = source_ws.operator_settings,
-    //         teams_command_script = source_ws.teams_command_script,
-    //         teams_team_id = source_ws.teams_team_id,
-    //         teams_team_name = source_ws.teams_team_name,
-    //         git_app_installations = source_ws.git_app_installations
-    //     FROM workspace_settings source_ws
-    //     WHERE source_ws.workspace_id = $1
-    //     AND workspace_settings.workspace_id = $2
-    //     "#,
-    //     source_workspace_id,
-    //     target_workspace_id,
-    // )
-    // .execute(&mut **tx)
-    // .await?;
 
     sqlx::query!(
         r#"
         UPDATE workspace_settings 
         SET
-            customer_id = source_ws.customer_id,
-            plan = source_ws.plan,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
-            default_app = source_ws.default_app,
-            auto_add = source_ws.auto_add,
-            default_scripts = source_ws.default_scripts,
-            mute_critical_alerts = source_ws.mute_critical_alerts,
-            operator_settings = source_ws.operator_settings,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws 
         WHERE source_ws.workspace_id = $1

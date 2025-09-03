@@ -17209,12 +17209,6 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
-        created_by:
-          type: string
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
       required:
         - id
         - name
@@ -17232,6 +17226,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - workspace_id
         - email
