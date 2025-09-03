@@ -30,7 +30,7 @@
 	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
 		Object.fromEntries(
-			Object.keys(aiProviders).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
+			Object.keys(AI_PROVIDERS).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
 		) as Record<AIProvider, string[]>
 	)
 
