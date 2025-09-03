@@ -528,7 +528,12 @@
 					{#if jsonEnabled && customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
-								<AddPropertyV2 bind:schema>
+								<AddPropertyV2
+									bind:schema
+									onAddNew={(propertyName) => {
+										openField(propertyName)
+									}}
+								>
 									{#snippet trigger()}
 										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
 									{/snippet}
