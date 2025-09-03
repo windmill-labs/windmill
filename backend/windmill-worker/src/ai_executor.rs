@@ -1008,11 +1008,13 @@ async fn run_agent(
 
     // Parse content as JSON, fallback to string if it fails
     let output_value = match content {
-        Some(content_str) => match serde_json::from_str::<Box<RawValue>>(&content_str) {
-            Ok(parsed) => parsed,
-            Err(_) => to_raw_value(&content_str),
+        Some(content_str) => match has_output_properties {
+            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|e| {
+                Error::internal_err(format!("Failed to parse structured output: {}", e))
+            })?,
+            false => to_raw_value(&content_str),
         },
-        None => to_raw_value(&String::new()),
+        None => to_raw_value(&""),
     };
 
     Ok(to_raw_value(&AIAgentResult {
