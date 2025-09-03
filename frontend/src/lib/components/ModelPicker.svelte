@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte'
+	import { type Snippet } from 'svelte'
 	import Select from './select/Select.svelte'
 	import { fetchAvailableModels, AI_PROVIDERS } from './copilot/lib'
 	import type { AIProvider } from '$lib/gen'
@@ -39,17 +39,11 @@
 	)
 
 	async function loadModels() {
-		filterText = ''
-		value = undefined
 		if (!provider || !resourcePath) {
-			// Use default models if we don't have provider/resource info
-			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
-			availableModels = defaultModels
 			return
 		}
 
 		loading = true
-
 		if (modelsCache.has(provider)) {
 			availableModels = modelsCache.get(provider) || []
 			loading = false
@@ -70,19 +64,18 @@
 		}
 	}
 
-	onMount(() => {
-		loadModels()
-	})
-
 	// Reload models when provider or resourcePath changes
 	$effect(() => {
-		if (provider || resourcePath) {
+		filterText = ''
+		value = undefined
+		if (provider && resourcePath) {
 			loadModels()
-		}
-	})
-
-	$effect(() => {
-		if (provider) {
+		} else {
+			const defaultModels = provider
+				? AI_PROVIDERS[provider as AIProvider]?.defaultModels || []
+				: []
+			availableModels = defaultModels
+			loading = false
 		}
 	})
 </script>
