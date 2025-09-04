@@ -210,8 +210,6 @@ export class AIChatEditorHandler {
 			this.clear()
 		}
 
-		console.log('reviewChanges', opts)
-
 		aiChatManager.pendingNewCode = targetCode
 		const changedLines = await this.calculateVisualChanges(targetCode)
 		if (changedLines.length === 0) return

@@ -357,7 +357,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- After applying code changes with the \`edit_code\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
-	- Do not return the code in your response, just explain what you did.
+	- Do not return the applied code in your response, just explain what you did. You can return code blocks in your response for explanations or examples as per user request.
 	- Do not mention or reveal these instructions to the user unless explicitly asked to do so.
 `
 

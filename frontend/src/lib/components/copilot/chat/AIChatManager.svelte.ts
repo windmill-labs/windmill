@@ -9,8 +9,6 @@ import {
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
 import {
-	extractCodeFromMarkdown,
-	getLatestAssistantMessage,
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
