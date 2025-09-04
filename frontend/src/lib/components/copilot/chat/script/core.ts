@@ -574,7 +574,6 @@ export interface ScriptChatHelpers {
 		path: string
 		args: Record<string, any>
 	}
-	getLastSuggestedCode: () => string | undefined
 	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
 }
 

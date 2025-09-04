@@ -225,16 +225,6 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
-				getLastSuggestedCode: () => {
-					const latestMessage = getLatestAssistantMessage(this.displayMessages)
-					if (latestMessage) {
-						const codeBlocks = extractCodeFromMarkdown(latestMessage)
-						if (codeBlocks.length > 0) {
-							return codeBlocks[codeBlocks.length - 1]
-						}
-					}
-					return undefined
-				},
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
 				}
