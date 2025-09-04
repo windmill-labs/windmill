@@ -246,8 +246,6 @@ async fn evaluate_stop_after_all_iters_if(
     )
     .await?;
 
-    tracing::info!("should_stop {stop_early:?}");
-
     if stop_early_after_all_iters {
         *stop_early = true;
         (*skip_if_stop_early, *stop_early_err_msg) =
@@ -382,8 +380,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let is_flow = stop_early_override.is_some() && {
-            //do not stop early if module is a flow step
+        let is_flow_stop_early_override = stop_early_override.is_some() && {
             let step = module_step.get_step_index();
 
             if let Some(_) = step {
@@ -428,7 +425,11 @@ pub async fn update_flow_status_after_job_completion_internal(
             };
 
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
-            if stop_early_override.is_some() && !is_flow && !parallel_loop && !parallel_branchall {
+            if stop_early_override.is_some()
+                && !is_flow_stop_early_override
+                && !parallel_loop
+                && !parallel_branchall
+            {
                 // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
                 let se = stop_early_override.as_ref().unwrap();
                 (true, None, *se, false)
@@ -1282,8 +1283,6 @@ pub async fn update_flow_status_after_job_completion_internal(
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
-
-        tracing::info!("status module {:?}", new_status);
 
         (
             should_continue_flow,
