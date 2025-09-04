@@ -29,14 +29,14 @@ lazy_static::lazy_static! {
     pub static ref HASH_PERMS_CACHE: HashPermsCache = HashPermsCache::new();
 }
 
-pub struct HashPermsCache(Cache<u64, HashSet<i64>>);
+pub struct HashPermsCache(Cache<(u64, i64), ()>);
 
 use std::hash::Hash;
 use std::hash::Hasher;
 
 impl HashPermsCache {
     pub fn new() -> Self {
-        HashPermsCache(Cache::new(1000))
+        HashPermsCache(Cache::new(10000))
     }
 
     pub fn compute_hash(authed: &AuthedRef) -> u64 {
@@ -53,11 +53,11 @@ impl HashPermsCache {
         // Create hash of the ApiAuthed struct for caching
         let authed_hash = Self::compute_hash(authed);
 
+        tracing::debug!("Checking cache for authed hash {authed_hash} and script hash {}", script_hash.0);
         // Check cache first
-        if let Some(cached_result) = self.0.get(&authed_hash) {
-            if cached_result.contains(&script_hash.0) {
-                return (true, authed_hash);
-            }
+        if let Some(_) = self.0.get(&(authed_hash, script_hash.0)) {
+            tracing::debug!("Cached result for authed hash {authed_hash} and script hash {}", script_hash.0);
+            return (true, authed_hash);
         }
 
         return (false, authed_hash);
@@ -66,46 +66,43 @@ impl HashPermsCache {
     /// Check if an ApiAuthed user has permission to see a given script hash
     /// Returns true if the user can see the script, false otherwise
     /// Caches the result to avoid unnecessary database calls
-    pub async fn check_perms_for_hash<'e>(
-        &self,
-        authed: &'e AuthedRef<'e>,
-        script_hash: ScriptHash,
-        workspace_id: &str,
-        db: UserDB,
-    ) -> Result<bool> {
-        let (cached_perm, authed_hash) = self.check_perms_in_cache(&authed, script_hash);
+    // pub async fn check_perms_for_hash<'e>(
+    //     &self,
+    //     authed: &'e AuthedRef<'e>,
+    //     script_hash: ScriptHash,
+    //     workspace_id: &str,
+    //     db: UserDB,
+    // ) -> Result<bool> {
+    //     let (cached_perm, authed_hash) = self.check_perms_in_cache(&authed, script_hash);
 
-        if cached_perm {
-            return Ok(true);
-        }
+    //     if cached_perm {
+    //         return Ok(true);
+    //     }
 
-        let mut tx = db.begin(authed).await?;
+    //     let mut tx = db.begin(authed).await?;
 
-        // Query database for script visibility and creator info
-        let visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
-            script_hash.0,
-            workspace_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten()
-        .unwrap_or(false);
-        drop(tx);
+    //     // Query database for script visibility and creator info
+    //     let visible = sqlx::query_scalar!(
+    //         "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
+    //         script_hash.0,
+    //         workspace_id
+    //     )
+    //     .fetch_optional(&mut *tx)
+    //     .await?
+    //     .flatten()
+    //     .unwrap_or(false);
+    //     drop(tx);
 
-        if visible {
-            // Cache the result
-            self.insert(authed_hash, script_hash.0);
-        }
-        Ok(visible)
-    }
+    //     if visible {
+    //         // Cache the result
+    //         self.insert(authed_hash, script_hash.0);
+    //     }
+    //     Ok(visible)
+    // }
 
     pub fn insert(&self, authed_hash: u64, script_hash: i64) {
-        let mut m = self
-            .0
-            .get_or_insert_with(&authed_hash, || Ok(HashSet::new()) as Result<HashSet<i64>>)
-            .unwrap_or_default();
-        m.insert(script_hash);
+        tracing::debug!("Inserting authed hash {authed_hash} and script hash {script_hash}");
+        self.0.insert((authed_hash, script_hash), ());
     }
 }
 
