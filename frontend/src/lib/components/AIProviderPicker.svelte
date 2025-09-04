@@ -18,16 +18,10 @@
 	interface Props {
 		value: ProviderValue | undefined
 		disabled?: boolean
-		placeholder?: string
 		actions?: Snippet
 	}
 
-	let {
-		value = $bindable(),
-		disabled = false,
-		placeholder = 'Select model',
-		actions
-	}: Props = $props()
+	let { value = $bindable(), disabled = false, actions }: Props = $props()
 
 	// Initialize value if undefined
 	if (!value) {
@@ -190,7 +184,7 @@
 			<Select
 				{items}
 				bind:value={value.model}
-				{placeholder}
+				placeholder="Select model"
 				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
 				{loading}
 				clearable={false}

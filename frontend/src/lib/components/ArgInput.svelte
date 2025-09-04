@@ -1270,12 +1270,7 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker
-				bind:value
-				{disabled}
-				placeholder={placeholder ?? 'Select model'}
-				{actions}
-			/>
+			<AIProviderPicker bind:value {disabled} {actions} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
