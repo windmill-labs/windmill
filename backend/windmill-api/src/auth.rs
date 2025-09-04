@@ -12,11 +12,16 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tower_cookies::Cookies;
 use tracing::Span;
+use windmill_common::{db::UserDB, scripts::ScriptHash};
 
 use crate::db::{ApiAuthed, DB};
-use std::sync::{
-    atomic::{AtomicI64, AtomicU64, Ordering},
-    Arc,
+use std::{
+    collections::{hash_map::DefaultHasher, HashSet},
+    hash::{Hash, Hasher},
+    sync::{
+        atomic::{AtomicI64, AtomicU64, Ordering},
+        Arc,
+    },
 };
 #[cfg(feature = "enterprise")]
 use tokio::sync::RwLock;
@@ -31,6 +36,9 @@ use windmill_common::{
 lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
+
+    // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
+    pub static ref HASH_PERMS_CACHE: Cache<u64, HashSet<i64>> = Cache::new(1000);
 }
 
 // Global function to invalidate a specific token from cache
@@ -41,6 +49,53 @@ pub fn invalidate_token_from_cache(token: &str) {
         "Invalidated token from auth cache: {}...",
         &token[..token.len().min(8)]
     );
+}
+
+/// Check if an ApiAuthed user has permission to see a given script hash
+/// Returns true if the user can see the script, false otherwise
+/// Caches the result to avoid unnecessary database calls
+pub async fn check_perms_for_hash(
+    authed: &ApiAuthed,
+    script_hash: ScriptHash,
+    workspace_id: &str,
+    db: UserDB,
+) -> Result<bool, Error> {
+    // Create hash of the ApiAuthed struct for caching
+    let mut hasher = DefaultHasher::new();
+    authed.hash(&mut hasher);
+    let authed_hash = hasher.finish();
+
+    // Check cache first
+    if let Some(cached_result) = HASH_PERMS_CACHE.get(&authed_hash) {
+        if cached_result.contains(&script_hash.0) {
+            return Ok(true);
+        }
+    }
+
+    let mut tx = db.begin(authed).await?;
+
+    // Query database for script visibility and creator info
+    let visible = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
+        script_hash.0,
+        workspace_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    drop(tx);
+
+    if visible {
+        // Cache the result
+        let mut m = HASH_PERMS_CACHE
+            .get_or_insert_with(&authed_hash, || {
+                Ok(HashSet::new()) as Result<HashSet<i64>, Error>
+            })
+            .unwrap_or_default();
+        m.insert(script_hash.0);
+    }
+    Ok(visible)
 }
 
 #[derive(Clone)]

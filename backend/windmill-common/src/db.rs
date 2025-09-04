@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Acquire, Executor, Pool, Postgres, Transaction};
 
 pub type DB = Pool<Postgres>;
 
@@ -62,6 +62,31 @@ impl Authable for Authed {
 
 lazy_static::lazy_static! {
     pub static ref PG_SCHEMA: Option<String> = std::env::var("PG_SCHEMA").ok();
+}
+
+struct UserDbWithAuthed {
+    authed: Authed,
+    db: UserDB,
+}
+impl UserDbWithAuthed {
+    pub fn new(authed: Authed, db: UserDB) -> Self {
+        Self { authed, db }
+    }
+}
+
+impl<'c> Acquire<'c> for &'c mut UserDbWithAuthed {
+    type Database = Postgres;
+    type Connection = Transaction<'c, Postgres>;
+
+    fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, sqlx::Error>> {
+        Box::pin(async move { self.db.clone().begin(&self.authed).await })
+    }
+
+    fn begin(
+        self,
+    ) -> futures_core::future::BoxFuture<'c, Result<Transaction<'c, Postgres>, sqlx::Error>> {
+        Box::pin(async move { self.db.clone().begin(&self.authed).await })
+    }
 }
 
 impl UserDB {
