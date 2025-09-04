@@ -227,12 +227,12 @@ async fn evaluate_stop_after_all_iters_if(
         }
         _ => {
             return Err(Error::internal_err(format!(
-                "A branch loop module should have flow_jobs"
+                "A branchall or loop should have flow_jobs"
             )))
         }
     };
 
-    *nresult = Some(iters_result.clone());
+    *nresult = Some(iters_result.clone()); // as an optimization, we store the result of all jobs as when stop_early_after_all_iters evaluates to false, it would have to be computed (finished loop/branchall)
 
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,

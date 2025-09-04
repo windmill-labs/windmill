@@ -85,7 +85,8 @@
 			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early or break if inside a for/while loop.
+					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
+					for loop or branch all, or break if inside a for/while loop or branch all.
 				</Tooltip>
 			{/snippet}
 
@@ -188,12 +189,14 @@
 					{#if !breakableParent && !isLoop}
 						<div class="flex flex-col gap-2">
 							<Toggle
+								disabled
 								size="xs"
 								options={{
 									right: 'Label flow as "skipped" if stopped'
 								}}
 							/>
 							<Toggle
+								disabled
 								size="xs"
 								options={{
 									right: 'Raise an error message if stopped'
@@ -225,7 +228,8 @@
 			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early or break if inside a for/while loop.
+					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
+					for loop or branch all, or break if inside a for/while loop or branch all.
 				</Tooltip>
 			{/snippet}
 
