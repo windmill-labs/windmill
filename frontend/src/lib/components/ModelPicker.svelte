@@ -5,11 +5,18 @@
 	import type { AIProvider } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { get } from 'svelte/store'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+
+	interface ProviderValue {
+		kind?: AIProvider
+		resource?: string
+		model?: string
+	}
 
 	interface Props {
-		value: string | undefined
-		provider: AIProvider | undefined
-		resourcePath: string | undefined
+		value: ProviderValue | undefined
 		disabled?: boolean
 		placeholder?: string
 		actions?: Snippet
@@ -17,12 +24,15 @@
 
 	let {
 		value = $bindable(),
-		provider,
-		resourcePath,
 		disabled = false,
 		placeholder = 'Select model',
 		actions
 	}: Props = $props()
+
+	// Initialize value if undefined
+	if (!value) {
+		value = {}
+	}
 
 	let loading = $state(false)
 	let availableModels = $state<string[]>([])
@@ -38,7 +48,16 @@
 		}))
 	)
 
+	// Provider options for the toggle button group
+	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
+		value: key as AIProvider,
+		label: details.label
+	}))
+
 	async function loadModels(signal?: AbortSignal) {
+		const provider = value?.kind
+		const resourcePath = value?.resource
+
 		if (!provider || !resourcePath) {
 			return
 		}
@@ -75,15 +94,18 @@
 	// Reload models when provider or resourcePath changes
 	$effect(() => {
 		const abortController = new AbortController()
+		const provider = value?.kind
+		const resourcePath = value?.resource
 
 		filterText = ''
-		value = undefined
+		if (value) {
+			value.model = undefined
+		}
+
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
 		} else {
-			const defaultModels = provider
-				? AI_PROVIDERS[provider as AIProvider]?.defaultModels || []
-				: []
+			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
 			availableModels = defaultModels
 			loading = false
 		}
@@ -92,18 +114,57 @@
 			abortController.abort()
 		}
 	})
+
+	// Handle provider selection
+	function onProviderChange(selectedProvider: AIProvider) {
+		if (value) {
+			value.kind = selectedProvider
+			value.resource = undefined
+			value.model = undefined
+		}
+	}
 </script>
 
-<div class="w-full">
-	<Select
-		{items}
-		bind:value
-		{placeholder}
-		{disabled}
-		{loading}
-		clearable={false}
-		noItemsMsg={'No models available'}
-		bind:filterText
-	/>
+<div class="w-full flex flex-col gap-3">
+	<!-- Provider Selection -->
+	<div class="flex flex-col gap-2">
+		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled}>
+			{#snippet children({ item })}
+				{#each providerOptions as option}
+					<ToggleButton value={option.value} label={option.label} {item} />
+				{/each}
+			{/snippet}
+		</ToggleButtonGroup>
+	</div>
+
+	<!-- Resource Selection -->
+	<div class="flex flex-col border border-gray-200 rounded-md p-2 gap-2">
+		<div class="flex flex-col gap-1">
+			<p class="text-sm font-medium text-primary">resource</p>
+			<ResourcePicker
+				bind:value={value.resource}
+				resourceType={value?.kind}
+				{disabled}
+				placeholder="Select resource"
+				selectFirst={true}
+			/>
+		</div>
+
+		<!-- Model Selection -->
+		<div class="flex flex-col gap-1">
+			<p class="text-sm font-medium text-primary">model</p>
+			<Select
+				{items}
+				bind:value={value.model}
+				{placeholder}
+				disabled={disabled || !value?.kind || !value?.resource}
+				{loading}
+				clearable={false}
+				noItemsMsg={'No models available'}
+				bind:filterText
+			/>
+		</div>
+	</div>
+
 	{@render actions?.()}
 </div>

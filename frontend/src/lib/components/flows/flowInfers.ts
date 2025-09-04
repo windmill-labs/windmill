@@ -3,7 +3,6 @@ import { loadSchemaFlow } from '$lib/scripts'
 import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
-import { AI_PROVIDERS } from '../copilot/lib'
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
@@ -61,23 +60,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			properties: {
 				provider: {
 					type: 'object',
-					oneOf: Object.entries(AI_PROVIDERS).map(([provider, details]) => ({
-						type: 'object',
-						title: provider,
-						properties: {
-							kind: { type: 'string', enum: [provider] },
-							resource: {
-								type: 'object',
-								format: `resource-${provider}`
-							},
-							model: {
-								type: 'string',
-								format: 'ai-model',
-								default: details.defaultModels?.[0] ?? undefined
-							}
-						},
-						required: ['kind', 'resource', 'model']
-					}))
+					format: 'ai-model'
 				},
 				user_message: {
 					type: 'string'

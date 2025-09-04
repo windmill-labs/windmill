@@ -651,6 +651,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
+	} else if (type == 'object' && format == 'ai-model') {
+		return 'ai-model'
 	} else if (
 		type == 'object' &&
 		(format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))
@@ -674,8 +676,6 @@ export function setInputCat(
 		return 'email'
 	} else if (type == 'string' && format == 'currency') {
 		return 'currency'
-	} else if (type == 'string' && format == 'ai-model') {
-		return 'ai-model'
 	} else if (type == 'oneOf') {
 		return 'oneOf'
 	} else {

@@ -1272,12 +1272,6 @@
 		{:else if inputCat == 'ai-model'}
 			<ModelPicker
 				bind:value
-				provider={otherArgs?.kind}
-				resourcePath={otherArgs?.resource
-					? otherArgs?.resource.startsWith('$res:')
-						? otherArgs?.resource.split(':')[1]
-						: otherArgs?.resource
-					: undefined}
 				{disabled}
 				placeholder={placeholder ?? 'Select model'}
 				{actions}
