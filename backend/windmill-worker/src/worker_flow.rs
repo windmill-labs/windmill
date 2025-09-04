@@ -194,34 +194,91 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
-fn get_stop_after_if_data(
-    stop_early: bool,
-    stop_after_if: Option<&StopAfterIf>,
-) -> (bool, Option<String>) {
+fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
-        let err_msg = stop_early
-            .then(|| {
-                let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
-                    let err_start_msg = "Flow early stop";
-                    let s = if message.is_empty() {
-                        format!("{}: {}", err_start_msg, &stop_after_if.expr)
-                    } else {
-                        format!("{}: {}", err_start_msg, message)
-                    };
-                    Some(s)
-                });
-                err_msg
-            })
-            .flatten();
+        let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
+            let s = if message.is_empty() {
+                format!("stop after if: {}", stop_after_if.expr)
+            } else {
+                message.clone()
+            };
+            Some(s)
+        });
         return (stop_after_if.skip_if_stopped, err_msg);
     }
     return (false, None);
+}
+
+async fn get_job_args(db: &DB, flow: uuid::Uuid) -> error::Result<HashMap<String, Box<RawValue>>> {
+    let args = sqlx::query_scalar!(
+        "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
+         FROM v2_job WHERE id = $1",
+        flow
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("retrieval of args from state: {e:#}")))?;
+    Ok(args.unwrap_or_default().0)
+}
+
+async fn evaluate_stop_after_all_iters_if(
+    db: &DB,
+    flow: uuid::Uuid,
+    stop_after_all_iters_if: Option<&StopAfterIf>,
+    module_status: &FlowStatusModule,
+    w_id: &str,
+    client: &AuthedClient,
+    stop_early: &mut bool,
+    skip_if_stop_early: &mut bool,
+    stop_early_err_msg: &mut Option<String>,
+    nresult: &mut Option<Arc<Box<RawValue>>>,
+) -> error::Result<()> {
+    // end of loop or branchall
+    if let Some(stop_after_all_iters_if) = stop_after_all_iters_if {
+        let args = get_job_args(db, flow).await?;
+
+        let iters_result = match &module_status {
+            FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
+                Arc::new(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?)
+            }
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "A branch loop module should have flow_jobs"
+                )))
+            }
+        };
+
+        *nresult = Some(iters_result.clone());
+
+        let stop_early_after_all_iters = compute_bool_from_expr(
+            &stop_after_all_iters_if.expr,
+            Marc::new(args),
+            iters_result.clone(),
+            None,
+            None,
+            Some(client),
+            None,
+            None,
+        )
+        .await?;
+
+        tracing::info!("should_stop {stop_early:?}");
+
+        if stop_early_after_all_iters {
+            *stop_early = true;
+            (*skip_if_stop_early, *stop_early_err_msg) =
+                get_stop_after_if_data(Some(stop_after_all_iters_if));
+        }
+    }
+
+    Ok(())
 }
 
 fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
     let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
     return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
 }
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -247,7 +304,6 @@ pub async fn update_flow_status_after_job_completion_internal(
         flow_job,
         flow_data,
         stop_early,
-        stop_early_err_msg,
         skip_if_stop_early,
         nresult,
         is_failure_step,
@@ -316,70 +372,71 @@ pub async fn update_flow_status_after_job_completion_internal(
         //     "UPDATE FLOW STATUS 2: {module_step:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (is_loop, skip_loop_failures, parallelism) = if matches!(
-            module_status,
-            FlowStatusModule::InProgress { iterator: Some(_), .. }
-        ) {
-            let value = current_module
-                .as_ref()
-                .and_then(|x| x.get_value_with_skip_failures().ok());
-            (
-                true,
-                value
+        let (is_loop, skip_loop_failures, parallelism, parallel_loop) =
+            if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
+            {
+                let value = current_module
                     .as_ref()
-                    .and_then(|x| x.skip_failures)
-                    .unwrap_or(false),
-                value.as_ref().and_then(|x| x.parallelism),
-            )
-        } else {
-            (false, false, None)
-        };
+                    .and_then(|x| x.get_value_with_skip_failures().ok());
+                (
+                    true,
+                    value
+                        .as_ref()
+                        .and_then(|x| x.skip_failures)
+                        .unwrap_or(false),
+                    value.as_ref().and_then(|x| x.parallelism),
+                    *parallel,
+                )
+            } else {
+                (false, false, None, false)
+            };
 
-        let is_branch_all = matches!(
-            module_status,
-            FlowStatusModule::InProgress { branchall: Some(_), .. }
-        );
+        let (is_branch_all, parallel_branchall) = match module_status {
+            FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
+            _ => (false, false),
+        };
 
         // 0 length flows are not failure steps
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
-            if let Some(se) = stop_early_override {
-                //do not stop early if module is a flow step
-                let step = match module_step {
-                    Step::PreprocessorStep => None,
-                    Step::FailureStep => None,
-                    Step::Step(i) => Some(i),
-                };
+        let is_flow = stop_early_override.is_some() && {
+            //do not stop early if module is a flow step
+            let step = match module_step {
+                Step::PreprocessorStep => None,
+                Step::FailureStep => None,
+                Step::Step(i) => Some(i),
+            };
 
-                let is_flow = if let Some(_) = step {
-                    #[derive(Deserialize)]
-                    struct GetType<'j> {
-                        r#type: &'j str,
-                    }
-
-                    current_module
-                        .map(|module| {
-                            serde_json::from_str::<GetType>(module.value.get())
-                                .map(|v| v.r#type == "flow")
-                        })
-                        .unwrap_or(Ok(false))
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-
-                if is_flow {
-                    (false, None, false, false)
-                } else {
-                    (true, None, se, false)
+            if let Some(_) = step {
+                #[derive(Deserialize)]
+                struct GetType<'j> {
+                    r#type: &'j str,
                 }
+
+                current_module
+                    .map(|module| {
+                        serde_json::from_str::<GetType>(module.value.get())
+                            .map(|v| v.r#type == "flow")
+                    })
+                    .unwrap_or(Ok(false))
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        };
+
+        let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
+            if stop_early_override.is_some() && !is_flow && !parallel_loop && !parallel_branchall {
+                // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
+                let se = stop_early_override.as_ref().unwrap();
+                (true, None, *se, false)
             } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
                 (false, None, false, false)
             } else if let Some(current_module) = current_module {
                 let stop_early = success
-                    && !is_branch_all
+                    && !is_branch_all // we don't support stop_early per branch
+                    && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -394,21 +451,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 )),
                                 _ => None,
                             };
-                        let args = sqlx::query_scalar!(
-                            "SELECT
-                                 args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                             FROM v2_job
-                             WHERE id = $1",
-                            flow
-                        )
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("retrieval of args from state: {e:#}"))
-                        })?;
+                        let args = get_job_args(db, flow).await?;
                         compute_bool_from_expr(
                             &expr,
-                            Marc::new(args.unwrap_or_default().0),
+                            Marc::new(args),
                             result.clone(),
                             all_iters,
                             None,
@@ -420,11 +466,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
-                let (skip_if_stopped, stop_early_err_msg) =
-                    get_stop_after_if_data(stop_early, current_module.stop_after_if.as_ref());
+                let (skip_if_stopped, stop_early_err_msg) = if stop_early {
+                    get_stop_after_if_data(current_module.stop_after_if.as_ref())
+                } else {
+                    (false, None)
+                };
+
                 (
                     stop_early,
-                    stop_early_err_msg.filter(|_| !(is_loop || is_branch_all)),
+                    stop_early_err_msg,
                     skip_if_stopped,
                     current_module.continue_on_error.unwrap_or(false),
                 )
@@ -448,6 +498,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         add_time!(bench, "process module status START");
 
+        let mut nresult = None;
         let (inc_step_counter, new_status) = match module_status {
             FlowStatusModule::InProgress {
                 iterator,
@@ -599,20 +650,41 @@ pub async fn update_flow_status_after_job_completion_internal(
                         jobs.as_slice()
                     };
 
-                    let new_status = if skip_loop_failures
-                         || sqlx::query_scalar!(
-                             "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
-                             jobs_filtered
-                         )
-                         .fetch_all(&mut *tx)
-                         .await
-                         .map_err(|e| {
-                             Error::internal_err(format!(
-                                 "error while fetching sucess from completed_jobs: {e:#}"
-                             ))
-                         })?
-                         .into_iter()
-                         .all(|x| x)
+                    // evaluate stop_after_all_iters_if for parallel loops/branchall
+                    evaluate_stop_after_all_iters_if(
+                        db,
+                        flow,
+                        current_module
+                            .as_ref()
+                            .and_then(|x| x.stop_after_all_iters_if.as_ref()),
+                        module_status,
+                        w_id,
+                        client,
+                        &mut stop_early,
+                        &mut skip_if_stop_early,
+                        &mut stop_early_err_msg,
+                        &mut nresult,
+                    )
+                    .await?;
+
+                    let new_status = if 
+                        !(stop_early && stop_early_err_msg.is_some()) // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
+                        && (
+                                skip_loop_failures
+                                || sqlx::query_scalar!(
+                                    "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
+                                    jobs_filtered
+                                )
+                                .fetch_all(&mut *tx)
+                                .await
+                                .map_err(|e| {
+                                    Error::internal_err(format!(
+                                        "error while fetching sucess from completed_jobs: {e:#}"
+                                    ))
+                                })?
+                                .into_iter()
+                                .all(|x| x)
+                            ) 
                      {
                          success = true;
                          FlowStatusModule::Success {
@@ -738,7 +810,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                 flow_jobs_success,
                 flow_jobs,
                 ..
-            } if branch.to_owned() < len - 1 && (success || skip_seq_branch_failure) => {
+            } if branch.to_owned() < len - 1
+                && (success || skip_seq_branch_failure)
+                && !stop_early =>
+            {
                 if let Some(jobs) = flow_jobs {
                     set_success_in_flow_job_success(
                         flow_jobs_success,
@@ -754,14 +829,34 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (false, None)
             }
             _ => {
-                if stop_early
-                    && matches!(
-                        module_status,
-                        FlowStatusModule::InProgress { iterator: Some(_), .. }
-                    )
-                {
-                    // if we're stopping early inside a loop, we just want to break the loop instead
+                // this case is when when not a parallel loops/branchall and not an in progress loop/branchall
+
+                if stop_early && is_loop {
+                    // if we're stopping early inside a (non-parallel) loop, we don't want to bubble up the stop_early to the parent => we only want to break the loop (see conditions in match above)
                     stop_early = false;
+                    stop_early_err_msg = None;
+                    skip_if_stop_early = false;
+                }
+
+                if is_loop || (is_branch_all && !stop_early) {
+                    // when we finish a loop or branchall, we only want to evaluate stop_after_all_iters_if if:
+                    //  -  we're in a loop (non-parallel)
+                    //  -  we're in a branchall and it wasn't stopped early from inside (non-parallel branchall stopped inside => stop flow => no need to evaluate stop_after_all_iters_if)
+                    evaluate_stop_after_all_iters_if(
+                        db,
+                        flow,
+                        current_module
+                            .as_ref()
+                            .and_then(|x| x.stop_after_all_iters_if.as_ref()),
+                        module_status,
+                        w_id,
+                        client,
+                        &mut stop_early,
+                        &mut skip_if_stop_early,
+                        &mut stop_early_err_msg,
+                        &mut nresult,
+                    )
+                    .await?;
                 }
 
                 let flow_jobs = module_status.flow_jobs();
@@ -778,8 +873,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
                 }
-                if success
-                    || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure))
+
+                if (success
+                    || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
+                    && !(stop_early && stop_early_err_msg.is_some()) // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
                 {
                     let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
                     {
@@ -824,6 +921,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
+                    if stop_early && stop_early_err_msg.is_some() {
+                        // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
+                        success = false;
+                    }
                     (
                         inc,
                         Some(FlowStatusModule::Failure {
@@ -840,6 +941,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
         };
+
+        if stop_early && stop_early_err_msg.is_some() {
+            nresult = Some(Arc::new(to_raw_value(&serde_json::json! ({
+                "error": {
+                    "name": "EarlyStopError",
+                    "message": stop_early_err_msg.as_ref().unwrap(),
+                }
+            }))));
+        }
 
         let step_counter = if inc_step_counter {
             sqlx::query!(
@@ -950,8 +1060,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         }
 
-        let mut nresult = if let Some(stop_early_err_msg) = stop_early_err_msg.as_ref() {
-            Arc::new(to_raw_value(stop_early_err_msg))
+        let nresult = if let Some(nresult) = nresult {
+            // can be some either with early stop error or with the flow jobs results (was fetched to evaluate stop_early_after_all_iters but evaluated to false)
+            nresult
         } else {
             match &new_status {
                 Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
@@ -961,50 +1072,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                 _ => result.clone(),
             }
         };
-
-        match &new_status {
-            Some(FlowStatusModule::Success { .. }) if is_loop || is_branch_all => {
-                if let Some(stop_after_all_iters_if) = current_module
-                    .as_ref()
-                    .and_then(|m| m.stop_after_all_iters_if.as_ref())
-                {
-                    let args = sqlx::query_scalar!(
-                        "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                         FROM v2_job WHERE id = $1",
-                        flow
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("retrieval of args from state: {e:#}"))
-                    })?;
-
-                    let should_stop = compute_bool_from_expr(
-                        &stop_after_all_iters_if.expr,
-                        Marc::new(args.unwrap_or_default().0),
-                        nresult.clone(),
-                        None,
-                        None,
-                        Some(client),
-                        None,
-                        None,
-                    )
-                    .await?;
-
-                    if should_stop {
-                        stop_early = true;
-                        let (skip_if_stopped, err_msg_internal) =
-                            get_stop_after_if_data(should_stop, Some(stop_after_all_iters_if));
-                        skip_if_stop_early = skip_if_stopped;
-                        if err_msg_internal.is_some() {
-                            stop_early_err_msg = err_msg_internal;
-                            nresult = Arc::new(to_raw_value(&stop_early_err_msg));
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
 
         if old_status.retry.fail_count > 0
             && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
@@ -1151,7 +1218,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .unwrap_or_else(|| "none".to_string());
 
         let should_continue_flow = match success {
-            _ if stop_early => false,
+            _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             false if unrecoverable => false,
@@ -1197,12 +1264,13 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        tracing::info!("status module {:?}", new_status);
+
         (
             should_continue_flow,
             flow_job,
             flow_data,
             stop_early,
-            stop_early_err_msg,
             skip_if_stop_early,
             nresult,
             is_failure_step,
@@ -1298,9 +1366,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
             }
 
-            let success = success
-                && (!is_failure_step || result_has_recover_true(nresult.clone()))
-                && stop_early_err_msg.is_none();
+            let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
 
             add_time!(bench, "flow status update 1");
             if success {
