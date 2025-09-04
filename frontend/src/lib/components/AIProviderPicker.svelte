@@ -140,7 +140,6 @@
 		if (path == undefined) {
 			return undefined
 		} else {
-			console.log('pathToResourceValue', path)
 			return `$res:${path}`
 		}
 	}
