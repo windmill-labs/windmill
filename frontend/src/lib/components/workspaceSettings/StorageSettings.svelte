@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import { Plus, X } from 'lucide-svelte'
+	import { ChevronDown, Plus, Shield, X } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -15,6 +15,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import { fade } from 'svelte/transition'
+	import Popover from '../meltComponents/Popover.svelte'
 
 	let { s3ResourceSettings = $bindable() }: { s3ResourceSettings: S3ResourceSettings } = $props()
 
@@ -87,6 +88,7 @@
 				resourceType={s3ResourceSettings.resourceType}
 				bind:value={s3ResourceSettings.resourcePath}
 			/>
+			{@render permissionBtn(s3ResourceSettings)}
 			<Button
 				size="sm"
 				variant="contained"
@@ -100,55 +102,9 @@
 			>
 		</div>
 	</div>
-	{#if s3ResourceSettings.resourceType == 's3'}
-		<div class="flex flex-col mt-5 mb-1 gap-1">
-			<!-- this can be removed once parent moves to runes -->
-			<!-- svelte-ignore binding_property_non_reactive -->
-			<Toggle
-				disabled={emptyString(s3ResourceSettings.resourcePath)}
-				bind:checked={s3ResourceSettings.publicResource}
-				options={{
-					right: 'S3 resource details and content can be accessed by all users of this workspace',
-					rightTooltip:
-						'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
-				}}
-			/>
-			{#if s3ResourceSettings.publicResource === true}
-				<div class="pt-2"></div>
 
-				<Alert type="warning" title="S3 bucket content and resource details are shared">
-					S3 resource public access is ON, which means that the entire content of the S3 bucket will
-					be accessible to all the users of this workspace regardless of whether they have access
-					the resource or not. Similarly, certain Windmill SDK endpoints can be used in scripts to
-					access the resource details, including public and private keys.
-				</Alert>
-			{/if}
-		</div>
-	{:else}
-		<div class="flex flex-col mt-5 mb-1 gap-1">
-			<!-- this can be removed once parent moves to runes -->
-			<!-- svelte-ignore binding_property_non_reactive -->
-			<Toggle
-				disabled={emptyString(s3ResourceSettings.resourcePath)}
-				bind:checked={s3ResourceSettings.publicResource}
-				options={{
-					right: 'object storage content can be accessed by all users of this workspace',
-					rightTooltip:
-						'If set, all users of this workspace will have access the to entire content of the object storage.'
-				}}
-			/>
-			{#if s3ResourceSettings.publicResource === true}
-				<div class="pt-2"></div>
-				<Alert type="warning" title="object content">
-					object public access is ON, which means that the entire content of the object store will
-					be accessible to all the users of this workspace regardless of whether they have access
-					the resource or not.
-				</Alert>
-			{/if}
-		</div>
-	{/if}
 	<div class="mt-6">
-		<div class="flex mt-2 flex-col gap-y-4 max-w-3xl">
+		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
 				<div class="flex gap-1 items-center">
 					<input
@@ -179,6 +135,7 @@
 						<option value="azure_blob">Azure Blob</option>
 						<option value="s3_aws_oidc">AWS OIDC</option>
 						<option value="azure_workload_identity">Azure Workload Identity</option>
+						<option value="gcloud_storage">Google Cloud Storage</option>
 					</select>
 					<!-- this can be removed once parent moves to runes -->
 					<!-- svelte-ignore binding_property_non_reactive -->
@@ -193,6 +150,7 @@
 							}
 						}
 					/>
+					{@render permissionBtn(s3ResourceSettings.secondaryStorage![idx][1])}
 					<Button
 						size="sm"
 						variant="contained"
@@ -254,3 +212,66 @@
 		>
 	</div>
 {/if}
+
+{#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
+	<Popover closeOnOtherPopoverOpen>
+		<svelte:fragment slot="trigger">
+			<Button variant="border" btnClasses="px-2.5" color="dark" size="sm">
+				<Shield size={16} /> Permissions <ChevronDown size={14} />
+			</Button>
+		</svelte:fragment>
+		<svelte:fragment slot="content">
+			<div class="flex flex-col gap-3 mx-4 pb-4 w-[40rem]">
+				{#if storage.resourceType == 's3'}
+					<div class="flex flex-col mt-5 mb-1 gap-1">
+						<!-- this can be removed once parent moves to runes -->
+						<!-- svelte-ignore binding_property_non_reactive -->
+						<Toggle
+							disabled={emptyString(storage.resourcePath)}
+							bind:checked={storage.publicResource}
+							options={{
+								right:
+									'S3 resource details and content can be accessed by all users of this workspace',
+								rightTooltip:
+									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
+							}}
+						/>
+						{#if storage.publicResource === true}
+							<div class="pt-2"></div>
+
+							<Alert type="warning" title="S3 bucket content and resource details are shared">
+								S3 resource public access is ON, which means that the entire content of the S3
+								bucket will be accessible to all the users of this workspace regardless of whether
+								they have access the resource or not. Similarly, certain Windmill SDK endpoints can
+								be used in scripts to access the resource details, including public and private
+								keys.
+							</Alert>
+						{/if}
+					</div>
+				{:else}
+					<div class="flex flex-col mt-5 mb-1 gap-1">
+						<!-- this can be removed once parent moves to runes -->
+						<!-- svelte-ignore binding_property_non_reactive -->
+						<Toggle
+							disabled={emptyString(storage.resourcePath)}
+							bind:checked={storage.publicResource}
+							options={{
+								right: 'object storage content can be accessed by all users of this workspace',
+								rightTooltip:
+									'If set, all users of this workspace will have access the to entire content of the object storage.'
+							}}
+						/>
+						{#if storage.publicResource === true}
+							<div class="pt-2"></div>
+							<Alert type="warning" title="object content">
+								object public access is ON, which means that the entire content of the object store
+								will be accessible to all the users of this workspace regardless of whether they
+								have access the resource or not.
+							</Alert>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</svelte:fragment>
+	</Popover>
+{/snippet}

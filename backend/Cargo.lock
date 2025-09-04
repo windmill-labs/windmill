@@ -846,6 +846,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-config"
+version = "1.68.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7de8bcff88ff2948bf2154204b7eba0ea30698c1c23770c4a917505fb9fcbd5"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "once_cell",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-sqs"
 version = "1.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10711,6 +10734,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -15107,6 +15131,8 @@ name = "windmill"
 version = "1.538.0"
 dependencies = [
  "anyhow",
+ "aws-sdk-config",
+ "aws-sigv4",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -15169,10 +15195,12 @@ dependencies = [
  "async-trait",
  "async_zip",
  "aws-config",
+ "aws-sdk-config",
  "aws-sdk-sqs",
  "aws-sdk-sso",
  "aws-sdk-ssooidc",
  "aws-sdk-sts",
+ "aws-sigv4",
  "axum",
  "backon",
  "base32",
@@ -15333,6 +15361,7 @@ dependencies = [
  "aws-smithy-types-convert",
  "axum",
  "backon",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -15724,6 +15753,7 @@ name = "windmill-worker"
 version = "1.538.0"
 dependencies = [
  "anyhow",
+ "async-once-cell",
  "async-recursion",
  "async-stream",
  "backon",

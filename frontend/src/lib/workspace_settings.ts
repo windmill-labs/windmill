@@ -52,11 +52,10 @@ export function convertBackendSettingsToFrontendSettingsItem(
 			publicResource: large_file_storage?.public_resource
 		}
 	} else if (large_file_storage?.type === 'GoogleCloudStorage') {
-		const gcsStorage = large_file_storage
 		return {
 			resourceType: 'gcloud_storage',
-			resourcePath: gcsStorage?.gcs_resource_path?.replace('$res:', ''),
-			publicResource: gcsStorage?.public_resource
+			resourcePath: large_file_storage?.gcs_resource_path?.replace('$res:', ''),
+			publicResource: large_file_storage?.public_resource
 		}
 	} else {
 		return {
