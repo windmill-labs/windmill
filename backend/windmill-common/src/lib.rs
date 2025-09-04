@@ -22,7 +22,7 @@ use tokio::sync::broadcast;
 use ee_oss::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
-use sqlx::Postgres;
+use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod apps;
@@ -51,19 +51,19 @@ pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
-pub mod oidc_ee;
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
-pub mod oidc_oss;
-pub mod triggers;
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_ee;
+#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
+pub mod result_stream;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
@@ -72,17 +72,17 @@ pub mod server;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;
+pub mod stream;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
+pub mod triggers;
 pub mod users;
 pub mod utils;
 pub mod variables;
 pub mod worker;
 pub mod workspaces;
-pub mod result_stream;
-pub mod stream;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
@@ -287,12 +287,16 @@ pub struct PostgresUrlComponents {
 }
 
 pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
-    let parsed_url = url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+    let parsed_url =
+        url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
 
     let scheme = parsed_url.scheme().to_string();
     let username = parsed_url.username().to_string();
     let password = parsed_url.password().map(|p| p.to_string());
-    let host = parsed_url.host_str().ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?.to_string();
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
+        .to_string();
     let port = parsed_url.port();
     let database = parsed_url.path().trim_start_matches('/').to_string();
     let mut ssl_mode = None;
@@ -304,7 +308,11 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
 
     Ok(PostgresUrlComponents {
         scheme,
-        username: if username.is_empty() { None } else { Some(username) },
+        username: if username.is_empty() {
+            None
+        } else {
+            Some(username)
+        },
         password,
         host,
         port,
@@ -377,8 +385,8 @@ pub async fn connect(
     max_connections: u32,
     worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    use std::time::Duration;
     use sqlx::Executor;
+    use std::time::Duration;
     sqlx::postgres::PgPoolOptions::new()
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
@@ -386,30 +394,39 @@ pub async fn connect(
         .after_connect(move |conn, _| {
             if worker_mode {
                 Box::pin(async move {
-                    if let Err(e) = conn.execute(r#"
+                    if let Err(e) = conn
+                        .execute(
+                            r#"
         SET enable_seqscan = OFF;
         SET statement_timeout = '5min';
         SET idle_in_transaction_session_timeout = '10min';
         SET tcp_keepalives_idle = 300;
         SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#)
-                        .await {
-                            tracing::error!("Error setting postgres settings: {}", e);
-                        }
+        SET tcp_keepalives_count = 10;"#,
+                        )
+                        .await
+                    {
+                        tracing::error!("Error setting postgres settings: {}", e);
+                    }
                     Ok(())
                 })
             } else {
-                Box::pin(async move { 
-                  if let Err(e) = conn.execute(r#"
+                Box::pin(async move {
+                    if let Err(e) = conn
+                        .execute(
+                            r#"
         SET statement_timeout = '5min';
         SET idle_in_transaction_session_timeout = '10min';
         SET tcp_keepalives_idle = 300;
         SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#)
-                       .await {
+        SET tcp_keepalives_count = 10;"#,
+                        )
+                        .await
+                    {
                         tracing::error!("Error setting postgres settings: {}", e);
-                       }
-                    Ok(()) })
+                    }
+                    Ok(())
+                })
             }
         })
         .connect_with(
@@ -422,6 +439,11 @@ pub async fn connect(
 type Tag = String;
 
 pub use db::DB;
+
+use crate::{
+    auth::HASH_PERMS_CACHE,
+    db::{AuthedRef, UserDbWithAuthed},
+};
 
 #[derive(Clone)]
 pub struct ExpiringLatestVersionId {
@@ -448,21 +470,24 @@ pub struct ScriptHashInfo {
     pub created_by: String,
 }
 
-pub fn get_latest_deployed_hash_for_path<
-    'a,
-    'e,
-    E: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
->(
-    db: E,
-    w_id: &'a str,
-    script_path: &'a str,
-) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'a {
+pub fn get_latest_deployed_hash_for_path<'e>(
+    db: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db2: DB,
+    w_id: &'e str,
+    script_path: &'e str,
+) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'e {
     async move {
-        let mut conn = db.acquire().await?;
         let cache_key = (w_id.to_string(), script_path.to_string());
 
         let hash = match DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
-            Some(cached_hash) if cached_hash.expires_at > std::time::Instant::now() => {
+            Some(cached_hash)
+                if cached_hash.expires_at > std::time::Instant::now()
+                    && db.as_ref().is_none_or(|x| {
+                        HASH_PERMS_CACHE
+                            .check_perms_in_cache(x.authed, scripts::ScriptHash(cached_hash.id))
+                            .0
+                    }) =>
+            {
                 tracing::debug!(
                     "Using cached script hash {} for {script_path}",
                     cached_hash.id
@@ -471,13 +496,13 @@ pub fn get_latest_deployed_hash_for_path<
             }
             _ => {
                 tracing::debug!("Fetching script hash for {script_path}");
-                let hash = sqlx::query_scalar!( 
-                    "select hash from script where path = $1 AND workspace_id = $2 AND deleted = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
-                    script_path,
-                    w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
+                let hash = if let Some(db) = db {
+                    let mut conn = db.acquire().await?;
+                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                } else {
+                    let mut conn = db2.acquire().await?;
+                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                };
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
 
@@ -493,8 +518,23 @@ pub fn get_latest_deployed_hash_for_path<
             }
         };
 
-        get_script_info_for_hash(&mut *conn, w_id, hash).await
+        get_script_info_for_hash(&db2, w_id, hash).await
     }
+}
+
+pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    script_path: &'e str,
+    w_id: &'e str,
+) -> error::Result<Option<i64>> {
+    let hash = sqlx::query_scalar!(
+        "select hash from script where path = $1 AND workspace_id = $2 AND deleted = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    return Ok(hash);
 }
 
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(

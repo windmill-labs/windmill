@@ -1,12 +1,16 @@
+use std::{collections::HashSet, hash::DefaultHasher};
+
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::Authed,
+    db::{Authed, AuthedRef, UserDB},
     error::{Error, Result},
     jwt,
+    scripts::ScriptHash,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::WarnAfterExt,
     DB,
@@ -19,6 +23,83 @@ pub struct IdToken {
 }
 
 pub const TOKEN_PREFIX_LEN: usize = 10;
+
+lazy_static::lazy_static! {
+    // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
+    pub static ref HASH_PERMS_CACHE: HashPermsCache = HashPermsCache::new();
+}
+
+pub struct HashPermsCache(Cache<u64, HashSet<i64>>);
+
+use std::hash::Hash;
+use std::hash::Hasher;
+
+impl HashPermsCache {
+    pub fn new() -> Self {
+        HashPermsCache(Cache::new(1000))
+    }
+
+    pub fn check_perms_in_cache<'e>(
+        &self,
+        authed: &'e AuthedRef<'e>,
+        script_hash: ScriptHash,
+    ) -> (bool, u64) {
+        // Create hash of the ApiAuthed struct for caching
+        let mut hasher = DefaultHasher::new();
+        authed.hash(&mut hasher);
+        let authed_hash = hasher.finish();
+
+        // Check cache first
+        if let Some(cached_result) = self.0.get(&authed_hash) {
+            if cached_result.contains(&script_hash.0) {
+                return (true, authed_hash);
+            }
+        }
+
+        return (false, authed_hash);
+    }
+
+    /// Check if an ApiAuthed user has permission to see a given script hash
+    /// Returns true if the user can see the script, false otherwise
+    /// Caches the result to avoid unnecessary database calls
+    pub async fn check_perms_for_hash<'e>(
+        &self,
+        authed: &'e AuthedRef<'e>,
+        script_hash: ScriptHash,
+        workspace_id: &str,
+        db: UserDB,
+    ) -> Result<bool> {
+        let (cached_perm, authed_hash) = self.check_perms_in_cache(&authed, script_hash);
+
+        if cached_perm {
+            return Ok(true);
+        }
+
+        let mut tx = db.begin(authed).await?;
+
+        // Query database for script visibility and creator info
+        let visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
+            script_hash.0,
+            workspace_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        drop(tx);
+
+        if visible {
+            // Cache the result
+            let mut m = self
+                .0
+                .get_or_insert_with(&authed_hash, || Ok(HashSet::new()) as Result<HashSet<i64>>)
+                .unwrap_or_default();
+            m.insert(script_hash.0);
+        }
+        Ok(visible)
+    }
+}
 
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();

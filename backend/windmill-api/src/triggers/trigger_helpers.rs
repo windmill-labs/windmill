@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use uuid::Uuid;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithAuthed},
     error::Result,
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
@@ -89,7 +89,8 @@ impl ScriptId {
     async fn get_script_hash(self, workspace_id: &str, db: &DB) -> Result<i64> {
         let hash = match self {
             ScriptId::ScriptPath(path) => {
-                let info = get_latest_deployed_hash_for_path(db, workspace_id, &path).await?;
+                let info = get_latest_deployed_hash_for_path(None, db.clone(), workspace_id, &path)
+                    .await?;
                 info.hash
             }
             ScriptId::ScriptHash(hash) => hash.0,
@@ -273,7 +274,7 @@ pub async fn get_runnable_format(
                     value->'preprocessor_module'->'value' as \"preprocessor_module: _\",
                     schema as \"schema: _\"
                 FROM flow_version
-                WHERE 
+                WHERE
                     path = $1
                     AND workspace_id = $2
                 ORDER BY created_at DESC
@@ -293,8 +294,13 @@ pub async fn get_runnable_format(
                         let hash = if let Some(hash) = hash {
                             hash.0
                         } else {
-                            let script_hash =
-                                get_latest_deployed_hash_for_path(db, workspace_id, &path).await?;
+                            let script_hash = get_latest_deployed_hash_for_path(
+                                None,
+                                db.clone(),
+                                workspace_id,
+                                &path,
+                            )
+                            .await?;
                             script_hash.hash
                         };
                         let script_info = get_script_info(db, workspace_id, hash).await?;
@@ -717,8 +723,15 @@ async fn trigger_script_with_retry_and_error_handler(
     let error_handler_args = error_handler_args.map(|args| args.0.clone());
 
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = {
-        let mut tx = user_db.clone().begin(&authed).await?;
-        script_path_to_payload(script_path, &mut *tx, &workspace_id, Some(false)).await?
+        let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+        script_path_to_payload(
+            script_path,
+            Some(db_authed),
+            db.clone(),
+            &workspace_id,
+            Some(false),
+        )
+        .await?
     };
 
     check_tag_available_for_workspace(&db, &workspace_id, &tag, &authed).await?;

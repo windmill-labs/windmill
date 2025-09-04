@@ -5,7 +5,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Postgres};
+use sqlx::types::Json;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
@@ -17,7 +17,7 @@ pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.d
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,
-    db::DB,
+    db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -459,9 +459,10 @@ pub fn get_has_preprocessor_from_content_and_lang(
     Ok(has_preprocessor)
 }
 
-pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres> + Send>(
+pub async fn script_path_to_payload<'e>(
     script_path: &str,
-    db: A,
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db: DB,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
@@ -508,7 +509,7 @@ pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres
             on_behalf_of_email,
             created_by,
             ..
-        } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
@@ -554,7 +555,14 @@ pub async fn get_payload_tag_from_prefixed_path(
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
+        script_path_to_payload(
+            path.strip_prefix("script/").unwrap(),
+            None,
+            db.clone(),
+            w_id,
+            Some(true),
+        )
+        .await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let FlowVersionInfo { dedicated_worker, tag, version, .. } =
