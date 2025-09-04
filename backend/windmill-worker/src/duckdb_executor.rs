@@ -11,9 +11,7 @@ use serde_json::{json, Value};
 use tokio::task;
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{
-    DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
-};
+use windmill_common::s3_helpers::S3Object;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
@@ -97,19 +95,18 @@ pub async fn do_duckdb(
     column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
+    let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
 
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
         let mut bigquery_credentials = None;
-        let mut duckdb_connection_settings_cache =
-            HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
 
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
-        let query = transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
+        let query = transform_s3_uris(query).await?;
 
         let job_args = {
             let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
@@ -123,16 +120,11 @@ pub async fn do_duckdb(
                     let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
                         Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
                     })?;
-                    let duckdb_conn_settings: DuckdbConnectionSettingsResponse =
-                        get_duckdb_connection_settings(
-                            &s3_obj.storage,
-                            &mut duckdb_connection_settings_cache,
-                            client,
-                        )
-                        .await?;
-
-                    let uri =
-                        duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, &s3_obj.s3)?;
+                    let uri = format!(
+                        "s3://{}/{}",
+                        s3_obj.storage.as_deref().unwrap_or("_default_"),
+                        s3_obj.s3
+                    );
                     m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
@@ -177,7 +169,6 @@ pub async fn do_duckdb(
                     None => match transform_attach_ducklake(
                         &query_block,
                         conn,
-                        &mut duckdb_connection_settings_cache,
                         &mut hidden_passwords,
                         &job.workspace_id,
                     )
@@ -191,21 +182,48 @@ pub async fn do_duckdb(
             v
         };
 
+        let base_internal_url = client.base_internal_url.clone();
+        let w_id = job.workspace_id.clone();
+
         // duckdb::Connection is not Send so we run the queries in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-            for DuckdbConnectionSettingsResponse { connection_settings_str, .. } in
-                duckdb_connection_settings_cache.values()
-            {
-                hidden_passwords
-                    .lock()
-                    .unwrap()
-                    .push(connection_settings_str.clone());
-                conn.execute_batch(&connection_settings_str)
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-            }
+            let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
+            let s3_secret_key = &s3_secret_key[1..];
+            let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
+                .split_once("://")
+                .unwrap_or(("http", &base_internal_url));
+            let s3_endpoint_ssl = match s3_endpoint_ssl {
+                "https" => true,
+                _ => false,
+            };
+
+            conn.execute_batch(&format!(
+                "INSTALL httpfs; LOAD httpfs;
+                INSTALL azure; LOAD azure;
+                CREATE OR REPLACE SECRET s3_secret (
+                    TYPE s3,
+                    PROVIDER config,
+                    KEY_ID '{s3_access_key}',
+                    SECRET '{s3_secret_key}',
+                    ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+                    URL_STYLE path,
+                    USE_SSL {s3_endpoint_ssl}
+                );
+                CREATE OR REPLACE SECRET gcs_secret (
+                    TYPE gcs,
+                    KEY_ID '{s3_access_key}',
+                    SECRET '{s3_secret_key}',
+                    ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+                    USE_SSL {s3_endpoint_ssl}
+                );
+                ",
+            ))
+            .map_err(|e| {
+                Error::ExecutionErr(format!("Error setting up S3 secret: {}", e.to_string()))
+            })?;
 
             let mut result: Option<Box<RawValue>> = None;
             let mut column_order = None;
@@ -581,7 +599,6 @@ async fn transform_attach_db_resource_query(
 async fn transform_attach_ducklake(
     query: &str,
     conn: &Connection,
-    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
 ) -> Result<Option<Vec<String>>> {
@@ -616,17 +633,11 @@ async fn transform_attach_ducklake(
     }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
-
-    let storage_settings = ducklake.storage_settings;
-    let storage = ducklake.storage.storage;
-    if !duckdb_connection_settings_cache.contains_key(&storage) {
-        duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
-    };
-    let s3_network_uri =
-        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake.storage.path)?;
+    let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
+    let data_path = ducklake.storage.path;
 
     let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_network_uri}'{extra_args});",
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
@@ -637,12 +648,7 @@ async fn transform_attach_ducklake(
     ]))
 }
 
-// Replaces all s3 URIs in the windmill syntax with the actual S3 network URIs
-async fn transform_s3_uris(
-    query: &str,
-    client: &AuthedClient,
-    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
-) -> Result<String> {
+async fn transform_s3_uris(query: &str) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']*)'").unwrap();
@@ -650,44 +656,22 @@ async fn transform_s3_uris(
     for cap in RE.captures_iter(query) {
         if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
             let s3_path = s3_path.as_str();
-            let storage = match storage.map(|m| m.as_str()) {
-                Some("") | None => None,
-                Some(s) => Some(s.to_string()),
-            };
-            let original_str_lit =
-                format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
-            let duckdb_conn_settings =
-                get_duckdb_connection_settings(&storage, duckdb_connection_settings_cache, client)
-                    .await?;
-            let url = duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, s3_path)?;
-            let url = format!("'{url}'");
+            let mut storage = storage.map(|m| m.as_str()).unwrap_or("");
+            if !storage.is_empty() {
+                continue;
+            }
+            let original_str_lit: String = format!("'s3://{}/{}'", storage, s3_path);
+            storage = "_default_";
+
+            let new_s3_lit = format!("'s3://{}/{}'", storage, s3_path);
             transformed_query = Some(
                 transformed_query
-                    .unwrap_or(query.to_string())
-                    .replace(&original_str_lit, &url),
+                    .unwrap_or_else(|| query.to_string())
+                    .replace(&original_str_lit, &new_s3_lit),
             );
         }
     }
     Ok(transformed_query.unwrap_or(query.to_string()))
-}
-
-pub fn duckdb_conn_settings_to_s3_network_uri(
-    s: &DuckdbConnectionSettingsResponse,
-    s3_path: &str,
-) -> Result<String> {
-    match &s {
-        DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
-            Ok(format!("s3://{bucket}/{s3_path}"))
-        }
-        DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
-            Ok(format!("{base}/{s3_path}"))
-        }
-        _ => {
-            Err(Error::ExecutionErr(
-                "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
-            ))
-        }
-    }
 }
 
 // BigQuery extension requires a json file as credentials
@@ -766,25 +750,6 @@ fn remove_comments(stmt: &str) -> &str {
     return &stmt[start.unwrap_or(0)..end];
 }
 
-async fn get_duckdb_connection_settings(
-    storage: &Option<String>,
-    cache: &mut DuckDbConnectionSettingsCache,
-    client: &AuthedClient,
-) -> Result<DuckdbConnectionSettingsResponse> {
-    if let Some(settings) = cache.get(storage) {
-        return Ok(settings.clone());
-    } else {
-        let settings = client
-            .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                s3_resource_path: None,
-                storage: storage.clone(),
-            })
-            .await?;
-        cache.insert(storage.clone(), settings.clone());
-        return Ok(settings);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -819,5 +784,3 @@ mod tests {
         assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
     }
 }
-
-type DuckDbConnectionSettingsCache = HashMap<Option<String>, DuckdbConnectionSettingsResponse>;
