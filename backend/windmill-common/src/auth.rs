@@ -91,13 +91,17 @@ impl HashPermsCache {
 
         if visible {
             // Cache the result
-            let mut m = self
-                .0
-                .get_or_insert_with(&authed_hash, || Ok(HashSet::new()) as Result<HashSet<i64>>)
-                .unwrap_or_default();
-            m.insert(script_hash.0);
+            self.insert(authed_hash, script_hash.0);
         }
         Ok(visible)
+    }
+
+    fn insert(&self, authed_hash: u64, script_hash: i64) {
+        let mut m = self
+            .0
+            .get_or_insert_with(&authed_hash, || Ok(HashSet::new()) as Result<HashSet<i64>>)
+            .unwrap_or_default();
+        m.insert(script_hash);
     }
 }
 
