@@ -6,6 +6,10 @@ use crate::db::DB;
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 
+lazy_static::lazy_static! {
+    static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AIProvider {
@@ -43,7 +47,7 @@ impl AIProvider {
                         })?,
                     )
                 } else {
-                    std::env::var("OPENAI_AZURE_BASE_PATH").ok()
+                    OPENAI_AZURE_BASE_PATH.clone()
                 };
 
                 Ok(azure_base_path.unwrap_or("https://api.openai.com/v1".to_string()))
