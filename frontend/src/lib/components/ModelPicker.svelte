@@ -56,7 +56,8 @@
 
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
-		const resourcePath = value?.resource
+		const resourceValue = value?.resource
+		const resourcePath = resourceValueToPath(resourceValue)
 
 		if (!provider || !resourcePath) {
 			return
@@ -95,7 +96,8 @@
 	$effect(() => {
 		const abortController = new AbortController()
 		const provider = value?.kind
-		const resourcePath = value?.resource
+		const resourceValue = value?.resource
+		const resourcePath = resourceValueToPath(resourceValue)
 
 		filterText = ''
 		if (value) {
@@ -123,6 +125,31 @@
 			value.model = undefined
 		}
 	}
+
+	// Helper functions to handle $res: prefix like ObjectResourceInput does
+	function isResource(resourceValue: any): boolean {
+		return (
+			typeof resourceValue === 'string' &&
+			resourceValue.length >= '$res:'.length &&
+			resourceValue.startsWith('$res:')
+		)
+	}
+
+	function resourceValueToPath(resourceValue: any): string | undefined {
+		if (isResource(resourceValue)) {
+			return resourceValue.substring('$res:'.length)
+		}
+		return resourceValue
+	}
+
+	function pathToResourceValue(path: string | undefined): string | undefined {
+		if (path == undefined) {
+			return undefined
+		} else {
+			console.log('pathToResourceValue', path)
+			return `$res:${path}`
+		}
+	}
 </script>
 
 <div class="w-full flex flex-col gap-3">
@@ -142,9 +169,16 @@
 		<div class="flex flex-col gap-1">
 			<p class="text-sm font-medium text-primary">resource</p>
 			<ResourcePicker
-				bind:value={value.resource}
+				bind:value={
+					() => resourceValueToPath(value?.resource),
+					(v) => {
+						if (value) {
+							value.resource = pathToResourceValue(v)
+						}
+					}
+				}
 				resourceType={value?.kind}
-				{disabled}
+				disabled={disabled || !value?.kind}
 				placeholder="Select resource"
 				selectFirst={true}
 			/>
@@ -157,7 +191,7 @@
 				{items}
 				bind:value={value.model}
 				{placeholder}
-				disabled={disabled || !value?.kind || !value?.resource}
+				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
 				{loading}
 				clearable={false}
 				noItemsMsg={'No models available'}
