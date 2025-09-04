@@ -21,6 +21,7 @@ import {
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
+import type { ReviewChangesOpts } from '../monaco-adapter'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -574,7 +575,7 @@ export interface ScriptChatHelpers {
 		args: Record<string, any>
 	}
 	getLastSuggestedCode: () => string | undefined
-	applyCode: (code: string, applyAll?: boolean) => void
+	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -853,10 +854,16 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
 
 		try {
-			// Apply the code changes using the existing reviewAndApplyCode mechanism
-			helpers.applyCode(args.code, true)
+			// Save old code
+			const oldCode = scriptOptions.code
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied successfully' })
+			// Apply the code changes directly
+			await helpers.applyCode(args.code, { applyAll: true, mode: 'apply' })
+
+			// Show revert mode
+			await helpers.applyCode(oldCode, { mode: 'revert' })
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
 			return 'Code has been applied to the script editor.'
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -884,20 +891,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			)
 		}
 
-		let codeToTest = scriptOptions.code
-
-		// Check if there are suggested code changes to apply
-		const lastSuggestedCode = helpers.getLastSuggestedCode()
-		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
-			codeToTest = lastSuggestedCode
-			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-
-			// Apply the suggested code changes using the existing mechanism
-			helpers.applyCode(lastSuggestedCode, true)
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
-		}
-
 		const parsedArgs = await buildTestRunArgs(args, this.def)
 
 		return executeTestRun({
@@ -906,7 +899,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 					workspace: workspace,
 					requestBody: {
 						path: scriptOptions.path,
-						content: codeToTest,
+						content: scriptOptions.code,
 						args: parsedArgs,
 						language: scriptOptions.lang as ScriptLang
 					}

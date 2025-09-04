@@ -46,6 +46,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import type { ReviewChangesOpts } from './monaco-adapter'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -87,7 +88,7 @@ class AIChatManager {
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
+	scriptEditorApplyCode = $state<((code: string, opts?: ReviewChangesOpts) => void) | undefined>(
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
@@ -234,8 +235,8 @@ class AIChatManager {
 					}
 					return undefined
 				},
-				applyCode: (code: string, applyAll?: boolean) => {
-					this.scriptEditorApplyCode?.(code, applyAll)
+				applyCode: (code: string, opts?: ReviewChangesOpts) => {
+					this.scriptEditorApplyCode?.(code, opts)
 				}
 			}
 			if (options?.closeScriptSettings) {
