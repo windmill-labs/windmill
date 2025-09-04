@@ -1664,7 +1664,8 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) {
                         "expr": "result < 0",
                         "skip_if_stopped": false,
                     }}]}],
-                    "type": "branchall"
+                    "type": "branchall",
+                    "parallel": false,
                 },
             },
             {
