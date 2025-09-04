@@ -1641,14 +1641,32 @@
 		return root
 	}
 
+	function acceptCodeChanges() {
+		const mode = aiChatEditorHandler?.getReviewMode?.()
+		if (mode === 'revert') {
+			aiChatEditorHandler?.keepAll()
+		} else {
+			aiChatEditorHandler?.acceptAll()
+		}
+	}
+
+	function rejectCodeChanges() {
+		const mode = aiChatEditorHandler?.getReviewMode?.()
+		if (mode === 'revert') {
+			aiChatEditorHandler?.revertAll()
+		} else {
+			aiChatEditorHandler?.rejectAll()
+		}
+	}
+
 	function onKeyDown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			if (showInlineAIChat) {
 				closeAIInlineWidget()
 			}
-			aiChatEditorHandler?.rejectAll()
+			rejectCodeChanges()
 		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
-			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+			acceptCodeChanges()
 			if (showInlineAIChat) {
 				closeAIInlineWidget()
 			}
@@ -1757,24 +1775,7 @@
 {/if}
 
 {#if $reviewingChanges}
-	<GlobalReviewButtons
-		onAcceptAll={() => {
-			const mode = aiChatEditorHandler?.getReviewMode?.()
-			if (mode === 'revert') {
-				aiChatEditorHandler?.keepAll()
-			} else {
-				aiChatEditorHandler?.acceptAll()
-			}
-		}}
-		onRejectAll={() => {
-			const mode = aiChatEditorHandler?.getReviewMode?.()
-			if (mode === 'revert') {
-				aiChatEditorHandler?.revertAll()
-			} else {
-				aiChatEditorHandler?.rejectAll()
-			}
-		}}
-	/>
+	<GlobalReviewButtons onAcceptAll={acceptCodeChanges} onRejectAll={rejectCodeChanges} />
 {/if}
 
 {#if editor && $copilotInfo.enabled && aiChatEditorHandler}
