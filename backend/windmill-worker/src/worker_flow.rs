@@ -386,7 +386,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             //do not stop early if module is a flow step
             let step = module_step.get_step_index();
 
-
             if let Some(_) = step {
                 #[derive(Deserialize)]
                 struct GetType<'j> {
@@ -427,8 +426,6 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                 Ok::<_, Error>(args.clone().unwrap_or_default().0)
             };
-
-        
 
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some() && !is_flow && !parallel_loop && !parallel_branchall {
@@ -675,7 +672,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .await?;
                     }
 
-                    let new_status = if 
+                    let new_status = if
                         !(stop_early && stop_early_err_msg.is_some()) // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
                         && (
                                 skip_loop_failures
@@ -692,7 +689,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 })?
                                 .into_iter()
                                 .all(|x| x)
-                            ) 
+                            )
                      {
                          success = true;
                          FlowStatusModule::Success {
@@ -886,9 +883,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     }
                 }
 
+                // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
-                    && !(stop_early && stop_early_err_msg.is_some()) // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
+                    && !(stop_early && stop_early_err_msg.is_some())
                 {
                     let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
                     {
