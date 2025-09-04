@@ -441,7 +441,7 @@ type Tag = String;
 pub use db::DB;
 
 use crate::{
-    auth::HASH_PERMS_CACHE,
+    auth::{HashPermsCache, HASH_PERMS_CACHE},
     db::{AuthedRef, UserDbWithAuthed},
 };
 
@@ -478,14 +478,15 @@ pub fn get_latest_deployed_hash_for_path<'e>(
 ) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'e {
     async move {
         let cache_key = (w_id.to_string(), script_path.to_string());
-
+        let mut computed_hash = None;
         let hash = match DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
             Some(cached_hash)
                 if cached_hash.expires_at > std::time::Instant::now()
                     && db.as_ref().is_none_or(|x| {
-                        HASH_PERMS_CACHE
-                            .check_perms_in_cache(x.authed, scripts::ScriptHash(cached_hash.id))
-                            .0
+                        let r = HASH_PERMS_CACHE
+                            .check_perms_in_cache(x.authed, scripts::ScriptHash(cached_hash.id));
+                        computed_hash = Some(r.1);
+                        return r.0;
                     }) =>
             {
                 tracing::debug!(
@@ -497,15 +498,22 @@ pub fn get_latest_deployed_hash_for_path<'e>(
             _ => {
                 tracing::debug!("Fetching script hash for {script_path}");
                 let hash = if let Some(db) = db {
+                    let authed = db.authed;
                     let mut conn = db.acquire().await?;
-                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                    let hash = get_latest_script_hash(&mut *conn, script_path, w_id).await?;
+                    if let Some(hash) = hash {
+                        HASH_PERMS_CACHE.insert(
+                            computed_hash.unwrap_or_else(|| HashPermsCache::compute_hash(authed)),
+                            hash,
+                        );
+                    }
+                    hash
                 } else {
                     let mut conn = db2.acquire().await?;
                     get_latest_script_hash(&mut *conn, script_path, w_id).await?
                 };
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
-
                 DEPLOYED_SCRIPT_HASH_CACHE.insert(
                     cache_key,
                     ExpiringLatestVersionId {

@@ -39,15 +39,19 @@ impl HashPermsCache {
         HashPermsCache(Cache::new(1000))
     }
 
+    pub fn compute_hash(authed: &AuthedRef) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        authed.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn check_perms_in_cache<'e>(
         &self,
         authed: &'e AuthedRef<'e>,
         script_hash: ScriptHash,
     ) -> (bool, u64) {
         // Create hash of the ApiAuthed struct for caching
-        let mut hasher = DefaultHasher::new();
-        authed.hash(&mut hasher);
-        let authed_hash = hasher.finish();
+        let authed_hash = Self::compute_hash(authed);
 
         // Check cache first
         if let Some(cached_result) = self.0.get(&authed_hash) {
@@ -96,7 +100,7 @@ impl HashPermsCache {
         Ok(visible)
     }
 
-    fn insert(&self, authed_hash: u64, script_hash: i64) {
+    pub fn insert(&self, authed_hash: u64, script_hash: i64) {
         let mut m = self
             .0
             .get_or_insert_with(&authed_hash, || Ok(HashSet::new()) as Result<HashSet<i64>>)
