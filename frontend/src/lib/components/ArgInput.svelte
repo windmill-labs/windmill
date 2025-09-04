@@ -45,7 +45,7 @@
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
-	import ModelPicker from './ModelPicker.svelte'
+	import AIProviderPicker from './AIProviderPicker.svelte'
 
 	interface Props {
 		label?: string
@@ -1269,8 +1269,8 @@
 					: undefined}
 				{showSchemaExplorer}
 			/>
-		{:else if inputCat == 'ai-model'}
-			<ModelPicker
+		{:else if inputCat == 'ai-provider'}
+			<AIProviderPicker
 				bind:value
 				{disabled}
 				placeholder={placeholder ?? 'Select model'}

@@ -593,7 +593,7 @@ export type InputCat =
 	| 'oneOf'
 	| 'dynselect'
 	| 'json-schema'
-	| 'ai-model'
+	| 'ai-provider'
 
 export namespace DynamicSelect {
 	export type HelperScript =
@@ -651,8 +651,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format == 'ai-model') {
-		return 'ai-model'
+	} else if (type == 'object' && format == 'ai-provider') {
+		return 'ai-provider'
 	} else if (
 		type == 'object' &&
 		(format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))

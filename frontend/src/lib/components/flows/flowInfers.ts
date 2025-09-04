@@ -60,7 +60,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			properties: {
 				provider: {
 					type: 'object',
-					format: 'ai-model'
+					format: 'ai-provider'
 				},
 				user_message: {
 					type: 'string'
