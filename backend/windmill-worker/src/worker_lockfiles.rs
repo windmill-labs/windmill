@@ -1053,9 +1053,7 @@ pub async fn handle_flow_dependency_job(
         .await?;
 
         // NOTE: Temporary solution.
-        // Making new version viewable as the current one.
         // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
-        // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
         if triggered_by_relative_import {
             // Making new version viewable as the current one.
             // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
