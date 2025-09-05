@@ -3828,15 +3828,8 @@ pub async fn run_flow_by_path_inner(
         edited_by,
         early_return,
         ..
-    } = get_latest_flow_version_info_for_path(
-        Some(userdb_authed),
-        &db,
-        db.clone(),
-        &w_id,
-        &flow_path,
-        true,
-    )
-    .await?;
+    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
 
@@ -5112,15 +5105,8 @@ pub async fn run_wait_result_flow_by_path_internal(
         on_behalf_of_email,
         edited_by,
         version,
-    } = get_latest_flow_version_info_for_path(
-        Some(userdb_authed),
-        &db,
-        db.clone(),
-        &w_id,
-        &flow_path,
-        true,
-    )
-    .await?;
+    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;

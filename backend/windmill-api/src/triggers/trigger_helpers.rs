@@ -252,15 +252,8 @@ pub async fn get_runnable_format(
             )
         }
         RunnableId::FlowPath(path) => {
-            let FlowVersionInfo { version, .. } = get_latest_flow_version_info_for_path(
-                None,
-                db,
-                db.clone(),
-                workspace_id,
-                &path,
-                true,
-            )
-            .await?;
+            let FlowVersionInfo { version, .. } =
+                get_latest_flow_version_info_for_path(None, &db, workspace_id, &path, true).await?;
 
             let key = (
                 HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()),
