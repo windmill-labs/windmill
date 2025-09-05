@@ -2039,7 +2039,7 @@ async fn delete_scripts_bulk(
 
     for script_path in request.paths {
         // Use the inner function to delete each script (always delete captures in bulk)
-        // This will now handle scope checking internally and propagate errors
+        // This will now handle scope checking internally
         if let Err(err) = delete_script_by_path_inner(
             authed.clone(),
             &user_db,

@@ -523,7 +523,7 @@ async fn delete_variables_bulk(
 
     for variable_path in request.paths {
         // Use the inner function to delete each variable
-        // This will now handle scope checking internally and propagate errors
+        // This will now handle scope checking internally
         if let Err(err) = delete_variable_inner(
             authed.clone(),
             &db,
