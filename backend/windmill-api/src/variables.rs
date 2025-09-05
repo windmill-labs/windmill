@@ -9,7 +9,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::check_scopes,
+    utils::{check_scopes, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -34,12 +34,12 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 
+use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use crate::var_resource_cache::{get_cached_variable, cache_variable};
 
 lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -54,6 +54,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_variable))
         .route("/update/*path", post(update_variable))
         .route("/delete/*path", delete(delete_variable))
+        .route("/delete_bulk", delete(delete_variables_bulk))
         .route("/create", post(create_variable))
         .route("/encrypt", post(encrypt_value))
 }
@@ -220,7 +221,6 @@ async fn get_variable(
         variable
     };
 
-
     Ok(Json(r))
 }
 
@@ -238,9 +238,16 @@ async fn get_value(
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed, q.allow_cache.unwrap_or(false))
-        .await
-        .map(Json);
+    return get_value_internal(
+        tx,
+        &db,
+        &w_id,
+        &path,
+        &authed,
+        q.allow_cache.unwrap_or(false),
+    )
+    .await
+    .map(Json);
 }
 
 async fn explain_variable_perm_error(
@@ -416,15 +423,16 @@ async fn encrypt_value(
     Ok(value)
 }
 
-async fn delete_variable(
+async fn delete_variable_inner(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    path: &str,
 ) -> Result<String> {
-    let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -471,6 +479,56 @@ async fn delete_variable(
     );
 
     Ok(format!("variable {} deleted", path))
+}
+
+async fn delete_variable(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+
+    delete_variable_inner(authed, &db, user_db, &webhook, w_id, path).await
+}
+
+
+async fn delete_variables_bulk(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<BulkDeleteResponse> {
+    let mut deleted_variables = vec![];
+    let mut failed_variables = vec![];
+
+    for variable_path in request.paths {
+        // Use the inner function to delete each variable
+        // This will now handle scope checking internally
+        if let Err(err) = delete_variable_inner(
+            authed.clone(),
+            &db,
+            user_db.clone(),
+            &webhook,
+            w_id.clone(),
+            &variable_path,
+        )
+        .await
+        {
+            failed_variables
+                .push(BulkDeleteError { path: variable_path, error: err.to_string() });
+        } else {
+            deleted_variables.push(variable_path);
+        }
+    }
+
+    Ok(Json(BulkDeleteResponse {
+        successful: deleted_variables,
+        failed: failed_variables,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -702,8 +760,6 @@ pub async fn get_value_internal<'c>(
     audit_author: &impl AuditAuthorable,
     allow_cache: bool,
 ) -> Result<String> {
-
-        
     if allow_cache {
         if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
             return Ok(cached_variable);
@@ -725,8 +781,6 @@ pub async fn get_value_internal<'c>(
         unreachable!()
     };
 
-
-        
     let r = if variable.is_secret {
         audit_log(
             &mut *tx,
@@ -766,9 +820,8 @@ pub async fn get_value_internal<'c>(
 
     // Cache the result when explicitly allowed and caching appropriate
     if allow_cache {
-        cache_variable(&w_id, &path,  audit_author.email(), r.clone());
+        cache_variable(&w_id, &path, audit_author.email(), r.clone());
     }
-
 
     Ok(r)
 }

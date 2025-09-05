@@ -8,12 +8,12 @@
 
 use crate::{
     auth::AuthCache,
+    auth::{list_tokens_internal, TruncatedTokenWithEmail},
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
     triggers::{get_triggers_count_internal, TriggersCount},
-    auth::{list_tokens_internal, TruncatedTokenWithEmail},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::{check_scopes, WithStarredInfoQuery},
+    utils::{check_scopes, WithStarredInfoQuery, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -22,7 +22,7 @@ use axum::extract::Multipart;
 use axum::{
     extract::{Extension, Path, Query},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -152,6 +152,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
         .route("/delete/p/*path", post(delete_script_by_path))
+        .route("/delete_bulk", delete(delete_scripts_bulk))
         .route("/get/h/:hash", get(get_script_by_hash))
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
@@ -1861,15 +1862,16 @@ struct DeleteScriptQuery {
     keep_captures: Option<bool>,
 }
 
-async fn delete_script_by_path(
+
+async fn delete_script_by_path_inner(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<DeleteScriptQuery>,
-) -> JsonResult<String> {
-    let path = path.to_path();
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    db: &DB,
+    w_id: String,
+    path: &str,
+    keep_captures: bool,
+) -> Result<String> {
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
 
     if path == "u/admin/hub_sync" && w_id == "admins" {
@@ -1877,6 +1879,7 @@ async fn delete_script_by_path(
             "Cannot delete the global setup app".to_string(),
         ));
     }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let draft_only = sqlx::query_scalar!(
@@ -1884,13 +1887,9 @@ async fn delete_script_by_path(
         path,
         w_id
     )
-    .fetch_one(&db)
+    .fetch_one(db)
     .await?
     .unwrap_or(false);
-
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
 
     let script = if !draft_only {
         require_admin(authed.is_admin, &authed.username)?;
@@ -1899,11 +1898,10 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .fetch_one(&db)
+        .fetch_one(db)
         .await
         .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     } else {
-        // If the script is draft only, we can delete it without admin permissions but we still need write permissions
         sqlx::query_scalar!(
             "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
             path,
@@ -1919,16 +1917,16 @@ async fn delete_script_by_path(
         path,
         w_id
     )
-    .execute(&db)
+    .execute(db)
     .await?;
 
-    if !query.keep_captures.unwrap_or(false) {
+    if !keep_captures {
         sqlx::query!(
             "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
             path,
             w_id
         )
-        .execute(&db)
+        .execute(db)
         .await?;
 
         sqlx::query!(
@@ -1936,7 +1934,7 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .execute(&db)
+        .execute(db)
         .await?;
     }
 
@@ -1972,7 +1970,7 @@ async fn delete_script_by_path(
         path,
         w_id
     )
-    .execute(&db)
+    .execute(db)
     .await
     .map_err(|e| {
         Error::internal_err(format!(
@@ -1982,8 +1980,71 @@ async fn delete_script_by_path(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::DeleteScriptPath { workspace: w_id, path: path.to_string() },
+        WebhookMessage::DeleteScriptPath { workspace: w_id, path: path.to_owned() },
     );
 
+    Ok(script)
+}
+
+async fn delete_script_by_path(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteScriptQuery>,
+) -> JsonResult<String> {
+    let path = path.to_path();
+
+    let script = delete_script_by_path_inner(
+        authed,
+        user_db,
+        &webhook,
+        &db,
+        w_id,
+        path,
+        query.keep_captures.unwrap_or(false),
+    )
+    .await?;
+
     Ok(Json(script))
+}
+
+
+async fn delete_scripts_bulk(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<BulkDeleteResponse> {
+    let mut deleted_scripts = vec![];
+    let mut failed_scripts = vec![];
+
+    for script_path in request.paths {
+        // Use the inner function to delete each script (always delete captures in bulk)
+        // This will now handle scope checking internally
+        if let Err(err) = delete_script_by_path_inner(
+            authed.clone(),
+            user_db.clone(),
+            &webhook,
+            &db,
+            w_id.clone(),
+            &script_path,
+            false, // Always delete captures in bulk delete
+        )
+        .await
+        {
+            failed_scripts
+                .push(BulkDeleteError { path: script_path, error: err.to_string() });
+        } else {
+            deleted_scripts.push(script_path);
+        }
+    }
+
+    Ok(Json(BulkDeleteResponse {
+        successful: deleted_scripts,
+        failed: failed_scripts,
+    }))
 }

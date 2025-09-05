@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path, Tokened}, utils::check_scopes, var_resource_cache::{cache_resource, get_cached_resource}, webhook_util::{WebhookMessage, WebhookShared}
+    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path, Tokened}, utils::{check_scopes, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse}, var_resource_cache::{cache_resource, get_cached_resource}, webhook_util::{WebhookMessage, WebhookShared}
 };
 use axum::{
     body::Body,
@@ -49,6 +49,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_resource))
         .route("/update_value/*path", post(update_resource_value))
         .route("/delete/*path", delete(delete_resource))
+        .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
@@ -135,6 +136,7 @@ struct EditResource {
     description: Option<String>,
     value: Option<Box<RawValue>>,
 }
+
 
 #[derive(Deserialize)]
 pub struct ListResourceQuery {
@@ -763,14 +765,14 @@ async fn create_resource(
     ))
 }
 
-async fn delete_resource(
+async fn delete_resource_inner(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    path: &str,
 ) -> Result<String> {
-    let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -817,6 +819,53 @@ async fn delete_resource(
     );
 
     Ok(format!("resource {} deleted", path))
+}
+
+async fn delete_resource(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+
+    delete_resource_inner(authed, &db, user_db, &webhook, w_id, path).await
+}
+
+async fn delete_resources_bulk(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<BulkDeleteResponse> {
+    let mut deleted_resources = vec![];
+    let mut failed_resources = vec![];
+
+    for resource_path in request.paths {
+        if let Err(err) = delete_resource_inner(
+            authed.clone(),
+            &db,
+            user_db.clone(),
+            &webhook,
+            w_id.clone(),
+            &resource_path,
+        )
+        .await
+        {
+            failed_resources
+                .push(BulkDeleteError { path: resource_path, error: err.to_string() });
+        } else {
+            deleted_resources.push(resource_path);
+        }
+    }
+
+    Ok(Json(BulkDeleteResponse {
+        successful: deleted_resources,
+        failed: failed_resources,
+    }))
 }
 
 async fn update_resource(
