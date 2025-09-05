@@ -16,6 +16,7 @@
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
+	import { DynamicInput } from '$lib/utils'
 
 	interface Props {
 		format?: string | undefined
@@ -131,7 +132,7 @@
 					? 'resource'
 					: 'custom-object'
 	)
-	let isDynSelect = $derived(format?.startsWith('dynselect-') ?? false)
+	let isDyn = $derived(DynamicInput.isDynInputFormat(format))
 
 	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
 		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
@@ -274,9 +275,9 @@
 			{/if}
 		</Label>
 		<div class="py-2"></div>
-	{:else if type === 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object' && !isDynSelect}
+	{:else if type === 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object' && !isDyn}
 		<ResourceNarrowing bind:format />
-	{:else if type === 'object' && !format?.startsWith('resource-') && !isDynSelect}
+	{:else if type === 'object' && !format?.startsWith('resource-') && !isDyn}
 		<div class="py-2">
 			<Label label="Object properties">
 				<ToggleButtonGroup
@@ -349,7 +350,7 @@
 		</div>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDynSelect}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDyn}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst

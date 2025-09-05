@@ -9,6 +9,7 @@
 use quick_cache::sync::Cache;
 use std::{
     future::Future,
+    hash::{Hash, Hasher},
     net::SocketAddr,
     str::FromStr,
     sync::{
@@ -22,7 +23,7 @@ use tokio::sync::broadcast;
 use ee_oss::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
-use sqlx::Postgres;
+use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
@@ -52,19 +53,19 @@ pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
-pub mod oidc_ee;
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
-pub mod oidc_oss;
-pub mod triggers;
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_ee;
+#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
+pub mod result_stream;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
@@ -73,17 +74,17 @@ pub mod server;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;
+pub mod stream;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
+pub mod triggers;
 pub mod users;
 pub mod utils;
 pub mod variables;
 pub mod worker;
 pub mod workspaces;
-pub mod result_stream;
-pub mod stream;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
@@ -288,12 +289,16 @@ pub struct PostgresUrlComponents {
 }
 
 pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
-    let parsed_url = url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+    let parsed_url =
+        url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
 
     let scheme = parsed_url.scheme().to_string();
     let username = parsed_url.username().to_string();
     let password = parsed_url.password().map(|p| p.to_string());
-    let host = parsed_url.host_str().ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?.to_string();
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
+        .to_string();
     let port = parsed_url.port();
     let database = parsed_url.path().trim_start_matches('/').to_string();
     let mut ssl_mode = None;
@@ -305,7 +310,11 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
 
     Ok(PostgresUrlComponents {
         scheme,
-        username: if username.is_empty() { None } else { Some(username) },
+        username: if username.is_empty() {
+            None
+        } else {
+            Some(username)
+        },
         password,
         host,
         port,
@@ -378,8 +387,8 @@ pub async fn connect(
     max_connections: u32,
     worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    use std::time::Duration;
     use sqlx::Executor;
+    use std::time::Duration;
     sqlx::postgres::PgPoolOptions::new()
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
@@ -387,30 +396,39 @@ pub async fn connect(
         .after_connect(move |conn, _| {
             if worker_mode {
                 Box::pin(async move {
-                    if let Err(e) = conn.execute(r#"
+                    if let Err(e) = conn
+                        .execute(
+                            r#"
         SET enable_seqscan = OFF;
         SET statement_timeout = '5min';
         SET idle_in_transaction_session_timeout = '10min';
         SET tcp_keepalives_idle = 300;
         SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#)
-                        .await {
-                            tracing::error!("Error setting postgres settings: {}", e);
-                        }
+        SET tcp_keepalives_count = 10;"#,
+                        )
+                        .await
+                    {
+                        tracing::error!("Error setting postgres settings: {}", e);
+                    }
                     Ok(())
                 })
             } else {
-                Box::pin(async move { 
-                  if let Err(e) = conn.execute(r#"
+                Box::pin(async move {
+                    if let Err(e) = conn
+                        .execute(
+                            r#"
         SET statement_timeout = '5min';
         SET idle_in_transaction_session_timeout = '10min';
         SET tcp_keepalives_idle = 300;
         SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#)
-                       .await {
+        SET tcp_keepalives_count = 10;"#,
+                        )
+                        .await
+                    {
                         tracing::error!("Error setting postgres settings: {}", e);
-                       }
-                    Ok(()) })
+                    }
+                    Ok(())
+                })
             }
         })
         .connect_with(
@@ -423,6 +441,12 @@ pub async fn connect(
 type Tag = String;
 
 pub use db::DB;
+
+use crate::{
+    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE},
+    db::{AuthedRef, UserDbWithAuthed},
+    scripts::ScriptHash,
+};
 
 #[derive(Clone)]
 pub struct ExpiringLatestVersionId {
@@ -449,21 +473,25 @@ pub struct ScriptHashInfo {
     pub created_by: String,
 }
 
-pub fn get_latest_deployed_hash_for_path<
-    'a,
-    'e,
-    E: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
->(
-    db: E,
-    w_id: &'a str,
-    script_path: &'a str,
-) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'a {
+pub fn get_latest_deployed_hash_for_path<'e>(
+    db: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db2: DB,
+    w_id: &'e str,
+    script_path: &'e str,
+) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'e {
     async move {
-        let mut conn = db.acquire().await?;
         let cache_key = (w_id.to_string(), script_path.to_string());
-
+        let mut computed_hash = None;
         let hash = match DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
-            Some(cached_hash) if cached_hash.expires_at > std::time::Instant::now() => {
+            Some(cached_hash)
+                if cached_hash.expires_at > std::time::Instant::now()
+                    && db.as_ref().is_none_or(|x| {
+                        let r = HASH_PERMS_CACHE
+                            .check_perms_in_cache(x.authed, ScriptHash(cached_hash.id));
+                        computed_hash = Some(r.1);
+                        return r.0;
+                    }) =>
+            {
                 tracing::debug!(
                     "Using cached script hash {} for {script_path}",
                     cached_hash.id
@@ -472,16 +500,23 @@ pub fn get_latest_deployed_hash_for_path<
             }
             _ => {
                 tracing::debug!("Fetching script hash for {script_path}");
-                let hash = sqlx::query_scalar!( 
-                    "select hash from script where path = $1 AND workspace_id = $2 AND deleted = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
-                    script_path,
-                    w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
+                let hash = if let Some(db) = db {
+                    let authed = db.authed;
+                    let mut conn = db.acquire().await?;
+                    let hash = get_latest_script_hash(&mut *conn, script_path, w_id).await?;
+                    if let Some(hash) = hash {
+                        HASH_PERMS_CACHE.insert(
+                            computed_hash.unwrap_or_else(|| PermsCache::compute_hash(authed)),
+                            ScriptHash(hash),
+                        );
+                    }
+                    hash
+                } else {
+                    let mut conn = db2.acquire().await?;
+                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                };
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
-
                 DEPLOYED_SCRIPT_HASH_CACHE.insert(
                     cache_key,
                     ExpiringLatestVersionId {
@@ -494,32 +529,60 @@ pub fn get_latest_deployed_hash_for_path<
             }
         };
 
-        get_script_info_for_hash(&mut *conn, w_id, hash).await
+        get_script_info_for_hash(None, &db2, w_id, hash).await
     }
 }
 
+pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    script_path: &'e str,
+    w_id: &'e str,
+) -> error::Result<Option<i64>> {
+    let hash = sqlx::query_scalar!(
+        "select hash from script where path = $1 AND workspace_id = $2 AND deleted = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    return Ok(hash);
+}
+
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: E,
     w_id: &str,
     hash: i64,
 ) -> error::Result<ScriptHashInfo> {
     let key = (w_id.to_string(), hash);
 
+    let mut computed_hash = None;
     match DEPLOYED_SCRIPT_INFO_CACHE.get(&key) {
-        Some(info) => {
+        Some(info)
+            if db_authed.as_ref().is_none_or(|x| {
+                let r = HASH_PERMS_CACHE.check_perms_in_cache(x.authed, scripts::ScriptHash(hash));
+                computed_hash = Some(r.1);
+                return r.0;
+            }) =>
+        {
             tracing::debug!("Using cached deployed script info for {hash}");
             Ok(info)
         }
         _ => {
             tracing::debug!("Fetching deployed script info for {hash}");
-            let info = sqlx::query_as!(
-                    ScriptHashInfo,
-                    "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
-                    hash,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?;
+            let info = if let Some(db_authed) = db_authed {
+                let mut conn = db_authed.acquire().await?;
+                let hash_info = get_script_info_for_hash_inner(&mut *conn, w_id, hash).await?;
+                if hash_info.is_some() {
+                    HASH_PERMS_CACHE.insert(
+                        computed_hash.unwrap_or_else(|| PermsCache::compute_hash(db_authed.authed)),
+                        ScriptHash(hash),
+                    );
+                }
+                hash_info
+            } else {
+                get_script_info_for_hash_inner(db, w_id, hash).await?
+            };
 
             let info = utils::not_found_if_none(info, "script", &hash.to_string())?;
 
@@ -530,6 +593,21 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     }
 }
 
+async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    w_id: &str,
+    hash: i64,
+) -> error::Result<Option<ScriptHashInfo>> {
+    let r = sqlx::query_as!(
+        ScriptHashInfo,
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
+        hash,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(r)
+}
 #[derive(Clone)]
 pub struct FlowVersionInfo {
     pub version: i64,
@@ -541,44 +619,70 @@ pub struct FlowVersionInfo {
     pub dedicated_worker: Option<bool>,
 }
 
+struct CachedFlowPath(String);
+
+impl Into<u64> for CachedFlowPath {
+    fn into(self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        hasher.finish()
+    }
+}
 pub fn get_latest_flow_version_info_for_path<
     'a,
     'e,
     A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
 >(
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: A,
+    db2: DB,
     w_id: &'a str,
     path: &'a str,
     use_cache: bool,
-) -> impl Future<Output = error::Result<FlowVersionInfo>> + Send + 'a {
+) -> impl Future<Output = error::Result<FlowVersionInfo>> + Send + 'a
+where
+    'e: 'a,
+{
     // as instructed in the docstring of sqlx::Acquire
     async move {
-        let mut conn = db.acquire().await?;
-
         let cache_key = (w_id.to_string(), path.to_string());
         let cached_version = if use_cache {
             FLOW_VERSION_CACHE.get(&cache_key)
         } else {
             None
         };
+        let mut computed_hash: Option<_> = None;
 
         let version = match cached_version {
-            Some(cached_version) if cached_version.expires_at > std::time::Instant::now() => {
+            Some(cached_version)
+                if cached_version.expires_at > std::time::Instant::now()
+                    && db_authed.as_ref().is_none_or(|x| {
+                        let r = FLOW_PERMS_CACHE
+                            .check_perms_in_cache(x.authed, CachedFlowPath(path.to_string()));
+                        computed_hash = Some(r.1);
+                        return r.0;
+                    }) =>
+            {
                 tracing::debug!("Using cached flow version {} for {path}", cached_version.id);
                 cached_version.id
             }
             _ => {
                 tracing::debug!("Fetching flow version for {path}");
-                let version = sqlx::query_scalar!(
-                    "SELECT flow_version.id from flow
-                    INNER JOIN flow_version
-                    ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    WHERE flow.path = $1 and flow.workspace_id = $2",
-                    path,
-                    w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
+                let version = if let Some(db_authed) = db_authed {
+                    let mut conn = db_authed.acquire().await?;
+                    let r = get_latest_flow_version_for_path(&mut *conn, w_id, path).await?;
+                    if r.is_some() {
+                        FLOW_PERMS_CACHE.insert(
+                            computed_hash
+                                .unwrap_or_else(|| PermsCache::compute_hash(db_authed.authed)),
+                            CachedFlowPath(path.to_string()),
+                        );
+                    }
+                    r
+                } else {
+                    let mut conn = db.acquire().await?;
+                    get_latest_flow_version_for_path(&mut *conn, w_id, path).await?
+                };
 
                 let version = utils::not_found_if_none(version, "flow", path)?;
 
@@ -603,6 +707,7 @@ pub fn get_latest_flow_version_info_for_path<
             }
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
+                let mut conn = db2.acquire().await?;
                 let info = sqlx::query_as!(
                     FlowVersionInfo,
                     "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version
@@ -625,6 +730,24 @@ pub fn get_latest_flow_version_info_for_path<
             }
         }
     }
+}
+
+async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    w_id: &str,
+    path: &str,
+) -> error::Result<Option<i64>> {
+    let version = sqlx::query_scalar!(
+        "SELECT flow_version.id from flow
+        INNER JOIN flow_version
+        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 and flow.workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(version)
 }
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
