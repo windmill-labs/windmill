@@ -9,8 +9,6 @@ import {
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
 import {
-	extractCodeFromMarkdown,
-	getLatestAssistantMessage,
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
@@ -46,6 +44,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import type { ReviewChangesOpts } from './monaco-adapter'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -87,7 +86,7 @@ class AIChatManager {
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
+	scriptEditorApplyCode = $state<((code: string, opts?: ReviewChangesOpts) => void) | undefined>(
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
@@ -224,18 +223,8 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
-				getLastSuggestedCode: () => {
-					const latestMessage = getLatestAssistantMessage(this.displayMessages)
-					if (latestMessage) {
-						const codeBlocks = extractCodeFromMarkdown(latestMessage)
-						if (codeBlocks.length > 0) {
-							return codeBlocks[codeBlocks.length - 1]
-						}
-					}
-					return undefined
-				},
-				applyCode: (code: string, applyAll?: boolean) => {
-					this.scriptEditorApplyCode?.(code, applyAll)
+				applyCode: (code: string, opts?: ReviewChangesOpts) => {
+					this.scriptEditorApplyCode?.(code, opts)
 				}
 			}
 			if (options?.closeScriptSettings) {

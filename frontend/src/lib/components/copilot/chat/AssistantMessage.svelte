@@ -4,13 +4,8 @@
 	import type { DisplayMessage } from './shared'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
-	import { setContext } from 'svelte'
 
 	export let message: DisplayMessage
-
-	setContext('AssistantMessageContext', {
-		message
-	})
 </script>
 
 <div
