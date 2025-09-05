@@ -39,7 +39,21 @@ impl Visitor for AssetsFinder {
     fn visit_expr_call(&mut self, node: rustpython_ast::ExprCall) {
         match self.visit_expr_call_inner(&node) {
             Ok(_) => {}
-            Err(_) => self.generic_visit_expr_call(node),
+            Err(_) => {
+                // Check keyword arguments for assets before falling back to generic visit
+                for keyword in &node.keywords {
+                    if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) = &keyword.value {
+                        if let Some((kind, path)) = parse_asset_syntax(s) {
+                            self.assets.push(ParseAssetsResult {
+                                kind,
+                                path: path.to_string(),
+                                access_type: None,
+                            });
+                        }
+                    }
+                }
+                self.generic_visit_expr_call(node);
+            }
         }
     }
 }
