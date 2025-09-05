@@ -15176,6 +15176,7 @@ dependencies = [
  "windmill-api-client",
  "windmill-autoscaling",
  "windmill-common",
+ "windmill-duckdb",
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-queue",
@@ -15428,6 +15429,13 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-sql",
  "windmill-parser-ts",
+]
+
+[[package]]
+name = "windmill-duckdb"
+version = "1.538.0"
+dependencies = [
+ "duckdb",
 ]
 
 [[package]]

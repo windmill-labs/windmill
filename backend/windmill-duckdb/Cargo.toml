@@ -1,0 +1,8 @@
+[package]
+name = "windmill-duckdb"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+duckdb = { version = "^1.3.2", features = ["bundled"] }

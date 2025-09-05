@@ -16,6 +16,7 @@ members = [
     "./windmill-autoscaling",
     "./windmill-indexer",
     "./windmill-macros",
+    "./windmill-duckdb",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -112,6 +113,7 @@ tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-duckdb = { workspace = true }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
@@ -169,6 +171,7 @@ deno_core = { workspace = true, features = ["include_js_files_for_snapshotting",
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
+windmill-duckdb = { path = "./windmill-duckdb" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }

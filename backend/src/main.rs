@@ -26,6 +26,7 @@ use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
+use windmill_duckdb::test_duckdb_bug;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{
@@ -205,6 +206,7 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() -> anyhow::Result<()> {
+    test_duckdb_bug();
     setup_deno_runtime()?;
     create_and_run_current_thread_inner(windmill_main())
 }
