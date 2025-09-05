@@ -14,6 +14,7 @@
 		tabListClass?: string
 		allowEmpty?: boolean
 		class?: string
+		wrap?: boolean
 		children?: import('svelte').Snippet<[any]>
 		onSelected?: (value: any) => void
 	}
@@ -26,6 +27,7 @@
 		tabListClass = '',
 		allowEmpty = false,
 		class: className = '',
+		wrap = false,
 		onSelected,
 		children
 	}: Props = $props()
@@ -70,7 +72,8 @@
 >
 	<div
 		class={twMerge(
-			'flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full flex-wrap',
+			'flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full',
+			wrap ? 'flex-wrap' : '',
 			tabListClass
 		)}
 	>
