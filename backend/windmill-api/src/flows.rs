@@ -440,9 +440,6 @@ async fn create_flow(
     .execute(&mut *tx)
     .await?;
 
-    // TODO:
-    // 1. It may conflict?
-    // 2. It triggers the pg which invalides cache on all workers, which might lead to unresolved lock
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) 
         VALUES ($1, $2, $3, $4::text::json, $5)
