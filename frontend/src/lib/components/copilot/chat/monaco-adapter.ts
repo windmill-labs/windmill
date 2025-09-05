@@ -15,6 +15,12 @@ type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inl
 	diffIndex: number
 }
 
+export interface ReviewChangesOpts {
+	applyAll?: boolean
+	mode?: 'apply' | 'revert'
+	onFinishedReview?: () => void
+}
+
 export class AIChatEditorHandler {
 	editor: meditor.IStandaloneCodeEditor
 	viewZoneIds: string[] = []
@@ -196,14 +202,7 @@ export class AIChatEditorHandler {
 		return changedLines
 	}
 
-	async reviewChanges(
-		targetCode: string,
-		opts?: {
-			applyAll?: boolean
-			mode?: 'apply' | 'revert'
-			onFinishedReview?: () => void
-		}
-	) {
+	async reviewChanges(targetCode: string, opts?: ReviewChangesOpts) {
 		if (aiChatManager.pendingNewCode === targetCode && opts?.mode === 'apply') {
 			this.acceptAll()
 			return
