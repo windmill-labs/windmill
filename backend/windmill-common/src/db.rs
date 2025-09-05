@@ -1,8 +1,8 @@
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Acquire, Pool, Postgres, Transaction};
 
 pub type DB = Pool<Postgres>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Authed {
     pub email: String,
     pub username: String,
@@ -13,6 +13,43 @@ pub struct Authed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub token_prefix: Option<String>,
+}
+
+#[derive(Clone, Debug, Hash)]
+pub struct AuthedRef<'a> {
+    pub email: &'a str,
+    pub username: &'a str,
+    pub is_admin: &'a bool,
+    pub is_operator: &'a bool,
+    pub groups: &'a Vec<String>,
+    // (folder name, can write, is owner)
+    pub folders: &'a Vec<(String, bool, bool)>,
+    pub scopes: &'a Option<Vec<String>>,
+    pub token_prefix: &'a Option<String>,
+}
+
+impl Authable for AuthedRef<'_> {
+    fn email(&self) -> &str {
+        self.email
+    }
+    fn username(&self) -> &str {
+        self.username
+    }
+    fn is_admin(&self) -> bool {
+        *self.is_admin
+    }
+    fn is_operator(&self) -> bool {
+        *self.is_operator
+    }
+    fn groups(&self) -> &[String] {
+        self.groups
+    }
+    fn folders(&self) -> &[(String, bool, bool)] {
+        self.folders
+    }
+    fn scopes(&self) -> Option<&[String]> {
+        self.scopes.as_ref().map(|x| x.as_slice())
+    }
 }
 
 #[derive(Clone)]
@@ -62,6 +99,26 @@ impl Authable for Authed {
 
 lazy_static::lazy_static! {
     pub static ref PG_SCHEMA: Option<String> = std::env::var("PG_SCHEMA").ok();
+}
+
+pub struct UserDbWithAuthed<'c, T: Authable + Sync> {
+    pub authed: &'c T,
+    pub db: UserDB,
+}
+
+impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithAuthed<'d, T> {
+    type Database = Postgres;
+    type Connection = Transaction<'c, Postgres>;
+
+    fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, sqlx::Error>> {
+        Box::pin(async move { self.db.clone().begin(self.authed).await })
+    }
+
+    fn begin(
+        self,
+    ) -> futures_core::future::BoxFuture<'c, Result<Transaction<'c, Postgres>, sqlx::Error>> {
+        Box::pin(async move { self.db.clone().begin(self.authed).await })
+    }
 }
 
 impl UserDB {

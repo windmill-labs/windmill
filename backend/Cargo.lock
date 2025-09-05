@@ -15356,6 +15356,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "async-stream",
+ "async-trait",
  "aws-config",
  "aws-sdk-sts",
  "aws-smithy-types-convert",

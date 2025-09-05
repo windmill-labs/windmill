@@ -31,8 +31,8 @@ use windmill_common::{
 lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
-}
 
+}
 // Global function to invalidate a specific token from cache
 pub fn invalidate_token_from_cache(token: &str) {
     // Remove all cache entries for this token (across all workspaces)

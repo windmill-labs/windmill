@@ -120,7 +120,9 @@ pub async fn push_scheduled_job<'c>(
         let FlowVersionInfo {
             version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
         } = get_latest_flow_version_info_for_path(
+            None,
             &mut *tx,
+            db.clone(),
             &schedule.workspace_id,
             &schedule.script_path,
             false,

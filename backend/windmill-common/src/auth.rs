@@ -1,10 +1,16 @@
+use std::{
+    hash::DefaultHasher,
+    sync::atomic::{AtomicI64, Ordering},
+};
+
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::Authed,
+    db::{Authed, AuthedRef},
     error::{Error, Result},
     jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
@@ -19,6 +25,75 @@ pub struct IdToken {
 }
 
 pub const TOKEN_PREFIX_LEN: usize = 10;
+
+lazy_static::lazy_static! {
+    // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
+    pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();
+    pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
+}
+
+pub struct PermsCache(Cache<(u64, u64), ()>, AtomicI64);
+
+use std::hash::Hash;
+use std::hash::Hasher;
+
+impl PermsCache {
+    pub fn compute_hash(authed: &AuthedRef) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        authed.username.hash(&mut hasher);
+        authed.folders.hash(&mut hasher);
+        authed.groups.hash(&mut hasher);
+        authed.is_admin.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+pub const PERMS_CACHE_EXPIRATION_SECONDS: i64 = 60 * 60;
+
+impl PermsCache {
+    pub fn new() -> Self {
+        PermsCache(
+            Cache::new(10000),
+            AtomicI64::new(chrono::Utc::now().timestamp() as i64),
+        )
+    }
+
+    pub fn check_perms_in_cache<'e, T: Into<u64>>(
+        &self,
+        authed: &'e AuthedRef<'e>,
+        key: T,
+    ) -> (bool, u64) {
+        // Clear cache every hour
+        if self.1.load(Ordering::Relaxed)
+            < chrono::Utc::now().timestamp() - PERMS_CACHE_EXPIRATION_SECONDS
+        {
+            self.0.clear();
+            self.1
+                .store(chrono::Utc::now().timestamp() as i64, Ordering::Relaxed);
+        }
+        // Create hash of the ApiAuthed struct for caching
+        let authed_hash = Self::compute_hash(authed);
+
+        let key = key.into();
+        tracing::debug!(
+            "Checking cache for authed hash {authed_hash} and script hash {}",
+            key
+        );
+        // Check cache first
+        if let Some(_) = self.0.get(&(authed_hash, key)) {
+            tracing::debug!("Cached result for authed hash {authed_hash}",);
+            return (true, authed_hash);
+        }
+
+        return (false, authed_hash);
+    }
+
+    pub fn insert<'e, T: Into<u64>>(&self, authed_hash: u64, key: T) {
+        let key = key.into();
+        tracing::debug!("Inserting authed hash {authed_hash} and key {}", key);
+        self.0.insert((authed_hash, key), ());
+    }
+}
 
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();
