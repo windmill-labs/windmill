@@ -98,6 +98,10 @@
 			value.model = undefined
 		}
 
+		if (!provider) {
+			value.kind = Object.keys(AI_PROVIDERS)[0] as AIProvider
+		}
+
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
 		} else {
