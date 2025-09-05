@@ -148,7 +148,7 @@
 <div class="w-full flex flex-col gap-3">
 	<!-- Provider Selection -->
 	<div class="flex flex-col gap-2">
-		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled}>
+		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled} wrap>
 			{#snippet children({ item })}
 				{#each providerOptions as option}
 					<ToggleButton value={option.value} label={option.label} {item} />
