@@ -3183,6 +3183,38 @@ paths:
             text/plain:
               schema:
                 type: string
+  
+  /w/{workspace}/variables/delete_bulk:
+    delete:
+      summary: delete variables in bulk
+      operationId: deleteVariablesBulk
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: deleted paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/variables/update/{path}:
     post:
@@ -5098,6 +5130,38 @@ paths:
             application/json:
               schema:
                 type: string
+
+  /w/{workspace}/scripts/delete_bulk:
+    delete:
+      summary: delete scripts in bulk
+      operationId: deleteScriptsBulk
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: deleted paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/scripts/get/p/{path}:
     get:
