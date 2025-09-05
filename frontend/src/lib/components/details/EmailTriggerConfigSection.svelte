@@ -12,6 +12,7 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { base32 } from 'rfc4648'
+	import { emptyString } from '$lib/utils'
 
 	let requestType: 'hash' | 'path' = $state('path')
 
@@ -108,7 +109,16 @@
 		{#key requestType}
 			{#key token}
 				<Label label="Email address">
-					<ClipboardPanel content={email} />
+					{#if !emptyString(token)}
+						<ClipboardPanel content={email} />
+					{:else}
+						<input
+							type="text"
+							disabled
+							value="Create a token first"
+							class="!text-xs !text-red-400"
+						/>
+					{/if}
 				</Label>
 			{/key}
 		{/key}
