@@ -45,6 +45,7 @@
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
+	import AIProviderPicker from './AIProviderPicker.svelte'
 
 	interface Props {
 		label?: string
@@ -683,7 +684,7 @@
 							delete value.properties[e.detail]
 							// Also remove from order array if it exists
 							if (value.order) {
-								value.order = value.order.filter(key => key !== e.detail)
+								value.order = value.order.filter((key) => key !== e.detail)
 							}
 							// Update the value to trigger reactivity
 							value = { ...value }
@@ -1268,6 +1269,8 @@
 					: undefined}
 				{showSchemaExplorer}
 			/>
+		{:else if inputCat == 'ai-provider'}
+			<AIProviderPicker bind:value {disabled} {actions} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

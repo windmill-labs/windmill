@@ -593,6 +593,7 @@ export type InputCat =
 	| 'oneOf'
 	| 'dynamic'
 	| 'json-schema'
+	| 'ai-provider'
 
 export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
@@ -657,6 +658,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
+	} else if (type == 'object' && format == 'ai-provider') {
+		return 'ai-provider'
 	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
 		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
