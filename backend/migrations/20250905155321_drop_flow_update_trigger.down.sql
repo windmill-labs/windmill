@@ -1,4 +1,4 @@
--- Add down migration script here
+-- Copied from runnable_version_notify.up.sql
 CREATE TRIGGER flow_update_trigger
 AFTER INSERT ON flow_version
 FOR EACH ROW
