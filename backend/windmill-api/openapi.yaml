@@ -5906,6 +5906,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableKind"
         - $ref: "#/components/parameters/ScriptPath"
+        - name : match_path_prefix
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: list of flow paths
