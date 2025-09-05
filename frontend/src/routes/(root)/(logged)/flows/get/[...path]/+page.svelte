@@ -14,7 +14,7 @@
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { Badge as HeaderBadge } from '$lib/components/common'
+	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -495,15 +495,16 @@
 					</HeaderBadge>
 				</div>
 			{/if}
-			{#if flow?.archived}
-				<HeaderBadge color="red" variant="outlined" size="xs">Archived</HeaderBadge>
-			{/if}
 		</DetailPageHeader>
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
 			<div class="flex-col flex h-full justify-between">
 				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
+					{#if flow?.archived}
+						<Alert type="error" title="Archived">This flow was archived</Alert>
+					{/if}
+					
 					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
 							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
