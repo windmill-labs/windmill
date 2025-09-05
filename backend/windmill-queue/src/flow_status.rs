@@ -1,28 +1,7 @@
 use uuid::Uuid;
 use windmill_common::{
-    error::{self, Error},
-    utils::WarnAfterExt,
-    DB,
+    error::{self, Error}, flows::Step, utils::WarnAfterExt, DB
 };
-
-#[derive(Debug, Copy, Clone)]
-pub enum Step {
-    Step(usize),
-    PreprocessorStep,
-    FailureStep,
-}
-
-impl Step {
-    pub fn from_i32_and_len(step: i32, len: usize) -> Self {
-        if step < 0 {
-            Step::PreprocessorStep
-        } else if (step as usize) < len {
-            Step::Step(step as usize)
-        } else {
-            Step::FailureStep
-        }
-    }
-}
 
 pub async fn update_flow_status_in_progress(
     db: &DB,

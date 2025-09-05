@@ -18,21 +18,32 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import Select from './select/Select.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { type DynamicSelect } from '$lib/utils'
+	import { type DynamicInput } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
 
 	interface Props {
 		value?: any
-		helperScript?: DynamicSelect.HelperScript
-		entrypoint: string
+		helperScript?: DynamicInput.HelperScript
+		format: string
 		otherArgs?: Record<string, any>
 		name: string
 	}
 
-	let { value = $bindable(), helperScript, entrypoint, otherArgs: otherArgs }: Props = $props()
+	let { value = $bindable(), helperScript, format, otherArgs: otherArgs }: Props = $props()
+
+	const [inputType, entrypoint] = format.includes('-') ? format.split('-', 2) : [format, '']
+
+	const isMultiple = inputType === 'dynmultiselect'
+	const isSelect = inputType === 'dynselect' || inputType === 'dynmultiselect'
+
+	if (isMultiple && value === undefined) {
+		value = []
+	}
 
 	let resultJobLoader: JobLoader | undefined = $state()
 	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
@@ -48,7 +59,7 @@
 					if (!result || !Array.isArray(result)) {
 						if (result?.error?.message && result?.error?.name) {
 							reject(
-								'Error in DynSelect function execution: ' +
+								`Error in ${inputType} function execution: ` +
 									result?.error?.name +
 									' - ' +
 									result?.error?.message
@@ -95,9 +106,17 @@
 	let neverLoaded = $state(true)
 
 	$effect(() => {
-		if (_items.value && value) {
-			if (!_items.value.find((x) => x.value == value)) {
-				value = undefined
+		if (_items.value && value !== undefined && isSelect) {
+			if (isMultiple && Array.isArray(value)) {
+				const availableValues = new Set(_items.value.map((x) => x.value))
+				const filteredValue = value.filter((v) => availableValues.has(v))
+				if (filteredValue.length !== value.length) {
+					value = filteredValue
+				}
+			} else if (!isMultiple && value !== undefined) {
+				if (!_items.value.find((x) => x.value == value)) {
+					value = undefined
+				}
 			}
 		}
 	})
@@ -128,15 +147,30 @@
 	<JobLoader onlyResult bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
-		<Select
-			bind:value
-			bind:open
-			{items}
-			bind:filterText
-			loading={!open && _items.status === 'loading'}
-			clearable
-			noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
-		/>
+		{#if inputType === 'dynmultiselect'}
+			<MultiSelect
+				bind:value
+				items={safeSelectItems(items || [])}
+				placeholder="Select items"
+				noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
+				disabled={_items.status === 'loading'}
+			/>
+		{:else if inputType === 'dynselect'}
+			<Select
+				bind:value
+				bind:open
+				{items}
+				bind:filterText
+				loading={!open && _items.status === 'loading'}
+				clearable
+				noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
+			/>
+		{:else}
+			<!-- Future dynamic input types can be added here -->
+			<div class="text-red-400 text-sm">
+				Unsupported dynamic input type: {inputType}
+			</div>
+		{/if}
 		{#if _items.error}
 			<div class="text-red-400 text-2xs">
 				error: <Tooltip>{_items.error}</Tooltip>
@@ -146,7 +180,7 @@
 {:else}
 	<div class="flex flex-col gap-1 w-full">
 		<div class="text-xs text-tertiary"
-			>Dynamic Select is not available in this mode, write value directly</div
+			>Dynamic input ({inputType}) is not available in this mode, write value directly</div
 		>
 		{#await import('$lib/components/JsonEditor.svelte')}
 			<Loader2 class="animate-spin" />

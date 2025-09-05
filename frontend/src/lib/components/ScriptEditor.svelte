@@ -49,6 +49,7 @@
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
+	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 
 	interface Props {
 		// Exported
@@ -432,9 +433,9 @@
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
-			aiChatManager.scriptEditorApplyCode = (code: string, applyAll: boolean = false) => {
+			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
-				editor?.reviewAndApplyCode(code, applyAll)
+				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 		})

@@ -77,8 +77,8 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
-	let dynSelectCode: string | undefined = $state(undefined)
-	let dynSelectLang: ScriptLang | undefined = $state(undefined)
+	let dynCode: string | undefined = $state(undefined)
+	let dynLang: ScriptLang | undefined = $state(undefined)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -375,7 +375,7 @@
 				on:delete={(e) => {
 					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
-				showDynSelectOpt
+				showDynOpt
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
@@ -414,8 +414,8 @@
 					}
 				}}
 				bind:isValid
-				bind:dynSelectCode
-				bind:dynSelectLang
+				bind:dynCode
+				bind:dynLang
 			>
 				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>

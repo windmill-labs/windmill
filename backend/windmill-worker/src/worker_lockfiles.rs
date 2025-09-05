@@ -423,14 +423,14 @@ pub async fn handle_dependency_job(
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) 
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets 
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ",
@@ -667,7 +667,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
-            let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
+            let r =
+                get_latest_deployed_hash_for_path(None, db.clone(), w_id, s.importer_path.as_str())
+                    .await;
             match r {
                 // We will create Dependency job as is. But the Dep Job Handler will detect that the job originates
                 // from [[trigger_dependents_to_recompute_dependencies]] and will create new script with new hash instead

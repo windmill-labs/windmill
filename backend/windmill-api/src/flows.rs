@@ -1653,7 +1653,8 @@ mod tests {
                   "exponential": {
                     "multiplier": 1,
                     "seconds": 0
-                  }
+                  },
+                  "retry_if": null
                 }
                 "#
             )
@@ -1668,13 +1669,15 @@ mod tests {
                     multiplier: 1,
                     seconds: 123,
                     random_factor: None
-                }
+                },
+                retry_if: None
             },
             serde_json::from_str(
                 r#"
                 {
                   "constant": {},
-                  "exponential": { "seconds": 123 }
+                  "exponential": { "seconds": 123 },
+                  "retry_if" : null
                 }
                 "#
             )
@@ -1692,6 +1695,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![
@@ -1718,6 +1722,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![
