@@ -15,7 +15,8 @@ use std::str::FromStr;
 use windmill_common::db::Authed;
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
-use windmill_common::get_latest_flow_version_info_for_path;
+use windmill_common::get_latest_flow_version_id_for_path;
+use windmill_common::get_latest_flow_version_info_for_path_from_version;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
@@ -117,15 +118,22 @@ pub async fn push_scheduled_job<'c>(
     }
 
     let (payload, tag, timeout, on_behalf_of_email, created_by) = if schedule.is_flow {
-        let FlowVersionInfo {
-            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
-        } = get_latest_flow_version_info_for_path(
+        let version = get_latest_flow_version_id_for_path(
             None,
             &mut *tx,
-            db.clone(),
             &schedule.workspace_id,
             &schedule.script_path,
             false,
+        )
+        .await?;
+
+        let FlowVersionInfo {
+            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
+        } = get_latest_flow_version_info_for_path_from_version(
+            &mut *tx,
+            version,
+            &schedule.workspace_id,
+            &schedule.script_path,
         )
         .await?;
         (
