@@ -810,6 +810,10 @@ fn tstype_to_typ(
                     Typ::DynSelect(symbol.strip_prefix("DynSelect_").unwrap().to_string()),
                     false,
                 ),
+                symbol @ _ if symbol.starts_with("DynMultiselect_") => (
+                    Typ::DynMultiselect(symbol.strip_prefix("DynMultiselect_").unwrap().to_string()),
+                    false,
+                ),
                 symbol @ _ => {
                     let symbol = to_snake_case(symbol);
                     resolve_ts_interface_and_type_alias(
@@ -846,7 +850,8 @@ fn parse_one_of_type(
                     if ["Resource", "Date", "Base64", "Email", "Sql"]
                         .iter()
                         .any(|s| *s == symbol)
-                        || symbol.starts_with("DynSelect_") =>
+                        || symbol.starts_with("DynSelect_")
+                        || symbol.starts_with("DynMultiselect_") =>
                 {
                     return None
                 }

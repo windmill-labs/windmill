@@ -6,7 +6,7 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
-	import { generateRandomString, type DynamicSelect } from '$lib/utils'
+	import { generateRandomString, type DynamicInput } from '$lib/utils'
 	interface Props {
 		schema: Schema
 		args?: Record<string, any>
@@ -22,7 +22,7 @@
 		nestedClasses?: string
 		isValid?: boolean
 		noVariablePicker?: boolean
-		helperScript?: DynamicSelect.HelperScript
+		helperScript?: DynamicInput.HelperScript
 		className?: string
 		dndType?: string
 	}
