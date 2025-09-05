@@ -346,7 +346,7 @@ pub struct FlowModule {
     pub cache_ttl: Option<u32>,
     #[serde(
         default,
-        deserialize_with = "raw_value_to_input_tranform::<_, i32>",
+        deserialize_with = "raw_value_to_input_transform::<_, i32>",
         skip_serializing_if = "Option::is_none"
     )]
     pub timeout: Option<InputTransform>,
@@ -525,7 +525,7 @@ enum RawValueOrTransform<T> {
     Transform(UntaggedInputTransform),
 }
 
-fn raw_value_to_input_tranform<'de, D, T>(
+fn raw_value_to_input_transform<'de, D, T>(
     deserializer: D,
 ) -> Result<Option<InputTransform>, D::Error>
 where
