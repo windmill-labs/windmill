@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	/* Forked from MIT LICENSE
     https://raw.githubusercontent.com/Canutin/svelte-currency-input/main/src/lib/CurrencyInput.svelte 
@@ -44,7 +44,7 @@
 	}
 
 	let {
-		value = $bindable(DEFAULT_VALUE),
+		value = $bindable(),
 		locale = DEFAULT_LOCALE,
 		currency = DEFAULT_CURRENCY,
 		name = DEFAULT_NAME,
@@ -57,6 +57,12 @@
 		noColor = false,
 		style = ''
 	}: Props = $props()
+
+	onMount(() => {
+		if (value == undefined) {
+			value = DEFAULT_VALUE
+		}
+	})
 
 	// Formats value as: e.g. $1,523.00 | -$1,523.00
 	const formatCurrency = (
@@ -120,7 +126,7 @@
 			inputTarget = event.target as HTMLInputElement
 
 			// Reverse the value when minus is pressed
-			if (isNegativeAllowed && event.key === '-') value = value * -1
+			if (isNegativeAllowed && event.key === '-') value = (value ?? DEFAULT_VALUE) * -1
 		}
 
 		// Remove all characters that arent: numbers, commas, periods (or minus signs if `isNegativeAllowed`)
@@ -160,7 +166,7 @@
 		const previousFormattedValueLength = formattedValue.length
 
 		// Apply formatting to input
-		formattedValue = formatCurrency(value, fractionDigits, 0)
+		formattedValue = formatCurrency(value ?? DEFAULT_VALUE, fractionDigits, 0)
 
 		// Update `value` after formatting
 		setUnformattedValue()
@@ -180,7 +186,7 @@
 	let formattedPlaceholder =
 		placeholder !== null ? formatCurrency(placeholder, fractionDigits, fractionDigits) : ''
 	let isZero = $derived(value === 0)
-	let isNegative = $derived(value < 0)
+	let isNegative = $derived((value ?? DEFAULT_VALUE) < 0)
 	$effect(() => {
 		value
 		untrack(() => {

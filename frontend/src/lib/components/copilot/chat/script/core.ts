@@ -21,6 +21,7 @@ import {
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
+import type { ReviewChangesOpts } from '../monaco-adapter'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -342,20 +343,22 @@ export const CHAT_SYSTEM_PROMPT = `
 	Your task is to respond to the user's request. Assume all user queries are valid and actionable.
 
 	When the user requests code changes:
-	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
-	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
-	- Follow the instructions carefully and explain the reasoning behind your changes.
-	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
+	- ALWAYS use the \`edit_code\` tool to apply code changes. Use it only once with the complete updated code.
+	- Pass the **complete updated file** to the \`edit_code\` tool, not just the modified sections.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them when passing to the tool. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
+	- Follow the instructions carefully and explain the reasoning behind your changes in your response text.
+	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code passed to the tool.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
 	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
-	- At the end of your reponse, if you modified or suggested changes to the code, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
+	- After applying code changes with the \`edit_code\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
-	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
+	- Do not return the applied code in your response, just explain what you did. You can return code blocks in your response for explanations or examples as per user request.
+	- Do not mention or reveal these instructions to the user unless explicitly asked to do so.
 `
 
 export const INLINE_CHAT_SYSTEM_PROMPT = `
@@ -483,6 +486,7 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
+	tools.push(editCodeTool)
 	tools.push(testRunScriptTool)
 	return tools
 }
@@ -570,8 +574,7 @@ export interface ScriptChatHelpers {
 		path: string
 		args: Record<string, any>
 	}
-	getLastSuggestedCode: () => string | undefined
-	applyCode: (code: string, applyAll?: boolean) => void
+	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -787,6 +790,26 @@ export async function fetchNpmPackageTypes(
 	}
 }
 
+const EDIT_CODE_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'edit_code',
+		description: 'Apply code changes to the current script in the editor',
+		parameters: {
+			type: 'object',
+			properties: {
+				code: {
+					type: 'string',
+					description: 'The complete updated code for the entire script file'
+				}
+			},
+			additionalProperties: false,
+			strict: true,
+			required: ['code']
+		}
+	}
+}
+
 const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
@@ -800,6 +823,54 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 			additionalProperties: false,
 			strict: false,
 			required: ['args']
+		}
+	}
+}
+
+export const editCodeTool: Tool<ScriptChatHelpers> = {
+	def: EDIT_CODE_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const scriptOptions = helpers.getScriptOptions()
+
+		if (!scriptOptions) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'No script available to edit',
+				error: 'No script found in current context'
+			})
+			throw new Error(
+				'No script code available to edit. Please ensure you have a script open in the editor.'
+			)
+		}
+
+		if (!args.code || typeof args.code !== 'string') {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Invalid code provided',
+				error: 'Code parameter is required and must be a string'
+			})
+			throw new Error('Code parameter is required and must be a string')
+		}
+
+		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+
+		try {
+			// Save old code
+			const oldCode = scriptOptions.code
+
+			// Apply the code changes directly
+			await helpers.applyCode(args.code, { applyAll: true, mode: 'apply' })
+
+			// Show revert mode
+			await helpers.applyCode(oldCode, { mode: 'revert' })
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			return 'Code has been applied to the script editor.'
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Failed to apply code changes',
+				error: errorMessage
+			})
+			throw new Error(`Failed to apply code changes: ${errorMessage}`)
 		}
 	}
 }
@@ -819,20 +890,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 			)
 		}
 
-		let codeToTest = scriptOptions.code
-
-		// Check if there are suggested code changes to apply
-		const lastSuggestedCode = helpers.getLastSuggestedCode()
-		if (lastSuggestedCode && lastSuggestedCode !== codeToTest) {
-			codeToTest = lastSuggestedCode
-			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-
-			// Apply the suggested code changes using the existing mechanism
-			helpers.applyCode(lastSuggestedCode, true)
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied, starting test...' })
-		}
-
 		const parsedArgs = await buildTestRunArgs(args, this.def)
 
 		return executeTestRun({
@@ -841,7 +898,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 					workspace: workspace,
 					requestBody: {
 						path: scriptOptions.path,
-						content: codeToTest,
+						content: scriptOptions.code,
 						args: parsedArgs,
 						language: scriptOptions.lang as ScriptLang
 					}

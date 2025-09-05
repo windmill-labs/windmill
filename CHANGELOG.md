@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.539.0](https://github.com/windmill-labs/windmill/compare/v1.538.0...v1.539.0) (2025-09-05)
+
+
+### Features
+
+* add S3 streaming info to 10k rows SQL error message ([#6528](https://github.com/windmill-labs/windmill/issues/6528)) ([dea7c6d](https://github.com/windmill-labs/windmill/commit/dea7c6da7e0d60f2918e1498a6e3591a20ca9093))
+* **aichat:** allow custom system prompt for each mode ([#6500](https://github.com/windmill-labs/windmill/issues/6500)) ([7df5f54](https://github.com/windmill-labs/windmill/commit/7df5f5453f39afccecd859f80da4fa2d3edec21d))
+* **aichat:** use edit tool to apply code in script mode ([#6533](https://github.com/windmill-labs/windmill/issues/6533)) ([d19e1b1](https://github.com/windmill-labs/windmill/commit/d19e1b1cbe995b4d295eb49b0fcae37dbc35b3cf))
+* better early stop in flows ([#6534](https://github.com/windmill-labs/windmill/issues/6534)) ([b69478c](https://github.com/windmill-labs/windmill/commit/b69478cf2b0129bd90c407626eff2af3e48f1d09))
+* cache relative imports ([#6504](https://github.com/windmill-labs/windmill/issues/6504)) ([16912b4](https://github.com/windmill-labs/windmill/commit/16912b484d7459cdf8cb112cac0800d3fd61512c))
+* conditional retry workflow ([#6461](https://github.com/windmill-labs/windmill/issues/6461)) ([f10cac1](https://github.com/windmill-labs/windmill/commit/f10cac1c4b11b0ddcfd29ec5d88bcbedaf2cd9da))
+* **flow:** add structured output option for ai agent step ([#6515](https://github.com/windmill-labs/windmill/issues/6515)) ([bf7ba69](https://github.com/windmill-labs/windmill/commit/bf7ba698a1105a438d770410990bb4adef09f588))
+* **flows:** allow all providers for ai agent steps ([#6529](https://github.com/windmill-labs/windmill/issues/6529)) ([c0dbbe9](https://github.com/windmill-labs/windmill/commit/c0dbbe942cd8c1f74f08e9a208f5ffb5beccb8b3))
+* **perf:** add 60-second local cache for variables and resources([#6511](https://github.com/windmill-labs/windmill/issues/6511)) ([db36a32](https://github.com/windmill-labs/windmill/commit/db36a323a76b3234764c367aede9046c3c5909a7))
+* refactor trigger crud ([#6472](https://github.com/windmill-labs/windmill/issues/6472)) ([f3fd1e9](https://github.com/windmill-labs/windmill/commit/f3fd1e90b09769214f8ade86f62bc30da3cb74a7))
+* use S3 Proxy for duckdb instead of direct connection ([#6505](https://github.com/windmill-labs/windmill/issues/6505)) ([420be5a](https://github.com/windmill-labs/windmill/commit/420be5a1f8cd5953d484f6408f95e1b160b1f85e))
+* windmill dyn multiselect ([#6488](https://github.com/windmill-labs/windmill/issues/6488)) ([f3f330d](https://github.com/windmill-labs/windmill/commit/f3f330dd2a1d06de99d0364b4ae74da064afae06))
+
+
+### Bug Fixes
+
+* **app:** fix apps_u routes scopes ([f404d78](https://github.com/windmill-labs/windmill/commit/f404d788d168eedb0c084d6f4e500342ee6200f3))
+* **backend:** retrieve root_job for MiniPulledJob + fix root job for flow jobs ([#6490](https://github.com/windmill-labs/windmill/issues/6490)) ([fbd942f](https://github.com/windmill-labs/windmill/commit/fbd942f17974d0b9792e86668bd76071c855b2ae))
+* check perms more tightly for running jobs ([#6532](https://github.com/windmill-labs/windmill/issues/6532)) ([0647202](https://github.com/windmill-labs/windmill/commit/0647202a4f025eaa1232267d276fc2ea8f810663))
+* **cloud:** only load premium info when workspace admin ([#6522](https://github.com/windmill-labs/windmill/issues/6522)) ([df29817](https://github.com/windmill-labs/windmill/commit/df29817a727e670e32789ada70331c5c784bf961))
+* fix format not being preserved in script editor + currency bind failure ([e4191a9](https://github.com/windmill-labs/windmill/commit/e4191a92523941b4333403bb2f44c9389b8bde80))
+* **flows:** fix relative imports cache invalidation ([#6519](https://github.com/windmill-labs/windmill/issues/6519)) ([d098243](https://github.com/windmill-labs/windmill/commit/d0982432e2a12e272b19ed7b0be6bd9a5c387abb))
+* **flows:** fix relative imports cache invalidation [ext] ([#6546](https://github.com/windmill-labs/windmill/issues/6546)) ([f50ab63](https://github.com/windmill-labs/windmill/commit/f50ab6387ab609fb97e230b0390c4752e5c46b91))
+* **frontend:** flow log viewer add keyboard navigation ([#6523](https://github.com/windmill-labs/windmill/issues/6523)) ([d400fe7](https://github.com/windmill-labs/windmill/commit/d400fe76c0c678eebcd411b8c9a6fb2d91cf836f))
+* **frontend:** improve flow step buttons layout ([#6507](https://github.com/windmill-labs/windmill/issues/6507)) ([561bda2](https://github.com/windmill-labs/windmill/commit/561bda2cce1ab69a9f6d1d9b1b76996347857ca8))
+* **frontend:** make prop search case insensitive ([#6512](https://github.com/windmill-labs/windmill/issues/6512)) ([fd8558d](https://github.com/windmill-labs/windmill/commit/fd8558d3de54cfbe2572f02203e7f806a926ef6c))
+* **mcp:** fix path transformation ([#6508](https://github.com/windmill-labs/windmill/issues/6508)) ([e197456](https://github.com/windmill-labs/windmill/commit/e197456b0603f98cc08918988b4100f64b979636))
+* **parser:** detect assets in Python named args ([#6518](https://github.com/windmill-labs/windmill/issues/6518)) ([8c1be78](https://github.com/windmill-labs/windmill/commit/8c1be78f6198ea802624be6d3b053eb7fd99be18))
+
 ## [1.538.0](https://github.com/windmill-labs/windmill/compare/v1.537.1...v1.538.0) (2025-09-01)
 
 
