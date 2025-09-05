@@ -358,7 +358,6 @@ async fn list_paths_from_workspace_runnable(
         .fetch_all(&mut *tx)
         .await?
     } else {
-        // Use exact matching when no glob pattern is present
         sqlx::query_scalar!(
             r#"SELECT f.path
                 FROM workspace_runnable_dependencies wru 
