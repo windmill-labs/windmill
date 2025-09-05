@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"\n                         FROM v2_job WHERE id = $1",
+  "query": "\n            SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"\n            FROM v2_job\n            WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       true
     ]
   },
-  "hash": "903cf23d6b620388c645d5b8ac7d106bb6eea8af03e350d4ba19a4aba2cb9625"
+  "hash": "456835b1dfc95ebd5feb7e2b4e156d4973d17c983038c7633026d2458dfc4c47"
 }

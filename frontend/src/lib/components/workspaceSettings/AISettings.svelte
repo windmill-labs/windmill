@@ -2,7 +2,7 @@
 	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
 	import { setCopilotInfo, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_DEFAULT_MODELS, fetchAvailableModels } from '../copilot/lib'
+	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
@@ -18,19 +18,6 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import autosize from '$lib/autosize'
-
-	const aiProviderLabels: [AIProvider, string][] = [
-		['openai', 'OpenAI'],
-		['azure_openai', 'Azure OpenAI'],
-		['anthropic', 'Anthropic'],
-		['mistral', 'Mistral'],
-		['deepseek', 'DeepSeek'],
-		['googleai', 'Google AI'],
-		['groq', 'Groq'],
-		['openrouter', 'OpenRouter'],
-		['togetherai', 'Together AI'],
-		['customai', 'Custom AI']
-	]
 
 	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
@@ -51,7 +38,7 @@
 	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
 		Object.fromEntries(
-			aiProviderLabels.map(([provider]) => [provider, AI_DEFAULT_MODELS[provider]])
+			Object.keys(AI_PROVIDERS).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
 		) as Record<AIProvider, string[]>
 	)
 
@@ -88,7 +75,7 @@
 					availableAiModels[provider] = models
 				} catch (e) {
 					console.error('failed to fetch models for provider', provider, e)
-					availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
+					availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
 				}
 			}
 			fetchedAiModels = true
@@ -142,7 +129,7 @@
 				availableAiModels[provider] = models
 			} catch (e) {
 				console.error('failed to fetch models for provider', provider, e)
-				availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
+				availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
 			}
 		}
 
@@ -169,12 +156,12 @@
 	<div class="flex flex-col gap-2">
 		<p class="font-semibold">AI Providers</p>
 		<div class="flex flex-col gap-4">
-			{#each aiProviderLabels as [provider, label]}
+			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col gap-2">
 					<div class="flex flex-row gap-2">
 						<Toggle
 							options={{
-								right: label
+								right: details.label
 							}}
 							checked={!!aiProviders[provider]}
 							on:change={(e) => {
@@ -240,12 +227,12 @@
 										() => aiProviders[provider].resource_path,
 										(v) => {
 											aiProviders[provider].resource_path = v
-											onAiProviderChange(provider)
+											onAiProviderChange(provider as AIProvider)
 										}
 									}
 								/>
 								<TestAiKey
-									aiProvider={provider}
+									aiProvider={provider as AIProvider}
 									resourcePath={aiProviders[provider].resource_path}
 									model={aiProviders[provider].models[0]}
 								/>
