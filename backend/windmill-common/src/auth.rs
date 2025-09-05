@@ -1,4 +1,7 @@
-use std::hash::DefaultHasher;
+use std::{
+    hash::DefaultHasher,
+    sync::atomic::{AtomicI64, Ordering},
+};
 
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
@@ -29,7 +32,7 @@ lazy_static::lazy_static! {
     pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
 }
 
-pub struct PermsCache(Cache<(u64, u64), ()>);
+pub struct PermsCache(Cache<(u64, u64), ()>, AtomicI64);
 
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -44,7 +47,10 @@ impl PermsCache {
 
 impl PermsCache {
     pub fn new() -> Self {
-        PermsCache(Cache::new(10000))
+        PermsCache(
+            Cache::new(10000),
+            AtomicI64::new(chrono::Utc::now().timestamp() as i64),
+        )
     }
 
     pub fn check_perms_in_cache<'e, T: Into<u64>>(
@@ -52,6 +58,12 @@ impl PermsCache {
         authed: &'e AuthedRef<'e>,
         key: T,
     ) -> (bool, u64) {
+        // Clear cache every hour
+        if self.1.load(Ordering::Relaxed) < chrono::Utc::now().timestamp() - 60 * 60 {
+            self.0.clear();
+            self.1
+                .store(chrono::Utc::now().timestamp() as i64, Ordering::Relaxed);
+        }
         // Create hash of the ApiAuthed struct for caching
         let authed_hash = Self::compute_hash(authed);
 
