@@ -32,7 +32,7 @@
 					<Bot size={16} />
 					{#if queue_count && ($queue_count ?? 0) > 0}
 						<div
-							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-xs h-4 w-4"
+							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-xs h-4 min-w-4"
 						>
 							{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}
 						</div>
@@ -54,7 +54,7 @@
 				<div class="relative">
 					<Hourglass size={16} />
 					<div
-						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-xs h-4 w-4"
+						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-xs h-4 min-w-4"
 					>
 						{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}
 					</div>
