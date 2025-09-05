@@ -9,7 +9,7 @@
 		emptySchema,
 		emptyString,
 		getSchemaFromProperties,
-		type DynamicSelect
+		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -36,7 +36,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
-	import DynSelect from './DynSelect.svelte'
+	import DynamicInput from './DynamicInput.svelte'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import MultiSelect from './select/MultiSelect.svelte'
@@ -45,6 +45,7 @@
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
+	import AIProviderPicker from './AIProviderPicker.svelte'
 
 	interface Props {
 		label?: string
@@ -97,7 +98,7 @@
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
-		helperScript?: DynamicSelect.HelperScript
+		helperScript?: DynamicInputTypes.HelperScript
 		otherArgs?: Record<string, any>
 		lightHeader?: boolean
 		diffStatus?: SchemaDiff | undefined
@@ -677,6 +678,19 @@
 					editTab="inputEditor"
 					noPreview
 					addPropertyInEditorTab
+					on:delete={(e) => {
+						// Handle property deletion
+						if (value && value.properties && value.properties[e.detail]) {
+							delete value.properties[e.detail]
+							// Also remove from order array if it exists
+							if (value.order) {
+								value.order = value.order.filter((key) => key !== e.detail)
+							}
+							// Update the value to trigger reactivity
+							value = { ...value }
+							dispatch('change')
+						}
+					}}
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
@@ -904,13 +918,13 @@
 					/>
 				</div>
 			</div>
-		{:else if inputCat == 'dynselect'}
-			<DynSelect
+		{:else if inputCat == 'dynamic'}
+			<DynamicInput
 				name={label}
 				{otherArgs}
 				{helperScript}
 				bind:value
-				entrypoint={format?.substring('dynselect_'.length) ?? ''}
+				format={format ?? ''}
 			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-tertiary">Loading resource types...</span>
@@ -1255,6 +1269,8 @@
 					: undefined}
 				{showSchemaExplorer}
 			/>
+		{:else if inputCat == 'ai-provider'}
+			<AIProviderPicker bind:value {disabled} {actions} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
