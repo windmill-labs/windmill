@@ -24,7 +24,7 @@ class WindmillFinder(MetaPathFinder):
 
         if splitted[0] != "f" and splitted[0] != "u":
             return None
-        l = len(splitted)
+        l = len(splitted)  # noqa: E741
         if l <= 2:
             return ModuleSpec(name, WindmillLoader(name))
         elif l > 2:
