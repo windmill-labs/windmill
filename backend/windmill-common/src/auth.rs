@@ -56,13 +56,13 @@ impl PermsCache {
         let authed_hash = Self::compute_hash(authed);
 
         let key = key.into();
-        tracing::error!(
+        tracing::debug!(
             "Checking cache for authed hash {authed_hash} and script hash {}",
             key
         );
         // Check cache first
         if let Some(_) = self.0.get(&(authed_hash, key)) {
-            tracing::error!("Cached result for authed hash {authed_hash}",);
+            tracing::debug!("Cached result for authed hash {authed_hash}",);
             return (true, authed_hash);
         }
 
@@ -71,7 +71,7 @@ impl PermsCache {
 
     pub fn insert<'e, T: Into<u64>>(&self, authed_hash: u64, key: T) {
         let key = key.into();
-        tracing::error!("Inserting authed hash {authed_hash} and key {}", key);
+        tracing::debug!("Inserting authed hash {authed_hash} and key {}", key);
         self.0.insert((authed_hash, key), ());
     }
 }
