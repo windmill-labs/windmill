@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::DefaultHasher};
+use std::hash::DefaultHasher;
 
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::{Authed, AuthedRef, UserDB},
+    db::{Authed, AuthedRef},
     error::{Error, Result},
     jwt,
-    scripts::ScriptHash,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::WarnAfterExt,
     DB,
@@ -26,83 +25,54 @@ pub const TOKEN_PREFIX_LEN: usize = 10;
 
 lazy_static::lazy_static! {
     // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
-    pub static ref HASH_PERMS_CACHE: HashPermsCache = HashPermsCache::new();
+    pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();
+    pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
 }
 
-pub struct HashPermsCache(Cache<(u64, i64), ()>);
+pub struct PermsCache(Cache<(u64, u64), ()>);
 
 use std::hash::Hash;
 use std::hash::Hasher;
 
-impl HashPermsCache {
-    pub fn new() -> Self {
-        HashPermsCache(Cache::new(10000))
-    }
-
+impl PermsCache {
     pub fn compute_hash(authed: &AuthedRef) -> u64 {
         let mut hasher = DefaultHasher::new();
         authed.hash(&mut hasher);
         hasher.finish()
     }
+}
 
-    pub fn check_perms_in_cache<'e>(
+impl PermsCache {
+    pub fn new() -> Self {
+        PermsCache(Cache::new(10000))
+    }
+
+    pub fn check_perms_in_cache<'e, T: Into<u64>>(
         &self,
         authed: &'e AuthedRef<'e>,
-        script_hash: ScriptHash,
+        key: T,
     ) -> (bool, u64) {
         // Create hash of the ApiAuthed struct for caching
         let authed_hash = Self::compute_hash(authed);
 
-        tracing::debug!("Checking cache for authed hash {authed_hash} and script hash {}", script_hash.0);
+        let key = key.into();
+        tracing::debug!(
+            "Checking cache for authed hash {authed_hash} and script hash {}",
+            key
+        );
         // Check cache first
-        if let Some(_) = self.0.get(&(authed_hash, script_hash.0)) {
-            tracing::debug!("Cached result for authed hash {authed_hash} and script hash {}", script_hash.0);
+        if let Some(_) = self.0.get(&(authed_hash, key)) {
+            tracing::debug!("Cached result for authed hash {authed_hash}",);
             return (true, authed_hash);
         }
 
         return (false, authed_hash);
     }
 
-    /// Check if an ApiAuthed user has permission to see a given script hash
-    /// Returns true if the user can see the script, false otherwise
-    /// Caches the result to avoid unnecessary database calls
-    // pub async fn check_perms_for_hash<'e>(
-    //     &self,
-    //     authed: &'e AuthedRef<'e>,
-    //     script_hash: ScriptHash,
-    //     workspace_id: &str,
-    //     db: UserDB,
-    // ) -> Result<bool> {
-    //     let (cached_perm, authed_hash) = self.check_perms_in_cache(&authed, script_hash);
-
-    //     if cached_perm {
-    //         return Ok(true);
-    //     }
-
-    //     let mut tx = db.begin(authed).await?;
-
-    //     // Query database for script visibility and creator info
-    //     let visible = sqlx::query_scalar!(
-    //         "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
-    //         script_hash.0,
-    //         workspace_id
-    //     )
-    //     .fetch_optional(&mut *tx)
-    //     .await?
-    //     .flatten()
-    //     .unwrap_or(false);
-    //     drop(tx);
-
-    //     if visible {
-    //         // Cache the result
-    //         self.insert(authed_hash, script_hash.0);
-    //     }
-    //     Ok(visible)
-    // }
-
-    pub fn insert(&self, authed_hash: u64, script_hash: i64) {
-        tracing::debug!("Inserting authed hash {authed_hash} and script hash {script_hash}");
-        self.0.insert((authed_hash, script_hash), ());
+    pub fn insert<'e, T: Into<u64>>(&self, authed_hash: u64, key: T) {
+        let key = key.into();
+        tracing::debug!("Inserting authed hash {authed_hash} and key {}", key);
+        self.0.insert((authed_hash, key), ());
     }
 }
 

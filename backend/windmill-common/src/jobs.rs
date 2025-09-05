@@ -566,7 +566,7 @@ pub async fn get_payload_tag_from_prefixed_path(
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let FlowVersionInfo { dedicated_worker, tag, version, .. } =
-            get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
+            get_latest_flow_version_info_for_path(None, db, db.clone(), w_id, &path, true).await?;
         (
             JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
             tag,

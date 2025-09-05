@@ -3817,7 +3817,7 @@ pub async fn run_flow_by_path_inner(
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
     let FlowVersionInfo {
         version,
@@ -3828,9 +3828,15 @@ pub async fn run_flow_by_path_inner(
         edited_by,
         early_return,
         ..
-    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
-
-    drop(tx);
+    } = get_latest_flow_version_info_for_path(
+        Some(userdb_authed),
+        &db,
+        db.clone(),
+        &w_id,
+        &flow_path,
+        true,
+    )
+    .await?;
 
     let tag = run_query.tag.clone().or(tag);
 
@@ -4961,7 +4967,7 @@ pub async fn run_wait_result_script_by_hash(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let ScriptHashInfo {
         path,
         tag,
@@ -4978,7 +4984,7 @@ pub async fn run_wait_result_script_by_hash(
         on_behalf_of_email,
         created_by,
         ..
-    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
+    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -5096,7 +5102,7 @@ pub async fn run_wait_result_flow_by_path_internal(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
     let FlowVersionInfo {
         tag,
@@ -5106,8 +5112,15 @@ pub async fn run_wait_result_flow_by_path_internal(
         on_behalf_of_email,
         edited_by,
         version,
-    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
-    drop(tx);
+    } = get_latest_flow_version_info_for_path(
+        Some(userdb_authed),
+        &db,
+        db.clone(),
+        &w_id,
+        &flow_path,
+        true,
+    )
+    .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -5991,7 +6004,7 @@ pub async fn run_job_by_hash_inner(
     check_license_key_valid().await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let ScriptHashInfo {
         path,
         tag,
@@ -6008,7 +6021,7 @@ pub async fn run_job_by_hash_inner(
         created_by,
         delete_after_use,
         ..
-    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
+    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
