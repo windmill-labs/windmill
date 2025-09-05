@@ -728,7 +728,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     // TODO: [] Test for ts
                     // TODO: [] Check if cache invalidation is not called too often (trigger is not triggered too often)
                     // TODO: [x] Test with drafts
-                    // TODO: [] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
+                    // TODO: [x] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
                     // TODO: [x] Depend on relative import several times
                     // TODO: [x] Test with relative imports caching
                     // TODO: [x] Use transaction
@@ -1067,7 +1067,7 @@ pub async fn handle_flow_dependency_job(
             // Making new version viewable as the current one.
             // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
             // which will invalidate cache for the latest flow versions for all workers.
-            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND NOT (versions @> ARRAY[$1::bigint])",
+            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
                 version,
                 &job_path,
                 &job.workspace_id,
