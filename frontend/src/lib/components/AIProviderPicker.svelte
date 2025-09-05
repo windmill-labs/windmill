@@ -99,9 +99,6 @@
 		const resourcePath = resourceValueToPath(resourceValue)
 
 		filterText = ''
-		if (value) {
-			value.model = undefined
-		}
 
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
