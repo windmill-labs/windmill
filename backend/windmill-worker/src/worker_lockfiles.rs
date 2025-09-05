@@ -720,12 +720,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 }
                 // Get current version of current flow.
                 Ok(Some(cur_version)) => {
-                    // NOTE: Temporary solution. See the usage for more details.
-                    args.insert(
-                        "triggered_by_relative_import".to_string(),
-                        to_raw_value(&()),
-                    );
-
                     // Find out what would be the next version.
                     // Also clone current flow_version to get new_version (which is usually c_v + 1).
                     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
@@ -895,12 +889,6 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    let triggered_by_relative_import = job
-        .args
-        .as_ref()
-        .map(|x| x.get("triggered_by_relative_import").is_some())
-        .unwrap_or_default();
-
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
@@ -1053,18 +1041,14 @@ pub async fn handle_flow_dependency_job(
         .execute(&mut *tx)
         .await?;
 
-        // NOTE: Temporary solution.
-        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
-        if triggered_by_relative_import && !*WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ {
-            // Making new version viewable as the current one.
-            // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
-            // which will invalidate cache for the latest flow versions for all workers.
-            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
-                version,
-                &job_path,
-                &job.workspace_id,
-            ).execute(&mut *tx).await?;
-        }
+        // Making new version viewable as the current one.
+        // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
+        // which will invalidate cache for the latest flow versions for all workers.
+        sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+            version,
+            &job_path,
+            &job.workspace_id,
+        ).execute(&mut *tx).await?;
 
         tx.commit().await?;
 
