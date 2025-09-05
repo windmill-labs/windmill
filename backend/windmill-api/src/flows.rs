@@ -797,7 +797,6 @@ async fn update_flow(
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
     })?;
 
-    // TODO: Check if this is a problem
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
@@ -1007,7 +1006,6 @@ async fn update_flow(
         ))
     })?;
 
-    // TODO: Test with old dep jobs
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE v2_job_queue SET

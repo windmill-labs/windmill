@@ -724,16 +724,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
-                    // TODO: [x] Check if works in nested manner
-                    // TODO: [] Test for ts
-                    // TODO: [x] Check if cache invalidation is not called too often (trigger is not triggered too often)
-                    // TODO: [x] Test with drafts
-                    // TODO: [x] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
-                    // TODO: [x] Depend on relative import several times
-                    // TODO: [x] Test with relative imports caching
-                    // TODO: [x] Use transaction
-                    // TODO: [x] BUG: If pg notification to reset latest version is triggered, then it will call server to get new one, which will probably be the same (bc new version is not marked as viewable yet).
-
                     // Find out what would be the next version.
                     // Also clone current flow_version to get new_version (which is usually c_v + 1).
                     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
@@ -1060,8 +1050,6 @@ pub async fn handle_flow_dependency_job(
         )
         .execute(&mut *tx)
         .await?;
-
-        // TODO: What if something fails before updating versions in flow?
 
         // NOTE: Temporary solution.
         // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
