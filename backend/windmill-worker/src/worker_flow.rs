@@ -1062,7 +1062,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             if require_args {
                 let args = sqlx::query_scalar!(
                     "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
-                 FROM v2_job_completed 
+                 FROM v2_job_completed
                  WHERE id = $1",
                     job_id_for_status
                 )
@@ -1109,8 +1109,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             // let concurrency_key = tag_and_concurrency_key.and_then(|tc| tc.concurrency_key.map(|ck| interpolate_args(&ck, &args, &workspace_id)));
             sqlx::query!(
                 "WITH job_result AS (
-                 SELECT result 
-                 FROM v2_job_completed 
+                 SELECT result
+                 FROM v2_job_completed
                  WHERE id = $1
              ),
              updated_queue AS (
@@ -1119,20 +1119,20 @@ pub async fn update_flow_status_after_job_completion_internal(
                 tag = COALESCE($3, tag)
                 WHERE id = $2
              )
-             UPDATE v2_job 
-             SET 
+             UPDATE v2_job
+             SET
                 tag = COALESCE($3, tag),
                 concurrent_limit = COALESCE($4, concurrent_limit),
                 concurrency_time_window_s = COALESCE($5, concurrency_time_window_s),
                 args = COALESCE(
-                     CASE 
+                     CASE
                          WHEN job_result.result IS NULL THEN NULL
-                         WHEN jsonb_typeof(job_result.result) = 'object' 
+                         WHEN jsonb_typeof(job_result.result) = 'object'
                          THEN job_result.result
                          WHEN jsonb_typeof(job_result.result) = 'null'
                          THEN NULL
                          ELSE jsonb_build_object('value', job_result.result)
-                     END, 
+                     END,
                      '{}'::jsonb
                  ),
                  preprocessed = TRUE
@@ -4176,7 +4176,7 @@ async fn flow_to_payload(
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
     let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
+        get_latest_flow_version_info_for_path(None, db, db.clone(), w_id, &path, true).await?;
     let on_behalf_of = if let Some(email) = on_behalf_of_email {
         Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
     } else {
@@ -4202,8 +4202,14 @@ pub async fn script_to_payload(
         tag_override
     };
     let (payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_hash.is_none() {
-        let (jp, tag, delete_after_use, script_timeout, on_behalf_of) =
-            script_path_to_payload(&script_path, db, &flow_job.workspace_id, Some(true)).await?;
+        let (jp, tag, delete_after_use, script_timeout, on_behalf_of) = script_path_to_payload(
+            &script_path,
+            None,
+            db.clone(),
+            &flow_job.workspace_id,
+            Some(true),
+        )
+        .await?;
         (
             jp,
             tag_override.to_owned().or(tag),
@@ -4213,7 +4219,7 @@ pub async fn script_to_payload(
         )
     } else {
         let hash = script_hash.unwrap();
-        let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
+
         let ScriptHashInfo {
             tag,
             concurrency_key,
@@ -4228,7 +4234,7 @@ pub async fn script_to_payload(
             on_behalf_of_email,
             created_by,
             ..
-        } = get_script_info_for_hash(&mut *tx, &flow_job.workspace_id, hash.0).await?;
+        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
         } else {
