@@ -231,8 +231,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 edited_by = $3,
                 edited_at = now(),
                 server_id = NULL,
-                error = NULL,
-                last_server_ping = NULL
+                error = NULL
             WHERE 
                 workspace_id = $4 AND 
                 path = $5

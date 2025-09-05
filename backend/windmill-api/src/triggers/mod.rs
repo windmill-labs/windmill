@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
 
+#[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
+pub mod email;
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
 pub mod gcp;
 #[cfg(feature = "http_trigger")]
