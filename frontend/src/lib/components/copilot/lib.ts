@@ -27,6 +27,11 @@ import type { Stream } from 'openai/core/streaming.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+interface AIProviderDetails {
+	label: string
+	defaultModels: string[]
+}
+
 const OPENAI_MODELS = [
 	'gpt-5',
 	'gpt-5-mini',
@@ -38,18 +43,47 @@ const OPENAI_MODELS = [
 	'o3-mini'
 ]
 
-// need at least one model for each provider except customai
-export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: OPENAI_MODELS,
-	azure_openai: OPENAI_MODELS,
-	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
-	mistral: ['codestral-latest'],
-	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
-	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
-	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
-	customai: []
+export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
+	openai: {
+		label: 'OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	azure_openai: {
+		label: 'Azure OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	anthropic: {
+		label: 'Anthropic',
+		defaultModels: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest']
+	},
+	mistral: {
+		label: 'Mistral',
+		defaultModels: ['codestral-latest']
+	},
+	deepseek: {
+		label: 'DeepSeek',
+		defaultModels: ['deepseek-chat', 'deepseek-reasoner']
+	},
+	googleai: {
+		label: 'Google AI',
+		defaultModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+	},
+	groq: {
+		label: 'Groq',
+		defaultModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+	},
+	openrouter: {
+		label: 'OpenRouter',
+		defaultModels: ['meta-llama/llama-3.2-3b-instruct:free']
+	},
+	togetherai: {
+		label: 'Together AI',
+		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
+	},
+	customai: {
+		label: 'Custom AI',
+		defaultModels: []
+	}
 }
 
 export interface ModelResponse {
@@ -67,9 +101,11 @@ export interface ModelResponse {
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
-	provider: AIProvider
+	provider: AIProvider,
+	signal?: AbortSignal
 ): Promise<string[]> {
 	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		signal,
 		headers: {
 			'X-Resource-Path': resourcePath,
 			'X-Provider': provider,
@@ -82,6 +118,16 @@ export async function fetchAvailableModels(
 	}
 	const data = (await models.json()) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
+		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
+			// First prioritize models in defaultModels array
+			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+			const aInDefault = defaultModels.includes(a)
+			const bInDefault = defaultModels.includes(b)
+
+			if (aInDefault && !bInDefault) return -1
+			if (!aInDefault && bInDefault) return 1
+			return 0
+		}
 		switch (provider) {
 			case 'openai':
 				return data.data
@@ -89,6 +135,7 @@ export async function fetchAvailableModels(
 						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
 					)
 					.map((m) => m.id)
+					.sort(sortFunc(provider))
 			case 'azure_openai':
 				return data.data
 					.filter(
@@ -98,10 +145,11 @@ export async function fetchAvailableModels(
 							(m.capabilities.completion || m.capabilities.chat_completion)
 					)
 					.map((m) => m.id)
+					.sort(sortFunc(provider))
 			case 'googleai':
-				return data.data.map((m) => m.id.split('/')[1])
+				return data.data.map((m) => m.id.split('/')[1]).sort(sortFunc(provider))
 			default:
-				return data.data.map((m) => m.id)
+				return data.data.map((m) => m.id).sort(sortFunc(provider))
 		}
 	}
 
@@ -291,7 +339,7 @@ export async function testKey({
 	if (!apiKey && !resourcePath) {
 		throw new Error('API key or resource path is required')
 	}
-	const modelToTest = model ?? AI_DEFAULT_MODELS[aiProvider][0]
+	const modelToTest = model ?? AI_PROVIDERS[aiProvider].defaultModels[0]
 
 	if (!modelToTest) {
 		throw new Error('Missing a model to test')

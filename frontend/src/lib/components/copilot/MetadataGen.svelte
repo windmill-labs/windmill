@@ -324,7 +324,7 @@ Generate a tool name for the script below:
 			on:blur={() => (focused = false)}
 		/>
 		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
-			<div class="text-3xs text-red-400 absolute -bottom-4">
+			<div class="text-3xs text-red-400 -mt-0.5">
 				Invalid tool name, should only contain letters, numbers and underscores
 			</div>
 		{/if}

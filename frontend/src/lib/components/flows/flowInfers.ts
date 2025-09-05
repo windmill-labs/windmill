@@ -60,41 +60,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			properties: {
 				provider: {
 					type: 'object',
-					oneOf: [
-						{
-							type: 'object',
-							title: 'OpenAI',
-							properties: {
-								kind: { type: 'string', enum: ['OpenAI'] },
-								resource: {
-									type: 'object',
-									format: 'resource-openai'
-								},
-
-								model: {
-									type: 'string',
-									enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
-								}
-							},
-							required: ['kind', 'resource', 'model']
-						},
-						{
-							type: 'object',
-							title: 'Anthropic',
-							properties: {
-								kind: { type: 'string', enum: ['Anthropic'] },
-								resource: {
-									type: 'object',
-									format: 'resource-anthropic'
-								},
-								model: {
-									type: 'string',
-									enum: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest']
-								}
-							},
-							required: ['kind', 'resource', 'model']
-						}
-					]
+					format: 'ai-provider'
 				},
 				user_message: {
 					type: 'string'
