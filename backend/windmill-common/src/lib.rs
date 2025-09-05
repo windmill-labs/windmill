@@ -509,6 +509,7 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                             computed_hash.unwrap_or_else(|| PermsCache::compute_hash(authed)),
                             ScriptHash(hash),
                         );
+                    } else {
                     }
                     hash
                 } else {
@@ -628,18 +629,17 @@ impl Into<u64> for CachedFlowPath {
         hasher.finish()
     }
 }
-pub fn get_latest_flow_version_info_for_path<
+pub fn get_latest_flow_version_id_for_path<
     'a,
     'e,
     A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
 >(
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: A,
-    db2: DB,
     w_id: &'a str,
     path: &'a str,
     use_cache: bool,
-) -> impl Future<Output = error::Result<FlowVersionInfo>> + Send + 'a
+) -> impl Future<Output = error::Result<i64>> + Send + 'a
 where
     'e: 'a,
 {
@@ -697,7 +697,22 @@ where
                 version
             }
         };
+        Ok(version)
+    }
+}
 
+pub fn get_latest_flow_version_info_for_path_from_version<
+    'a,
+    'e,
+    A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
+>(
+    db: A,
+    version: i64,
+    w_id: &'a str,
+    path: &'a str,
+) -> impl Future<Output = error::Result<FlowVersionInfo>> + Send + 'a {
+    async move {
+        // as instructed in the docstring of sqlx::Acquire
         let key = (w_id.to_string(), version);
 
         match FLOW_INFO_CACHE.get(&key) {
@@ -707,7 +722,7 @@ where
             }
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
-                let mut conn = db2.acquire().await?;
+                let mut conn = db.acquire().await?;
                 let info = sqlx::query_as!(
                     FlowVersionInfo,
                     "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version
@@ -730,6 +745,19 @@ where
             }
         }
     }
+}
+
+pub async fn get_latest_flow_version_info_for_path<'e>(
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db: &DB,
+    w_id: &'e str,
+    path: &'e str,
+    use_cache: bool,
+) -> error::Result<FlowVersionInfo> {
+    // as instructed in the docstring of sqlx::Acquire
+    let version =
+        get_latest_flow_version_id_for_path(db_authed, &db.clone(), w_id, path, use_cache).await?;
+    get_latest_flow_version_info_for_path_from_version(db, version, w_id, path).await
 }
 
 async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(

@@ -4251,7 +4251,7 @@ async fn flow_to_payload(
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
     let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, db, db.clone(), w_id, &path, true).await?;
+        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
     let on_behalf_of = if let Some(email) = on_behalf_of_email {
         Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
     } else {
