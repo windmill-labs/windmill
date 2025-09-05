@@ -701,7 +701,7 @@ where
     }
 }
 
-pub async fn get_latest_flow_version_info_for_path_from_version<
+pub fn get_latest_flow_version_info_for_path_from_version<
     'a,
     'e,
     A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
@@ -710,19 +710,20 @@ pub async fn get_latest_flow_version_info_for_path_from_version<
     version: i64,
     w_id: &'a str,
     path: &'a str,
-) -> error::Result<FlowVersionInfo> {
-    // as instructed in the docstring of sqlx::Acquire
-    let key = (w_id.to_string(), version);
+) -> impl Future<Output = error::Result<FlowVersionInfo>> + Send + 'a {
+    async move {
+        // as instructed in the docstring of sqlx::Acquire
+        let key = (w_id.to_string(), version);
 
-    match FLOW_INFO_CACHE.get(&key) {
-        Some(info) => {
-            tracing::debug!("Using cached flow version info for {version} ({path})");
-            Ok(info)
-        }
-        _ => {
-            tracing::debug!("Fetching flow version info for {version} ({path})");
-            let mut conn = db.acquire().await?;
-            let info = sqlx::query_as!(
+        match FLOW_INFO_CACHE.get(&key) {
+            Some(info) => {
+                tracing::debug!("Using cached flow version info for {version} ({path})");
+                Ok(info)
+            }
+            _ => {
+                tracing::debug!("Fetching flow version info for {version} ({path})");
+                let mut conn = db.acquire().await?;
+                let info = sqlx::query_as!(
                     FlowVersionInfo,
                     "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version
                     FROM flow
@@ -736,11 +737,12 @@ pub async fn get_latest_flow_version_info_for_path_from_version<
                 .fetch_optional(&mut *conn)
                 .await?;
 
-            let info = utils::not_found_if_none(info, "flow", path)?;
+                let info = utils::not_found_if_none(info, "flow", path)?;
 
-            FLOW_INFO_CACHE.insert(key, info.clone());
+                FLOW_INFO_CACHE.insert(key, info.clone());
 
-            Ok(info)
+                Ok(info)
+            }
         }
     }
 }
