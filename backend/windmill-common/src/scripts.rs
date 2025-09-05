@@ -133,7 +133,7 @@ pub struct ScriptHash(pub i64);
 
 impl Into<u64> for ScriptHash {
     fn into(self) -> u64 {
-        self.0.cast_unsigned()
+        self.0 as u64
     }
 }
 
