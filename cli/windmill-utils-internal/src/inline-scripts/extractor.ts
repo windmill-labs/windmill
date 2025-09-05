@@ -1,5 +1,5 @@
-import { newPathAssigner } from "../path-utils/path-assigner";
-import { FlowModule } from "../gen/types.gen";
+import { newPathAssigner } from "../path-utils/path-assigner.ts";
+import { FlowModule } from "../gen/types.gen.ts";
 
 /**
  * Represents an inline script extracted from a flow module
