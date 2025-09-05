@@ -2014,6 +2014,18 @@ async fn delete_script_by_path(
     Ok(Json(script))
 }
 
+#[derive(Serialize)]
+struct BulkDeleteScriptError {
+    path: String,
+    error: String,
+}
+
+#[derive(Serialize)]
+struct BulkDeleteScriptsResponse {
+    successful: Vec<String>,
+    failed: Vec<BulkDeleteScriptError>,
+}
+
 async fn delete_scripts_bulk(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2021,13 +2033,14 @@ async fn delete_scripts_bulk(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteScriptsRequest>,
-) -> JsonResult<Vec<String>> {
-    let mut deleted_scripts = Vec::new();
+) -> JsonResult<BulkDeleteScriptsResponse> {
+    let mut deleted_scripts = vec![];
+    let mut failed_scripts = vec![];
 
     for script_path in request.paths {
         // Use the inner function to delete each script (always delete captures in bulk)
         // This will now handle scope checking internally and propagate errors
-        let deleted_path = delete_script_by_path_inner(
+        if let Err(err) = delete_script_by_path_inner(
             authed.clone(),
             &user_db,
             &webhook,
@@ -2036,10 +2049,17 @@ async fn delete_scripts_bulk(
             &script_path,
             false, // Always delete captures in bulk delete
         )
-        .await?;
-
-        deleted_scripts.push(deleted_path);
+        .await
+        {
+            failed_scripts
+                .push(BulkDeleteScriptError { path: script_path, error: err.to_string() });
+        } else {
+            deleted_scripts.push(script_path);
+        }
     }
 
-    Ok(Json(deleted_scripts))
+    Ok(Json(BulkDeleteScriptsResponse {
+        successful: deleted_scripts,
+        failed: failed_scripts,
+    }))
 }

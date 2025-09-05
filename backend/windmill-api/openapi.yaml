@@ -3208,13 +3208,31 @@ paths:
                 - paths
       responses:
         "200":
-          description: deleted paths
+          description: bulk delete result
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                properties:
+                  successful: 
+                    type: array
+                    items:
+                      type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - path
+                        - error
+                required:
+                  - successful
+                  - failed
 
   /w/{workspace}/variables/update/{path}:
     post:
@@ -5155,13 +5173,31 @@ paths:
                 - paths
       responses:
         "200":
-          description: deleted paths
+          description: bulk delete result
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                properties:
+                  successful: 
+                    type: array
+                    items:
+                      type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - path
+                        - error
+                required:
+                  - successful
+                  - failed
 
   /w/{workspace}/scripts/get/p/{path}:
     get:

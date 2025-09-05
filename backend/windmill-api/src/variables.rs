@@ -36,7 +36,7 @@ use windmill_common::{
 
 use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -498,6 +498,18 @@ struct BulkDeleteVariablesRequest {
     paths: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct BulkDeleteVariableError {
+    path: String,
+    error: String,
+}
+
+#[derive(Serialize)]
+struct BulkDeleteVariablesResponse {
+    successful: Vec<String>,
+    failed: Vec<BulkDeleteVariableError>,
+}
+
 async fn delete_variables_bulk(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -505,13 +517,14 @@ async fn delete_variables_bulk(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteVariablesRequest>,
-) -> JsonResult<Vec<String>> {
-    let mut deleted_variables = Vec::new();
+) -> JsonResult<BulkDeleteVariablesResponse> {
+    let mut deleted_variables = vec![];
+    let mut failed_variables = vec![];
 
     for variable_path in request.paths {
         // Use the inner function to delete each variable
         // This will now handle scope checking internally and propagate errors
-        delete_variable_inner(
+        if let Err(err) = delete_variable_inner(
             authed.clone(),
             &db,
             &user_db,
@@ -519,12 +532,19 @@ async fn delete_variables_bulk(
             &w_id,
             &variable_path,
         )
-        .await?;
-
-        deleted_variables.push(variable_path);
+        .await
+        {
+            failed_variables
+                .push(BulkDeleteVariableError { path: variable_path, error: err.to_string() });
+        } else {
+            deleted_variables.push(variable_path);
+        }
     }
 
-    Ok(Json(deleted_variables))
+    Ok(Json(BulkDeleteVariablesResponse {
+        successful: deleted_variables,
+        failed: failed_variables,
+    }))
 }
 
 #[derive(Deserialize)]
