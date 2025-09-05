@@ -1895,11 +1895,8 @@ async fn delete_script_by_path_inner(
     .await?
     .unwrap_or(false);
 
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
-
     let script = if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
         sqlx::query_scalar!(
             "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
             path,
