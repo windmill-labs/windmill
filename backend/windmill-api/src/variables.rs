@@ -9,7 +9,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::check_scopes,
+    utils::{check_scopes, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -36,7 +36,7 @@ use windmill_common::{
 
 use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -426,14 +426,14 @@ async fn encrypt_value(
 async fn delete_variable_inner(
     authed: ApiAuthed,
     db: &DB,
-    user_db: &UserDB,
+    user_db: UserDB,
     webhook: &WebhookShared,
-    w_id: &str,
+    w_id: String,
     path: &str,
 ) -> Result<String> {
     check_scopes(&authed, || format!("variables:write:{}", path))?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
@@ -474,8 +474,8 @@ async fn delete_variable_inner(
     .await?;
 
     webhook.send_message(
-        w_id.to_string(),
-        WebhookMessage::DeleteVariable { workspace: w_id.to_string(), path: path.to_string() },
+        w_id.clone(),
+        WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
     );
 
     Ok(format!("variable {} deleted", path))
@@ -490,25 +490,9 @@ async fn delete_variable(
 ) -> Result<String> {
     let path = path.to_path();
 
-    delete_variable_inner(authed, &db, &user_db, &webhook, &w_id, path).await
+    delete_variable_inner(authed, &db, user_db, &webhook, w_id, path).await
 }
 
-#[derive(Deserialize)]
-struct BulkDeleteVariablesRequest {
-    paths: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct BulkDeleteVariableError {
-    path: String,
-    error: String,
-}
-
-#[derive(Serialize)]
-struct BulkDeleteVariablesResponse {
-    successful: Vec<String>,
-    failed: Vec<BulkDeleteVariableError>,
-}
 
 async fn delete_variables_bulk(
     authed: ApiAuthed,
@@ -516,8 +500,8 @@ async fn delete_variables_bulk(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(request): Json<BulkDeleteVariablesRequest>,
-) -> JsonResult<BulkDeleteVariablesResponse> {
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<BulkDeleteResponse> {
     let mut deleted_variables = vec![];
     let mut failed_variables = vec![];
 
@@ -527,21 +511,21 @@ async fn delete_variables_bulk(
         if let Err(err) = delete_variable_inner(
             authed.clone(),
             &db,
-            &user_db,
+            user_db.clone(),
             &webhook,
-            &w_id,
+            w_id.clone(),
             &variable_path,
         )
         .await
         {
             failed_variables
-                .push(BulkDeleteVariableError { path: variable_path, error: err.to_string() });
+                .push(BulkDeleteError { path: variable_path, error: err.to_string() });
         } else {
             deleted_variables.push(variable_path);
         }
     }
 
-    Ok(Json(BulkDeleteVariablesResponse {
+    Ok(Json(BulkDeleteResponse {
         successful: deleted_variables,
         failed: failed_variables,
     }))

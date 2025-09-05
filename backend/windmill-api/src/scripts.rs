@@ -13,7 +13,7 @@ use crate::{
     schedule::clear_schedule,
     triggers::{get_triggers_count_internal, TriggersCount},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::{check_scopes, WithStarredInfoQuery},
+    utils::{check_scopes, WithStarredInfoQuery, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -1862,17 +1862,13 @@ struct DeleteScriptQuery {
     keep_captures: Option<bool>,
 }
 
-#[derive(Deserialize)]
-struct BulkDeleteScriptsRequest {
-    paths: Vec<String>,
-}
 
 async fn delete_script_by_path_inner(
     authed: ApiAuthed,
-    user_db: &UserDB,
+    user_db: UserDB,
     webhook: &WebhookShared,
     db: &DB,
-    w_id: &str,
+    w_id: String,
     path: &str,
     keep_captures: bool,
 ) -> Result<String> {
@@ -1884,7 +1880,7 @@ async fn delete_script_by_path_inner(
         ));
     }
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx = user_db.begin(&authed).await?;
 
     let draft_only = sqlx::query_scalar!(
         "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
@@ -1949,7 +1945,7 @@ async fn delete_script_by_path_inner(
         ActionKind::Delete,
         &w_id,
         Some(&path),
-        Some([("workspace", w_id)].into()),
+        Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
     tx.commit().await?;
@@ -1983,8 +1979,8 @@ async fn delete_script_by_path_inner(
     })?;
 
     webhook.send_message(
-        w_id.to_string(),
-        WebhookMessage::DeleteScriptPath { workspace: w_id.to_string(), path: path.to_string() },
+        w_id.clone(),
+        WebhookMessage::DeleteScriptPath { workspace: w_id, path: path.to_owned() },
     );
 
     Ok(script)
@@ -2002,10 +1998,10 @@ async fn delete_script_by_path(
 
     let script = delete_script_by_path_inner(
         authed,
-        &user_db,
+        user_db,
         &webhook,
         &db,
-        &w_id,
+        w_id,
         path,
         query.keep_captures.unwrap_or(false),
     )
@@ -2014,17 +2010,6 @@ async fn delete_script_by_path(
     Ok(Json(script))
 }
 
-#[derive(Serialize)]
-struct BulkDeleteScriptError {
-    path: String,
-    error: String,
-}
-
-#[derive(Serialize)]
-struct BulkDeleteScriptsResponse {
-    successful: Vec<String>,
-    failed: Vec<BulkDeleteScriptError>,
-}
 
 async fn delete_scripts_bulk(
     authed: ApiAuthed,
@@ -2032,8 +2017,8 @@ async fn delete_scripts_bulk(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(request): Json<BulkDeleteScriptsRequest>,
-) -> JsonResult<BulkDeleteScriptsResponse> {
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<BulkDeleteResponse> {
     let mut deleted_scripts = vec![];
     let mut failed_scripts = vec![];
 
@@ -2042,23 +2027,23 @@ async fn delete_scripts_bulk(
         // This will now handle scope checking internally
         if let Err(err) = delete_script_by_path_inner(
             authed.clone(),
-            &user_db,
+            user_db.clone(),
             &webhook,
             &db,
-            &w_id,
+            w_id.clone(),
             &script_path,
             false, // Always delete captures in bulk delete
         )
         .await
         {
             failed_scripts
-                .push(BulkDeleteScriptError { path: script_path, error: err.to_string() });
+                .push(BulkDeleteError { path: script_path, error: err.to_string() });
         } else {
             deleted_scripts.push(script_path);
         }
     }
 
-    Ok(Json(BulkDeleteScriptsResponse {
+    Ok(Json(BulkDeleteResponse {
         successful: deleted_scripts,
         failed: failed_scripts,
     }))

@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -29,6 +29,24 @@ use axum::Json;
 #[derive(Deserialize)]
 pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
+}
+
+// Shared structs for bulk delete operations
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct BulkDeleteError {
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Serialize)]
+pub struct BulkDeleteResponse {
+    pub successful: Vec<String>,
+    pub failed: Vec<BulkDeleteError>,
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {

@@ -3989,6 +3989,56 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/resources/delete_bulk:
+    delete:
+      summary: delete resources in bulk
+      operationId: deleteResourcesBulk
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: bulk delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  successful: 
+                    type: array
+                    items:
+                      type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - path
+                        - error
+                required:
+                  - successful
+                  - failed
+
   /w/{workspace}/resources/update/{path}:
     post:
       summary: update resource
