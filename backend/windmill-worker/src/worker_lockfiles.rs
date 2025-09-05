@@ -724,9 +724,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
-                    // TODO: [] Check if works in nested manner
+                    // TODO: [x] Check if works in nested manner
                     // TODO: [] Test for ts
-                    // TODO: [] Check if cache invalidation is not called too often (trigger is not triggered too often)
+                    // TODO: [x] Check if cache invalidation is not called too often (trigger is not triggered too often)
                     // TODO: [x] Test with drafts
                     // TODO: [x] BUG: rename step in flow editor that has relative import. Deploy. Now relative imports are not connected.
                     // TODO: [x] Depend on relative import several times
@@ -736,6 +736,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
                     // Find out what would be the next version.
                     // Also clone current flow_version to get new_version (which is usually c_v + 1).
+                    // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
+                    // This version will just remain in db and cause no trouble.
                     let new_version = sqlx::query_scalar!(
                         "INSERT INTO flow_version
                 (workspace_id, path, value, schema, created_by)

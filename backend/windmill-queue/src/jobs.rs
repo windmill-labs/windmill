@@ -4003,7 +4003,6 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        // TODO: Check if this still works
         JobPayload::RawFlowDependencies { path, flow_value } => (
             None,
             Some(path),
