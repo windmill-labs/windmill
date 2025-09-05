@@ -139,7 +139,7 @@ thiserror = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }
 rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
-aws-sdk-sqs = { workspace = true, optional = true } 
+aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-sso = { workspace = true, optional = true }
 aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }

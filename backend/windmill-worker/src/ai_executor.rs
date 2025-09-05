@@ -6,13 +6,14 @@ use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
+    ai_providers::AIProvider,
     auth::get_job_perms,
     cache,
     client::AuthedClient,
     db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue},
+    flows::{FlowModule, FlowModuleValue, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -21,9 +22,8 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 use windmill_queue::{
-    flow_status::{get_step_of_flow_status, Step},
-    get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
-    PushIsolationLevel,
+    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy, JobCompleted,
+    MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
 use crate::{
@@ -156,7 +156,7 @@ struct Tool {
 
 #[derive(Deserialize, Debug)]
 struct AIAgentArgs {
-    provider: Provider,
+    provider: ProviderWithResource,
     system_prompt: Option<String>,
     user_message: String,
     temperature: Option<f32>,
@@ -168,35 +168,30 @@ struct AIAgentArgs {
 struct ProviderResource {
     #[serde(alias = "apiKey")]
     api_key: String,
+    #[serde(alias = "baseUrl")]
+    base_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(tag = "kind")]
-enum Provider {
-    OpenAI { resource: ProviderResource, model: String },
-    Anthropic { resource: ProviderResource, model: String },
+struct ProviderWithResource {
+    kind: AIProvider,
+    resource: ProviderResource,
+    model: String,
 }
 
-impl Provider {
+impl ProviderWithResource {
     fn get_api_key(&self) -> &str {
-        match self {
-            Provider::OpenAI { resource, .. } => &resource.api_key,
-            Provider::Anthropic { resource, .. } => &resource.api_key,
-        }
+        &self.resource.api_key
     }
 
     fn get_model(&self) -> &str {
-        match self {
-            Provider::OpenAI { model, .. } => model,
-            Provider::Anthropic { model, .. } => model,
-        }
+        &self.model
     }
 
-    fn get_base_url(&self) -> &str {
-        match self {
-            Provider::OpenAI { .. } => "https://api.openai.com/v1",
-            Provider::Anthropic { .. } => "https://api.anthropic.com/v1",
-        }
+    async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
+        self.kind
+            .get_base_url(self.resource.base_url.clone(), db)
+            .await
     }
 }
 
@@ -275,6 +270,7 @@ impl OpenAPISchema {
             Typ::Email => Self::from_str("string"),
             Typ::Sql => Self::from_str("string"),
             Typ::DynSelect(_) => Self::from_str("string"),
+            Typ::DynMultiselect(_) => Self::from_str("string"),
             Typ::List(typ) => OpenAPISchema {
                 r#type: Some(SchemaType::Single("array".to_string())),
                 items: Some(Box::new(Self::from_typ(typ))),
@@ -765,7 +761,7 @@ async fn run_agent(
 
     let mut content = None;
 
-    let base_url = args.provider.get_base_url();
+    let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key();
 
     let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
@@ -780,7 +776,10 @@ async fn run_agent(
         .and_then(|schema| schema.properties.as_ref())
         .map(|props| !props.is_empty())
         .unwrap_or(false);
-    let is_anthropic = matches!(args.provider, Provider::Anthropic { .. });
+    let provider_is_anthropic = args.provider.kind.is_anthropic();
+    let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
+        && args.provider.model.starts_with("anthropic/");
+    let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
     let mut response_format: Option<ResponseFormat> = None;
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
@@ -1011,8 +1010,8 @@ async fn run_agent(
     // Parse content as JSON, fallback to string if it fails
     let output_value = match content {
         Some(content_str) => match has_output_properties {
-            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|e| {
-                Error::internal_err(format!("Failed to parse structured output: {}", e))
+            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
+                Error::internal_err(format!("Failed to parse structured output: {}", content_str))
             })?,
             false => to_raw_value(&content_str),
         },
