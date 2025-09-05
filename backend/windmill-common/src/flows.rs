@@ -14,7 +14,10 @@ use std::{
 
 use anyhow::Context;
 use rand::Rng;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{
+    de::{DeserializeOwned, Error as SerdeError},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
@@ -23,7 +26,7 @@ use crate::{
     cache,
     db::DB,
     error::Error,
-    more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
+    more_serde::{default_empty_string, default_id, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
 };
@@ -341,7 +344,11 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_tranform::<_, i32>",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub timeout: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow step level
@@ -435,7 +442,7 @@ impl FlowModule {
 pub struct UntaggedInputTransform {
     #[serde(rename = "type")]
     pub type_: String,
-    pub value: Option<Box<serde_json::value::RawValue>>,
+    pub value: Option<serde_json::value::Value>,
     pub expr: Option<String>,
 }
 
@@ -448,8 +455,8 @@ impl<'de> Deserialize<'de> for InputTransform {
 
         match untagged.type_.as_str() {
             "static" => {
-                let value = untagged.value.unwrap_or_else(default_null);
-                Ok(InputTransform::Static { value })
+                let value = untagged.value.unwrap_or(serde_json::Value::Null);
+                Ok(InputTransform::Static { value: to_raw_value(&value) })
             }
             "javascript" => {
                 let expr = untagged.expr.unwrap_or_else(default_empty_string);
@@ -477,6 +484,64 @@ pub enum InputTransform {
         #[serde(default = "default_empty_string")]
         expr: String,
     },
+}
+
+impl InputTransform {
+    pub fn new_static_value<T>(value: &T) -> InputTransform
+    where
+        T: Serialize,
+    {
+        InputTransform::Static { value: to_raw_value(value) }
+    }
+
+    pub fn new_javascript_expr(expr: &str) -> InputTransform {
+        InputTransform::Javascript { expr: expr.to_owned() }
+    }
+}
+
+impl TryFrom<UntaggedInputTransform> for InputTransform {
+    type Error = anyhow::Error;
+    fn try_from(value: UntaggedInputTransform) -> Result<Self, Self::Error> {
+        let input_transform = match value.type_.as_str() {
+            "static" => {
+                InputTransform::new_static_value(&value.value.unwrap_or(serde_json::Value::Null))
+            }
+            "javascript" => InputTransform::new_javascript_expr(&value.expr.unwrap_or_default()),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "got value: {other} for field `type`, expected value: `static` or `javascript`"
+                ))
+            }
+        };
+
+        Ok(input_transform)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawValueOrTransform<T> {
+    RawValue(T),
+    Transform(UntaggedInputTransform),
+}
+
+fn raw_value_to_input_tranform<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<InputTransform>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned + Serialize,
+{
+    let val = Option::<RawValueOrTransform<T>>::deserialize(deserializer)?;
+
+    let input_tranform = match val {
+        Some(RawValueOrTransform::RawValue(v)) => Some(InputTransform::new_static_value(&v)),
+        Some(RawValueOrTransform::Transform(input)) => {
+            Some(input.try_into().map_err(|e| D::Error::custom(e))?)
+        }
+        _ => None,
+    };
+    Ok(input_tranform)
 }
 
 /// Id in the `flow_node` table.

@@ -29,6 +29,13 @@
 		type: 'number'
 	}
 
+	if (typeof flowModule.timeout === 'number') {
+		flowModule.timeout = {
+			type: 'static',
+			value: flowModule.timeout
+		}
+	}
+
 	let stepPropPicker = $derived(
 		getStepPropPicker(
 			flowStateStore.val,
