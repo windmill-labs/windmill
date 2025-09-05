@@ -14,7 +14,7 @@
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { Alert, Badge as HeaderBadge } from '$lib/components/common'
+	import { Badge as HeaderBadge } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -495,6 +495,9 @@
 					</HeaderBadge>
 				</div>
 			{/if}
+			{#if flow?.archived}
+				<HeaderBadge color="red" variant="outlined" size="xs">Archived</HeaderBadge>
+			{/if}
 		</DetailPageHeader>
 	{/snippet}
 	{#snippet form()}
@@ -582,11 +585,6 @@
 						<span class="text-sm text-tertiary">
 							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 						</span>
-
-						{#if flow.archived}
-							<div class=""></div>
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-						{/if}
 					</div>
 				</div>
 				<div class="mt-8">
