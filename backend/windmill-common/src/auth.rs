@@ -40,10 +40,15 @@ use std::hash::Hasher;
 impl PermsCache {
     pub fn compute_hash(authed: &AuthedRef) -> u64 {
         let mut hasher = DefaultHasher::new();
-        authed.hash(&mut hasher);
+        authed.username.hash(&mut hasher);
+        authed.folders.hash(&mut hasher);
+        authed.groups.hash(&mut hasher);
+        authed.is_admin.hash(&mut hasher);
         hasher.finish()
     }
 }
+
+pub const PERMS_CACHE_EXPIRATION_SECONDS: i64 = 60 * 60;
 
 impl PermsCache {
     pub fn new() -> Self {
@@ -59,7 +64,9 @@ impl PermsCache {
         key: T,
     ) -> (bool, u64) {
         // Clear cache every hour
-        if self.1.load(Ordering::Relaxed) < chrono::Utc::now().timestamp() - 60 * 60 {
+        if self.1.load(Ordering::Relaxed)
+            < chrono::Utc::now().timestamp() - PERMS_CACHE_EXPIRATION_SECONDS
+        {
             self.0.clear();
             self.1
                 .store(chrono::Utc::now().timestamp() as i64, Ordering::Relaxed);
