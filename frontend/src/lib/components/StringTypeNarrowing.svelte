@@ -61,6 +61,7 @@
 		'uri',
 		'uuid',
 		'ipv4',
+		'ipv6',
 		'yaml',
 		'sql',
 		// 'time',
@@ -89,12 +90,6 @@
 	})
 	$effect(() => {
 		contentEncoding = kind == 'base64' ? 'base64' : undefined
-	})
-
-	$effect.pre(() => {
-		if (format == 'email') {
-			pattern = '^[\\w-+.]+@([\\w-]+\\.)+[\\w-]{2,63}$'
-		}
 	})
 
 	function add() {
