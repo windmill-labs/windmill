@@ -129,6 +129,7 @@ pub async fn generate_nuget_lockfile(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -386,6 +387,7 @@ async fn build_cs_proj(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", conn).await;
@@ -641,6 +643,7 @@ pub async fn handle_csharp_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

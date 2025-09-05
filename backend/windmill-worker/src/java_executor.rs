@@ -534,6 +534,7 @@ async fn compile<'a>(
             false,
             &mut Some(occupancy_metrics),
             None,
+            None,
         )
         .await?;
 
@@ -716,6 +717,7 @@ async fn run<'a>(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

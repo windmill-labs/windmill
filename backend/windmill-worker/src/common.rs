@@ -1061,6 +1061,80 @@ pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
         .unwrap_or(job.id)
 }
 
+async fn update_root_job_status_with_stream_job(
+    job_id: Uuid,
+    root_id: Uuid,
+    db: DB,
+    step_id: String,
+) -> () {
+    tokio::spawn(async move {
+        tracing::info!("updating root job status with stream job: {job_id} {root_id} {step_id}");
+
+        // Update the stream_jobs to append job_id to the array for this step_id
+        // If the array doesn't exist, create it with the job_id
+        // If the job_id is already in the array, do nothing
+        if let Err(e) = sqlx::query!(
+            r#"UPDATE v2_job_status
+                SET flow_status = jsonb_set(
+                    jsonb_set(
+                        flow_status,
+                        ARRAY['stream_jobs'],
+                        COALESCE(flow_status->'stream_jobs', '{}'::jsonb)
+                    ),
+                    ARRAY['stream_jobs', $1::TEXT],
+                    CASE 
+                        WHEN flow_status->'stream_jobs'->$1::TEXT IS NULL THEN 
+                            jsonb_build_array($2::UUID::TEXT)
+                        WHEN NOT (flow_status->'stream_jobs'->$1::TEXT @> jsonb_build_array($2::UUID::TEXT)) THEN
+                            flow_status->'stream_jobs'->$1::TEXT || jsonb_build_array($2::UUID::TEXT)
+                        ELSE 
+                            flow_status->'stream_jobs'->$1::TEXT
+                    END
+                )
+                WHERE id = $3"#,
+            step_id,
+            job_id,
+            root_id
+        )
+        .execute(&db)
+        .await
+        {
+            tracing::error!("Error when updating streaming step {step_id} of root job {root_id} status with job {job_id}: {e:#}");
+        }
+    });
+}
+
+pub fn listen_for_is_stream_tx(
+    job: &MiniPulledJob,
+    conn: &Connection,
+) -> Option<tokio::sync::mpsc::Sender<()>> {
+    if let Some(flow_step_id) = job.flow_step_id.as_ref() {
+        let (is_stream_tx, mut is_stream_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let root_job_id = get_root_job_id(job).clone();
+        let job_id = job.id.clone();
+        let flow_step_id = flow_step_id.clone();
+        let db = match &conn {
+            Connection::Sql(db) => db.clone(),
+            Connection::Http(_) => {
+                tracing::warn!(
+                    "Flow job streaming is only supported for workers connected to a database"
+                );
+                return None;
+            }
+        };
+
+        tokio::spawn(async move {
+            if let Some(_) = is_stream_rx.recv().await {
+                update_root_job_status_with_stream_job(job_id, root_job_id, db, flow_step_id).await;
+            }
+        });
+
+        Some(is_stream_tx)
+    } else {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub struct S3ModeWorkerData {
     pub client: AuthedClient,

@@ -120,8 +120,8 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, listen_for_is_stream_tx, read_file,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
@@ -385,6 +385,7 @@ pub async fn uv_pip_compile(
             None,
             false,
             occupancy_metrics,
+            None,
             None,
         )
         .await
@@ -863,6 +864,8 @@ mount {{
         start_child_process(python_cmd, &python_path, false).await?
     };
 
+    let is_stream_tx = listen_for_is_stream_tx(job, conn);
+
     let handle_result = handle_child(
         &job.id,
         conn,
@@ -877,6 +880,7 @@ mount {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        is_stream_tx,
     )
     .await?;
 

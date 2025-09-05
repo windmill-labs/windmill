@@ -230,6 +230,7 @@ exit $exit_status
         true,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -646,6 +647,7 @@ pub async fn handle_powershell_job(
             false,
             &mut Some(occupancy_metrics),
             None,
+            None,
         )
         .await?;
     }
@@ -868,6 +870,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

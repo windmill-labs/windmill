@@ -100,6 +100,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::listen_for_is_stream_tx;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::{handle_bash_job, handle_powershell_job},
@@ -2226,6 +2227,8 @@ async fn do_nativets(
         job.args.as_ref()
     };
 
+    let is_stream_tx = listen_for_is_stream_tx(job, conn);
+
     Ok(eval_fetch_timeout(
         env_code,
         code.clone(),
@@ -2241,6 +2244,7 @@ async fn do_nativets(
         &job.workspace_id,
         true,
         occupancy_metrics,
+        is_stream_tx,
     )
     .await?)
 }
