@@ -402,7 +402,7 @@ fn format_pull_query(peek: String) -> String {
             LEFT JOIN v2_job pj ON j.parent_job = pj.id",
         peek
     );
-    tracing::debug!("pull query: {}", r);
+    // tracing::debug!("pull query: {}", r);
     r
 }
 
