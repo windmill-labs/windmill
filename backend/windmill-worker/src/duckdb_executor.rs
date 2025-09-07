@@ -31,7 +31,8 @@ pub async fn do_duckdb(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
-    column_order_ref: &mut Option<Vec<String>>,
+    // TODO
+    #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let token = client.token.clone();
