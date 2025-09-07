@@ -2,4 +2,7 @@
 fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
+
+    println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi/target/release");
+    println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi");
 }
