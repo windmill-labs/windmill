@@ -5,16 +5,16 @@ fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
 
+    // TODO : don't build, pre-build for Windows / Linux / MacOS and ship the binaries
     println!("cargo:rerun-if-changed=./windmill-duckdb-ffi-internal");
     let status = Command::new("cargo")
         .args(["build", "--release", "-p", "windmill_duckdb_ffi_internal"])
         .current_dir("./windmill-duckdb-ffi-internal")
         .status()
         .expect("Failed to build windmill_duckdb_ffi_internal");
-
     if !status.success() {
-        panic!("Failed to compile ffi_dep");
+        panic!("Failed to compile windmill_duckdb_ffi_internal");
     }
     println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi-internal/target/release");
-    println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi_internal");
+    println!("cargo:rustc-link-lib=static=windmill_duckdb_ffi_internal");
 }
