@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::hash::{DefaultHasher, Hasher};
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -35,7 +36,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{Connection, NUM_WORKERS, SCRIPT_TOKEN_EXPIRY};
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
@@ -4667,6 +4668,19 @@ pub async fn push<'c, 'd>(
         root_job
     };
 
+    //todo: proper i64 hash function or conversion to i64
+    let shard_id = NUM_WORKERS.map(|num_workers| {
+        let mut std_hasher = DefaultHasher::new();
+        std_hasher.write(job_id.as_bytes());
+        let shard_id = std_hasher.finish() % num_workers;
+        tracing::debug!(
+            "Job {} has been assigned to worker (shard_id: {})",
+            &job_id,
+            shard_id
+        );
+
+        shard_id as i64
+    });
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4687,8 +4701,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (shard_id, workspace_id, id, running, scheduled_for, started_at, tag, priority)
+            VALUES ($41, $2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
         job_id,
         workspace_id,
         raw_code,
@@ -4733,6 +4747,7 @@ pub async fn push<'c, 'd>(
         root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
+        shard_id
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

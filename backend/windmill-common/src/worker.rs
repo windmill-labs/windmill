@@ -190,6 +190,14 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
+    pub static ref SHARD_DB_URL: Option<String> = std::env::var("SHARD_DB_URL").ok();
+
+    pub static ref SHARD_ID: Option<u8> = std::env::var("SHARD_ID").ok()
+        .and_then(|x| x.parse::<u8>().ok());
+
+    pub static ref NUM_WORKERS: Option<u64> = std::env::var("NUM_WORKERS").ok()
+        .and_then(|x| x.parse::<u64>().ok());
+
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<u64>().ok())
@@ -406,16 +414,39 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
+#[inline]
+fn generate_shard_query_filer() -> String {
+    let shard_filter = SHARD_ID
+        .map(|shard_id| format!("shard_id = {}", shard_id))
+        .unwrap_or_else(|| "1=1".to_string());
+
+    shard_filter
+}
+
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
-        ORDER BY priority DESC NULLS LAST, created_at
+    let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
+
+    let shard_filter = generate_shard_query_filer();
+
+    let peek_query = format!(
+        r#"
+        SELECT 
+            id
+        FROM 
+            v2_job_queue
+        WHERE 
+            suspend_until IS NOT NULL AND 
+            (suspend <= 0 OR suspend_until <= now()) AND 
+            tag IN ({tags_list}) AND
+            {shard_filter}
+        ORDER BY 
+            priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+        LIMIT 1
+        "#
+    );
+
+    format_pull_query(peek_query)
 }
 // pub async fn make_suspended
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
@@ -429,15 +460,30 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    let query = format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-        ORDER BY priority DESC NULLS LAST, scheduled_for
+    let shard_filter = generate_shard_query_filer();
+
+    let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
+
+    let peek_query = format!(
+        r#"
+        SELECT 
+            id
+        FROM 
+            v2_job_queue
+        WHERE 
+            running = false
+            AND tag IN ({tags_list})
+            AND scheduled_for <= now()
+            AND {shard_filter}
+        ORDER BY 
+            priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ));
+        LIMIT 1
+    "#
+    );
+
+    let query = format_pull_query(peek_query);
+
     query
 }
 

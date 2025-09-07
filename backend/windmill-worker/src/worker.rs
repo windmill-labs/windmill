@@ -1538,7 +1538,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
-                        let job = match timeout(
+                        let maybe_job = timeout(
                             Duration::from_secs(10),
                             pull(
                                 &db,
@@ -1550,8 +1550,9 @@ pub async fn run_worker(
                             )
                             .warn_after_seconds(2),
                         )
-                        .await
-                        {
+                        .await;
+
+                        let job = match maybe_job {
                             Ok(job) => job,
                             Err(e) => {
                                 tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
@@ -1618,6 +1619,7 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
+
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
