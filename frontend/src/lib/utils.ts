@@ -591,10 +591,13 @@ export type InputCat =
 	| 'yaml'
 	| 'currency'
 	| 'oneOf'
-	| 'dynselect'
+	| 'dynamic'
 	| 'json-schema'
+	| 'ai-provider'
 
-export namespace DynamicSelect {
+export namespace DynamicInput {
+	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
+
 	export type HelperScript =
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
@@ -633,6 +636,11 @@ export function ${functionName}(filterText: string) {
 	export const getGenerateTemplateFn = (lang: ScriptLang) => {
 		return lang === 'bun' ? generateJsFnTemplate : generatePythonFnTemplate
 	}
+
+	export const isDynInputFormat = (format?: string) => {
+		if (!format) return false
+		return DYN_FORMAT_PREFIX.some((format_prefix) => format.startsWith(format_prefix))
+	}
 }
 
 export function setInputCat(
@@ -650,11 +658,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (
-		type == 'object' &&
-		(format?.startsWith('dynselect-') || format?.startsWith('dynselect_'))
-	) {
-		return 'dynselect'
+	} else if (type == 'object' && format == 'ai-provider') {
+		return 'ai-provider'
+	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
+		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
 	} else if (type == 'string' && enum_) {
