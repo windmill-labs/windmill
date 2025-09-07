@@ -31,7 +31,7 @@ members = [
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
 ]
-exclude = ["./windmill-duckdb-ffi"]
+exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
 version = "1.538.0"

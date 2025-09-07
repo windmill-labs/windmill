@@ -1,5 +1,5 @@
 [package]
-name = "windmill_duckdb_ffi"
+name = "windmill_duckdb_ffi_internal"
 version = "0.1.0"
 edition = "2024"
 

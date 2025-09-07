@@ -169,7 +169,7 @@ pub async fn do_duckdb(
     }
 }
 
-#[link(name = "windmill_duckdb_ffi")]
+#[link(name = "windmill_duckdb_ffi_internal")]
 extern "C" {
     fn run_duckdb_ffi(
         query_block_list: *const *const c_char,
