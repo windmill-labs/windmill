@@ -49,7 +49,6 @@
 	export function reset() {
 		flowTimelineCompute?.reset()
 	}
-	$inspect('db items', items, min, max)
 </script>
 
 <FlowTimelineCompute
