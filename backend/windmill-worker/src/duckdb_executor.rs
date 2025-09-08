@@ -515,6 +515,26 @@ fn remove_comments(stmt: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // #[test]
+    // fn test_ffi_works_correctly() {
+    //     let query = "SELECT n FROM generate_series(1, $n) as f(n);";
+    //     let job_args: Vec<Arg> = vec![Arg {
+    //         name: "n".to_string(),
+    //         arg_type: "integer".to_string(),
+    //         json_value: json!(3),
+    //     }];
+    //     let result = run_duckdb_ffi_safe(
+    //         query.split(';').filter(|s| !s.trim().is_empty()),
+    //         1,
+    //         job_args,
+    //         "test-token",
+    //         "http://localhost:8000",
+    //         "test-workspace",
+    //     )
+    //     .map(|r| r.to_string())
+    //     .map_err(|e| e.to_string());
+    //     assert_eq!(result, Ok("[{\"n\":1},{\"n\":2},{\"n\":3}]".to_string()));
+    // }
     #[test]
     fn test_remove_comments_single_line() {
         let sql = "-- This is a comment\nSELECT * FROM table;";

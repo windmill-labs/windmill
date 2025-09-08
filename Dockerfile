@@ -191,6 +191,7 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
+COPY --from=builder /windmill/target/release/libwindmill_duckdb_ffi_internal.* ${APP}/
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 

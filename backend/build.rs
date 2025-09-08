@@ -5,16 +5,39 @@ fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
 
-    // TODO : don't build, pre-build for Windows / Linux / MacOS and ship the binaries
-    println!("cargo:rerun-if-changed=./windmill-duckdb-ffi-internal");
-    let status = Command::new("cargo")
-        .args(["build", "--release", "-p", "windmill_duckdb_ffi_internal"])
-        .current_dir("./windmill-duckdb-ffi-internal")
-        .status()
-        .expect("Failed to build windmill_duckdb_ffi_internal");
-    if !status.success() {
-        panic!("Failed to compile windmill_duckdb_ffi_internal");
+    if std::env::var("CARGO_FEATURE_DUCKDB").is_ok() {
+        let profile = std::env::var("PROFILE").unwrap();
+        let dynlib_ext = match std::env::consts::OS {
+            "macos" => "dylib",
+            "linux" => "so",
+            "windows" => "dll",
+            _ => panic!("Unsupported OS"),
+        };
+
+        println!("cargo:rerun-if-changed=./windmill-duckdb-ffi-internal");
+        let status = Command::new("cargo")
+            .args(["build", "--release", "-p", "windmill_duckdb_ffi_internal"])
+            .current_dir("./windmill-duckdb-ffi-internal")
+            .status()
+            .expect("Failed to build windmill_duckdb_ffi_internal");
+        if !status.success() {
+            panic!("Failed to compile windmill_duckdb_ffi_internal");
+        }
+        let status = Command::new("cp")
+            .args([
+                format!("./windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.{}", dynlib_ext).as_str(),
+                format!("./target/{profile}/libwindmill_duckdb_ffi_internal.{}", dynlib_ext).as_str(),
+            ])
+            .status()
+            .expect("Failed to copy windmill_duckdb_ffi_internal dynamic library");
+        if !status.success() {
+            panic!(
+                "Failed to copy windmill_duckdb_ffi_internal dynamic library : {}",
+                status.code().unwrap_or(-1)
+            );
+        }
+
+        println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi-internal/target/release");
+        println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi_internal");
     }
-    println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi-internal/target/release");
-    println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi_internal");
 }
