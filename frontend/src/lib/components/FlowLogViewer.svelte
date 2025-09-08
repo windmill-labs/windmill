@@ -26,7 +26,7 @@
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 
-	type RootJobData = Partial<Job>
+	type RootJobData = Partial<Job & { duration_ms?: number }>
 
 	interface Props {
 		modules: FlowModule[]
@@ -434,6 +434,22 @@
 						<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
 					</div>
 
+					{#if timelineItems}
+						{#if timelineMin != undefined && timelineTotal && rootJob.started_at}
+							<div class=" min-w-96">
+								<FlowTimelineBar
+									total={timelineTotal}
+									min={timelineMin}
+									started_at={rootJob.started_at
+										? new Date(rootJob.started_at).getTime()
+										: undefined}
+									duration_ms={timelineTotal}
+									running={rootJob.type === 'QueuedJob'}
+								/>
+							</div>
+						{/if}
+					{/if}
+
 					{#if flowInfo.jobId}
 						<a
 							href={getJobLink(flowInfo.jobId)}
@@ -596,7 +612,7 @@
 											</div>
 
 											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at}
-												<div class="px-2 min-w-96 {isLeafStep ? '' : 'mr-4'}">
+												<div class="min-w-96 {isLeafStep ? 'mr-2' : 'mr-6'}">
 													<FlowTimelineBar
 														total={timelineTotal}
 														min={timelineMin}
