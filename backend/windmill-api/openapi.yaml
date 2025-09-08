@@ -3208,31 +3208,13 @@ paths:
                 - paths
       responses:
         "200":
-          description: bulk delete result
+          description: deleted paths
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  successful: 
-                    type: array
-                    items:
-                      type: string
-                  failed:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        path:
-                          type: string
-                        error:
-                          type: string
-                      required:
-                        - path
-                        - error
-                required:
-                  - successful
-                  - failed
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/variables/update/{path}:
     post:
@@ -4013,31 +3995,13 @@ paths:
                 - paths
       responses:
         "200":
-          description: bulk delete result
+          description: deleted paths
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  successful: 
-                    type: array
-                    items:
-                      type: string
-                  failed:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        path:
-                          type: string
-                        error:
-                          type: string
-                      required:
-                        - path
-                        - error
-                required:
-                  - successful
-                  - failed
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/resources/update/{path}:
     post:
@@ -5223,31 +5187,13 @@ paths:
                 - paths
       responses:
         "200":
-          description: bulk delete result
+          description: deleted paths
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  successful: 
-                    type: array
-                    items:
-                      type: string
-                  failed:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        path:
-                          type: string
-                        error:
-                          type: string
-                      required:
-                        - path
-                        - error
-                required:
-                  - successful
-                  - failed
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/scripts/get/p/{path}:
     get:

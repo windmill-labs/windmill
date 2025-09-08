@@ -9,7 +9,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::{check_scopes, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
+    utils::{check_scopes, BulkDeleteRequest},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -18,6 +18,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use futures::future::try_join_all;
 use hyper::StatusCode;
 use serde_json::Value;
 
@@ -423,14 +424,15 @@ async fn encrypt_value(
     Ok(value)
 }
 
-async fn delete_variable_inner(
+async fn delete_variable(
     authed: ApiAuthed,
-    db: &DB,
-    user_db: UserDB,
-    webhook: &WebhookShared,
-    w_id: String,
-    path: &str,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    let path = path.to_path();
+
     check_scopes(&authed, || format!("variables:write:{}", path))?;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -481,19 +483,6 @@ async fn delete_variable_inner(
     Ok(format!("variable {} deleted", path))
 }
 
-async fn delete_variable(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> Result<String> {
-    let path = path.to_path();
-
-    delete_variable_inner(authed, &db, user_db, &webhook, w_id, path).await
-}
-
-
 async fn delete_variables_bulk(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -501,34 +490,65 @@ async fn delete_variables_bulk(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
-) -> JsonResult<BulkDeleteResponse> {
-    let mut deleted_variables = vec![];
-    let mut failed_variables = vec![];
-
-    for variable_path in request.paths {
-        // Use the inner function to delete each variable
-        // This will now handle scope checking internally
-        if let Err(err) = delete_variable_inner(
-            authed.clone(),
-            &db,
-            user_db.clone(),
-            &webhook,
-            w_id.clone(),
-            &variable_path,
-        )
-        .await
-        {
-            failed_variables
-                .push(BulkDeleteError { path: variable_path, error: err.to_string() });
-        } else {
-            deleted_variables.push(variable_path);
-        }
+) -> JsonResult<Vec<String>> {
+    for path in &request.paths {
+        check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
 
-    Ok(Json(BulkDeleteResponse {
-        successful: deleted_variables,
-        failed: failed_variables,
+    let mut tx = user_db.begin(&authed).await?;
+
+    let deleted_paths = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
+        &request.paths,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
+        &deleted_paths,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "variables.delete_bulk",
+        ActionKind::Delete,
+        &w_id,
+        Some(&deleted_paths.join(", ")),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    try_join_all(deleted_paths.iter().map(|path| {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Variable {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!("Variable '{}' deleted", path)),
+            true,
+        )
     }))
+    .await?;
+
+    for path in &deleted_paths {
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: path.to_owned() },
+        );
+    }
+
+    Ok(Json(deleted_paths))
 }
 
 #[derive(Deserialize)]

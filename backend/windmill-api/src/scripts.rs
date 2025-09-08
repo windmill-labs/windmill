@@ -13,7 +13,7 @@ use crate::{
     schedule::clear_schedule,
     triggers::{get_triggers_count_internal, TriggersCount},
     users::{maybe_refresh_folders, require_owner_of_path},
-    utils::{check_scopes, WithStarredInfoQuery, BulkDeleteRequest, BulkDeleteError, BulkDeleteResponse},
+    utils::{check_scopes, BulkDeleteRequest, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -25,6 +25,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use futures::future::try_join_all;
 use hyper::StatusCode;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -1862,16 +1863,16 @@ struct DeleteScriptQuery {
     keep_captures: Option<bool>,
 }
 
-
-async fn delete_script_by_path_inner(
+async fn delete_script_by_path(
     authed: ApiAuthed,
-    user_db: UserDB,
-    webhook: &WebhookShared,
-    db: &DB,
-    w_id: String,
-    path: &str,
-    keep_captures: bool,
-) -> Result<String> {
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteScriptQuery>,
+) -> JsonResult<String> {
+    let path = path.to_path();
+
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
 
     if path == "u/admin/hub_sync" && w_id == "admins" {
@@ -1887,7 +1888,7 @@ async fn delete_script_by_path_inner(
         path,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&db)
     .await?
     .unwrap_or(false);
 
@@ -1898,7 +1899,7 @@ async fn delete_script_by_path_inner(
             path,
             w_id
         )
-        .fetch_one(db)
+        .fetch_one(&db)
         .await
         .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     } else {
@@ -1917,16 +1918,16 @@ async fn delete_script_by_path_inner(
         path,
         w_id
     )
-    .execute(db)
+    .execute(&db)
     .await?;
 
-    if !keep_captures {
+    if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
             "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
             path,
             w_id
         )
-        .execute(db)
+        .execute(&db)
         .await?;
 
         sqlx::query!(
@@ -1934,7 +1935,7 @@ async fn delete_script_by_path_inner(
             path,
             w_id
         )
-        .execute(db)
+        .execute(&db)
         .await?;
     }
 
@@ -1970,7 +1971,7 @@ async fn delete_script_by_path_inner(
         path,
         w_id
     )
-    .execute(db)
+    .execute(&db)
     .await
     .map_err(|e| {
         Error::internal_err(format!(
@@ -1983,68 +1984,112 @@ async fn delete_script_by_path_inner(
         WebhookMessage::DeleteScriptPath { workspace: w_id, path: path.to_owned() },
     );
 
-    Ok(script)
-}
-
-async fn delete_script_by_path(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<DeleteScriptQuery>,
-) -> JsonResult<String> {
-    let path = path.to_path();
-
-    let script = delete_script_by_path_inner(
-        authed,
-        user_db,
-        &webhook,
-        &db,
-        w_id,
-        path,
-        query.keep_captures.unwrap_or(false),
-    )
-    .await?;
-
     Ok(Json(script))
 }
 
-
 async fn delete_scripts_bulk(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
-) -> JsonResult<BulkDeleteResponse> {
-    let mut deleted_scripts = vec![];
-    let mut failed_scripts = vec![];
-
-    for script_path in request.paths {
-        // Use the inner function to delete each script (always delete captures in bulk)
-        // This will now handle scope checking internally
-        if let Err(err) = delete_script_by_path_inner(
-            authed.clone(),
-            user_db.clone(),
-            &webhook,
-            &db,
-            w_id.clone(),
-            &script_path,
-            false, // Always delete captures in bulk delete
-        )
-        .await
-        {
-            failed_scripts
-                .push(BulkDeleteError { path: script_path, error: err.to_string() });
-        } else {
-            deleted_scripts.push(script_path);
-        }
+) -> JsonResult<Vec<String>> {
+    for path in &request.paths {
+        check_scopes(&authed, || format!("scripts:write:{}", path))?;
     }
 
-    Ok(Json(BulkDeleteResponse {
-        successful: deleted_scripts,
-        failed: failed_scripts,
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if request.paths.contains(&"u/admin/hub_sync".to_string()) && w_id == "admins" {
+        return Err(Error::BadRequest(
+            "Cannot delete the global setup app".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    let mut deleted_paths = sqlx::query_scalar!(
+        "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &request.paths
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+
+    // remove duplicates from deleted_paths
+    deleted_paths.sort();
+    deleted_paths.dedup();
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture_config WHERE workspace_id = $1 AND path = ANY($2) AND is_flow IS FALSE",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture WHERE workspace_id = $1 AND path = ANY($2) AND is_flow IS FALSE",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "scripts.delete_bulk",
+        ActionKind::Delete,
+        &w_id,
+        Some(&deleted_paths.join(", ")),
+        Some([("workspace", w_id.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    try_join_all(deleted_paths.iter().map(|path| {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Script { hash: ScriptHash(0), path: path.clone(), parent_path: None },
+            Some(format!("Script '{}' deleted", path)),
+            true,
+        )
     }))
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE workspace_id = $1 AND path = ANY($2) AND script_hash IS NOT NULL",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "error deleting deployment metadata for scripts with paths {} in workspace {w_id}: {e:#}", deleted_paths.join(", ")
+        ))
+    })?;
+
+    for path in &deleted_paths {
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteScriptPath { workspace: w_id.clone(), path: path.to_owned() },
+        );
+    }
+
+    Ok(Json(deleted_paths))
 }
