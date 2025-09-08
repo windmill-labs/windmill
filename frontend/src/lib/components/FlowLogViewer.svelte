@@ -8,7 +8,9 @@
 		FoldVertical,
 		UnfoldVertical,
 		ExternalLink,
-		Keyboard
+		Keyboard,
+		ZoomIn,
+		ZoomOut
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
@@ -84,8 +86,8 @@
 		currentId,
 		navigationChain = $bindable(),
 		select,
-		timelineMin,
-		timelineTotal,
+		timelineMin: timelineMinAbsolute,
+		timelineTotal: timelineTotalAbsolute,
 		timelineItems,
 		timelineNow,
 		parentLoopIndex
@@ -235,6 +237,8 @@
 
 	let subloopNavigationChains = $state<Record<string, NavigationChain>>({})
 
+	let useRelativeTimeline = $state(false)
+
 	function buildNavigationLinks(): NavigationChain {
 		const items: string[] = []
 
@@ -373,6 +377,15 @@
 
 		return subflows
 	}
+
+	const { timelineMin, timelineTotal } = $derived({
+		timelineMin:
+			useRelativeTimeline && timelineMinAbsolute && rootJob.started_at
+				? new Date(rootJob.started_at).getTime()
+				: timelineMinAbsolute,
+		timelineTotal:
+			useRelativeTimeline && rootJob['duration_ms'] ? rootJob['duration_ms'] : timelineTotalAbsolute
+	})
 </script>
 
 {#if render}
@@ -440,6 +453,21 @@
 
 					{#if timelineItems}
 						{#if timelineMin != undefined && timelineTotal && rootJob.started_at}
+							{#if level > 0 && isExpanded(`flow-${flowId}`)}
+								<button
+									onclick={(e) => {
+										e.stopPropagation()
+										useRelativeTimeline = !useRelativeTimeline
+									}}
+									class="hover:text-primary hover:bg-surface p-1 -my-1 rounded-md"
+								>
+									{#if useRelativeTimeline}
+										<ZoomOut size={12} />
+									{:else}
+										<ZoomIn size={12} />
+									{/if}
+								</button>
+							{/if}
 							<div class=" min-w-96">
 								<FlowTimelineBar
 									total={timelineTotal}
