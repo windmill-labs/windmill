@@ -64,3 +64,7 @@ USING (exists(
     SELECT key, value FROM jsonb_each_text(extra_perms) 
     WHERE SPLIT_PART(key, '/', 1) = 'g' AND key = ANY(regexp_split_to_array(current_setting('session.pgroups'), ',')::text[])
     AND value::boolean));
+
+ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'runnable_email';
+UPDATE TABLE capture SET trigger_kind = 'runnable_email' WHERE trigger_kind = 'email';
+UPDATE TABLE capture_config SET trigger_kind = 'runnable_email' WHERE trigger_kind = 'email';

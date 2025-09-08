@@ -4,13 +4,13 @@
 	import { generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { SettingService } from '$lib/gen'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	import Description from '../Description.svelte'
 	import Section from '../Section.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import EmailTriggerConfigSection from './EmailTriggerConfigSection.svelte'
+	import RunnableEmailConfigSection from './RunnableEmailConfigSection.svelte'
+	import { getEmailDomain } from '../triggers/email/utils'
 
 	let userSettings: UserSettings
 
@@ -26,15 +26,11 @@
 	let triggerTokens: TriggerTokens | undefined = undefined
 
 	let loading = true
-	async function getEmailDomain() {
-		emailDomain =
-			((await SettingService.getGlobal({
-				key: 'email_domain'
-			})) as any) ?? 'mail.test.com'
-		loading = false
-	}
 
-	getEmailDomain()
+	getEmailDomain().then((domain) => {
+		emailDomain = domain
+		loading = false
+	})
 
 	$: emailDomain && dispatch('email-domain', emailDomain)
 </script>
@@ -52,19 +48,20 @@
 	{scopes}
 />
 
-<Section label="Email trigger" class="flex flex-col gap-4">
+<Section label="Runnable email" class="flex flex-col gap-4">
 	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
-		Email triggers execute scripts and flows when emails are sent to specific addresses. Each
-		trigger has its own unique email address that can be used to invoke the script or flow.
+		Runnable email is a partially fixed email address that can be used to trigger a script or flow.
+		The email address is composed of the encoded workspace and script or flow path as well as the
+		token.
 	</Description>
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<EmailTriggerConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
+			<RunnableEmailConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
 		{:else}
 			<div>
-				<Alert title="Email triggers are disabled" size="xs" type="warning">
+				<Alert title="Runnable emails are disabled" size="xs" type="warning">
 					Ask an instance superadmin to setup the instance for email triggering (<a
 						target="_blank"
 						href="https://windmill.dev/docs/advanced/email_triggers">docs</a
@@ -75,7 +72,7 @@
 
 		{#if !$enterpriseLicense}
 			<Alert title="Community Edition limitations" type="warning" size="xs">
-				Email triggers on Windmill Community Edition are limited to 100 emails per day.
+				Runnable emails on Windmill Community Edition are limited to 100 emails per day.
 			</Alert>
 		{/if}
 

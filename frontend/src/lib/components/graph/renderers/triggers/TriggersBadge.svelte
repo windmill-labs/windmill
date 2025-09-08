@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database, Terminal, MailWarning } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { type Component, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
@@ -56,6 +56,7 @@
 		websocket: { icon: Unplug, countKey: 'websocket_count' },
 		postgres: { icon: Database, countKey: 'postgres_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
+		runnable_email: { icon: MailWarning, countKey: 'runnable_email_count' },
 		email: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
@@ -72,11 +73,12 @@
 		'websocket',
 		'postgres',
 		'kafka',
-		'email',
+		'runnable_email',
 		'nats',
 		'mqtt',
 		'sqs',
 		'gcp',
+		'email',
 		'poll',
 		'cli'
 	]

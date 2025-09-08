@@ -1,47 +1,39 @@
 <script lang="ts">
-	import Label from '$lib/components/Label.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { base32 } from 'rfc4648'
-	import ClipboardPanel from './ClipboardPanel.svelte'
-	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
+	import Label from '$lib/components/Label.svelte'
+	// import { page } from '$app/stores'
+	import type { CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureSection from '../CaptureSection.svelte'
 	import { fade } from 'svelte/transition'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 
 	interface Props {
-		isFlow?: boolean
-		path: string
-		emailDomain?: string | null
+		local_part: string | undefined
+		emailDomain: string | null
 		captureInfo?: CaptureInfo | undefined
+		isValid?: boolean | undefined
 		hasPreprocessor?: boolean
+		isFlow?: boolean
 		captureLoading?: boolean
 	}
 
 	let {
-		isFlow = false,
-		path,
+		local_part,
 		emailDomain = null,
 		captureInfo = undefined,
+		isValid = undefined,
 		hasPreprocessor = false,
+		isFlow = false,
 		captureLoading = false
 	}: Props = $props()
 
-	function getCaptureEmail() {
-		const cleanedPath = path.replaceAll('/', '.')
-		const plainPrefix = `capture+${$workspaceStore}+${(isFlow ? 'flow.' : '') + cleanedPath}`
-		const encodedPrefix = base32
-			.stringify(new TextEncoder().encode(plainPrefix), {
-				pad: false
-			})
-			.toLowerCase()
-		return `${encodedPrefix}@${emailDomain}`
-	}
-
-	let captureEmail = $derived(getCaptureEmail())
+	let captureEmail = $derived(`capture+${$workspaceStore}+${local_part}@${emailDomain}`)
 </script>
 
 {#if captureInfo}
 	<CaptureSection
 		captureType="email"
-		disabled={false}
+		disabled={isValid === false}
 		{captureInfo}
 		{captureLoading}
 		on:captureToggle

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import RoutesPanel from './http/RoutesPanel.svelte'
 	import WebhooksPanel from './webhook/WebhooksPanel.svelte'
-	import EmailTriggerPanel from '../details/EmailTriggerPanel.svelte'
+	import EmailTriggerPanel from './email/EmailTriggerPanel.svelte'
+	import RunnableEmailPanel from '../details/RunnableEmailPanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
@@ -71,8 +72,8 @@
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		{newItem}
 	/>
-{:else if selectedTrigger.type === 'email'}
-	<EmailTriggerPanel
+{:else if selectedTrigger.type === 'runnable_email'}
+	<RunnableEmailPanel
 		token=""
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
@@ -146,6 +147,15 @@
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'email'}
+	<EmailTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

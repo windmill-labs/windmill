@@ -83,7 +83,7 @@
 	const triggersState = $state(
 		new Triggers([
 			{ type: 'webhook', path: '', isDraft: false },
-			{ type: 'email', path: '', isDraft: false },
+			{ type: 'runnable_email', path: '', isDraft: false },
 			{ type: 'cli', path: '', isDraft: false }
 		])
 	)
@@ -504,7 +504,7 @@
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
 					{/if}
-					
+
 					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
 							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />

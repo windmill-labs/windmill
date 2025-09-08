@@ -92,7 +92,7 @@
 									>
 										{`${webhookToken} token${webhookToken > 1 ? 's' : ''}`}
 									</span>
-								{:else if trigger.type === 'email' && emailToken}
+								{:else if trigger.type === 'runnable_email' && emailToken}
 									<span
 										class="ml-2 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse px-1.5 py-0.5"
 									>
@@ -101,7 +101,7 @@
 								{/if}
 							</div>
 
-							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
+							{#if !['runnable_email', 'webhook', 'cli'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
 								{:else if !!trigger.draftConfig && !trigger.isDraft}

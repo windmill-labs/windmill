@@ -123,7 +123,7 @@
 			{/key}
 		{/key}
 
-		<Alert title="Email trigger" size="xs">
+		<Alert title="Runnable email" size="xs">
 			To trigger the job by email, send an email to the address above. The job will receive two
 			arguments: `raw_email` containing the raw email as string, and `parsed_email` containing the
 			parsed email as an object.

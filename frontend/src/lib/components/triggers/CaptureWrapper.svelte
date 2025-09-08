@@ -7,7 +7,7 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
-	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
+	import RunnableEmailCapture from '../details/RunnableEmailCapture.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
@@ -15,6 +15,7 @@
 	import MqttCapture from './mqtt/MqttCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
+	import EmailCapture from './email/EmailCapture.svelte'
 
 	interface Props {
 		isFlow: boolean
@@ -238,8 +239,8 @@
 				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
-		{:else if captureType === 'email'}
-			<EmailTriggerCaptures
+		{:else if captureType === 'runnable_email'}
+			<RunnableEmailCapture
 				{path}
 				{isFlow}
 				emailDomain={data?.emailDomain}
@@ -316,6 +317,21 @@
 				{isFlow}
 				{triggerDeployed}
 				deliveryType={args.delivery_type}
+				{captureLoading}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'email'}
+			<EmailCapture
+				local_part={args.local_part}
+				emailDomain={data?.emailDomain}
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
 				{captureLoading}
 				on:applyArgs
 				on:updateSchema
