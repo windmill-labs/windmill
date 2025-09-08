@@ -85,8 +85,6 @@
 			: 0
 	)
 
-	$inspect('dbg selectedItem', selectedItem, showSingleItem)
-
 	function getGap(items: TimelineItem[], i: number): number {
 		// The gap between the start of the current item and the end of the previous item
 		if (i > 0 && items[i].started_at && items[i - 1].started_at && items[i - 1].duration_ms) {

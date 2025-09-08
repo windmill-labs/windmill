@@ -91,7 +91,7 @@
 		timelineItems,
 		timelineNow,
 		parentLoopIndex,
-		timelineAvailableWidths,
+		timelineAvailableWidths = $bindable(),
 		timelinelWidth
 	}: Props = $props()
 
