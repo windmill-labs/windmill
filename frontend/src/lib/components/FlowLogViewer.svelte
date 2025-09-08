@@ -60,6 +60,7 @@
 			Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
 		>
 		timelineNow: number
+		parentLoopIndex?: number
 	}
 
 	let {
@@ -86,7 +87,8 @@
 		timelineMin,
 		timelineTotal,
 		timelineItems,
-		timelineNow
+		timelineNow,
+		parentLoopIndex
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -522,7 +524,10 @@
 								{@const isCollapsible = !hasEmptySubflowValue}
 								{@const jobId = localModuleStates[module.id]?.job_id}
 								{@const moduleItems = timelineItems?.[module.id]}
-								{@const moduleItem = moduleItems?.[0]}
+								{@const moduleItem =
+									moduleItems?.[
+										localModuleStates[module.id]?.selectedForloopIndex ?? parentLoopIndex ?? 0
+									]}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -682,6 +687,11 @@
 														bind:navigationChain={subloopNavigationChains[subflow.flowId]}
 														{select}
 														{timelineNow}
+														{timelineMin}
+														{timelineTotal}
+														{timelineItems}
+														parentLoopIndex={localModuleStates[module.id]?.selectedForloopIndex ??
+															0}
 													/>
 												</div>
 											{/each}
