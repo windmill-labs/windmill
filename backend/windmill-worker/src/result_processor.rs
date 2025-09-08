@@ -369,7 +369,10 @@ pub fn start_background_processor(
 
         // Flush any remaining stats before shutting down
         tracing::info!("flushing remaining stats before shutting down");
-        flush_handle.await;
+        if let Err(e) = tokio::time::timeout(std::time::Duration::from_secs(10), flush_handle).await
+        {
+            tracing::error!("Failed to flush worker group job stats: {}", e);
+        }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
 
