@@ -8256,6 +8256,31 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/queue/position/{id}:
+    get:
+      summary: get queue position for a job
+      operationId: getQueuePosition
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: queue position information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  position:
+                    type: integer
+                    nullable: true
+                    description: The position in queue (1-based), null if not in queue or already running
+                  total_ahead:
+                    type: integer
+                    description: Total number of jobs ahead in queue
+
   /w/{workspace}/jobs/job_signature/{id}/{resume_id}:
     get:
       summary: create an HMac signature given a job id and a resume id
