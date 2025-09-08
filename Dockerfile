@@ -191,7 +191,7 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=builder /windmill/target/release/libwindmill_duckdb_ffi_internal.* ${APP}/
+COPY --from=builder /windmill/windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so* ${APP}/
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
@@ -205,6 +205,7 @@ COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
 ENV RUSTUP_HOME="/usr/local/rustup"
 ENV CARGO_HOME="/usr/local/cargo"
+ENV LD_LIBRARY_PATH="."
 
 WORKDIR ${APP}
 
