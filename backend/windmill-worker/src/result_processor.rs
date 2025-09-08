@@ -212,8 +212,7 @@ pub fn start_background_processor(
         let stats_map_clone = stats_map.clone();
         let mut killpill_rx_clone = killpill_rx.resubscribe();
         let flush_handle = tokio::spawn(async move {
-            // let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Flush every hour
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30)); // Flush every 10 seconds
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // Flush every 15 min
 
             loop {
                 tokio::select! {
@@ -369,9 +368,12 @@ pub fn start_background_processor(
 
         // Flush any remaining stats before shutting down
         tracing::info!("flushing remaining stats before shutting down");
-        if let Err(e) = tokio::time::timeout(std::time::Duration::from_secs(10), flush_handle).await
-        {
-            tracing::error!("Failed to flush worker group job stats: {}", e);
+        let flush_result =
+            tokio::time::timeout(std::time::Duration::from_secs(10), flush_handle).await;
+        match flush_result {
+            Ok(Ok(())) => tracing::info!("Stats flushed successfully"),
+            Ok(Err(join_err)) => tracing::error!("Stats flush task failed: {}", join_err),
+            Err(_) => tracing::error!("Stats flush timed out after 10 seconds"),
         }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
