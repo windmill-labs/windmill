@@ -172,46 +172,44 @@ pub async fn do_duckdb(
 }
 
 struct DuckDbFfiLib {
-    run_duckdb_ffi: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            query_block_list: *const *const c_char,
-            query_block_list_count: usize,
-            job_args: *const c_char,
-            token: *const c_char,
-            base_internal_url: *const c_char,
-            w_id: *const c_char,
-        ) -> *mut c_char,
-    >,
+    lib: Library,
 }
 
-lazy_static::lazy_static! {
-    static ref DUCKDB_FFI_LIB: Result<DuckDbFfiLib> = init_duckdb_ffi_lib();
-}
-
-fn init_duckdb_ffi_lib() -> Result<DuckDbFfiLib> {
-    if DUCKDB_FFI_LIB.is_ok() {
-        return Err(Error::InternalErr(
-            "DuckDB FFI Lib initialized twice".to_string(),
-        ));
+impl DuckDbFfiLib {
+    fn load() -> Result<Self> {
+        let lib = unsafe {
+            Library::new(if cfg!(target_os = "macos") {
+                "libwindmill_duckdb_ffi_internal.dylib"
+            } else if cfg!(target_os = "windows") {
+                "windmill_duckdb_ffi_internal.dll"
+            } else {
+                "libwindmill_duckdb_ffi_internal.so"
+            })
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "Could not load libwindmill_duckdb_ffi_internal: {}",
+                    e.to_string()
+                ))
+            })?
+        };
+        Ok(DuckDbFfiLib { lib })
     }
-    let lib = unsafe {
-        Library::new(if cfg!(target_os = "macos") {
-            "libwindmill_duckdb_ffi_internal.dylib"
-        } else if cfg!(target_os = "windows") {
-            "windmill_duckdb_ffi_internal.dll"
-        } else {
-            "libwindmill_duckdb_ffi_internal.so"
-        })
-        .map_err(|e| {
-            Error::InternalErr(format!(
-                "Could not load libwindmill_duckdb_ffi_internal: {}",
-                e.to_string()
-            ))
-        })?
-    };
-    let lib = Box::leak(Box::new(lib)); // Leak the library to keep it loaded for the program's lifetime
-    Ok(DuckDbFfiLib { run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? } })
+    fn get_run_duckdb_ffi(
+        &self,
+    ) -> Result<
+        Symbol<
+            unsafe extern "C" fn(
+                query_block_list: *const *const c_char,
+                query_block_list_count: usize,
+                job_args: *const c_char,
+                token: *const c_char,
+                base_internal_url: *const c_char,
+                w_id: *const c_char,
+            ) -> *mut c_char,
+        >,
+    > {
+        Ok(unsafe { self.lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? })
+    }
 }
 
 fn run_duckdb_ffi_safe<'a>(
@@ -240,7 +238,8 @@ fn run_duckdb_ffi_safe<'a>(
     let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
-    let run_duckdb_ffi = &DUCKDB_FFI_LIB.as_ref().map_err(to_anyhow)?.run_duckdb_ffi;
+    let duckdb_ffi_lib = DuckDbFfiLib::load()?;
+    let run_duckdb_ffi = duckdb_ffi_lib.get_run_duckdb_ffi()?;
     let result_cstr = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
