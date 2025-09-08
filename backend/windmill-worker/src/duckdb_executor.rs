@@ -2,6 +2,7 @@ use std::env;
 use std::ffi::{c_char, CString};
 use std::sync::{Arc, Mutex};
 
+use libloading::{Library, Symbol};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -170,16 +171,47 @@ pub async fn do_duckdb(
     }
 }
 
-#[link(name = "windmill_duckdb_ffi_internal")]
-extern "C" {
-    fn run_duckdb_ffi(
-        query_block_list: *const *const c_char,
-        query_block_list_count: usize,
-        job_args: *const c_char,
-        token: *const c_char,
-        base_internal_url: *const c_char,
-        w_id: *const c_char,
-    ) -> *mut c_char;
+struct DuckDbFfiLib {
+    run_duckdb_ffi: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            query_block_list: *const *const c_char,
+            query_block_list_count: usize,
+            job_args: *const c_char,
+            token: *const c_char,
+            base_internal_url: *const c_char,
+            w_id: *const c_char,
+        ) -> *mut c_char,
+    >,
+}
+
+lazy_static::lazy_static! {
+    static ref DUCKDB_FFI_LIB: Result<DuckDbFfiLib> = init_duckdb_ffi_lib();
+}
+
+fn init_duckdb_ffi_lib() -> Result<DuckDbFfiLib> {
+    if DUCKDB_FFI_LIB.is_ok() {
+        return Err(Error::InternalErr(
+            "DuckDB FFI Lib initialized twice".to_string(),
+        ));
+    }
+    let lib = unsafe {
+        Library::new(if cfg!(target_os = "macos") {
+            "libwindmill_duckdb_ffi_internal.dylib"
+        } else if cfg!(target_os = "windows") {
+            "windmill_duckdb_ffi_internal.dll"
+        } else {
+            "libwindmill_duckdb_ffi_internal.so"
+        })
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "Could not load libwindmill_duckdb_ffi_internal: {}",
+                e.to_string()
+            ))
+        })?
+    };
+    let lib = Box::leak(Box::new(lib)); // Leak the library to keep it loaded for the program's lifetime
+    Ok(DuckDbFfiLib { run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? } })
 }
 
 fn run_duckdb_ffi_safe<'a>(
@@ -208,6 +240,7 @@ fn run_duckdb_ffi_safe<'a>(
     let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
+    let run_duckdb_ffi = &DUCKDB_FFI_LIB.as_ref().map_err(to_anyhow)?.run_duckdb_ffi;
     let result_cstr = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
@@ -515,26 +548,6 @@ fn remove_comments(stmt: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // #[test]
-    // fn test_ffi_works_correctly() {
-    //     let query = "SELECT n FROM generate_series(1, $n) as f(n);";
-    //     let job_args: Vec<Arg> = vec![Arg {
-    //         name: "n".to_string(),
-    //         arg_type: "integer".to_string(),
-    //         json_value: json!(3),
-    //     }];
-    //     let result = run_duckdb_ffi_safe(
-    //         query.split(';').filter(|s| !s.trim().is_empty()),
-    //         1,
-    //         job_args,
-    //         "test-token",
-    //         "http://localhost:8000",
-    //         "test-workspace",
-    //     )
-    //     .map(|r| r.to_string())
-    //     .map_err(|e| e.to_string());
-    //     assert_eq!(result, Ok("[{\"n\":1},{\"n\":2},{\"n\":3}]".to_string()));
-    // }
     #[test]
     fn test_remove_comments_single_line() {
         let sql = "-- This is a comment\nSELECT * FROM table;";

@@ -37,7 +37,7 @@ fn main() {
             );
         }
 
-        println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi-internal/target/release");
-        println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi_internal");
+        // We do not do cargo:rustc-link-lib because we want the app to work without the duckdb library file, and
+        // only raise an error on usage
     }
 }

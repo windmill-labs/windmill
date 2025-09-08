@@ -33,7 +33,7 @@ rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
-duckdb = []
+duckdb = ["dep:libloading"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -124,6 +124,7 @@ winapi = { workspace = true, optional = true }
 pep440_rs.workspace = true
 process-wrap.workspace = true
 async-once-cell.workspace = true
+libloading = { workspace = true, optional = true }
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

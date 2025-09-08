@@ -150,6 +150,7 @@ aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
+libloading.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -403,6 +404,7 @@ size = "0.5.0"
 flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
 k8s-openapi = { version = "0.25.0", features = ["latest"] }
+libloading = "0.8.8"
 
 # Macro-related
 proc-macro2 = "1.0"

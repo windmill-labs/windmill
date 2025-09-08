@@ -464,9 +464,6 @@ name = "arrow-schema"
 version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af7686986a3bf2254c9fb130c623cdcb2f8e1f15763e7c71c310f0834da3d292"
-dependencies = [
- "bitflags 2.9.4",
-]
 
 [[package]]
 name = "arrow-select"
@@ -15107,6 +15104,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "lazy_static",
+ "libloading 0.8.8",
  "memchr",
  "object_store",
  "once_cell",
@@ -15751,6 +15749,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
+ "libloading 0.8.8",
  "mappable-rc",
  "mysql_async",
  "native-tls",
