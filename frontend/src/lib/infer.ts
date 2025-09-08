@@ -249,7 +249,7 @@ export async function inferArgs(
 		} else if (language == 'ruby') {
 			await initWasmRuby()
 			inferedSchema = JSON.parse(parse_ruby(code))
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
 		}

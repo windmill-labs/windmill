@@ -144,7 +144,7 @@
 	import { conf, language } from '$lib/vueMonarch'
 
 	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
-	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
+	import { AIChatEditorHandler, type ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
@@ -725,15 +725,15 @@
 	let inlineAIChatSelection: Selection | null = $state(null)
 	let selectedCode = $state('')
 
-	export function reviewAndApplyCode(code: string, applyAll: boolean = false) {
-		aiChatEditorHandler?.reviewChanges(code, { applyAll, mode: 'apply' })
+	export async function reviewAndApplyCode(code: string, opts?: ReviewChangesOpts) {
+		await aiChatEditorHandler?.reviewChanges(code, opts)
 	}
 
-	export function reviewAppliedCode(
+	export async function reviewAppliedCode(
 		originalCode: string,
 		opts?: { onFinishedReview?: () => void }
 	) {
-		aiChatEditorHandler?.reviewChanges(originalCode, {
+		await aiChatEditorHandler?.reviewChanges(originalCode, {
 			mode: 'revert',
 			onFinishedReview: opts?.onFinishedReview
 		})
@@ -1338,7 +1338,7 @@
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
-				if (scriptLang == 'bun') {
+				if (scriptLang == 'bun' || scriptLang == 'bunnative') {
 					ata?.(getCode())
 				}
 			}, 1000)
@@ -1487,7 +1487,11 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
-		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
+		if (
+			lang === 'typescript' &&
+			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
+			ata == undefined
+		) {
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1552,6 +1556,8 @@
 			})
 			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
+			}
+			if (scriptLang == 'bunnative' || scriptLang == 'bun') {
 				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
@@ -1641,14 +1647,32 @@
 		return root
 	}
 
+	function acceptCodeChanges() {
+		const mode = aiChatEditorHandler?.getReviewMode?.()
+		if (mode === 'revert') {
+			aiChatEditorHandler?.keepAll()
+		} else {
+			aiChatEditorHandler?.acceptAll()
+		}
+	}
+
+	function rejectCodeChanges() {
+		const mode = aiChatEditorHandler?.getReviewMode?.()
+		if (mode === 'revert') {
+			aiChatEditorHandler?.revertAll()
+		} else {
+			aiChatEditorHandler?.rejectAll()
+		}
+	}
+
 	function onKeyDown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			if (showInlineAIChat) {
 				closeAIInlineWidget()
 			}
-			aiChatEditorHandler?.rejectAll()
+			rejectCodeChanges()
 		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
-			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+			acceptCodeChanges()
 			if (showInlineAIChat) {
 				closeAIInlineWidget()
 			}
@@ -1757,24 +1781,7 @@
 {/if}
 
 {#if $reviewingChanges}
-	<GlobalReviewButtons
-		onAcceptAll={() => {
-			const mode = aiChatEditorHandler?.getReviewMode?.()
-			if (mode === 'revert') {
-				aiChatEditorHandler?.keepAll()
-			} else {
-				aiChatEditorHandler?.acceptAll()
-			}
-		}}
-		onRejectAll={() => {
-			const mode = aiChatEditorHandler?.getReviewMode?.()
-			if (mode === 'revert') {
-				aiChatEditorHandler?.revertAll()
-			} else {
-				aiChatEditorHandler?.rejectAll()
-			}
-		}}
-	/>
+	<GlobalReviewButtons onAcceptAll={acceptCodeChanges} onRejectAll={rejectCodeChanges} />
 {/if}
 
 {#if editor && $copilotInfo.enabled && aiChatEditorHandler}
