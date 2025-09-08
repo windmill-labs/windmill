@@ -58,17 +58,16 @@ pub async fn flush_stats_to_db(
     db: &Pool<Postgres>,
     stats_map: &JobStatsMap,
 ) -> Result<(), sqlx::Error> {
-    let mut stats = stats_map.write().await;
-    tracing::info!("flushing {} stats to db", stats.len());
-    if stats.is_empty() {
-        return Ok(());
-    }
-
-    // Take all stats and clear the map
     let current_stats: Vec<(
         (i64, String, Option<ScriptLang>, String),
         JobStatsAccumulator,
-    )> = stats.drain().collect();
+    )> = {
+        let mut stats = stats_map.write().await;
+        if stats.is_empty() {
+            return Ok(());
+        }
+        stats.drain().collect()
+    };
 
     for ((hour, _worker_group, script_lang, _workspace_id), accumulator) in current_stats {
         let script_lang_str = script_lang.as_ref().map(|l| l.as_str());
