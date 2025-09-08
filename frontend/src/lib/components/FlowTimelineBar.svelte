@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	interface TimelineItem {
 		created_at?: number
@@ -28,7 +29,7 @@
 		return item.started_at !== undefined && item.duration_ms === undefined
 	}
 
-	let selectedItem = $derived(items[selectedIndex])
+	let selectedItem = $derived(showSingleItem ? items[selectedIndex] : items[0])
 
 	// Calculate total execution time for multiple items
 	function calculateTotalExecutionTime(): number {
@@ -57,44 +58,80 @@
 	let selectedLen = $derived(
 		showSingleItem ? (selectedItem?.started_at ? getLength(selectedItem) : 0) : totalExecutionTime
 	)
+
+	const waitingLen = $derived(
+		selectedItem?.created_at
+			? selectedItem.started_at
+				? selectedItem.started_at - selectedItem.created_at
+				: selectedItem.duration_ms
+					? 0
+					: now - selectedItem.created_at
+			: 0
+	)
+
+	$inspect('dbg selectedItem', selectedItem, showSingleItem)
+
+	function getGap(items: TimelineItem[], i: number): number {
+		// The gap between the start of the current item and the end of the previous item
+		if (i > 0 && items[i].started_at && items[i - 1].started_at && items[i - 1].duration_ms) {
+			return (
+				(items[i].started_at ?? 0) -
+				(items[i - 1].started_at ?? 0) -
+				(items[i - 1].duration_ms ?? 0)
+			)
+		}
+		return 0
+	}
 </script>
 
 {#if min && items.length > 0}
 	<div class="flex items-center gap-2">
 		<div class="flex-1 h-1 bg-gray-50 dark:bg-gray-800 rounded-sm overflow-hidden">
+			{#if waitingLen > 100 && selectedItem.created_at}
+				<div
+					style="width: {((selectedItem.created_at - min) / total) * 100}%"
+					class="h-full float-left"
+				></div>
+				<div
+					style="width: {(waitingLen / total) * 100}%"
+					class="h-full float-left bg-gray-300 dark:bg-gray-600"
+				></div>
+			{:else if selectedItem?.started_at}
+				<div
+					style="width: {((selectedItem.started_at - min) / total) * 100}%"
+					class="h-full float-left"
+				></div>
+			{/if}
+
 			{#if items.length === 1 || showSingleItem}
 				<!-- Single item case (non-loop) -->
 				{#if selectedItem?.started_at}
 					<div
-						style="width: {((selectedItem.started_at - min) / total) * 100}%"
-						class="h-full float-left"
-					></div>
-					<div
 						style="width: {(selectedLen / total) * 100}%"
-						class="h-full float-left {isRunning(selectedItem) ? 'bg-blue-400' : 'bg-blue-500'}"
+						class={twMerge(
+							'h-full ',
+							isRunning(selectedItem) ? 'float-right bg-blue-400' : 'float-left bg-blue-500'
+						)}
 					></div>
 				{/if}
 			{:else}
-				<!-- Multiple items case (loop) -->
-				<div class="flex h-full">
-					<!-- Empty space before first item -->
-					{#if items[0]?.started_at}
-						<div style="width: {((items[0].started_at - min) / total) * 100}%" class="h-full"></div>
+				<!-- All iterations -->
+				{#each items as item, i}
+					{#if item.started_at}
+						<div
+							style="width: {(getGap(items, i) / total) * 100}%"
+							class={twMerge('h-full float-left bg-gray-50 dark:bg-gray-800')}
+						></div>
+						<div
+							style="width: {(getLength(item) / total) * 100}%"
+							class={twMerge(
+								'h-full ',
+								isRunning(item) ? 'float-right bg-blue-400' : 'float-left bg-blue-500',
+								i > 0 ? 'border-l border-gray-50 dark:border-gray-800 ' : ''
+							)}
+						></div>
 					{/if}
-					<!-- All iterations -->
-					{#each items as item, i}
-						{#if item.started_at}
-							{#if i > 0}
-								<!-- Small gap between iterations -->
-								<div class="w-px h-full bg-gray-50 dark:bg-gray-800"></div>
-							{/if}
-							<div
-								style="width: {(getLength(item) / total) * 100}%"
-								class="h-full {isRunning(item) ? 'bg-blue-400' : 'bg-blue-500'}"
-							></div>
-						{/if}
-					{/each}
-				</div>
+				{/each}
 			{/if}
 		</div>
 		{#if selectedLen > 0}
