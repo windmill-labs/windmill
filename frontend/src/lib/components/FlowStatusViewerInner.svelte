@@ -1638,7 +1638,7 @@
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							{#if !hideTimeline}
-								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+								<Tab value="timeline"><span class="font-semibold text-md">s</span></Tab>
 							{/if}
 							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
 							{#if !hideNodeDefinition}
