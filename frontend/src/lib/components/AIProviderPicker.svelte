@@ -25,7 +25,12 @@
 
 	// Initialize value if undefined
 	if (!value) {
-		value = {}
+		const providers = Object.keys(AI_PROVIDERS)
+		value = {
+			kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
+			resource: undefined,
+			model: undefined
+		}
 	}
 
 	let loading = $state(false)
@@ -94,9 +99,6 @@
 		const resourcePath = resourceValueToPath(resourceValue)
 
 		filterText = ''
-		if (value) {
-			value.model = undefined
-		}
 
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
