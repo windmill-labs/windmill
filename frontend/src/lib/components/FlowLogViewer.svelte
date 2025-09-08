@@ -26,7 +26,7 @@
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 
-	type RootJobData = Partial<Job & { duration_ms?: number; started_at?: number }>
+	type RootJobData = Partial<Job>
 
 	interface Props {
 		modules: FlowModule[]
@@ -449,7 +449,7 @@
 											started_at: rootJob.started_at
 												? new Date(rootJob.started_at).getTime()
 												: undefined,
-											duration_ms: rootJob.duration_ms ?? timelineTotal,
+											duration_ms: rootJob['duration_ms'] ?? timelineTotal,
 											id: flowId
 										}
 									]}
@@ -659,7 +659,7 @@
 										{@const jobId = localModuleStates[module.id]?.job_id}
 										<div class="my-1 transition-all duration-200 ease-in-out border-l">
 											<!-- Show child steps if they exist -->
-											{#each getSubflows(module) as subflow}
+											{#each getSubflows(module) as subflow, idx}
 												{@const subflowJob = {
 													id: jobId,
 													type:
@@ -671,9 +671,15 @@
 													result,
 													args,
 													success: localModuleStates[module.id]?.type === 'Success',
-													started_at: localModuleStates[module.id]?.started_at,
-													duration_ms: localModuleStates[module.id]?.duration_ms
-												}}
+													started_at:
+														timelineItems?.[module.id]?.[
+															localModuleStates[module.id]?.selectedForloopIndex ?? idx
+														]?.started_at,
+													duration_ms:
+														timelineItems?.[module.id]?.[
+															localModuleStates[module.id]?.selectedForloopIndex ?? idx
+														]?.duration_ms
+												} as RootJobData}
 												<div class="border-l mb-2">
 													<!-- Recursively render child steps using FlowLogViewer -->
 													<FlowLogViewer
