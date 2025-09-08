@@ -90,13 +90,7 @@
 							{/if}
 							<div
 								style="width: {(getLength(item) / total) * 100}%"
-								class="h-full {i === selectedIndex
-									? isRunning(item)
-										? 'bg-blue-400'
-										: 'bg-blue-500'
-									: isRunning(item)
-										? 'bg-blue-400/30'
-										: 'bg-blue-500/30'}"
+								class="h-full {isRunning(item) ? 'bg-blue-400' : 'bg-blue-500'}"
 							></div>
 						{/if}
 					{/each}
