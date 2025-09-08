@@ -145,7 +145,7 @@ async fn process_jc(
     let duration_ms = jc.duration.clone();
     let script_lang = jc.job.script_lang.clone();
     let workspace_id = jc.job.workspace_id.clone();
-    
+
     let root_job = handle_receive_completed_job(
         jc,
         &base_internal_url,
@@ -163,7 +163,7 @@ async fn process_jc(
     if let Some(root_job) = root_job {
         add_root_flow_job_to_otlp(&root_job, success);
     }
-    
+
     // Accumulate job stats if duration is available
     if let Some(duration_ms) = duration_ms {
         accumulate_job_stats(
@@ -206,16 +206,26 @@ pub fn start_background_processor(
 
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
-        
+
         // Start periodic stats flush task
         let db_clone = db.clone();
         let stats_map_clone = stats_map.clone();
+        let mut killpill_rx_clone = killpill_rx.resubscribe();
         let flush_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Flush every hour
+            // let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Flush every hour
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30)); // Flush every 10 seconds
+
             loop {
-                interval.tick().await;
-                if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
-                    tracing::error!("Failed to flush worker group job stats: {}", e);
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
+                            tracing::error!("Failed to flush worker group job stats: {}", e);
+                        }
+                    }
+                    _ = killpill_rx_clone.recv() => {
+                        tracing::info!("bg processor received killpill signal, flushing remaining stats");
+                        break;
+                    }
                 }
             }
         });
@@ -358,10 +368,8 @@ pub fn start_background_processor(
         }
 
         // Flush any remaining stats before shutting down
-        flush_handle.abort();
-        if let Err(e) = flush_stats_to_db(&db, &stats_map).await {
-            tracing::error!("Failed to flush worker group job stats on shutdown: {}", e);
-        }
+        tracing::info!("flushing remaining stats before shutting down");
+        flush_handle.await;
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
 
