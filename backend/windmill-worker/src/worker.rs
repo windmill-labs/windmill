@@ -2197,7 +2197,7 @@ pub enum SendResultPayload {
     UpdateFlow(UpdateFlow),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct UpdateFlow {
     pub flow: Uuid,
     pub w_id: String,
