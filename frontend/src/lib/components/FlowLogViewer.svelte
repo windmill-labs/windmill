@@ -8,9 +8,7 @@
 		FoldVertical,
 		UnfoldVertical,
 		ExternalLink,
-		Keyboard,
-		ZoomIn,
-		ZoomOut
+		Keyboard
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
@@ -63,6 +61,8 @@
 		>
 		timelineNow: number
 		parentLoopIndex?: number
+		timelineAvailableWidths: Record<string, number>
+		timelinelWidth: number
 	}
 
 	let {
@@ -90,7 +90,9 @@
 		timelineTotal: timelineTotalAbsolute,
 		timelineItems,
 		timelineNow,
-		parentLoopIndex
+		parentLoopIndex,
+		timelineAvailableWidths,
+		timelinelWidth
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -443,7 +445,7 @@
 					<!-- Flow icon -->
 					{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo.hasErrors)}
 
-					<div class="text-xs text-left font-mono grow min-w-0">
+					<div class="text-xs text-left font-mono">
 						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
 						{#if flowInfo.label}
 							: {flowInfo.label}
@@ -453,22 +455,13 @@
 
 					{#if timelineItems}
 						{#if timelineMin != undefined && timelineTotal && rootJob.started_at}
-							{#if level > 0 && isExpanded(`flow-${flowId}`)}
-								<button
-									onclick={(e) => {
-										e.stopPropagation()
-										useRelativeTimeline = !useRelativeTimeline
-									}}
-									class="hover:text-primary hover:bg-surface p-1 -my-1 rounded-md"
-								>
-									{#if useRelativeTimeline}
-										<ZoomOut size={12} />
-									{:else}
-										<ZoomIn size={12} />
-									{/if}
-								</button>
-							{/if}
-							<div class=" min-w-96">
+							<div
+								class="min-w-min grow"
+								bind:clientWidth={
+									() => timelineAvailableWidths[flowId] ?? 0,
+									(v) => (timelineAvailableWidths[flowId] = v)
+								}
+							>
 								<FlowTimelineBar
 									total={timelineTotal}
 									min={timelineMin}
@@ -483,6 +476,12 @@
 									]}
 									selectedIndex={0}
 									now={timelineNow}
+									{timelinelWidth}
+									showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
+									onZoom={() => {
+										useRelativeTimeline = !useRelativeTimeline
+									}}
+									zoom={useRelativeTimeline ? 'in' : 'out'}
 								/>
 							</div>
 						{/if}
@@ -653,7 +652,13 @@
 											</div>
 
 											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at}
-												<div class="min-w-96 {isLeafStep ? 'mr-2' : 'mr-6'}">
+												<div
+													class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} "
+													bind:clientWidth={
+														() => timelineAvailableWidths[module.id] ?? 0,
+														(v) => (timelineAvailableWidths[module.id] = v)
+													}
+												>
 													<FlowTimelineBar
 														total={timelineTotal}
 														min={timelineMin}
@@ -664,6 +669,7 @@
 														now={timelineNow}
 														showSingleItem={module.value.type !== 'forloopflow' &&
 															module.value.type !== 'whileloopflow'}
+														{timelinelWidth}
 													/>
 												</div>
 											{/if}
@@ -736,6 +742,8 @@
 														{timelineItems}
 														parentLoopIndex={localModuleStates[module.id]?.selectedForloopIndex ??
 															0}
+														{timelineAvailableWidths}
+														{timelinelWidth}
 													/>
 												</div>
 											{/each}

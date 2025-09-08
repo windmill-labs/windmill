@@ -114,6 +114,11 @@
 	function select(id: string) {
 		currentId = id
 	}
+
+	const timelineAvailableWidths = $state<Record<string, number>>({})
+	const timelinelWidth = $derived(
+		Math.max(Math.min(...Object.values(timelineAvailableWidths)) - 12, 0)
+	)
 </script>
 
 <div
@@ -157,5 +162,7 @@
 		{timelineTotal}
 		{timelineItems}
 		{timelineNow}
+		{timelineAvailableWidths}
+		{timelinelWidth}
 	/>
 </div>

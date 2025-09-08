@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
+	import { ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	interface TimelineItem {
@@ -16,9 +17,24 @@
 		selectedIndex: number
 		now: number
 		showSingleItem?: boolean
+		timelinelWidth: number
+		showZoomButtons?: boolean
+		onZoom?: () => void
+		zoom?: 'in' | 'out'
 	}
 
-	let { total, min, items, selectedIndex, now, showSingleItem = true }: Props = $props()
+	let {
+		total,
+		min,
+		items,
+		selectedIndex,
+		now,
+		showSingleItem = true,
+		timelinelWidth,
+		showZoomButtons = false,
+		onZoom,
+		zoom = 'in'
+	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
 		if (!item.started_at) return 0
@@ -85,7 +101,27 @@
 </script>
 
 {#if min && items.length > 0}
-	<div class="flex items-center gap-2">
+	<div
+		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px]"
+		style="width: {timelinelWidth}px"
+	>
+		{#if showZoomButtons}
+			<button
+				onclick={(e) => {
+					e.stopPropagation()
+					onZoom?.()
+				}}
+				class="hover:text-primary hover:bg-surface p-1 -my-1 w-6 rounded-md flex items-center justify-center"
+			>
+				{#if zoom === 'in'}
+					<ZoomOut size={12} />
+				{:else}
+					<ZoomIn size={12} />
+				{/if}
+			</button>
+		{:else}
+			<div class="w-6"></div>
+		{/if}
 		<div class="flex-1 h-1 bg-gray-50 dark:bg-gray-800 rounded-sm overflow-hidden">
 			{#if waitingLen > 100 && selectedItem.created_at}
 				<div
