@@ -16,5 +16,5 @@ fn main() {
         panic!("Failed to compile windmill_duckdb_ffi_internal");
     }
     println!("cargo:rustc-link-search=native=./windmill-duckdb-ffi-internal/target/release");
-    println!("cargo:rustc-link-lib=static=windmill_duckdb_ffi_internal");
+    println!("cargo:rustc-link-lib=dylib=windmill_duckdb_ffi_internal");
 }
