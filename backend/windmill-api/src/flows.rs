@@ -329,7 +329,7 @@ async fn check_path_conflict<'c>(
 
 #[derive(Deserialize)]
 struct ListPathsFromWorkspaceRunnableQuery {
-    match_path_prefix: Option<bool>,
+    match_path_start: Option<bool>,
 }
 
 async fn list_paths_from_workspace_runnable(
@@ -344,7 +344,7 @@ async fn list_paths_from_workspace_runnable(
     })?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let runnables = if query.match_path_prefix.unwrap_or(false) {
+    let runnables = if query.match_path_start.unwrap_or(false) {
         sqlx::query_scalar!(
             r#"SELECT DISTINCT f.path
                 FROM workspace_runnable_dependencies wru 

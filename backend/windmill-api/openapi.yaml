@@ -5902,7 +5902,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableKind"
         - $ref: "#/components/parameters/ScriptPath"
-        - name : match_path_prefix
+        - name: match_path_start
           in: query
           schema:
             type: boolean
