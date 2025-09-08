@@ -22,6 +22,7 @@ use windmill_common::{
     jobs::JobKind,
     utils::WarnAfterExt,
     worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
     KillpillSender, DB,
 };
 
@@ -63,6 +64,7 @@ async fn process_jc(
     worker_dir: &str,
     same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
+    stats_map: &JobStatsMap,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let success: bool = jc.success;
@@ -139,6 +141,11 @@ async fn process_jc(
         }
     }
 
+    // Extract stats info before moving jc
+    let duration_ms = jc.duration.clone();
+    let script_lang = jc.job.script_lang.clone();
+    let workspace_id = jc.job.workspace_id.clone();
+
     let root_job = handle_receive_completed_job(
         jc,
         &base_internal_url,
@@ -155,6 +162,18 @@ async fn process_jc(
 
     if let Some(root_job) = root_job {
         add_root_flow_job_to_otlp(&root_job, success);
+    }
+
+    // Accumulate job stats if duration is available
+    if let Some(duration_ms) = duration_ms {
+        accumulate_job_stats(
+            stats_map,
+            &*WORKER_GROUP,
+            script_lang,
+            &workspace_id,
+            duration_ms,
+        )
+        .await;
     }
 }
 
@@ -178,6 +197,7 @@ pub fn start_background_processor(
     worker_name: String,
     killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
+    stats_map: JobStatsMap,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
@@ -186,6 +206,28 @@ pub fn start_background_processor(
 
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
+
+        // Start periodic stats flush task
+        let db_clone = db.clone();
+        let stats_map_clone = stats_map.clone();
+        let mut killpill_rx_clone = killpill_rx.resubscribe();
+        let flush_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // Flush every 15 min
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
+                            tracing::error!("Failed to flush worker group job stats: {}", e);
+                        }
+                    }
+                    _ = killpill_rx_clone.recv() => {
+                        tracing::info!("bg processor received killpill signal, flushing remaining stats");
+                        break;
+                    }
+                }
+            }
+        });
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
@@ -241,6 +283,7 @@ pub fn start_background_processor(
                         &worker_dir,
                         Some(&same_worker_tx),
                         &job_completed_sender,
+                        &stats_map,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -321,6 +364,16 @@ pub fn start_background_processor(
                 }
                 JobCompletedRx::WakeUp => {}
             }
+        }
+
+        // Flush any remaining stats before shutting down
+        tracing::info!("flushing remaining stats before shutting down");
+        let flush_result =
+            tokio::time::timeout(std::time::Duration::from_secs(10), flush_handle).await;
+        match flush_result {
+            Ok(Ok(())) => tracing::info!("Stats flushed successfully"),
+            Ok(Err(join_err)) => tracing::error!("Stats flush task failed: {}", join_err),
+            Err(_) => tracing::error!("Stats flush timed out after 10 seconds"),
         }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);

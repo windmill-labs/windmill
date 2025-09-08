@@ -26,6 +26,7 @@ use windmill_common::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
         MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
+    worker_group_job_stats::JobStatsMap,
     KillpillSender,
 };
 
@@ -1218,6 +1219,7 @@ pub async fn run_worker(
 
     // This is used to wake up the background processor when main loop is done and just waiting for new same workers jobs, and that bg processor is also not processing any jobs, bg processing can exit if no more same worker jobs
     let wake_up_notify = Arc::new(tokio::sync::Notify::new());
+    let stats_map = JobStatsMap::default();
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
@@ -1233,6 +1235,7 @@ pub async fn run_worker(
             worker_name.clone(),
             killpill_tx.clone(),
             is_dedicated_worker,
+            stats_map,
         )),
         _ => None,
     };
