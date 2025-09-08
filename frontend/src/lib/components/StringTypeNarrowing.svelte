@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
@@ -63,6 +61,7 @@
 		'uri',
 		'uuid',
 		'ipv4',
+		'ipv6',
 		'yaml',
 		'sql',
 		// 'time',
@@ -82,21 +81,15 @@
 		['Pattern', 'pattern']
 	]
 
-	run(() => {
+	$effect(() => {
 		format =
 			kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
 	})
-	run(() => {
+	$effect(() => {
 		pattern = patternStr == '' ? undefined : patternStr
 	})
-	run(() => {
+	$effect(() => {
 		contentEncoding = kind == 'base64' ? 'base64' : undefined
-	})
-
-	run(() => {
-		if (format == 'email') {
-			pattern = '^[\\w-+.]+@([\\w-]+\\.)+[\\w-]{2,63}$'
-		}
 	})
 
 	function add() {
