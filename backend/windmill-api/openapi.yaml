@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.539.0
+  version: 1.539.1
   title: Windmill API
 
   contact:
@@ -3183,6 +3183,38 @@ paths:
             text/plain:
               schema:
                 type: string
+  
+  /w/{workspace}/variables/delete_bulk:
+    delete:
+      summary: delete variables in bulk
+      operationId: deleteVariablesBulk
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: deleted paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/variables/update/{path}:
     post:
@@ -3938,6 +3970,38 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/resources/delete_bulk:
+    delete:
+      summary: delete resources in bulk
+      operationId: deleteResourcesBulk
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: deleted paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/resources/update/{path}:
     post:
@@ -5099,6 +5163,38 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/scripts/delete_bulk:
+    delete:
+      summary: delete scripts in bulk
+      operationId: deleteScriptsBulk
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: paths to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - paths
+      responses:
+        "200":
+          description: deleted paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/scripts/get/p/{path}:
     get:
       summary: get script by path
@@ -5806,6 +5902,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableKind"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: match_path_start
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: list of flow paths
