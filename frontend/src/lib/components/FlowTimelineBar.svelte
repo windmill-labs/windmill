@@ -29,7 +29,34 @@
 	}
 
 	let selectedItem = $derived(items[selectedIndex])
-	let selectedLen = $derived(selectedItem?.started_at ? getLength(selectedItem) : 0)
+
+	// Calculate total execution time for multiple items
+	function calculateTotalExecutionTime(): number {
+		if (showSingleItem) return 0
+
+		let earliestStart: number | undefined
+		let latestEnd = 0
+
+		for (const item of items) {
+			if (item.started_at) {
+				// Track earliest start
+				if (!earliestStart || item.started_at < earliestStart) {
+					earliestStart = item.started_at
+				}
+
+				// Track latest end
+				const itemEnd = item.duration_ms ? item.started_at + item.duration_ms : now
+				latestEnd = Math.max(latestEnd, itemEnd)
+			}
+		}
+
+		return earliestStart ? latestEnd - earliestStart : 0
+	}
+
+	let totalExecutionTime = $derived(calculateTotalExecutionTime())
+	let selectedLen = $derived(
+		showSingleItem ? (selectedItem?.started_at ? getLength(selectedItem) : 0) : totalExecutionTime
+	)
 </script>
 
 {#if min && items.length > 0}
