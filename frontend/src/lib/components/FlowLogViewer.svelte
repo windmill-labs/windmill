@@ -59,6 +59,7 @@
 			string,
 			Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
 		>
+		timelineNow: number
 	}
 
 	let {
@@ -84,7 +85,8 @@
 		select,
 		timelineMin,
 		timelineTotal,
-		timelineItems
+		timelineItems,
+		timelineNow
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -445,6 +447,7 @@
 										: undefined}
 									duration_ms={timelineTotal}
 									running={rootJob.type === 'QueuedJob'}
+									now={timelineNow}
 								/>
 							</div>
 						{/if}
@@ -619,6 +622,7 @@
 														started_at={moduleItem.started_at}
 														duration_ms={moduleItem.duration_ms}
 														running={status === 'InProgress'}
+														now={timelineNow}
 													/>
 												</div>
 											{/if}
@@ -677,6 +681,7 @@
 														{currentId}
 														bind:navigationChain={subloopNavigationChains[subflow.flowId]}
 														{select}
+														{timelineNow}
 													/>
 												</div>
 											{/each}

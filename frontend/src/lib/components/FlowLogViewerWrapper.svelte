@@ -7,6 +7,7 @@
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import type { NavigationChain } from '$lib/keyboardChain'
+	import { getDbClockNow } from '$lib/forLater'
 
 	interface Props {
 		job: Partial<Job>
@@ -52,6 +53,7 @@
 		  >
 		| undefined
 	>(undefined)
+	let timelineNow = $state<number>(getDbClockNow().getTime())
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
@@ -129,7 +131,7 @@
 			bind:max={timelineMax}
 			bind:total={timelineTotal}
 			bind:items={timelineItems}
-			now={Date.now()}
+			bind:now={timelineNow}
 		/>
 	{/if}
 	<FlowLogViewer
@@ -154,5 +156,6 @@
 		{timelineMin}
 		{timelineTotal}
 		{timelineItems}
+		{timelineNow}
 	/>
 </div>

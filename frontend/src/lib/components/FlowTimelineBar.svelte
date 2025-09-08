@@ -7,11 +7,12 @@
 		started_at: number | undefined
 		duration_ms: number | undefined
 		running: boolean
+		now: number
 	}
 
-	let { total, min, started_at, duration_ms, running }: Props = $props()
+	let { total, min, started_at, duration_ms, running, now }: Props = $props()
 
-	let len = $derived(duration_ms ?? 0)
+	let len = $derived(started_at ? (duration_ms ?? now - started_at) : 0)
 </script>
 
 {#if min && started_at != undefined}
