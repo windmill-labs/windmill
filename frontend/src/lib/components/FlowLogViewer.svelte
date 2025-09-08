@@ -626,7 +626,7 @@
 														min={timelineMin}
 														started_at={moduleItem.started_at}
 														duration_ms={moduleItem.duration_ms}
-														running={status === 'InProgress'}
+														running={moduleItem.duration_ms === undefined}
 														now={timelineNow}
 													/>
 												</div>
