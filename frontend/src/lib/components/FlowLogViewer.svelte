@@ -444,11 +444,16 @@
 								<FlowTimelineBar
 									total={timelineTotal}
 									min={timelineMin}
-									started_at={rootJob.started_at
-										? new Date(rootJob.started_at).getTime()
-										: undefined}
-									duration_ms={timelineTotal}
-									running={rootJob.type === 'QueuedJob'}
+									items={[
+										{
+											started_at: rootJob.started_at
+												? new Date(rootJob.started_at).getTime()
+												: undefined,
+											duration_ms: timelineTotal,
+											id: flowId
+										}
+									]}
+									selectedIndex={0}
 									now={timelineNow}
 								/>
 							</div>
@@ -624,10 +629,13 @@
 													<FlowTimelineBar
 														total={timelineTotal}
 														min={timelineMin}
-														started_at={moduleItem.started_at}
-														duration_ms={moduleItem.duration_ms}
-														running={moduleItem.duration_ms === undefined}
+														items={moduleItems ?? []}
+														selectedIndex={localModuleStates[module.id]?.selectedForloopIndex ??
+															parentLoopIndex ??
+															0}
 														now={timelineNow}
+														showSingleItem={module.value.type !== 'forloopflow' &&
+															module.value.type !== 'whileloopflow'}
 													/>
 												</div>
 											{/if}
