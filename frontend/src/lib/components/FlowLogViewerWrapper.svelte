@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import type { GraphModuleState } from './graph'
+	import type { DurationStatus, GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
+	import FlowTimelineCompute from './FlowTimelineCompute.svelte'
 	import { untrack } from 'svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
@@ -10,6 +11,7 @@
 	interface Props {
 		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
+		localDurationStatuses: Record<string, DurationStatus>
 		workspaceId: string | undefined
 		render: boolean
 		onSelectedIteration: (
@@ -23,6 +25,7 @@
 	let {
 		job,
 		localModuleStates,
+		localDurationStatuses,
 		workspaceId,
 		render,
 		onSelectedIteration,
@@ -37,6 +40,18 @@
 	// Keyboard navigation state - incremental like expandedRows
 	let currentId = $state<string | null>('flow-root')
 	let navigationChain = $state<NavigationChain>({})
+
+	// Timeline state
+	let timelineMin = $state<number | undefined>(undefined)
+	let timelineMax = $state<number | undefined>(undefined)
+	let timelineTotal = $state<number | undefined>(undefined)
+	let timelineItems = $state<
+		| Record<
+				string,
+				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+		  >
+		| undefined
+	>(undefined)
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
@@ -105,6 +120,18 @@
 	tabindex="0"
 	onkeydown={handleKeydown}
 >
+	{#if localDurationStatuses}
+		<FlowTimelineCompute
+			flowModules={modules.map((m) => m.id)}
+			durationStatuses={localDurationStatuses}
+			flowDone={job.type === 'CompletedJob'}
+			bind:min={timelineMin}
+			bind:max={timelineMax}
+			bind:total={timelineTotal}
+			bind:items={timelineItems}
+			now={Date.now()}
+		/>
+	{/if}
 	<FlowLogViewer
 		{modules}
 		{localModuleStates}
@@ -124,5 +151,8 @@
 		{currentId}
 		bind:navigationChain
 		{select}
+		{timelineMin}
+		{timelineTotal}
+		{timelineItems}
 	/>
 </div>

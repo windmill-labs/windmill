@@ -24,6 +24,7 @@
 	import { updateLinks } from '$lib/keyboardChain'
 	import FlowLogRow from './FlowLogRow.svelte'
 	import { Tooltip } from './meltComponents'
+	import FlowTimelineBar from './FlowTimelineBar.svelte'
 
 	type RootJobData = Partial<Job>
 
@@ -52,6 +53,12 @@
 		currentId?: string | null
 		navigationChain?: NavigationChain
 		select: (id: string) => void
+		timelineMin?: number
+		timelineTotal?: number
+		timelineItems?: Record<
+			string,
+			Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+		>
 	}
 
 	let {
@@ -74,7 +81,10 @@
 		mode = 'flow',
 		currentId,
 		navigationChain = $bindable(),
-		select
+		select,
+		timelineMin,
+		timelineTotal,
+		timelineItems
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -491,6 +501,9 @@
 								{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 								{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 								{@const isCollapsible = !hasEmptySubflowValue}
+								{@const jobId = localModuleStates[module.id]?.job_id}
+								{@const moduleItems = timelineItems?.[module.id]}
+								{@const moduleItem = moduleItems?.[0]}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -582,18 +595,26 @@
 												</div>
 											</div>
 
-											{#if isLeafStep}
-												{@const jobId = localModuleStates[module.id]?.job_id}
-												{#if jobId}
-													<a
-														href={getJobLink(jobId ?? '')}
-														class="text-xs text-gray-400 hover:text-primary pl-1"
-														target="_blank"
-														rel="noopener noreferrer"
-													>
-														<ExternalLink size={12} />
-													</a>
-												{/if}
+											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at}
+												<div class="px-2 min-w-96 {isLeafStep ? '' : 'mr-4'}">
+													<FlowTimelineBar
+														total={timelineTotal}
+														min={timelineMin}
+														started_at={moduleItem.started_at}
+														duration_ms={moduleItem.duration_ms}
+														running={status === 'InProgress'}
+													/>
+												</div>
+											{/if}
+											{#if isLeafStep && jobId}
+												<a
+													href={getJobLink(jobId ?? '')}
+													class="text-xs text-gray-400 hover:text-primary pl-1"
+													target="_blank"
+													rel="noopener noreferrer"
+												>
+													<ExternalLink size={12} />
+												</a>
 											{/if}
 										</div>
 									{/snippet}
