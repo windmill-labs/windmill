@@ -1,32 +1,34 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import TreeView from './TreeView.svelte'
-	import { groupItems } from './treeViewUtils'
+	import { groupItems, type ItemType } from './treeViewUtils'
 
-	export let collapseAll: boolean
-	export let showCode: (path: string, summary: string) => void
-	export let nbDisplayed: number
-	export let items: any[] | undefined
-	export let isSearching: boolean = false
-
-	let treeLoading = false
-
-	$: groupedItems = grpItems(items)
-	function grpItems(items: any[] | undefined): any[] {
-		treeLoading = true
-		let r
-		try {
-			r = groupItems(items)
-		} finally {
-			treeLoading = false
-		}
-		return r
+	interface Props {
+		collapseAll: boolean
+		showCode: (path: string, summary: string) => void
+		nbDisplayed: number
+		items: ItemType[] | undefined
+		isSearching?: boolean
 	}
+
+	let {
+		collapseAll,
+		showCode,
+		nbDisplayed = $bindable(),
+		items,
+		isSearching = false
+	}: Props = $props()
+
+	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
+	$effect(() => {
+		items
+		untrack(() => (groupedItems = groupItems(items)))
+	})
 </script>
 
-{#if treeLoading}
+{#if groupedItems === 'loading'}
 	<div class="flex flex-row items-center justify-center">
-		<div
-			class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"
+		<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"
 		></div>
 	</div>
 {:else if groupedItems.length === 0}
@@ -54,7 +56,7 @@
 	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
 		<span class="text-xs"
 			>{nbDisplayed} root nodes out of {groupedItems.length}
-			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+			<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 		>
 	{/if}
 {/if}

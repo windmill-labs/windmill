@@ -1,39 +1,39 @@
-<svelte:options immutable={true} />
-
 <script lang="ts">
+	import TreeView from './TreeView.svelte'
+
 	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
 	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
 
-	export let item: ItemType | FolderItem | UserItem
-
-	export let collapseAll: boolean
-	export let depth: number = 0
-	export let showCode: (path: string, summary: string) => void
-	export let isSearching: boolean = false
-
-	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
-	const isUser = (i: any): i is UserItem => i && 'username' in i
-
-	let opened: boolean = true
-
-	$: toggleOpened(collapseAll)
-
-	function toggleOpened(collapseAll: boolean) {
-		opened = !collapseAll
+	interface Props {
+		item: ItemType | FolderItem | UserItem
+		collapseAll: boolean
+		depth?: number
+		showCode: (path: string, summary: string) => void
+		isSearching?: boolean
 	}
 
-	let showMax = 15
+	let { item, collapseAll, depth = 0, showCode, isSearching = false }: Props = $props()
+
+	const isFolder = (i: typeof item): i is FolderItem => i && 'folderName' in i
+	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
+
+	let opened: boolean = $state(true)
+
+	let showMax = $state(15)
+	$effect(() => {
+		opened = !collapseAll
+	})
 </script>
 
 {#if isFolder(item)}
 	<div>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			on:click={() => (opened = !opened)}
+			onclick={() => (opened = !opened)}
 			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
@@ -70,7 +70,7 @@
 		{#if opened || isSearching}
 			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
-					<svelte:self
+					<TreeView
 						{isSearching}
 						{collapseAll}
 						item={subItem}
@@ -84,11 +84,11 @@
 					/>
 				{/each}
 				{#if showMax < item.items.length}
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="text-center text-sm text-secondary cursor-pointer hover:text-primary"
-						on:click={() => {
+						onclick={() => {
 							if (isFolder(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
 								showMax = showMax
@@ -103,10 +103,10 @@
 	</div>
 {:else if isUser(item)}
 	<div>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			on:click={() => (opened = !opened)}
+			onclick={() => (opened = !opened)}
 			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
@@ -137,7 +137,7 @@
 		{#if opened || isSearching}
 			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
-					<svelte:self
+					<TreeView
 						{collapseAll}
 						item={subItem}
 						on:scriptChanged
@@ -150,11 +150,11 @@
 					/>
 				{/each}
 				{#if showMax < item.items.length}
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="text-center text-sm text-secondary cursor-pointer py-2 hover:text-primary"
-						on:click={() => {
+						onclick={() => {
 							if (isUser(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
 							}
