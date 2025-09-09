@@ -32,7 +32,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithOptAuthed},
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -515,11 +515,10 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let tx: Transaction<'_, Postgres> =
-                authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let userdb_authed = UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
 
             let v = crate::variables::get_value_internal(
-                tx,
+                &userdb_authed,
                 db,
                 workspace,
                 path,
