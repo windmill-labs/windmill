@@ -82,6 +82,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
+FROM rust_base AS windmill_duckdb_ffi_internal_builder
+
+ARG features=""
+WORKDIR windmill-duckdb-ffi-internal
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY ./backend/windmill-duckdb-ffi-internal ./windmill-duckdb-ffi-internal
+RUN cargo build --release -p windmill_duckdb_ffi_internal
 
 FROM ${DEBIAN_IMAGE}
 
@@ -191,7 +200,7 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=builder /windmill/windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so* ${APP}/
+COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so* ${APP}/
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
