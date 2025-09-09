@@ -165,6 +165,50 @@ enum MessageContent {
     },
 }
 
+// Gemini API structures
+#[derive(Serialize)]
+struct GeminiPart {
+    text: String,
+}
+
+#[derive(Serialize)]
+struct GeminiContent {
+    parts: Vec<GeminiPart>,
+}
+
+#[derive(Serialize)]
+struct GeminiImageRequest {
+    contents: Vec<GeminiContent>,
+}
+
+#[derive(Deserialize)]
+struct GeminiImageResponse {
+    candidates: Vec<GeminiCandidate>,
+}
+
+#[derive(Deserialize)]
+struct GeminiCandidate {
+    content: GeminiResponseContent,
+}
+
+#[derive(Deserialize)]
+struct GeminiResponseContent {
+    parts: Vec<GeminiResponsePart>,
+}
+
+#[derive(Deserialize)]
+struct GeminiResponsePart {
+    #[serde(rename = "inlineData")]
+    inline_data: Option<GeminiInlineData>,
+}
+
+#[derive(Deserialize)]
+struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    data: String, // base64 encoded image
+}
+
 #[derive(Serialize)]
 struct OpenAIRequest<'a> {
     model: &'a str,
@@ -1066,12 +1110,141 @@ async fn run_agent(
                 }
             }
             AIProvider::GoogleAI => {
-                // TODO: Implement Google AI image generation (Imagen)
-                serde_json::json!({
-                    "message": "Image generation with GoogleAI is not yet implemented",
-                    "provider": "googleai",
-                    "placeholder": true
-                })
+                // Make actual API call to Gemini's generateContent endpoint
+                let gemini_request = GeminiImageRequest {
+                    contents: vec![GeminiContent {
+                        parts: vec![GeminiPart {
+                            text: format!("{} {}", 
+                                args.system_prompt.as_deref().unwrap_or(""),
+                                args.user_message
+                            ).trim().to_string(),
+                        }],
+                    }],
+                };
+
+                // Construct the Gemini API URL with the model
+                let gemini_url = format!(
+                    "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+                    args.provider.get_model()
+                );
+
+                let resp = HTTP_CLIENT
+                    .post(&gemini_url)
+                    .header("x-goog-api-key", api_key)
+                    .header("Content-Type", "application/json")
+                    .json(&gemini_request)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!("Failed to call Gemini API: {}", e))
+                    })?;
+
+                match resp.error_for_status_ref() {
+                    Ok(_) => {
+                        let gemini_response = resp
+                            .json::<GeminiImageResponse>()
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!(
+                                    "Failed to parse Gemini response: {}",
+                                    e
+                                ))
+                            })?;
+
+                        // Find the first candidate with inline image data
+                        let image_data = gemini_response
+                            .candidates
+                            .iter()
+                            .find_map(|candidate| {
+                                candidate.content.parts.iter().find_map(|part| {
+                                    part.inline_data.as_ref().map(|data| &data.data)
+                                })
+                            });
+
+                        if let Some(base64_image) = image_data {
+                            // Add assistant message with Gemini metadata
+                            messages.push(OpenAIMessage {
+                                role: "assistant".to_string(),
+                                content: Some(
+                                    serde_json::json!({
+                                        "type": "image_generation",
+                                        "provider": "gemini",
+                                        "model": args.provider.get_model()
+                                    })
+                                    .to_string(),
+                                ),
+                                ..Default::default()
+                            });
+
+                            // Attempt to upload image to S3
+                            let s3_object = match base64::engine::general_purpose::STANDARD
+                                .decode(base64_image)
+                            {
+                                Ok(image_bytes) => {
+                                    // Generate unique S3 key
+                                    let unique_id = ulid::Ulid::new().to_string();
+                                    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
+
+                                    // Create byte stream
+                                    let byte_stream = futures::stream::once(async move {
+                                        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                                            image_bytes,
+                                        ))
+                                    });
+
+                                    // Try to upload to S3
+                                    match client
+                                        .upload_s3_file(
+                                            &job.workspace_id,
+                                            s3_key.clone(),
+                                            None, // storage - use default
+                                            byte_stream,
+                                        )
+                                        .await
+                                    {
+                                        Ok(_) => Some(S3Object {
+                                            s3: s3_key,
+                                            storage: None,
+                                            filename: Some("generated_image.png".to_string()),
+                                            presigned: None,
+                                        }),
+                                        Err(e) => {
+                                            tracing::warn!("Failed to upload image to S3: {}", e);
+                                            None
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to decode base64 image: {}", e);
+                                    None
+                                }
+                            };
+
+                            s3_output = s3_object.clone();
+
+                            serde_json::json!({
+                                "s3_object": s3_object,
+                                "generated": true,
+                                "provider": "gemini"
+                            })
+                        } else {
+                            return Err(Error::internal_err(
+                                "No image data received from Gemini".to_string(),
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        let _status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
+                        return Err(Error::internal_err(format!(
+                            "Gemini API error: {} - {}",
+                            e, text
+                        )));
+                    }
+                }
             }
             _ => {
                 return Err(Error::BadRequest(format!(
