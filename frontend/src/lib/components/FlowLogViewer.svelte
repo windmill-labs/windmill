@@ -786,7 +786,7 @@
 														{timelineItems}
 														parentLoopIndex={localModuleStates[module.id]?.selectedForloopIndex ??
 															0}
-														{timelineAvailableWidths}
+														bind:timelineAvailableWidths
 														{timelinelWidth}
 														{showTimeline}
 														notRan={branchChosen !== undefined && branchChosen !== idx}
