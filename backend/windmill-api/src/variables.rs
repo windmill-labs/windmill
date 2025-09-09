@@ -823,6 +823,7 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
+                let tx = db.begin().await?;
                 crate::oauth2_oss::_refresh_token(
                     tx,
                     &variable.path,
