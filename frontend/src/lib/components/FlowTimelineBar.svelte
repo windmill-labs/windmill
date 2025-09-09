@@ -151,20 +151,26 @@
 			{#if items.length === 1 || showSingleItem}
 				<!-- Single item case (non-loop) -->
 				{#if selectedItem?.started_at}
-					<div
+					<Tooltip
+						class={twMerge('h-full', isRunning(selectedItem) ? 'float-right' : 'float-left')}
 						style="width: {(selectedLen / total) * 100}%"
-						class={twMerge(
-							'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-							isRunning(selectedItem) ? 'float-right bg-blue-400' : 'float-left bg-blue-500'
-						)}
-						title={msToReadableTime(selectedLen, 1)}
-					></div>
+						openDelay={100}
+					>
+						<div
+							class={twMerge(
+								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+								isRunning(selectedItem) ? ' bg-blue-400' : ' bg-blue-500'
+							)}
+						></div>
+						{#snippet text()}
+							{msToReadableTime(selectedLen, 1)}
+						{/snippet}
+					</Tooltip>
 				{/if}
 			{:else}
 				<!-- All iterations -->
-
 				{#if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
-					<Tooltip class="float-left h-full">
+					<Tooltip class="float-left h-full" openDelay={100}>
 						<button
 							class={twMerge(
 								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm'
@@ -188,16 +194,22 @@
 							style="width: {(getGap(items, i) / total) * 100}%"
 							class={twMerge('h-full float-left bg-gray-300 dark:bg-gray-800')}
 						></div>
-
-						<div
+						<Tooltip
 							style="width: {(getLength(item) / total) * 100}%"
-							class={twMerge(
-								'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-								isRunning(item) ? 'float-right bg-blue-400' : 'float-left bg-blue-500',
-								i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
-							)}
-							title={`Ran in ${msToReadableTime(getLength(item), 1)}`}
-						></div>
+							class={twMerge('h-full ', isRunning(item) ? 'float-right' : 'float-left')}
+							openDelay={100}
+						>
+							<div
+								class={twMerge(
+									'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+									isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
+									i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
+								)}
+							></div>
+							{#snippet text()}
+								{msToReadableTime(getLength(item), 1)}
+							{/snippet}
+						</Tooltip>
 					{/if}
 				{/each}
 			{/if}
