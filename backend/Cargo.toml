@@ -150,6 +150,7 @@ aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
+bytemuck.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -314,6 +315,7 @@ async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "c
 once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
+bytemuck = "1.23"
 gethostname = "0.4.3"
 wasm-bindgen = "^0"
 serde-wasm-bindgen = "^0"

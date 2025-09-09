@@ -111,6 +111,7 @@ pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
+bytemuck.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
 hex.workspace = true
