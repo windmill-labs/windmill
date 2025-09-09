@@ -731,7 +731,6 @@
 															loadPreviousIterations?.(module.id, 20)
 														}}
 														onSelectIteration={({ id, index }) => {
-															console.log('dbg onSelectIteration', { id, index })
 															onSelectedIteration?.({
 																id,
 																index,
