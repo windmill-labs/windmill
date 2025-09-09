@@ -508,7 +508,7 @@
 					</div>
 
 					<div
-						class="min-w-min grow"
+						class="min-w-min grow group"
 						bind:clientWidth={
 							() => timelineAvailableWidths[flowId] ?? 0,
 							(v) => (timelineAvailableWidths[flowId] = v)

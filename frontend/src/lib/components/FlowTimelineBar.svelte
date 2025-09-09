@@ -100,7 +100,7 @@
 
 {#if min && items.length > 0}
 	<div
-		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px]"
+		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-3 group"
 		style="width: {timelinelWidth}px"
 	>
 		{#if showZoomButtons}
@@ -120,20 +120,20 @@
 		{:else}
 			<div class="w-6"></div>
 		{/if}
-		<div class="flex-1 h-3 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden">
+		<div
+			class="flex-1 h-1 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden group-hover:h-full transition-all duration-100"
+		>
 			{#if waitingLen > 100 && selectedItem.created_at}
 				<div
 					style="width: {((selectedItem.created_at - min) / total) * 100}%"
 					class="h-full float-left"
 				>
-					<div class="h-1 w-full"></div>
 				</div>
 				<div
 					style="width: {(waitingLen / total) * 100}%"
 					class="h-full float-left bg-gray-300 dark:bg-gray-600"
 					title={msToReadableTime(waitingLen, 1)}
 				>
-					<div class="h-1 bg-gray-300 dark:bg-gray-600 w-full"></div>
 				</div>
 			{:else if selectedItem?.started_at}
 				<div
@@ -148,18 +148,11 @@
 					<div
 						style="width: {(selectedLen / total) * 100}%"
 						class={twMerge(
-							'h-full group flex items-end',
-							isRunning(selectedItem) ? 'float-right' : 'float-left'
+							'h-full flex items-end hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+							isRunning(selectedItem) ? 'float-right bg-blue-400' : 'float-left bg-blue-500'
 						)}
 						title={msToReadableTime(selectedLen, 1)}
-					>
-						<div
-							class={twMerge(
-								'h-1 w-full rounded-t-sm group-hover:h-full',
-								isRunning(selectedItem) ? 'bg-blue-400' : 'bg-blue-500'
-							)}
-						></div>
-					</div>
+					></div>
 				{/if}
 			{:else}
 				<!-- All iterations -->
@@ -169,22 +162,16 @@
 							style="width: {(getGap(items, i) / total) * 100}%"
 							class={twMerge('h-full float-left bg-gray-300 dark:bg-gray-800')}
 						></div>
+
 						<div
 							style="width: {(getLength(item) / total) * 100}%"
 							class={twMerge(
-								'h-full group flex items-end',
-								isRunning(item) ? 'float-right' : 'float-left'
+								'h-full group flex items-end hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+								isRunning(item) ? 'float-right bg-blue-400' : 'float-left bg-blue-500',
+								i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
 							)}
 							title={`Ran in ${msToReadableTime(getLength(item), 1)}`}
-						>
-							<div
-								class={twMerge(
-									'h-1 w-full rounded-t-sm group-hover:h-full',
-									isRunning(selectedItem) ? 'bg-blue-400' : 'bg-blue-500',
-									i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
-								)}
-							></div>
-						</div>
+						></div>
 					{/if}
 				{/each}
 			{/if}
