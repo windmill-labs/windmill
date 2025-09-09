@@ -3,6 +3,7 @@
 	import { ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { GlobalIterationBounds } from './graph'
+	import { Tooltip } from './meltComponents'
 
 	interface TimelineItem {
 		created_at?: number
@@ -163,19 +164,23 @@
 				<!-- All iterations -->
 
 				{#if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
-					<button
-						style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
-						class={twMerge(
-							'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-							'float-left'
-						)}
-						onclick={(e) => {
-							e.stopPropagation()
-							loadPreviousIterations?.()
-						}}
-					>
-						+</button
-					>
+					<Tooltip class="float-left h-full">
+						<button
+							class={twMerge(
+								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm'
+							)}
+							style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
+							onclick={(e) => {
+								e.stopPropagation()
+								loadPreviousIterations?.()
+							}}
+						>
+							+</button
+						>
+						{#snippet text()}
+							Load previous iterations
+						{/snippet}
+					</Tooltip>
 				{/if}
 				{#each items as item, i}
 					{#if item.started_at}
