@@ -21,6 +21,7 @@
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
+		MailIcon,
 		PlayIcon,
 		Route,
 		Search,
@@ -143,6 +144,13 @@
 			label: 'Go to MQTT triggers',
 			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
 			icon: MqttIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:email_triggers',
+			label: 'Go to Email triggers',
+			action: (newtab: boolean = false) => gotoPage('/email_triggers', newtab),
+			icon: MailIcon,
 			disabled: $userStore?.operator
 		}
 	]

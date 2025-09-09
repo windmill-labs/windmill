@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -9,20 +7,15 @@
 	import { SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON } from '$lib/consts'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ClipboardPanel from './ClipboardPanel.svelte'
+	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { base32 } from 'rfc4648'
 	import { emptyString } from '$lib/utils'
+	import UserSettings from '$lib/components/UserSettings.svelte'
 
 	let requestType: 'hash' | 'path' = $state('path')
 
-	function emailAddress(
-		requestType: 'hash' | 'path',
-		path: string,
-		hash: string | undefined,
-		isFlow: boolean,
-		token: string
-	) {
+	function emailAddress() {
 		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
 		const plainPrefix = `${$workspaceStore}+${
 			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
@@ -40,7 +33,7 @@
 		isFlow?: boolean
 		hash?: string | undefined
 		path: string
-		userSettings: any
+		userSettings: UserSettings
 		emailDomain?: string | null
 		email?: string
 	}
@@ -55,8 +48,8 @@
 		email = $bindable('')
 	}: Props = $props()
 
-	run(() => {
-		email = emailAddress(requestType, path, hash, isFlow, token)
+	$effect(() => {
+		email = emailAddress()
 	})
 </script>
 

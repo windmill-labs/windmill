@@ -21,7 +21,8 @@
 		NatsTriggerService,
 		MqttTriggerService,
 		SqsTriggerService,
-		GcpTriggerService
+		GcpTriggerService,
+		EmailTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
@@ -52,6 +53,7 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
+		| 'email_trigger'
 	let meta: Meta | undefined = $state(undefined)
 	interface Props {
 		fullNamePlaceholder?: string | undefined
@@ -287,6 +289,11 @@
 			})
 		} else if (kind === 'gcp_trigger') {
 			return await GcpTriggerService.existsGcpTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind === 'email_trigger') {
+			return await EmailTriggerService.existsEmailTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})
