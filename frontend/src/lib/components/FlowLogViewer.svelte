@@ -613,7 +613,10 @@
 									moduleItems?.[
 										localModuleStates[module.id]?.selectedForloopIndex ?? parentLoopIndex ?? 0
 									]}
-								{@const branchChosen = localModuleStates[module.id]?.branchChosen}
+								{@const branchChosen =
+									module.value.type === 'branchone'
+										? (localModuleStates[module.id]?.branchChosen ?? 0)
+										: undefined}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
