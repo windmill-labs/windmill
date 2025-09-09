@@ -1,6 +1,6 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN};
+use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::{
@@ -430,7 +430,7 @@ pub(crate) async fn delete_workspace(
         _ => Ok(w_id),
     }?;
     let mut tx = db.begin().await?;
-    if !(w_id.starts_with("wm-forked") && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
     }
 

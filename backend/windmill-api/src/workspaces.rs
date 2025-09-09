@@ -741,6 +741,7 @@ async fn edit_deploy_to() -> Result<String> {
 }
 
 pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+pub const WM_FORK_PREFIX: &str = "wm-fork-";
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
@@ -2093,7 +2094,6 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
-
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     if w_id == "global" {
         return Err(windmill_common::error::Error::BadRequest(
@@ -2422,15 +2422,15 @@ async fn update_workspace_settings(
     target_workspace_id: &str,
     _target_username: &str,
 ) -> Result<()> {
-
     sqlx::query!(
         r#"
-        UPDATE workspace_settings 
+        UPDATE workspace_settings
         SET
+            deploy_to = $1,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
             git_app_installations = source_ws.git_app_installations
-        FROM workspace_settings source_ws 
+        FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1
         AND workspace_settings.workspace_id = $2
         "#,
@@ -2458,7 +2458,9 @@ async fn update_workspace_settings(
         WorkspaceGitSyncSettings::default()
     };
 
-    git_sync_settings.repositories.retain(|r| !r.skip_workspace_fork_tracking.unwrap_or(false));
+    // We only keep the first git sync repo, since it is considered the main one
+    // Context: see WIN-1559
+    git_sync_settings.repositories.truncate(1);
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -2482,7 +2484,7 @@ async fn clone_workspace_env(
     sqlx::query!(
         "INSERT INTO workspace_env (workspace_id, name, value)
          SELECT $2, name, value
-         FROM workspace_env 
+         FROM workspace_env
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
@@ -3084,9 +3086,12 @@ async fn create_workspace_fork(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    // Generate unique forked workspace ID with wm-forked prefix
-    if !nw.id.starts_with("wm-forked-") {
-        return Err(Error::BadRequest(format!("The id `{}` is invalid for a forked workspace. It should be prefixed by `wm-forked`", nw.id)));
+    // Generate unique forked workspace ID with wm-fork prefix
+    if !nw.id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
+            nw.id, WM_FORK_PREFIX
+        )));
     }
 
     let forked_id = nw.id;
@@ -3159,14 +3164,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(
-        &mut tx,
-        &nw.parent_workspace_id,
-        &forked_id,
-        &username,
-        &db,
-    )
-    .await?;
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &username, &db).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
