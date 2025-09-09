@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { msToSec } from '$lib/utils'
+	import { msToReadableTime, msToReadableTimeShort } from '$lib/utils'
 	import { ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -169,7 +169,10 @@
 			{/if}
 		</div>
 		{#if selectedLen > 0}
-			<span class="text-xs text-tertiary font-mono">{msToSec(selectedLen, 1)}s</span>
+			<span
+				class="text-2xs text-tertiary font-mono font-normal w-10 truncate"
+				title={msToReadableTime(selectedLen, 1)}>{msToReadableTimeShort(selectedLen, 1)}</span
+			>
 		{/if}
 	</div>
 {/if}

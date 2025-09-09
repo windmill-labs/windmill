@@ -440,15 +440,14 @@
 				<Keyboard size={16} class="text-tertiary" />
 			</Tooltip>
 			<div class="flex items-center gap-2 whitespace-nowrap">
-				<label
-					for="showResultsInputs"
-					class="text-xs text-tertiary hover:text-primary transition-colors">Show timeline</label
+				<label for="showTimeline" class="text-xs text-tertiary hover:text-primary transition-colors"
+					>Show timeline</label
 				>
 				<div class="flex-shrink-0">
 					<input
 						type="checkbox"
-						name="showResultsInputs"
-						id="showResultsInputs"
+						name="showTimeline"
+						id="showTimeline"
 						bind:checked={showTimeline}
 						class="w-3 h-4 accent-primary -my-1"
 					/>
