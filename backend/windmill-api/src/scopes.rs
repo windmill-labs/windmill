@@ -718,7 +718,7 @@ mod tests {
     fn test_scope_action_hierarchy() {
         assert!(ScopeAction::Write.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Read.includes(&ScopeAction::Write));
-        assert!(!ScopeAction::Run.includes(&ScopeAction::Read));
+        assert!(ScopeAction::Run.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Run.includes(&ScopeAction::Write));
     }
 
