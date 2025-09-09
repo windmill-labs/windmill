@@ -128,14 +128,18 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
-        let result = run_duckdb_ffi_safe(
-            query_block_list.iter().map(String::as_str),
-            query_block_list.len(),
-            job_args,
-            &token,
-            &base_internal_url,
-            &w_id,
-        )?;
+        let result = tokio::task::spawn_blocking(move || {
+            run_duckdb_ffi_safe(
+                query_block_list.iter().map(String::as_str),
+                query_block_list.len(),
+                job_args,
+                &token,
+                &base_internal_url,
+                &w_id,
+            )
+        })
+        .await
+        .map_err(to_anyhow)??;
 
         drop(bigquery_credentials);
 
