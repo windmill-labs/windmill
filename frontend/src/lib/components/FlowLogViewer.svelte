@@ -612,10 +612,6 @@
 								{@const isCollapsible = !hasEmptySubflowValue}
 								{@const jobId = localModuleStates[module.id]?.job_id}
 								{@const moduleItems = timelineItems?.[module.id]}
-								{@const moduleItem =
-									moduleItems?.[
-										localModuleStates[module.id]?.selectedForloopIndex ?? parentLoopIndex ?? 0
-									]}
 								{@const branchChosen =
 									module.value.type === 'branchone'
 										? (localModuleStates[module.id]?.branchChosen ?? 0)
@@ -711,7 +707,7 @@
 												</div>
 											</div>
 
-											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at && showTimeline}
+											{#if timelineMin != undefined && timelineTotal && moduleItems && showTimeline}
 												<div
 													class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} "
 													bind:clientWidth={
