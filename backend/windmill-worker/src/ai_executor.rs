@@ -1,4 +1,6 @@
 use async_recursion::async_recursion;
+use base64::Engine;
+use futures::stream::StreamExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -16,6 +18,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
+    s3_helpers::S3Object,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
@@ -960,8 +963,53 @@ async fn run_agent(
                                 }
                             }
 
+                            // Attempt to upload image to S3
+                            let s3_object = match base64::engine::general_purpose::STANDARD
+                                .decode(image_data)
+                            {
+                                Ok(image_bytes) => {
+                                    // Generate unique S3 key
+                                    let unique_id = ulid::Ulid::new().to_string();
+                                    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
+
+                                    // Create byte stream
+                                    let byte_stream = futures::stream::once(async move {
+                                        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                                            image_bytes,
+                                        ))
+                                    });
+
+                                    // Try to upload to S3
+                                    match client
+                                        .upload_s3_file(
+                                            &job.workspace_id,
+                                            s3_key.clone(),
+                                            None, // storage - use default
+                                            byte_stream,
+                                        )
+                                        .await
+                                    {
+                                        Ok(_) => Some(S3Object {
+                                            s3: s3_key,
+                                            storage: None,
+                                            filename: Some("generated_image.png".to_string()),
+                                            presigned: None,
+                                        }),
+                                        Err(e) => {
+                                            tracing::warn!("Failed to upload image to S3: {}", e);
+                                            None
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to decode base64 image: {}", e);
+                                    None
+                                }
+                            };
+
                             serde_json::json!({
                                 "image_b64": image_data,
+                                "s3_object": s3_object,
                                 "provider": "openai",
                                 "generated": true
                             })
