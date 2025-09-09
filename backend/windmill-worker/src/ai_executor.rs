@@ -895,6 +895,7 @@ async fn run_agent(
     // Handle image generation separately
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     if *output_type == OutputType::Image {
+        let mut s3_output = None;
         // Placeholder logic for image generation
         let placeholder_result = match args.provider.kind {
             AIProvider::OpenAI => {
@@ -1034,6 +1035,8 @@ async fn run_agent(
                                 }
                             };
 
+                            s3_output = s3_object.clone();
+
                             serde_json::json!({
                                 "s3_object": s3_object,
                                 "generated": true
@@ -1078,10 +1081,13 @@ async fn run_agent(
             .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
             .collect();
 
-        return Ok(to_raw_value(&AIAgentResult {
-            output: to_raw_value(&placeholder_result),
-            messages: final_messages,
-        }));
+        return match s3_output {
+            Some(s3_output) => Ok(to_raw_value(&s3_output)),
+            None => Ok(to_raw_value(&AIAgentResult {
+                output: to_raw_value(&placeholder_result),
+                messages: final_messages,
+            })),
+        };
     }
 
     for i in 0..MAX_AGENT_ITERATIONS {
