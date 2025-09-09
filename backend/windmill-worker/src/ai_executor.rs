@@ -78,8 +78,38 @@ struct OpenAIToolCall {
     r#type: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ContentPart {
+    Text {
+        text: String,
+    },
+    #[serde(rename = "image_url")]
+    ImageUrl {
+        image_url: ImageUrlData,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ImageUrlData {
+    url: String, // data:image/png;base64,... or https://...
+}
+
 #[derive(Deserialize, Serialize, Clone, Default)]
 struct OpenAIMessage {
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<Vec<ContentPart>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+    #[serde(skip_serializing)]
+    agent_action: Option<AgentAction>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Default)]
+struct OpenAIMessageResponse {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
@@ -102,7 +132,7 @@ struct Message<'a> {
 
 #[derive(Deserialize)]
 struct OpenAIChoice {
-    message: OpenAIMessage,
+    message: OpenAIMessageResponse,
 }
 
 #[derive(Deserialize)]
@@ -228,6 +258,35 @@ struct GeminiInlineData {
     data: String, // base64 encoded image
 }
 
+/// Helper function to download an S3 image and convert it to a base64 data URL
+async fn download_and_encode_s3_image(
+    image: &S3Object,
+    client: &AuthedClient,
+    workspace_id: &str,
+) -> error::Result<String> {
+    // Download the image from S3
+    let image_bytes = client
+        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
+
+    // Encode as base64 data URL
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+
+    // Determine MIME type based on file extension or default to PNG
+    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if image.s3.ends_with(".gif") {
+        "image/gif"
+    } else if image.s3.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/png" // default
+    };
+
+    Ok(format!("data:{};base64,{}", mime_type, base64_data))
+}
+
 #[derive(Serialize)]
 struct OpenAIRequest<'a> {
     model: &'a str,
@@ -296,6 +355,7 @@ struct AIAgentArgs {
     max_completion_tokens: Option<u32>,
     output_schema: Option<OpenAPISchema>,
     output_type: Option<OutputType>,
+    image: Option<S3Object>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -879,16 +939,29 @@ async fn run_agent(
         if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
             vec![OpenAIMessage {
                 role: "system".to_string(),
-                content: Some(system_prompt),
+                content: Some(vec![ContentPart::Text { text: system_prompt }]),
                 ..Default::default()
             }]
         } else {
             vec![]
         };
 
+    // Create user message with optional image
+    let user_content = if let Some(image) = &args.image {
+        // Download and encode the image
+        let image_data_url = download_and_encode_s3_image(image, client, &job.workspace_id).await?;
+
+        vec![
+            ContentPart::Text { text: args.user_message.clone() },
+            ContentPart::ImageUrl { image_url: ImageUrlData { url: image_data_url } },
+        ]
+    } else {
+        vec![ContentPart::Text { text: args.user_message.clone() }]
+    };
+
     messages.push(OpenAIMessage {
         role: "user".to_string(),
-        content: Some(args.user_message.clone()),
+        content: Some(user_content),
         ..Default::default()
     });
 
@@ -1029,19 +1102,19 @@ async fn run_agent(
                         )) = image_generation_call
                         {
                             // Add assistant message with the stringified image output
+                            let metadata_text = serde_json::json!({
+                                "type": "image_generation_call",
+                                "id": id,
+                                "status": status,
+                                "background": background,
+                                "output_format": output_format,
+                                "quality": quality
+                            })
+                            .to_string();
+
                             messages.push(OpenAIMessage {
                                 role: "assistant".to_string(),
-                                content: Some(
-                                    serde_json::json!({
-                                        "type": "image_generation_call",
-                                        "id": id,
-                                        "status": status,
-                                        "background": background,
-                                        "output_format": output_format,
-                                        "quality": quality
-                                    })
-                                    .to_string(),
-                                ),
+                                content: Some(vec![ContentPart::Text { text: metadata_text }]),
                                 ..Default::default()
                             });
 
@@ -1052,7 +1125,9 @@ async fn run_agent(
                                         let MessageContent::OutputText { text, .. } = content_item;
                                         messages.push(OpenAIMessage {
                                             role: role.clone(),
-                                            content: Some(text.clone()),
+                                            content: Some(vec![ContentPart::Text {
+                                                text: text.clone(),
+                                            }]),
                                             ..Default::default()
                                         });
                                     }
@@ -1205,16 +1280,16 @@ async fn run_agent(
 
                         if let Some(base64_image) = image_data {
                             // Add assistant message with Gemini metadata
+                            let gemini_metadata = serde_json::json!({
+                                "type": "image_generation",
+                                "provider": "gemini",
+                                "model": args.provider.get_model()
+                            })
+                            .to_string();
+
                             messages.push(OpenAIMessage {
                                 role: "assistant".to_string(),
-                                content: Some(
-                                    serde_json::json!({
-                                        "type": "image_generation",
-                                        "provider": "gemini",
-                                        "model": args.provider.get_model()
-                                    })
-                                    .to_string(),
-                                ),
+                                content: Some(vec![ContentPart::Text { text: gemini_metadata }]),
                                 ..Default::default()
                             });
 
@@ -1373,7 +1448,7 @@ async fn run_agent(
             actions.push(AgentAction::Message {});
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
-                content: Some(content.clone()),
+                content: Some(vec![ContentPart::Text { text: content.clone() }]),
                 agent_action: Some(AgentAction::Message {}),
                 ..Default::default()
             });
@@ -1405,13 +1480,17 @@ async fn run_agent(
                 used_structured_output_tool = true;
                 messages.push(OpenAIMessage {
                     role: "tool".to_string(),
-                    content: Some("Successfully ran structured_output tool".to_string()),
+                    content: Some(vec![ContentPart::Text {
+                        text: "Successfully ran structured_output tool".to_string(),
+                    }]),
                     tool_call_id: Some(tool_call.id.clone()),
                     ..Default::default()
                 });
                 messages.push(OpenAIMessage {
                     role: "assistant".to_string(),
-                    content: Some(tool_call.function.arguments.clone()),
+                    content: Some(vec![ContentPart::Text {
+                        text: tool_call.function.arguments.clone(),
+                    }]),
                     agent_action: Some(AgentAction::Message {}),
                     ..Default::default()
                 });
@@ -1453,7 +1532,9 @@ async fn run_agent(
                     Ok((success, result)) => {
                         messages.push(OpenAIMessage {
                             role: "tool".to_string(),
-                            content: Some(result.get().to_string()),
+                            content: Some(vec![ContentPart::Text {
+                                text: result.get().to_string(),
+                            }]),
                             tool_call_id: Some(tool_call.id.clone()),
                             agent_action: Some(AgentAction::ToolCall {
                                 job_id,
@@ -1469,7 +1550,9 @@ async fn run_agent(
                         let err_string = format!("{}: {}", err.name(), err.to_string());
                         messages.push(OpenAIMessage {
                             role: "tool".to_string(),
-                            content: Some(format!("Error running tool: {}", err_string)),
+                            content: Some(vec![ContentPart::Text {
+                                text: format!("Error running tool: {}", err_string),
+                            }]),
                             tool_call_id: Some(tool_call.id.clone()),
                             agent_action: Some(AgentAction::ToolCall {
                                 job_id,
