@@ -43,6 +43,7 @@
 	let navigationChain = $state<NavigationChain>({})
 
 	// Timeline state
+	let timelineCompute = $state<FlowTimelineCompute | undefined>(undefined)
 	let timelineMin = $state<number | undefined>(undefined)
 	let timelineMax = $state<number | undefined>(undefined)
 	let timelineTotal = $state<number | undefined>(undefined)
@@ -131,6 +132,7 @@
 			currentId = 'flow-root'
 			allExpanded = false
 			showResultsInputs = true
+			timelineCompute?.reset()
 		}
 	}
 
@@ -158,6 +160,7 @@
 			bind:total={timelineTotal}
 			bind:items={timelineItems}
 			bind:now={timelineNow}
+			bind:this={timelineCompute}
 		/>
 	{/if}
 	<FlowLogViewer
