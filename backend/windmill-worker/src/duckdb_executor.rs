@@ -221,7 +221,10 @@ impl DuckDbFfiLib {
             })
             .map_err(|e| {
                 Error::InternalErr(format!(
-                    "Could not init libwindmill_duckdb_ffi_internal: {}",
+                    "Could not init duckdb. Make sure you have the latest windmill_duckdb_ffi_lib.{} alongside your binary : https://github.com/windmill-labs/windmill/releases \n{}",
+                    if cfg!(target_os = "macos") { "dylib" }
+                        else if cfg!(target_os = "windows") { "dll" }
+                        else { "so" },
                     e.to_string()
                 ))
             })?
