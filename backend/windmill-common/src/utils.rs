@@ -52,7 +52,7 @@ lazy_static::lazy_static! {
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(120))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build().unwrap();
     pub static ref GIT_SEM_VERSION: Version = Version::parse(

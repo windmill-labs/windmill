@@ -109,6 +109,59 @@ struct OpenAIResponse {
 }
 
 #[derive(Serialize)]
+struct ImageGenerationTool {
+    r#type: String,
+}
+
+#[derive(Serialize)]
+struct ImageGenerationRequest<'a> {
+    model: &'a str,
+    input: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instructions: Option<&'a str>,
+    tools: Vec<ImageGenerationTool>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIImageResponse {
+    id: String,
+    object: String,
+    created_at: u64,
+    status: String,
+    model: String,
+    output: Vec<OpenAIOutput>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum OpenAIOutput {
+    #[serde(rename = "image_generation_call")]
+    ImageGenerationCall {
+        id: String,
+        status: String,
+        background: Option<String>,
+        output_format: Option<String>,
+        quality: Option<String>,
+        result: String, // Base64 encoded image
+    },
+    #[serde(rename = "message")]
+    Message { id: String, status: String, content: Vec<MessageContent>, role: String },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum MessageContent {
+    #[serde(rename = "output_text")]
+    OutputText {
+        text: String,
+        #[serde(default)]
+        annotations: Vec<serde_json::Value>,
+        #[serde(default)]
+        logprobs: Vec<serde_json::Value>,
+    },
+}
+
+#[derive(Serialize)]
 struct OpenAIRequest<'a> {
     model: &'a str,
     messages: &'a Vec<OpenAIMessage>,
@@ -154,6 +207,19 @@ struct Tool {
     def: ToolDef,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum OutputType {
+    Text,
+    Image,
+}
+
+impl Default for OutputType {
+    fn default() -> Self {
+        OutputType::Text
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct AIAgentArgs {
     provider: ProviderWithResource,
@@ -162,6 +228,7 @@ struct AIAgentArgs {
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
     output_schema: Option<OpenAPISchema>,
+    output_type: Option<OutputType>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -741,19 +808,20 @@ async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<Box<RawValue>> {
-    let mut messages = if let Some(system_prompt) = args.system_prompt.filter(|s| !s.is_empty()) {
-        vec![OpenAIMessage {
-            role: "system".to_string(),
-            content: Some(system_prompt),
-            ..Default::default()
-        }]
-    } else {
-        vec![]
-    };
+    let mut messages =
+        if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
+            vec![OpenAIMessage {
+                role: "system".to_string(),
+                content: Some(system_prompt),
+                ..Default::default()
+            }]
+        } else {
+            vec![]
+        };
 
     messages.push(OpenAIMessage {
         role: "user".to_string(),
-        content: Some(args.user_message),
+        content: Some(args.user_message.clone()),
         ..Default::default()
     });
 
@@ -819,6 +887,128 @@ async fn run_agent(
                 },
             });
         }
+    }
+
+    // Handle image generation separately
+    let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    if *output_type == OutputType::Image {
+        // Placeholder logic for image generation
+        let placeholder_result = match args.provider.kind {
+            AIProvider::OpenAI => {
+                // Make actual API call to OpenAI's /responses endpoint
+                let image_request = ImageGenerationRequest {
+                    model: args.provider.get_model(),
+                    input: &args.user_message,
+                    instructions: args.system_prompt.as_deref(),
+                    tools: vec![ImageGenerationTool { r#type: "image_generation".to_string() }],
+                };
+
+                let resp = HTTP_CLIENT
+                    .post(format!("{}/responses", base_url))
+                    .bearer_auth(api_key)
+                    .json(&image_request)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!("Failed to call OpenAI API: {}", e))
+                    })?;
+
+                match resp.error_for_status_ref() {
+                    Ok(_) => {
+                        let image_response =
+                            resp.json::<OpenAIImageResponse>().await.map_err(|e| {
+                                Error::internal_err(format!(
+                                    "Failed to parse OpenAI response: {}",
+                                    e
+                                ))
+                            })?;
+
+                        // Find the first image generation output
+                        let image_output =
+                            image_response
+                                .output
+                                .iter()
+                                .find_map(|output| match output {
+                                    OpenAIOutput::ImageGenerationCall { result, .. } => {
+                                        Some(result)
+                                    }
+                                    _ => None,
+                                });
+
+                        if let Some(image_data) = image_output {
+                            // Add assistant message with the stringified image output
+                            messages.push(OpenAIMessage {
+                                role: "assistant".to_string(),
+                                content: Some(serde_json::to_string(&serde_json::json!({
+                                    "type": "image_generation_call",
+                                    "result": image_data
+                                })).unwrap_or_else(|_| format!("{{\"type\":\"image_generation_call\",\"result\":\"{}\"}}", image_data))),
+                                ..Default::default()
+                            });
+
+                            // Add any message outputs as additional assistant messages
+                            for output in &image_response.output {
+                                if let OpenAIOutput::Message { content, role, .. } = output {
+                                    for content_item in content {
+                                        let MessageContent::OutputText { text, .. } = content_item;
+                                        messages.push(OpenAIMessage {
+                                            role: role.clone(),
+                                            content: Some(text.clone()),
+                                            ..Default::default()
+                                        });
+                                    }
+                                }
+                            }
+
+                            serde_json::json!({
+                                "image_b64": image_data,
+                                "provider": "openai",
+                                "generated": true
+                            })
+                        } else {
+                            return Err(Error::internal_err(
+                                "No image output received from OpenAI".to_string(),
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        let _status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
+                        return Err(Error::internal_err(format!(
+                            "OpenAI API error: {} - {}",
+                            e, text
+                        )));
+                    }
+                }
+            }
+            AIProvider::GoogleAI => {
+                // TODO: Implement Google AI image generation (Imagen)
+                serde_json::json!({
+                    "message": "Image generation with GoogleAI is not yet implemented",
+                    "provider": "googleai",
+                    "placeholder": true
+                })
+            }
+            _ => {
+                return Err(Error::BadRequest(format!(
+                    "Image generation is not supported for provider: {:?}",
+                    args.provider.kind
+                )));
+            }
+        };
+
+        let final_messages: Vec<Message> = messages
+            .iter()
+            .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+            .collect();
+
+        return Ok(to_raw_value(&AIAgentResult {
+            output: to_raw_value(&placeholder_result),
+            messages: final_messages,
+        }));
     }
 
     for i in 0..MAX_AGENT_ITERATIONS {
@@ -1011,7 +1201,10 @@ async fn run_agent(
     let output_value = match content {
         Some(content_str) => match has_output_properties {
             true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
-                Error::internal_err(format!("Failed to parse structured output: {}", content_str))
+                Error::internal_err(format!(
+                    "Failed to parse structured output: {}",
+                    content_str
+                ))
             })?,
             false => to_raw_value(&content_str),
         },
