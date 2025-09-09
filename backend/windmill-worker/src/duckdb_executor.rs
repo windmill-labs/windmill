@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::env;
 use std::ffi::{c_char, CString};
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
 use libloading::{Library, Symbol};
@@ -171,12 +173,40 @@ pub async fn do_duckdb(
     }
 }
 
+thread_local! {
+    static DUCKDB_FFI_LIB_SINGLETON: RefCell<*const DuckDbFfiLib> = RefCell::new(std::ptr::null());
+}
+
 struct DuckDbFfiLib {
-    lib: Library,
+    run_duckdb_ffi: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            query_block_list: *const *const c_char,
+            query_block_list_count: usize,
+            job_args: *const c_char,
+            token: *const c_char,
+            base_internal_url: *const c_char,
+            w_id: *const c_char,
+        ) -> *mut c_char,
+    >,
 }
 
 impl DuckDbFfiLib {
-    fn load() -> Result<Self> {
+    fn get_singleton() -> Result<&'static DuckDbFfiLib> {
+        DUCKDB_FFI_LIB_SINGLETON.with(|cell| unsafe {
+            let mut singleton = cell.borrow_mut();
+            if singleton.is_null() {
+                let lib = DuckDbFfiLib::init()?;
+                let boxed_lib = Box::new(lib);
+                let lib_ptr = Box::leak(boxed_lib);
+                *singleton = lib_ptr as *const _;
+                Ok(NonNull::new_unchecked(*singleton as *mut DuckDbFfiLib).as_ref())
+            } else {
+                Ok(&**singleton)
+            }
+        })
+    }
+    fn init() -> Result<Self> {
         let lib = unsafe {
             Library::new(if cfg!(target_os = "macos") {
                 "libwindmill_duckdb_ffi_internal.dylib"
@@ -187,28 +217,15 @@ impl DuckDbFfiLib {
             })
             .map_err(|e| {
                 Error::InternalErr(format!(
-                    "Could not load libwindmill_duckdb_ffi_internal: {}",
+                    "Could not init libwindmill_duckdb_ffi_internal: {}",
                     e.to_string()
                 ))
             })?
         };
-        Ok(DuckDbFfiLib { lib })
-    }
-    fn get_run_duckdb_ffi(
-        &self,
-    ) -> Result<
-        Symbol<
-            unsafe extern "C" fn(
-                query_block_list: *const *const c_char,
-                query_block_list_count: usize,
-                job_args: *const c_char,
-                token: *const c_char,
-                base_internal_url: *const c_char,
-                w_id: *const c_char,
-            ) -> *mut c_char,
-        >,
-    > {
-        Ok(unsafe { self.lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? })
+        let lib = Box::leak(Box::new(lib));
+        Ok(DuckDbFfiLib {
+            run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+        })
     }
 }
 
@@ -238,8 +255,7 @@ fn run_duckdb_ffi_safe<'a>(
     let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
-    let duckdb_ffi_lib = DuckDbFfiLib::load()?;
-    let run_duckdb_ffi = duckdb_ffi_lib.get_run_duckdb_ffi()?;
+    let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
     let result_cstr = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
