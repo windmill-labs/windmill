@@ -71,7 +71,7 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-async function list(opts: GlobalOptions) {
+export async function list(opts: GlobalOptions) {
   const workspaces = await allWorkspaces(opts.configDir);
   const activeName = await getActiveWorkspaceName(opts);
 
