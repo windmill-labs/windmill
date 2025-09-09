@@ -1,7 +1,5 @@
 use sqlx::{Acquire, Pool, Postgres, Transaction};
 
-use crate::db;
-
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug, Hash)]
@@ -123,8 +121,6 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithAuthed<'d, T> {
     }
 }
 
-
-
 pub struct UserDbWithOptAuthed<'c, T: Authable + Sync> {
     pub authed: &'c T,
     pub user_db: Option<UserDB>,
@@ -136,7 +132,7 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> 
     type Connection = Transaction<'c, Postgres>;
 
     fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, sqlx::Error>> {
-        Box::pin(async move { 
+        Box::pin(async move {
             if let Some(db) = &self.user_db {
                 db.clone().begin(self.authed).await
             } else {
@@ -145,11 +141,10 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> 
         })
     }
 
-
     fn begin(
         self,
     ) -> futures_core::future::BoxFuture<'c, Result<Transaction<'c, Postgres>, sqlx::Error>> {
-        Box::pin(async move { 
+        Box::pin(async move {
             if let Some(db) = &self.user_db {
                 db.clone().begin(self.authed).await
             } else {
@@ -158,7 +153,6 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> 
         })
     }
 }
-
 
 impl UserDB {
     pub fn new(db: DB) -> Self {
