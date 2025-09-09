@@ -10892,7 +10892,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: email trigger deleted
+          description: email trigger retrieved
           content:
             application/json:
               schema:
