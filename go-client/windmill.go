@@ -43,7 +43,7 @@ func GetVariable(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := client.Client.GetVariableValueWithResponse(context.Background(), client.Workspace, path)
+	res, err := client.Client.GetVariableValueWithResponse(context.Background(), client.Workspace, path, &api.GetVariableValueParams{})
 	if err != nil {
 		return "", err
 	}
