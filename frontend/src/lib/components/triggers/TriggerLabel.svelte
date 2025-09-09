@@ -18,6 +18,14 @@
 	{label}
 </span>
 
+{#if trigger.type === 'default_email'}
+	<span
+		class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100 whitespace-nowrap"
+	>
+		Default
+	</span>
+{/if}
+
 {#if trigger.isPrimary}
 	<span
 		class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100 whitespace-nowrap"

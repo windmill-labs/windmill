@@ -115,6 +115,11 @@
 				href: `${base}/mqtt_triggers`
 			},
 			{
+				label: 'Email triggers',
+				id: 'triggers',
+				href: `${base}/email_triggers`
+			},
+			{
 				label: 'Audit logs',
 				id: 'audit_logs',
 				href: `${base}/audit_logs`

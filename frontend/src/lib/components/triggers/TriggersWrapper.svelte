@@ -1,7 +1,8 @@
 <script lang="ts">
 	import RoutesPanel from './http/RoutesPanel.svelte'
 	import WebhooksPanel from './webhook/WebhooksPanel.svelte'
-	import EmailTriggerPanel from '../details/EmailTriggerPanel.svelte'
+	import EmailTriggerPanel from './email/EmailTriggerPanel.svelte'
+	import DefaultEmailPanel from './email/DefaultEmailPanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
@@ -35,6 +36,7 @@
 		onUpdate?: (path: string) => void
 		onDelete?: () => void
 		onReset?: () => void
+		onEmailDomain: (domain: string) => void
 	}
 
 	let {
@@ -48,6 +50,7 @@
 		args,
 		newItem,
 		schema,
+		onEmailDomain,
 		...props
 	}: Props = $props()
 </script>
@@ -71,14 +74,14 @@
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		{newItem}
 	/>
-{:else if selectedTrigger.type === 'email'}
-	<EmailTriggerPanel
+{:else if selectedTrigger.type === 'default_email'}
+	<DefaultEmailPanel
 		token=""
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
 		{hash}
-		on:email-domain
+		{onEmailDomain}
 	/>
 {:else if selectedTrigger.type === 'schedule'}
 	<SchedulePanel
@@ -151,6 +154,16 @@
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'email'}
+	<EmailTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{onEmailDomain}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'poll'}

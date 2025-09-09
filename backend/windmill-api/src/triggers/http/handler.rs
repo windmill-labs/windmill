@@ -458,8 +458,7 @@ impl TriggerCrud for HttpTrigger {
             }
 
             let route_path_key =
-                check_if_route_exist(db, &trigger.config, workspace_id, Some(path))
-                    .await?;
+                check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
 
             sqlx::query!(
                 r#"
@@ -524,31 +523,29 @@ impl TriggerCrud for HttpTrigger {
             UPDATE 
                 http_trigger 
             SET 
-                workspaced_route = $1,
-                wrap_body = $2,
-                raw_string = $3,
-                authentication_resource_path = $4,
-                script_path = $5, 
-                path = $6, 
-                is_flow = $7, 
-                http_method = $8, 
-                static_asset_config = $9, 
-                edited_by = $10, 
-                email = $11, 
-                is_async = $12, 
-                authentication_method = $13, 
-                summary = $14,
-                description = $15,
+                wrap_body = $1,
+                raw_string = $2,
+                authentication_resource_path = $3,
+                script_path = $4, 
+                path = $5, 
+                is_flow = $6, 
+                http_method = $7, 
+                static_asset_config = $8, 
+                edited_by = $9, 
+                email = $10, 
+                is_async = $11, 
+                authentication_method = $12, 
+                summary = $13,
+                description = $14,
                 edited_at = now(), 
-                is_static_website = $16,
-                error_handler_path = $17,
-                error_handler_args = $18,
-                retry = $19
+                is_static_website = $15,
+                error_handler_path = $16,
+                error_handler_args = $17,
+                retry = $18
             WHERE 
-                workspace_id = $20 AND 
-                path = $21
+                workspace_id = $19 AND 
+                path = $20
             "#,
-                trigger.config.workspaced_route,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
                 trigger.config.authentication_resource_path,

@@ -25,6 +25,7 @@ import { saveMqttTriggerFromCfg } from './mqtt/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
+import { saveEmailTriggerFromCfg } from './email/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'nats',
@@ -38,6 +39,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 
 export type TriggerType =
 	| 'webhook'
+	| 'default_email'
 	| 'email'
 	| 'schedule'
 	| 'http'
@@ -48,6 +50,7 @@ export type TriggerType =
 	| 'mqtt'
 	| 'sqs'
 	| 'gcp'
+	| 'email'
 	| 'poll'
 	| 'cli'
 
@@ -68,6 +71,7 @@ export type Trigger = {
 export const triggerIconMap = {
 	webhook: Webhook,
 	email: Mail,
+	default_email: Mail,
 	schedule: Calendar,
 	http: Route,
 	websocket: Unplug,
@@ -92,6 +96,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 	const capturableTriggerTypes: TriggerType[] = [
 		'webhook',
 		'email',
+		'default_email',
 		'http',
 		'websocket',
 		'postgres',
@@ -120,7 +125,7 @@ export function updateTriggersCount(
 	// Map trigger types to their corresponding count property names
 	const countPropertyMap: Record<TriggerType, string | undefined> = {
 		webhook: undefined,
-		email: undefined,
+		default_email: undefined,
 		schedule: 'schedule_count',
 		http: 'http_routes_count',
 		websocket: 'websocket_count',
@@ -130,6 +135,7 @@ export function updateTriggersCount(
 		mqtt: 'mqtt_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
+		email: 'email_count',
 		poll: undefined,
 		cli: undefined
 	}
@@ -178,6 +184,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'webhook'
 		case 'emails':
 			return 'email'
+		case 'default_emails':
+			return 'default_email'
 		case 'schedules':
 			return 'schedule'
 		case 'routes':
@@ -225,7 +233,7 @@ export async function deployTriggers(
 	// Map of trigger types to their save functions
 	const triggerSaveFunctions: Record<TriggerType, Function | undefined> = {
 		webhook: undefined,
-		email: undefined,
+		default_email: undefined,
 		schedule: (trigger: Trigger) => {
 			if (trigger.isPrimary && initialPath) {
 				trigger.draftConfig = {
@@ -299,6 +307,15 @@ export async function deployTriggers(
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,
 				workspaceId,
+				usedTriggerKinds
+			),
+		email: (trigger: Trigger) =>
+			saveEmailTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				isAdmin,
 				usedTriggerKinds
 			),
 		poll: undefined,
@@ -398,6 +415,8 @@ export function getLightConfig(
 		return { queue_url: trigger.queue_url }
 	} else if (triggerType === 'gcp') {
 		return { gcp_resource_path: trigger.gcp_resource_path, topic: trigger.topic }
+	} else if (triggerType === 'email') {
+		return { local_part: trigger.local_part }
 	} else {
 		return undefined
 	}
@@ -409,7 +428,7 @@ export function getTriggerLabel(trigger: Trigger): string {
 
 	if (type === 'webhook') {
 		return 'Webhook'
-	} else if (type === 'email') {
+	} else if (type === 'default_email') {
 		return 'Email'
 	} else if (type === 'cli') {
 		return 'CLI'
@@ -430,6 +449,8 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.gcp_resource_path} - ${config?.topic}`
 	} else if (type === 'websocket' && config?.url) {
 		return `${config?.url}`
+	} else if (type === 'email' && config?.local_part) {
+		return `${config?.local_part}`
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {
@@ -443,7 +464,7 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 	const triggerTypeOrder = [
 		'webhook',
 		'cli',
-		'email',
+		'default_email',
 		'poll',
 		'schedule',
 		'http',
@@ -453,7 +474,8 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'nats',
 		'mqtt',
 		'sqs',
-		'gcp'
+		'gcp',
+		'email'
 	]
 
 	return triggers.sort((a, b) => {

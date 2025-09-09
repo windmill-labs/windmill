@@ -106,7 +106,7 @@
 	const triggersState = $state(
 		new Triggers([
 			{ type: 'webhook', path: '', isDraft: false },
-			{ type: 'email', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
 			{ type: 'cli', path: '', isDraft: false }
 		])
 	)

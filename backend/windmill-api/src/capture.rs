@@ -146,6 +146,12 @@ struct HttpTriggerConfig {
     wrap_body: Option<bool>,
 }
 
+#[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+#[derive(Serialize, Deserialize)]
+struct EmailTriggerConfig {
+    local_part: String,
+}
+
 #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
@@ -241,6 +247,8 @@ enum TriggerConfig {
     Mqtt(MqttTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    Email(EmailTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]

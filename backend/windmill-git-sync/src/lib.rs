@@ -34,6 +34,7 @@ pub enum DeployedObject {
     MqttTrigger { path: String },
     SqsTrigger { path: String },
     GcpTrigger { path: String },
+    EmailTrigger { path: String },
     Settings { setting_type: String },
     Key { key_type: String },
 }
@@ -59,6 +60,7 @@ impl DeployedObject {
             DeployedObject::MqttTrigger { path } => path.to_owned(),
             DeployedObject::SqsTrigger { path } => path.to_owned(),
             DeployedObject::GcpTrigger { path } => path.to_owned(),
+            DeployedObject::EmailTrigger { path } => path.to_owned(),
             DeployedObject::Settings { .. } => "settings.yaml".to_string(),
             DeployedObject::Key { .. } => "encryption_key.yaml".to_string(),
         }
@@ -95,6 +97,7 @@ impl DeployedObject {
             DeployedObject::MqttTrigger { .. } => None,
             DeployedObject::SqsTrigger { .. } => None,
             DeployedObject::GcpTrigger { .. } => None,
+            DeployedObject::EmailTrigger { .. } => None,
             DeployedObject::Settings { .. } => None,
             DeployedObject::Key { .. } => None,
         }

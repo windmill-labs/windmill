@@ -56,6 +56,7 @@
 		websocket: { icon: Unplug, countKey: 'websocket_count' },
 		postgres: { icon: Database, countKey: 'postgres_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
+		default_email: { icon: Mail, countKey: 'default_email_count' },
 		email: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
@@ -72,11 +73,12 @@
 		'websocket',
 		'postgres',
 		'kafka',
-		'email',
+		'default_email',
 		'nats',
 		'mqtt',
 		'sqs',
 		'gcp',
+		'email',
 		'poll',
 		'cli'
 	]

@@ -13,7 +13,9 @@ import {
 	type TriggersCount,
 	type HttpTrigger,
 	HttpTriggerService,
-	GcpTriggerService
+	GcpTriggerService,
+	type EmailTrigger,
+	EmailTriggerService
 } from '$lib/gen'
 import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
 import type { Writable } from 'svelte/store'
@@ -430,6 +432,32 @@ export class Triggers {
 		}
 	}
 
+	async fetchEmailTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const emailTriggers: EmailTrigger[] = await EmailTriggerService.listEmailTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const emailCount = this.updateTriggers(emailTriggers, 'email', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					email_count: emailCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch email triggers:', error)
+		}
+	}
+
 	async fetchTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -450,7 +478,8 @@ export class Triggers {
 			this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+			this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user)
 		])
 	}
 }
