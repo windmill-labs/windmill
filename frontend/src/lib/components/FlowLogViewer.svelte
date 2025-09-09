@@ -63,6 +63,7 @@
 		parentLoopIndex?: number
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
+		showTimeline?: boolean
 	}
 
 	let {
@@ -92,7 +93,8 @@
 		timelineNow,
 		parentLoopIndex,
 		timelineAvailableWidths = $bindable(),
-		timelinelWidth
+		timelinelWidth,
+		showTimeline = true
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -402,6 +404,21 @@
 			<div class="flex items-center gap-2 whitespace-nowrap">
 				<label
 					for="showResultsInputs"
+					class="text-xs text-tertiary hover:text-primary transition-colors">Show timeline</label
+				>
+				<div class="flex-shrink-0">
+					<input
+						type="checkbox"
+						name="showResultsInputs"
+						id="showResultsInputs"
+						bind:checked={showTimeline}
+						class="w-3 h-4 accent-primary -my-1"
+					/>
+				</div>
+			</div>
+			<div class="flex items-center gap-2 whitespace-nowrap">
+				<label
+					for="showResultsInputs"
 					class="text-xs text-tertiary hover:text-primary transition-colors"
 					>Show inputs/results</label
 				>
@@ -453,39 +470,37 @@
 						<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
 					</div>
 
-					{#if timelineItems}
-						{#if timelineMin != undefined && timelineTotal && rootJob.started_at}
-							<div
-								class="min-w-min grow"
-								bind:clientWidth={
-									() => timelineAvailableWidths[flowId] ?? 0,
-									(v) => (timelineAvailableWidths[flowId] = v)
-								}
-							>
-								<FlowTimelineBar
-									total={timelineTotal}
-									min={timelineMin}
-									items={[
-										{
-											started_at: rootJob.started_at
-												? new Date(rootJob.started_at).getTime()
-												: undefined,
-											duration_ms: rootJob['duration_ms'] ?? timelineTotal,
-											id: flowId
-										}
-									]}
-									selectedIndex={0}
-									now={timelineNow}
-									{timelinelWidth}
-									showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
-									onZoom={() => {
-										useRelativeTimeline = !useRelativeTimeline
-									}}
-									zoom={useRelativeTimeline ? 'in' : 'out'}
-								/>
-							</div>
+					<div
+						class="min-w-min grow"
+						bind:clientWidth={
+							() => timelineAvailableWidths[flowId] ?? 0,
+							(v) => (timelineAvailableWidths[flowId] = v)
+						}
+					>
+						{#if timelineItems && showTimeline && timelineMin != undefined && timelineTotal && rootJob.started_at}
+							<FlowTimelineBar
+								total={timelineTotal}
+								min={timelineMin}
+								items={[
+									{
+										started_at: rootJob.started_at
+											? new Date(rootJob.started_at).getTime()
+											: undefined,
+										duration_ms: rootJob['duration_ms'] ?? timelineTotal,
+										id: flowId
+									}
+								]}
+								selectedIndex={0}
+								now={timelineNow}
+								{timelinelWidth}
+								showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
+								onZoom={() => {
+									useRelativeTimeline = !useRelativeTimeline
+								}}
+								zoom={useRelativeTimeline ? 'in' : 'out'}
+							/>
 						{/if}
-					{/if}
+					</div>
 
 					{#if flowInfo.jobId}
 						<a
@@ -651,7 +666,7 @@
 												</div>
 											</div>
 
-											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at}
+											{#if timelineMin != undefined && timelineTotal && moduleItem?.started_at && showTimeline}
 												<div
 													class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} "
 													bind:clientWidth={
@@ -744,6 +759,7 @@
 															0}
 														{timelineAvailableWidths}
 														{timelinelWidth}
+														{showTimeline}
 													/>
 												</div>
 											{/each}
