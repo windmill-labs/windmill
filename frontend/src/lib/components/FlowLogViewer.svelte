@@ -64,6 +64,7 @@
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
+		notRan?: boolean
 	}
 
 	let {
@@ -94,7 +95,8 @@
 		parentLoopIndex,
 		timelineAvailableWidths = $bindable(),
 		timelinelWidth,
-		showTimeline = true
+		showTimeline = true,
+		notRan = false
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -360,6 +362,15 @@
 				flowId: `${module.id}-subflow`
 			})
 		} else if (module.value.type === 'branchall' || module.value.type === 'branchone') {
+			// Add default branch for branchone
+			if (module.value.type === 'branchone') {
+				subflows.push({
+					modules: module.value.default,
+					label: 'default',
+					flowId: `${module.id}-subflow-default`
+				})
+			}
+
 			// Add all branches
 			for (let i = 0; i < module.value.branches.length; i++) {
 				const branch = module.value.branches[i]
@@ -367,14 +378,6 @@
 					modules: branch.modules,
 					label: branch.summary || `branch ${i + 1}`,
 					flowId: `${module.id}-subflow-${i}`
-				})
-			}
-			// Add default branch for branchone
-			if (module.value.type === 'branchone') {
-				subflows.push({
-					modules: module.value.default,
-					label: 'default',
-					flowId: `${module.id}-subflow-default`
 				})
 			}
 		}
@@ -390,6 +393,41 @@
 		timelineTotal:
 			useRelativeTimeline && rootJob['duration_ms'] ? rootJob['duration_ms'] : timelineTotalAbsolute
 	})
+
+	function getSubflowJob(
+		moduleId: string,
+		idx: number,
+		branchChosen: number | undefined,
+		logs: string | undefined,
+		result: any,
+		args: any,
+		jobId: string | undefined
+	) {
+		return {
+			id: jobId,
+			type:
+				localModuleStates[moduleId]?.type === 'Failure' ||
+				localModuleStates[moduleId]?.type === 'Success'
+					? 'CompletedJob'
+					: ('QueuedJob' as Job['type']),
+			logs,
+			result,
+			args,
+			success: localModuleStates[moduleId]?.type === 'Success',
+			started_at: !!branchChosen
+				? branchChosen === idx
+					? timelineItems?.[moduleId]?.[0]?.started_at
+					: undefined
+				: timelineItems?.[moduleId]?.[localModuleStates[moduleId]?.selectedForloopIndex ?? idx]
+						?.started_at,
+			duration_ms: !!branchChosen
+				? branchChosen === idx
+					? timelineItems?.[moduleId]?.[0]?.duration_ms
+					: undefined
+				: timelineItems?.[moduleId]?.[localModuleStates[moduleId]?.selectedForloopIndex ?? idx]
+						?.duration_ms
+		} as RootJobData
+	}
 </script>
 
 {#if render}
@@ -454,7 +492,7 @@
 			{isCurrent}
 			{isExpanded}
 			{toggleExpanded}
-			class={rootJob.type === undefined ? 'opacity-50' : ''}
+			class={rootJob.type === undefined || notRan ? 'opacity-50' : ''}
 			{select}
 		>
 			{#snippet label()}
@@ -575,6 +613,7 @@
 									moduleItems?.[
 										localModuleStates[module.id]?.selectedForloopIndex ?? parentLoopIndex ?? 0
 									]}
+								{@const branchChosen = localModuleStates[module.id]?.branchChosen}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -706,29 +745,19 @@
 										{@const logs = localModuleStates[module.id]?.logs}
 										{@const result = localModuleStates[module.id]?.result}
 										{@const jobId = localModuleStates[module.id]?.job_id}
+										{@const subflows = getSubflows(module)}
 										<div class="my-1 transition-all duration-200 ease-in-out border-l">
 											<!-- Show child steps if they exist -->
-											{#each getSubflows(module) as subflow, idx}
-												{@const subflowJob = {
-													id: jobId,
-													type:
-														localModuleStates[module.id]?.type === 'Failure' ||
-														localModuleStates[module.id]?.type === 'Success'
-															? 'CompletedJob'
-															: ('QueuedJob' as Job['type']),
+											{#each subflows as subflow, idx}
+												{@const subflowJob = getSubflowJob(
+													module.id,
+													idx,
+													branchChosen,
 													logs,
 													result,
 													args,
-													success: localModuleStates[module.id]?.type === 'Success',
-													started_at:
-														timelineItems?.[module.id]?.[
-															localModuleStates[module.id]?.selectedForloopIndex ?? idx
-														]?.started_at,
-													duration_ms:
-														timelineItems?.[module.id]?.[
-															localModuleStates[module.id]?.selectedForloopIndex ?? idx
-														]?.duration_ms
-												} as RootJobData}
+													jobId
+												)}
 												<div class="border-l mb-2">
 													<!-- Recursively render child steps using FlowLogViewer -->
 													<FlowLogViewer
@@ -760,11 +789,12 @@
 														{timelineAvailableWidths}
 														{timelinelWidth}
 														{showTimeline}
+														notRan={branchChosen !== undefined && branchChosen !== idx}
 													/>
 												</div>
 											{/each}
 
-											{#if getSubflows(module).length === 0}
+											{#if subflows.length === 0}
 												<!-- Show input arguments -->
 												{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
 													<FlowLogRow
