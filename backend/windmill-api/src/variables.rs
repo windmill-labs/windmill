@@ -248,6 +248,7 @@ async fn get_value(
         &authed,
         q.allow_cache.unwrap_or(false),
     )
+    .warn_after_seconds(10)
     .await
     .map(Json);
 }
