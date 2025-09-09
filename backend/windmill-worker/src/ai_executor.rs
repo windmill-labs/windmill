@@ -178,17 +178,36 @@ struct GeminiContent {
 
 #[derive(Serialize)]
 struct GeminiImageRequest {
-    contents: Vec<GeminiContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    contents: Option<Vec<GeminiContent>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instances: Option<Vec<GeminiPredictContent>>,
+}
+
+#[derive(Serialize)]
+struct GeminiPredictContent {
+    prompt: String,
 }
 
 #[derive(Deserialize)]
 struct GeminiImageResponse {
-    candidates: Vec<GeminiCandidate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    candidates: Option<Vec<GeminiCandidate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    predictions: Option<Vec<GeminiPredictCandidate>>,
 }
 
 #[derive(Deserialize)]
 struct GeminiCandidate {
     content: GeminiResponseContent,
+}
+
+#[derive(Deserialize)]
+struct GeminiPredictCandidate {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    #[serde(rename = "bytesBase64Encoded")]
+    bytes_base64_encoded: String, // base64 encoded image
 }
 
 #[derive(Deserialize)]
@@ -1110,22 +1129,35 @@ async fn run_agent(
                 }
             }
             AIProvider::GoogleAI => {
+                let is_imagen = args.provider.get_model().contains("imagen");
                 // Make actual API call to Gemini's generateContent endpoint
                 let gemini_request = GeminiImageRequest {
-                    contents: vec![GeminiContent {
-                        parts: vec![GeminiPart {
-                            text: format!("{} {}", 
-                                args.system_prompt.as_deref().unwrap_or(""),
-                                args.user_message
-                            ).trim().to_string(),
-                        }],
-                    }],
+                    instances: if is_imagen {
+                        Some(vec![GeminiPredictContent {
+                            prompt: args.user_message.trim().to_string(),
+                        }])
+                    } else {
+                        None
+                    },
+                    contents: if !is_imagen {
+                        Some(vec![GeminiContent {
+                            parts: vec![GeminiPart { text: args.user_message.trim().to_string() }],
+                        }])
+                    } else {
+                        None
+                    },
                 };
 
                 // Construct the Gemini API URL with the model
+                let url_suffix = if is_imagen {
+                    "predict"
+                } else {
+                    "generateContent"
+                };
                 let gemini_url = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-                    args.provider.get_model()
+                    "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
+                    args.provider.get_model(),
+                    url_suffix
                 );
 
                 let resp = HTTP_CLIENT
@@ -1141,10 +1173,8 @@ async fn run_agent(
 
                 match resp.error_for_status_ref() {
                     Ok(_) => {
-                        let gemini_response = resp
-                            .json::<GeminiImageResponse>()
-                            .await
-                            .map_err(|e| {
+                        let gemini_response =
+                            resp.json::<GeminiImageResponse>().await.map_err(|e| {
                                 Error::internal_err(format!(
                                     "Failed to parse Gemini response: {}",
                                     e
@@ -1152,14 +1182,26 @@ async fn run_agent(
                             })?;
 
                         // Find the first candidate with inline image data
-                        let image_data = gemini_response
-                            .candidates
-                            .iter()
-                            .find_map(|candidate| {
-                                candidate.content.parts.iter().find_map(|part| {
-                                    part.inline_data.as_ref().map(|data| &data.data)
+                        let mut image_data =
+                            gemini_response.candidates.as_ref().and_then(|candidates| {
+                                candidates.iter().find_map(|candidate| {
+                                    candidate.content.parts.iter().find_map(|part| {
+                                        part.inline_data.as_ref().map(|data| &data.data)
+                                    })
                                 })
                             });
+
+                        if let None = image_data {
+                            image_data =
+                                gemini_response
+                                    .predictions
+                                    .as_ref()
+                                    .and_then(|predictions| {
+                                        predictions.iter().find_map(|prediction| {
+                                            Some(&prediction.bytes_base64_encoded)
+                                        })
+                                    });
+                        }
 
                         if let Some(base64_image) = image_data {
                             // Add assistant message with Gemini metadata
