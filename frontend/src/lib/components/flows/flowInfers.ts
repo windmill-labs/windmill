@@ -76,9 +76,16 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					description:
 						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
 				},
+				output_type: {
+					type: 'string',
+					description: 'The type of output the AI agent will generate (text or image)',
+					enum: ['text', 'image'],
+					default: 'text'
+				},
 				output_schema: {
 					type: 'object',
-					description: 'JSON schema that the AI agent will follow for its response format',
+					description:
+						'JSON schema that the AI agent will follow for its response format (only used if output_type is text)',
 					format: 'json-schema'
 				}
 			},
