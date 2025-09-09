@@ -1,6 +1,5 @@
 use async_recursion::async_recursion;
 use base64::Engine;
-use futures::stream::StreamExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -114,6 +113,8 @@ struct OpenAIResponse {
 #[derive(Serialize)]
 struct ImageGenerationTool {
     r#type: String,
+    quality: Option<String>,
+    background: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -904,7 +905,11 @@ async fn run_agent(
                     model: args.provider.get_model(),
                     input: &args.user_message,
                     instructions: args.system_prompt.as_deref(),
-                    tools: vec![ImageGenerationTool { r#type: "image_generation".to_string() }],
+                    tools: vec![ImageGenerationTool {
+                        r#type: "image_generation".to_string(),
+                        quality: Some("low".to_string()),
+                        background: None,
+                    }],
                 };
 
                 let resp = HTTP_CLIENT
