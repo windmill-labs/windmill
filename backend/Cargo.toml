@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.540.0"
+version = "1.540.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.540.0"
+version = "1.540.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -239,7 +239,7 @@ cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
 url = { version = "^2" , features = ["serde"]}
-async-oauth2 = "^0"
+async-oauth2 = { git = "https://github.com/rubenfiszel/async-oauth2", rev = "3daef3162b44c4739745578a5bb1fa7e1132e3e5" }
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip", "multipart"] }
 time = "^0"
 serde_urlencoded = "^0"

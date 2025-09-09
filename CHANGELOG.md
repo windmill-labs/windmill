@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.540.2](https://github.com/windmill-labs/windmill/compare/v1.540.1...v1.540.2) (2025-09-09)
+
+
+### Bug Fixes
+
+* add OTEL_ENVIRONMENT to force otel environment ([6b34123](https://github.com/windmill-labs/windmill/commit/6b34123aee9ed140a595296ce63b4a8d8f4ea786))
+* **go:** fix go client ([#6561](https://github.com/windmill-labs/windmill/issues/6561)) ([6775191](https://github.com/windmill-labs/windmill/commit/6775191f09a819378b92a0e6abf890b2d9d1950b))
+
+## [1.540.1](https://github.com/windmill-labs/windmill/compare/v1.540.0...v1.540.1) (2025-09-09)
+
+
+### Bug Fixes
+
+* add request duration to relative imports loading in python ([4f9e5ba](https://github.com/windmill-labs/windmill/commit/4f9e5badf916eb56d7e36271caf77ff28acaaee8))
+* fix app path renaming ([cccd2c1](https://github.com/windmill-labs/windmill/commit/cccd2c1b12d04a2c59766e054895b462b5b5099c))
+* improve drawers zindex positioning ([fbe4758](https://github.com/windmill-labs/windmill/commit/fbe4758eb43737166c61afc17ab49837901dafd5))
+* **jwt:** implement scopes run for executing apps components ([7c75d8e](https://github.com/windmill-labs/windmill/commit/7c75d8ee1d7770c5ff074174f5bd3d3c49d66912))
+* use correct scope in client credentials exchange ([ba7b0cc](https://github.com/windmill-labs/windmill/commit/ba7b0cc4105851d11a8bd3a6922d8a4cfd5263c8))
+
 ## [1.540.0](https://github.com/windmill-labs/windmill/compare/v1.539.1...v1.540.0) (2025-09-08)
 
 
