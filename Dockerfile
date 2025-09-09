@@ -1,6 +1,16 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.88-slim-bookworm
 
+# Build windmill_duckdb_ffi_internal.so separately
+FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
+
+WORKDIR /windmill-duckdb-ffi-internal
+RUN apt-get update && apt-get install -y pkg-config clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY ./backend/windmill-duckdb-ffi-internal .
+RUN cargo build --release -p windmill_duckdb_ffi_internal
+
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -81,15 +91,6 @@ COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
-
-FROM rust_base AS windmill_duckdb_ffi_internal_builder
-
-WORKDIR /windmill-duckdb-ffi-internal
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-COPY ./backend/windmill-duckdb-ffi-internal .
-RUN cargo build --release -p windmill_duckdb_ffi_internal
 
 FROM ${DEBIAN_IMAGE}
 
