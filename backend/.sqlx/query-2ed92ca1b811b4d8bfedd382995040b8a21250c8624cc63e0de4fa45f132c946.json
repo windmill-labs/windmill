@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM capture WHERE workspace_id = $1 AND path = ANY($2) AND is_flow IS FALSE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2ed92ca1b811b4d8bfedd382995040b8a21250c8624cc63e0de4fa45f132c946"
+}

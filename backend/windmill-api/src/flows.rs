@@ -327,26 +327,51 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct ListPathsFromWorkspaceRunnableQuery {
+    match_path_start: Option<bool>,
+}
+
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+    Query(query): Query<ListPathsFromWorkspaceRunnableQuery>,
 ) -> JsonResult<Vec<String>> {
     let path = path.to_path();
-    check_scopes(&authed, || format!("flows:read:{}", path))?;
+    check_scopes(&authed, || {
+        format!("flows:read:{}", format!("{}/{}", runnable_kind, path))
+    })?;
     let mut tx = user_db.begin(&authed).await?;
-    let runnables = sqlx::query_scalar!(
-        r#"SELECT f.path
-            FROM workspace_runnable_dependencies wru 
-            JOIN flow f
-                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
-            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
-        path,
-        matches!(runnable_kind, RunnableKind::Flow),
-        w_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+
+    let runnables = if query.match_path_start.unwrap_or(false) {
+        sqlx::query_scalar!(
+            r#"SELECT DISTINCT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path LIKE $1 || '%' AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            r#"SELECT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
     tx.commit().await?;
     Ok(Json(runnables))
 }

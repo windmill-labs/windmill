@@ -1338,7 +1338,7 @@
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
-				if (scriptLang == 'bun') {
+				if (scriptLang == 'bun' || scriptLang == 'bunnative') {
 					ata?.(getCode())
 				}
 			}, 1000)
@@ -1487,7 +1487,11 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
-		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
+		if (
+			lang === 'typescript' &&
+			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
+			ata == undefined
+		) {
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1552,6 +1556,8 @@
 			})
 			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
+			}
+			if (scriptLang == 'bunnative' || scriptLang == 'bun') {
 				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
