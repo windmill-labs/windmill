@@ -44,7 +44,7 @@ export function setScheduledPollSchedule(
 export type TriggerKind =
 	| 'webhooks'
 	| 'emails'
-	| 'runnable_emails'
+	| 'default_emails'
 	| 'schedules'
 	| 'cli'
 	| 'routes'
@@ -62,8 +62,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'webhooks'
 		case 'email':
 			return 'emails'
-		case 'runnable_email':
-			return 'runnable_emails'
+		case 'default_email':
+			return 'default_emails'
 		case 'http':
 			return 'routes'
 		case 'websocket':

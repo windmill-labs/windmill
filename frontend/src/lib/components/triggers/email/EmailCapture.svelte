@@ -27,7 +27,7 @@
 		captureLoading = false
 	}: Props = $props()
 
-	let captureEmail = $derived(`capture+${$workspaceStore}+${local_part}@${emailDomain}`)
+	let captureEmail = $derived(`capture+${$workspaceStore}-${local_part}@${emailDomain}`)
 </script>
 
 {#if captureInfo}

@@ -146,7 +146,7 @@ struct HttpTriggerConfig {
     wrap_body: Option<bool>,
 }
 
-#[cfg(feature = "http_trigger")]
+#[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 struct EmailTriggerConfig {
     local_part: String,

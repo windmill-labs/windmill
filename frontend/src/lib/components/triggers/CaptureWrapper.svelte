@@ -7,7 +7,7 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
-	import RunnableEmailCapture from '../details/RunnableEmailCapture.svelte'
+	import DefaultEmailCapture from './email/DefaultEmailCapture.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
@@ -239,8 +239,8 @@
 				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
-		{:else if captureType === 'runnable_email'}
-			<RunnableEmailCapture
+		{:else if captureType === 'default_email'}
+			<DefaultEmailCapture
 				{path}
 				{isFlow}
 				emailDomain={data?.emailDomain}

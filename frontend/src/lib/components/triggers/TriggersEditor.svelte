@@ -295,7 +295,7 @@
 								onDeleteDraft={deleteTrigger}
 								onReset={handleResetDraft}
 								webhookToken={$triggersCount?.webhook_count}
-								emailToken={$triggersCount?.runnable_email_count}
+								emailToken={$triggersCount?.default_email_count}
 							/>
 						</div>
 					{:else}
@@ -369,8 +369,8 @@
 										onReset={() => {
 											handleResetDraft(triggersState.selectedTriggerIndex)
 										}}
-										on:email-domain={({ detail }) => {
-											emailDomain = detail
+										onEmailDomain={(domain) => {
+											emailDomain = domain
 										}}
 									/>
 								</div>

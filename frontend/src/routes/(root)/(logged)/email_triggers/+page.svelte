@@ -44,7 +44,6 @@
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
-	import { isCloudHosted } from '$lib/cloud'
 	import { getEmailAddress, getEmailDomain } from '$lib/components/triggers/email/utils'
 
 	type TriggerW = EmailTrigger & { canWrite: boolean }
@@ -54,6 +53,7 @@
 	let loading = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
+	let emailDomain: string | null = $state(null)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -71,6 +71,7 @@
 			}
 		)
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'emails', $usedTriggerKinds)
+		emailDomain = await getEmailDomain()
 		loading = false
 	}
 
@@ -196,11 +197,6 @@
 		loadQueryFilters()
 	})
 
-	let emailDomain: string | null = $state(null)
-	getEmailDomain().then((domain) => {
-		emailDomain = domain
-	})
-
 	run(() => {
 		updateQueryFilters(selectedFilterKind, filterUserFolders)
 	})
@@ -279,6 +275,12 @@
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+						{@const emailAddress = getEmailAddress(
+							local_part,
+							workspaced_local_part ?? false,
+							workspace_id,
+							emailDomain ?? ''
+						)}
 
 						<div
 							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -298,9 +300,7 @@
 												{@html marked}
 											</span>
 										{:else}
-											{isCloudHosted() || workspaced_local_part
-												? workspace_id + '/' + local_part
-												: local_part}
+											{emailAddress}
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
@@ -317,15 +317,7 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										on:click={() =>
-											copyToClipboard(
-												getEmailAddress(
-													local_part,
-													workspaced_local_part ?? false,
-													workspace_id,
-													emailDomain ?? ''
-												)
-											)}
+										on:click={() => copyToClipboard(emailAddress)}
 										color="dark"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}

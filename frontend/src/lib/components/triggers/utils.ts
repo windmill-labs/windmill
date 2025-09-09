@@ -1,13 +1,4 @@
-import {
-	Webhook,
-	Mail,
-	Calendar,
-	Route,
-	Unplug,
-	Database,
-	Terminal,
-	MailWarning
-} from 'lucide-svelte'
+import { Webhook, Mail, Calendar, Route, Unplug, Database, Terminal } from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
@@ -48,7 +39,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 
 export type TriggerType =
 	| 'webhook'
-	| 'runnable_email'
+	| 'default_email'
 	| 'email'
 	| 'schedule'
 	| 'http'
@@ -80,7 +71,7 @@ export type Trigger = {
 export const triggerIconMap = {
 	webhook: Webhook,
 	email: Mail,
-	runnable_email: MailWarning,
+	default_email: Mail,
 	schedule: Calendar,
 	http: Route,
 	websocket: Unplug,
@@ -105,7 +96,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 	const capturableTriggerTypes: TriggerType[] = [
 		'webhook',
 		'email',
-		'runnable_email',
+		'default_email',
 		'http',
 		'websocket',
 		'postgres',
@@ -134,7 +125,7 @@ export function updateTriggersCount(
 	// Map trigger types to their corresponding count property names
 	const countPropertyMap: Record<TriggerType, string | undefined> = {
 		webhook: undefined,
-		runnable_email: undefined,
+		default_email: undefined,
 		schedule: 'schedule_count',
 		http: 'http_routes_count',
 		websocket: 'websocket_count',
@@ -193,8 +184,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'webhook'
 		case 'emails':
 			return 'email'
-		case 'runnable_emails':
-			return 'runnable_email'
+		case 'default_emails':
+			return 'default_email'
 		case 'schedules':
 			return 'schedule'
 		case 'routes':
@@ -242,7 +233,7 @@ export async function deployTriggers(
 	// Map of trigger types to their save functions
 	const triggerSaveFunctions: Record<TriggerType, Function | undefined> = {
 		webhook: undefined,
-		runnable_email: undefined,
+		default_email: undefined,
 		schedule: (trigger: Trigger) => {
 			if (trigger.isPrimary && initialPath) {
 				trigger.draftConfig = {
@@ -437,8 +428,8 @@ export function getTriggerLabel(trigger: Trigger): string {
 
 	if (type === 'webhook') {
 		return 'Webhook'
-	} else if (type === 'runnable_email') {
-		return 'Runnable email'
+	} else if (type === 'default_email') {
+		return 'Email'
 	} else if (type === 'cli') {
 		return 'CLI'
 	} else if (type === 'http' && !emptyString(config?.route_path)) {
@@ -473,7 +464,7 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 	const triggerTypeOrder = [
 		'webhook',
 		'cli',
-		'runnable_email',
+		'default_email',
 		'poll',
 		'schedule',
 		'http',

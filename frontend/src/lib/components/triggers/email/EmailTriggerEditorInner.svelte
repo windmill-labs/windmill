@@ -287,7 +287,7 @@
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F19669'}
+									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -301,6 +301,7 @@
 				bind:local_part
 				bind:isValid
 				bind:workspaced_local_part
+				bind:dirtyLocalPart
 				{can_write}
 				showTestingBadge={isEditor}
 				isDraftOnly={trigger ? trigger.isDraft : false}

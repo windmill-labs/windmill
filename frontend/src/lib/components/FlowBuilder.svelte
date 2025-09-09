@@ -615,7 +615,7 @@
 		new Triggers(
 			[
 				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'runnable_email', path: '', isDraft: false },
+				{ type: 'default_email', path: '', isDraft: false },
 				...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
 			selectedTriggerIndexFromUrl,

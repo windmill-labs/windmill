@@ -2907,6 +2907,8 @@ paths:
                     type: boolean
                   sqs_used:
                     type: boolean
+                  email_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -2916,6 +2918,7 @@ paths:
                   - mqtt_used
                   - gcp_used
                   - sqs_used
+                  - email_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -16199,7 +16202,7 @@ components:
           type: number
         email_count:
           type: number
-        runnable_email_count:
+        default_email_count:
           type: number
         websocket_count:
           type: number
@@ -18280,7 +18283,7 @@ components:
     CaptureTriggerKind:
       type: string
       enum:
-        [webhook, http, websocket, kafka, runnable_email, nats, postgres, sqs, mqtt, gcp, email]
+        [webhook, http, websocket, kafka, default_email, nats, postgres, sqs, mqtt, gcp, email]
 
     Capture:
       type: object

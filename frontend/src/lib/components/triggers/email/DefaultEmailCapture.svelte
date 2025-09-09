@@ -2,8 +2,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { base32 } from 'rfc4648'
-	import ClipboardPanel from './ClipboardPanel.svelte'
-	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
+	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
+	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
@@ -40,7 +40,7 @@
 
 {#if captureInfo}
 	<CaptureSection
-		captureType="runnable_email"
+		captureType="default_email"
 		disabled={false}
 		{captureInfo}
 		{captureLoading}

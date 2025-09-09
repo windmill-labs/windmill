@@ -761,7 +761,7 @@ pub struct TriggersCount {
     http_routes_count: i64,
     webhook_count: i64,
     email_count: i64,
-    runnable_email_count: i64,
+    default_email_count: i64,
     websocket_count: i64,
     kafka_count: i64,
     nats_count: i64,
@@ -912,7 +912,7 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
-    let runnable_email_count = (if is_flow {
+    let default_email_count = (if is_flow {
         sqlx::query_scalar!(
             "SELECT COUNT(*) FROM token WHERE label LIKE 'email-%' AND workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
             w_id,
@@ -933,7 +933,7 @@ pub async fn get_triggers_count_internal(
         schedule_count,
         http_routes_count,
         webhook_count,
-        runnable_email_count,
+        default_email_count,
         email_count,
         websocket_count,
         kafka_count,
