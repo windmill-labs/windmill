@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.540.0](https://github.com/windmill-labs/windmill/compare/v1.539.1...v1.540.0) (2025-09-08)
+
+
+### Features
+
+* add worker_group_job_stats table for efficient job metrics aggregation ([#6527](https://github.com/windmill-labs/windmill/issues/6527)) ([20f4086](https://github.com/windmill-labs/windmill/commit/20f4086a7709f196d9deb7e8e1744eb7848a4fc7))
+* **backend:** prefix matching for list_paths_from_workspace_runnable + bulk delete endpoints for scripts/variables/resources ([#6542](https://github.com/windmill-labs/windmill/issues/6542)) ([5aac5fa](https://github.com/windmill-labs/windmill/commit/5aac5fa1361860859971fc77b4dd87048f536291))
+* timeout as expression ([#6509](https://github.com/windmill-labs/windmill/issues/6509)) ([c210a40](https://github.com/windmill-labs/windmill/commit/c210a404e03f2a857c2fabbbff2ce23189852eff))
+
 ## [1.539.1](https://github.com/windmill-labs/windmill/compare/v1.539.0...v1.539.1) (2025-09-06)
 
 
