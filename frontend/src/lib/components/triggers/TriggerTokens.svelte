@@ -22,7 +22,7 @@
 				: await ScriptService.listTokensOfScript({ workspace: $workspaceStore!, path })
 		).filter((x) => x.label && x.label.startsWith(labelPrefix + '-'))
 		if (labelPrefix == 'email') {
-			$triggersCount = { ...($triggersCount ?? {}), email_count: tokens?.length }
+			$triggersCount = { ...($triggersCount ?? {}), default_email_count: tokens?.length }
 		} else {
 			$triggersCount = { ...($triggersCount ?? {}), webhook_count: tokens?.length }
 		}
