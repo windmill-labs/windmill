@@ -120,16 +120,21 @@
 		{:else}
 			<div class="w-6"></div>
 		{/if}
-		<div class="flex-1 h-1 bg-gray-50 dark:bg-gray-800 rounded-sm overflow-hidden">
+		<div class="flex-1 h-3 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden">
 			{#if waitingLen > 100 && selectedItem.created_at}
 				<div
 					style="width: {((selectedItem.created_at - min) / total) * 100}%"
 					class="h-full float-left"
-				></div>
+				>
+					<div class="h-1 w-full"></div>
+				</div>
 				<div
 					style="width: {(waitingLen / total) * 100}%"
 					class="h-full float-left bg-gray-300 dark:bg-gray-600"
-				></div>
+					title={msToReadableTime(waitingLen, 1)}
+				>
+					<div class="h-1 bg-gray-300 dark:bg-gray-600 w-full"></div>
+				</div>
 			{:else if selectedItem?.started_at}
 				<div
 					style="width: {((selectedItem.started_at - min) / total) * 100}%"
@@ -143,10 +148,18 @@
 					<div
 						style="width: {(selectedLen / total) * 100}%"
 						class={twMerge(
-							'h-full ',
-							isRunning(selectedItem) ? 'float-right bg-blue-400' : 'float-left bg-blue-500'
+							'h-full group flex items-end',
+							isRunning(selectedItem) ? 'float-right' : 'float-left'
 						)}
-					></div>
+						title={msToReadableTime(selectedLen, 1)}
+					>
+						<div
+							class={twMerge(
+								'h-1 w-full rounded-t-sm group-hover:h-full',
+								isRunning(selectedItem) ? 'bg-blue-400' : 'bg-blue-500'
+							)}
+						></div>
+					</div>
 				{/if}
 			{:else}
 				<!-- All iterations -->
@@ -154,16 +167,24 @@
 					{#if item.started_at}
 						<div
 							style="width: {(getGap(items, i) / total) * 100}%"
-							class={twMerge('h-full float-left bg-gray-50 dark:bg-gray-800')}
+							class={twMerge('h-full float-left bg-gray-300 dark:bg-gray-800')}
 						></div>
 						<div
 							style="width: {(getLength(item) / total) * 100}%"
 							class={twMerge(
-								'h-full ',
-								isRunning(item) ? 'float-right bg-blue-400' : 'float-left bg-blue-500',
-								i > 0 ? 'border-l border-gray-50 dark:border-gray-800 ' : ''
+								'h-full group flex items-end',
+								isRunning(item) ? 'float-right' : 'float-left'
 							)}
-						></div>
+							title={`Ran in ${msToReadableTime(getLength(item), 1)}`}
+						>
+							<div
+								class={twMerge(
+									'h-1 w-full rounded-t-sm group-hover:h-full',
+									isRunning(selectedItem) ? 'bg-blue-400' : 'bg-blue-500',
+									i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
+								)}
+							></div>
+						</div>
 					{/if}
 				{/each}
 			{/if}
