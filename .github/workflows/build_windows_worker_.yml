@@ -41,7 +41,7 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
-      - name: Cargo build windmill_duckdb_ffi_internal windows
+      - name: Cargo build dynamic libraries windows
         timeout-minutes: 90
         run: |
           cd backend/windmill-duckdb-ffi-internal
@@ -68,7 +68,7 @@ jobs:
           name: windmill-ee-binary
           path: ./backend/target/release/windmill-ee.exe
 
-      - name: Upload windmill_duckdb_ffi_internal.dll artifact
+      - name: Upload dynamic libraries artifact
         uses: actions/upload-artifact@v4
         with:
           name: windmill-ee-binary
