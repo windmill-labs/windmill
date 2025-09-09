@@ -8,7 +8,6 @@ import {
   PostgresTrigger,
   SqsTrigger,
   WebsocketTrigger,
-  EmailTrigger,
 } from "../../../gen/types.gen.ts";
 import { colors, Command, log, SEP, Table } from "../../../deps.ts";
 import {
@@ -32,7 +31,6 @@ type Trigger = {
   mqtt: MqttTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
-  email: EmailTrigger
 };
 
 type TriggerFile<K extends TriggerType> = Omit<
@@ -67,7 +65,6 @@ async function getTrigger<K extends TriggerType>(
     mqtt: wmill.getMqttTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
-    email: wmill.getEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
 
@@ -98,7 +95,6 @@ async function updateTrigger<K extends TriggerType>(
     gcp: async (args) => {
       throw new Error("GCP triggers are not supported yet");
     },
-    email: wmill.updateEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });
@@ -127,7 +123,6 @@ async function createTrigger<K extends TriggerType>(
     gcp: async (args) => {
       throw new Error("GCP triggers are not supported yet");
     },
-    email: wmill.createEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });
@@ -210,9 +205,6 @@ async function list(opts: GlobalOptions) {
   const gcpTriggers = await wmill.listGcpTriggers({
     workspace: workspace.workspaceId,
   });
-  const emailTriggers = await wmill.listEmailTriggers({
-    workspace: workspace.workspaceId,
-  });
   const triggers = [
     ...httpTriggers.map((x) => ({ path: x.path, kind: "http" })),
     ...websocketTriggers.map((x) => ({ path: x.path, kind: "websocket" })),
@@ -222,7 +214,6 @@ async function list(opts: GlobalOptions) {
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
-    ...emailTriggers.map((x) => ({ path: x.path, kind: "email" })),
   ];
 
   new Table()

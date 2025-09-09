@@ -689,8 +689,7 @@ export async function elementsToMap(
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
-        path.endsWith(".gcp_trigger" + ext) ||
-        path.endsWith(".email_trigger" + ext))
+        path.endsWith(".gcp_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -1045,8 +1044,7 @@ function getOrderFromPath(p: string) {
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
-    typ == "gcp_trigger" ||
-    typ == "email_trigger"
+    typ == "gcp_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -2137,12 +2135,6 @@ export async function push(
                   await wmill.deleteGcpTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".gcp_trigger.json"),
-                  });
-                  break;
-                case "email_trigger":
-                  await wmill.deleteEmailTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".email_trigger.json"),
                   });
                   break;
                 case "variable":
