@@ -124,6 +124,7 @@
             sqlx-cli
             sccache
             nsjail
+            jq
 
             # Python
             flock
