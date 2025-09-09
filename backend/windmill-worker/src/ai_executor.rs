@@ -927,25 +927,52 @@ async fn run_agent(
                             })?;
 
                         // Find the first image generation output
-                        let image_output =
+                        let image_generation_call =
                             image_response
                                 .output
                                 .iter()
                                 .find_map(|output| match output {
-                                    OpenAIOutput::ImageGenerationCall { result, .. } => {
-                                        Some(result)
-                                    }
+                                    OpenAIOutput::ImageGenerationCall {
+                                        id,
+                                        status,
+                                        background,
+                                        output_format,
+                                        quality,
+                                        result,
+                                    } => Some((
+                                        id,
+                                        status,
+                                        background,
+                                        output_format,
+                                        quality,
+                                        result,
+                                    )),
                                     _ => None,
                                 });
 
-                        if let Some(image_data) = image_output {
+                        if let Some((
+                            id,
+                            status,
+                            background,
+                            output_format,
+                            quality,
+                            base64_image,
+                        )) = image_generation_call
+                        {
                             // Add assistant message with the stringified image output
                             messages.push(OpenAIMessage {
                                 role: "assistant".to_string(),
-                                content: Some(serde_json::to_string(&serde_json::json!({
-                                    "type": "image_generation_call",
-                                    "result": image_data
-                                })).unwrap_or_else(|_| format!("{{\"type\":\"image_generation_call\",\"result\":\"{}\"}}", image_data))),
+                                content: Some(
+                                    serde_json::json!({
+                                        "type": "image_generation_call",
+                                        "id": id,
+                                        "status": status,
+                                        "background": background,
+                                        "output_format": output_format,
+                                        "quality": quality
+                                    })
+                                    .to_string(),
+                                ),
                                 ..Default::default()
                             });
 
@@ -965,7 +992,7 @@ async fn run_agent(
 
                             // Attempt to upload image to S3
                             let s3_object = match base64::engine::general_purpose::STANDARD
-                                .decode(image_data)
+                                .decode(base64_image)
                             {
                                 Ok(image_bytes) => {
                                     // Generate unique S3 key
@@ -1008,9 +1035,7 @@ async fn run_agent(
                             };
 
                             serde_json::json!({
-                                "image_b64": image_data,
                                 "s3_object": s3_object,
-                                "provider": "openai",
                                 "generated": true
                             })
                         } else {
