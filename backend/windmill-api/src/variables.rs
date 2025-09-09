@@ -773,11 +773,7 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
-pub async fn get_value_internal<
-'a,
-'e,
-A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
->(
+pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
     acquire_db: A,
     db: &DB,
     w_id: &str,
@@ -820,6 +816,8 @@ A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
             None,
         )
         .await?;
+        tx.commit().await?;
+
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
@@ -836,7 +834,6 @@ A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
-            tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;
             decrypt(&mc, value)?
         } else {
