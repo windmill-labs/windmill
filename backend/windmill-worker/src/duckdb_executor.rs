@@ -233,6 +233,7 @@ impl DuckDbFfiLib {
     }
 }
 
+// Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
     query_block_list_count: usize,
