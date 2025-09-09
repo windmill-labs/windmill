@@ -219,10 +219,10 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
-				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
+				onSavedNewAppPath={(url) => {
+					goto(`/apps/edit/${url}`)
 					if (app) {
-						app.path = event.detail
+						app.path = url
 					}
 				}}
 				on:restore={onRestore}
