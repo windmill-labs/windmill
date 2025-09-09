@@ -110,7 +110,7 @@
 
 {#if gridItemWithLocation}
 	{#if gridItemWithLocation.location.type === 'grid'}
-		{#each $app.grid as gridItem, gridItemIndex}
+		{#each $app.grid as gridItem, gridItemIndex (gridItem.data.id)}
 			{#if gridItem.data.id === gridItemWithLocation.item.id}
 				<ComponentPanel
 					bind:item={$app.grid[gridItemIndex]}
@@ -122,7 +122,7 @@
 			{/if}
 		{/each}
 	{:else if gridItemWithLocation.location.type === 'subgrid' && $app.subgrids}
-		{#each $app.subgrids[gridItemWithLocation.location.subgridKey] as subgridItem, subgridItemIndex}
+		{#each $app.subgrids[gridItemWithLocation.location.subgridKey] as subgridItem, subgridItemIndex (subgridItem.data.id)}
 			{#if subgridItem.data.id === gridItemWithLocation.item.id}
 				<ComponentPanel
 					bind:item={$app.subgrids[gridItemWithLocation.location.subgridKey][subgridItemIndex]}
