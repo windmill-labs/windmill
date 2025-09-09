@@ -97,6 +97,12 @@ jobs:
           image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
+      - uses: shrink/actions-docker-extract@v3
+        id: extract-duckdb-ffi-internal
+        with:
+          image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
+          path: "/usr/src/app/windmill_duckdb_ffi_internal.so"
+
       # - uses: shrink/actions-docker-extract@v3
       #   id: extract-ee-arm64
       #   with:
@@ -112,6 +118,11 @@ jobs:
         with:
           name: RHEL9-amd64 build
           path: ${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RHEL9-amd64 dynamic libraries build
+          path: ${{ steps.extract-duckdb-ffi-internal.outputs.destination }}/windmill_duckdb_ffi_internal.so
 
       # - uses: actions/upload-artifact@v4
       #   with:
