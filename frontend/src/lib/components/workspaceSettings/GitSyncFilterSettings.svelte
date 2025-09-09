@@ -36,7 +36,6 @@
 		requiresMigration = false,
 		actions = undefined,
 		useIndividualBranch = false,
-		skipWorkspaceForkTracking  = true
 	} = $props()
 
 	// Component state

@@ -73,7 +73,7 @@
 		checking = false
 	}
 
-	const WM_FORK_PREFIX = 'wm-forked-'
+	const WM_FORK_PREFIX = 'wm-fork-'
 
 	async function createOrForkWorkspace() {
 		const prefixed_id = `${WM_FORK_PREFIX}${id}`
@@ -89,7 +89,7 @@
 					}
 				})
 
-				sendUserToast(`Succesfully forked workspace ${workspaceStore} as: ${id}`)
+				sendUserToast(`Succesfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 			} else {
 				sendUserToast('No workspace selected, cannot fork non-existant workspace', true)
 			}

@@ -283,7 +283,6 @@
 									isInitialSetup={false}
 									requiresMigration={repo.legacyImported}
 									useIndividualBranch={repo.use_individual_branch}
-									skipWorkspaceForkTracking={repo.skip_workspace_fork_tracking}
 								>
 									{#snippet actions()}
 										<Button
@@ -296,17 +295,6 @@
 									{/snippet}
 								</GitSyncFilterSettings>
 							{/if}
-								<div class="flex justify-between items-start">
-								<Toggle
-									disabled={!repo.git_repo_resource_path}
-									bind:checked={repo.skip_workspace_fork_tracking}
-									options={{
-										right: 'Don\'t track workspace forks as git branches.',
-										rightTooltip: 'When a workspace fork is created, the git repo settings are copied out to the fork so that changes are tracked in a dedicated git branch. Use this setting to opt out for this repository'
-									}}
-								/>
-								</div>
-
 							{#if !repo.isUnsavedConnection}
 								<div class="flex justify-between items-start">
 									<!-- Display mode settings as prominent text -->

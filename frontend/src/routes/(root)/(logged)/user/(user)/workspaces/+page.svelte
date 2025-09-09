@@ -128,8 +128,8 @@
 	// Check if there are any forked workspaces to show the toggle
 	$: hasForkedWorkspaces = workspaces?.some((w) => w.parent_workspace_id != null) ?? false
 
-	// Legacy variable for backward compatibility
-	$: groupedNonAdminWorkspaces = showAllForks ? forkedWorkspacesHierarchy : mainWorkspaces
+	// $: groupedNonAdminWorkspaces = showAllForks ? forkedWorkspacesHierarchy : mainWorkspaces
+	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {

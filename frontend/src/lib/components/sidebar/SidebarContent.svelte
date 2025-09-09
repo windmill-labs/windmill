@@ -351,7 +351,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith("wm-forked")
+				...($workspaceStore?.startsWith("wm-fork")
 					? [
 							{
 								label: 'Delete Forked Workspace',
@@ -657,7 +657,7 @@
 	</div>
 </ConfirmationModal>
 
-{#if $workspaceStore?.startsWith("wm-forked-")}
+{#if $workspaceStore?.startsWith("wm-fork-")}
 <ConfirmationModal
 	open={deleteWorkspaceForkModal}
 	title="Delete forked workspace"

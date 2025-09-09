@@ -115,7 +115,7 @@
 				<MenuButton
 					class="!text-xs"
 					icon={GitFork}
-					label={removePrefix($workspaceStore ?? '', 'wm-forked-')}
+					label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
 					{isCollapsed}
 					color={$workspaceColor}
 					{trigger}
