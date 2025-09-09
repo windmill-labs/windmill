@@ -25,6 +25,8 @@
 		zoom?: 'in' | 'out'
 		globalIterationBounds?: GlobalIterationBounds
 		loadPreviousIterations?: () => void
+		onSelectIteration?: (detail: { id: string; index: number }) => void
+		selectedIteration?: number
 	}
 
 	let {
@@ -39,7 +41,9 @@
 		onZoom,
 		zoom = 'in',
 		globalIterationBounds,
-		loadPreviousIterations
+		loadPreviousIterations,
+		onSelectIteration,
+		selectedIteration
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
@@ -169,26 +173,8 @@
 				{/if}
 			{:else}
 				<!-- All iterations -->
-				{#if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
-					<Tooltip class="float-left h-full" openDelay={100}>
-						<button
-							class={twMerge(
-								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm'
-							)}
-							style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
-							onclick={(e) => {
-								e.stopPropagation()
-								loadPreviousIterations?.()
-							}}
-						>
-							+</button
-						>
-						{#snippet text()}
-							Load previous iterations
-						{/snippet}
-					</Tooltip>
-				{/if}
 				{#each items as item, i}
+					{@const iterationIndex = i + Math.max(globalIterationBounds?.iteration_from ?? 0, 0)}
 					{#if item.started_at}
 						<div
 							style="width: {(getGap(items, i) / total) * 100}%"
@@ -199,14 +185,47 @@
 							class={twMerge('h-full ', isRunning(item) ? 'float-right' : 'float-left')}
 							openDelay={100}
 						>
-							<div
-								class={twMerge(
-									'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-									isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
-									i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
-								)}
-							></div>
+							<!-- svelte-ignore a11y_consider_explicit_label -->
+							<div class="relative w-full h-full">
+								<button
+									class={twMerge(
+										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block',
+										isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
+										i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : '',
+										iterationIndex === selectedIteration ? 'outline' : ''
+									)}
+									onclick={(e) => {
+										e.stopPropagation()
+										onSelectIteration?.({
+											id: item.id,
+											index: iterationIndex
+										})
+									}}
+								>
+								</button>
+								{#if i === 0 && globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
+									<Tooltip class="absolute -left-1 -translate-x-full top-0 h-full" openDelay={100}>
+										<button
+											class={twMerge(
+												'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm'
+											)}
+											style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
+											onclick={(e) => {
+												e.stopPropagation()
+												loadPreviousIterations?.()
+											}}
+										>
+											+</button
+										>
+										{#snippet text()}
+											Load previous iterations
+										{/snippet}
+									</Tooltip>
+								{/if}
+							</div>
 							{#snippet text()}
+								{`#${iterationIndex + 1}`}
+								<br />
 								{msToReadableTime(getLength(item), 1)}
 							{/snippet}
 						</Tooltip>

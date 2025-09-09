@@ -730,6 +730,17 @@
 														loadPreviousIterations={() => {
 															loadPreviousIterations?.(module.id, 20)
 														}}
+														onSelectIteration={({ id, index }) => {
+															console.log('dbg onSelectIteration', { id, index })
+															onSelectedIteration?.({
+																id,
+																index,
+																manuallySet: true,
+																moduleId: module.id
+															})
+														}}
+														selectedIteration={localModuleStates[module.id]?.selectedForloopIndex ??
+															0}
 													/>
 												</div>
 											{/if}
