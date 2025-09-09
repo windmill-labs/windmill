@@ -111,8 +111,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 build
-          path: ${{ steps.extract-ee-amd64.outputs.destination
-            }}/windmill-ee-amd64-rhel9
+          path: ${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9
 
       # - uses: actions/upload-artifact@v4
       #   with:

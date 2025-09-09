@@ -221,6 +221,12 @@ jobs:
           path: "/usr/src/app/windmill"
 
       - uses: shrink/actions-docker-extract@v3
+        id: extract-duckdb-ffi-internal
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+          path: "/usr/src/app/windmill_duckdb_ffi_internal.so"
+
+      - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
@@ -237,6 +243,7 @@ jobs:
           files: |
             ${{ steps.extract.outputs.destination }}/*
             ${{ steps.extract-ee.outputs.destination }}/*
+            ${{ steps.extract-duckdb-ffi-internal.outputs.destination }}/*
 
   # attach_arm64_binary_to_release:
   #   needs: [build, build_ee]
