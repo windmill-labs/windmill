@@ -43,8 +43,8 @@
 			if (openedDrawers.val.includes(id)) {
 				return
 			}
-			offset = openedDrawers.val.length - 1
 			openedDrawers.val.push(id)
+			offset = initialOffset + openedDrawers.val.length
 		}
 	}
 
@@ -92,6 +92,7 @@
 
 	if (open) {
 		openedDrawers.val.push(id)
+		offset = initialOffset + openedDrawers.val.length
 	}
 
 	let wasEverOpen = false
