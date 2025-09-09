@@ -192,11 +192,17 @@ lazy_static::lazy_static! {
 
     pub static ref SHARD_DB_URL: Option<String> = std::env::var("SHARD_DB_URL").ok();
 
-    pub static ref SHARD_ID: Option<u8> = std::env::var("SHARD_ID").ok()
-        .and_then(|x| x.parse::<u8>().ok());
+    pub static ref SHARD_ID: Option<i64> = std::env::var("SHARD_ID").ok()
+        .and_then(|x| x.parse::<i64>().ok());
 
-    pub static ref NUM_WORKERS: Option<u64> = std::env::var("NUM_WORKERS").ok()
-        .and_then(|x| x.parse::<u64>().ok());
+    pub static ref SHARD_URLS: Option<Vec<String>> = std::env::var("SHARD_URLS").ok().map(|shard_url| {
+        let shard_url = shard_url.split(',').map(|s| s.to_owned()).collect_vec();
+        shard_url
+    });
+
+    pub static ref SHARD_DB_INSTANCE: Arc<RwLock<Option<Pool<Postgres>>>> = Arc::new(RwLock::new(None));
+
+    pub static ref SHARD_ID_TO_SHARD_URLS: Arc<RwLock<Option<HashMap<usize, String>>>> = Arc::new(RwLock::new(None));
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -375,7 +381,7 @@ fn format_pull_query(peek: String) -> String {
                 started_at = coalesce(started_at, now()),
                 suspend_until = null,
                 worker = $1
-            WHERE id = (SELECT id FROM peek) AND shard_id = (SELECT shard_id FROM peek) 
+            WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
                 canceled_by, canceled_reason, worker
@@ -414,31 +420,19 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
-#[inline]
-fn generate_shard_query_filter() -> String {
-    match &*SHARD_ID {
-        Some(shard_id) => shard_id.to_string(),
-        None => "null".to_string(),
-    }
-}
-
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
     let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
-
-    let shard_filter = generate_shard_query_filter();
 
     let peek_query = format!(
         r#"
         SELECT 
-            id,
-            shard_id
+            id
         FROM 
             v2_job_queue
         WHERE 
             suspend_until IS NOT NULL AND 
             (suspend <= 0 OR suspend_until <= now()) AND 
-            tag IN ({tags_list}) AND
-            shard_id = {shard_filter}
+            tag IN ({tags_list})
         ORDER BY 
             priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
@@ -460,22 +454,18 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    let shard_filter = generate_shard_query_filter();
-
     let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
 
     let peek_query = format!(
         r#"
         SELECT 
-            id,
-            shard_id
+            id
         FROM 
             v2_job_queue
         WHERE 
             running = false AND
             tag IN ({tags_list}) AND
-            scheduled_for <= now() AND
-            shard_id = {shard_filter}
+            scheduled_for <= now()
         ORDER BY 
             priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED

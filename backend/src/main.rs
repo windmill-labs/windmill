@@ -58,7 +58,7 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_URLS, SHARD_URLS, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP
     },
     KillpillSender, METRICS_ENABLED,
 };
@@ -310,6 +310,16 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
         println!("Failed to install rustls crypto provider");
+    }
+
+    if let Some(shard_urls) = &*SHARD_URLS {
+        let mut hash = HashMap::new();
+        for (i, shard_url) in shard_urls.iter().enumerate() {
+            tracing::info!("Shard url: {}", shard_url);
+            hash.insert(i, shard_url.to_string());
+        }
+        let mut shard_url_to_db = SHARD_ID_TO_SHARD_URLS.write().await;
+        *shard_url_to_db = Some(hash);
     }
 
     #[cfg(feature = "enterprise")]
@@ -767,6 +777,14 @@ Windmill Community Edition {GIT_VERSION}
                             ),
                         };
                         workers.push(worker_conn);
+                    }
+
+                    match &*SHARD_DB_URL {
+                        Some(shard_db_url) => {
+                            let db = windmill_common::connect(shard_db_url.as_str(), 5, true).await?;
+                            *SHARD_DB_INSTANCE.write().await = Some(db);
+                        }
+                        _ => {}
                     }
 
                     run_workers(

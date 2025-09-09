@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::hash::{DefaultHasher, Hasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -21,8 +21,8 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
+use sqlx::{postgres::PgConnection, Connection as SqlxConnection, Encode, PgExecutor};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
-use sqlx::{Encode, PgExecutor};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -36,7 +36,9 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
-use windmill_common::worker::{Connection, NUM_WORKERS, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{
+    Connection, SCRIPT_TOKEN_EXPIRY, SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_URLS,
+};
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
@@ -2587,8 +2589,16 @@ pub async fn pull(
         }
         if pull_loop_count > 1000 {
             tracing::error!("Pull job loop count exceeded 1000, breaking");
+            println!("Pull job loop count exceeded 1000, breaking");
             return Ok(PulledJobResult { job: None, suspended: false });
         }
+
+        let pull_db = if SHARD_DB_URL.is_some() {
+            &SHARD_DB_INSTANCE.read().await.clone().unwrap()
+        } else {
+            db
+        };
+
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2596,7 +2606,7 @@ pub async fn pull(
                 } else {
                     sqlx::query_as::<_, PulledJob>(query_suspended)
                         .bind(worker_name)
-                        .fetch_optional(db)
+                        .fetch_optional(pull_db)
                         .await?
                 };
                 if let Some(job) = job {
@@ -2604,7 +2614,7 @@ pub async fn pull(
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
-                        .fetch_optional(db)
+                        .fetch_optional(pull_db)
                         .await?;
                     PulledJobResult { job, suspended: false }
                 }
@@ -2623,11 +2633,19 @@ pub async fn pull(
                         base_tag
                     };
                     sqlx::query!(
-                        "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
+                        r#"
+                        UPDATE 
+                            v2_job_queue 
+                        SET 
+                            tag = $1, 
+                            running = false 
+                        WHERE 
+                            id = $2 
+                        "#,
                         tag,
                         job.id
                     )
-                    .execute(db)
+                    .execute(pull_db)
                     .await?;
                     continue;
                 }
@@ -2635,7 +2653,7 @@ pub async fn pull(
             return Ok(njob);
         };
         let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            db,
+            pull_db,
             suspend_first,
             worker_name,
             #[cfg(feature = "benchmark")]
@@ -2717,16 +2735,31 @@ pub async fn pull(
         }
 
         let job_script_path = pulled_job.runnable_path.clone().unwrap_or_default();
-
         let min_started_at = sqlx::query!(
-            "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
-            FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
-            WHERE v2_job.runnable_path = $1 AND v2_job.kind != 'dependencies'  AND v2_job_queue.running = true AND v2_job_queue.workspace_id = $2 AND v2_job_queue.canceled_by IS NULL AND v2_job.concurrent_limit > 0), $3) as min_started_at, now() AS now",
+            r#"
+            SELECT 
+                COALESCE((
+                    SELECT 
+                        MIN(started_at) AS min_started_at
+                    FROM 
+                        v2_job_queue 
+                    INNER 
+                        JOIN v2_job ON v2_job.id = v2_job_queue.id
+                    WHERE 
+                        v2_job.runnable_path = $1
+                        AND v2_job.kind != 'dependencies'
+                        AND v2_job_queue.running = TRUE
+                        AND v2_job_queue.workspace_id = $2
+                        AND v2_job_queue.canceled_by IS NULL
+                        AND v2_job.concurrent_limit > 0
+                ), $3) AS min_started_at,
+                NOW() AS now
+            "#,
             job_script_path,
             &pulled_job.workspace_id,
             max_ended_at
         )
-        .fetch_one(db)
+        .fetch_one(pull_db)
         .await
         .map_err(|e| {
             Error::internal_err(format!(
@@ -2736,14 +2769,23 @@ pub async fn pull(
 
         let job_uuid: Uuid = pulled_job.id;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s FROM
-                (SELECT duration_ms FROM concurrency_key LEFT JOIN v2_job_completed ON v2_job_completed.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
-                ORDER BY ended_at
-                DESC LIMIT 10) AS t",
+            r#"
+            SELECT 
+                CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s
+            FROM (
+                SELECT duration_ms
+                FROM concurrency_key
+                LEFT JOIN v2_job_completed ON v2_job_completed.id = concurrency_key.job_id
+                WHERE key = $1 AND ended_at IS NOT NULL
+                ORDER BY ended_at DESC
+                LIMIT 10
+            ) AS t
+            "#,
             job_concurrency_key
         )
         .fetch_one(db)
         .await?;
+
         tracing::debug!(
             "avg script duration computed: {}",
             avg_script_duration.unwrap_or(0)
@@ -2765,11 +2807,23 @@ pub async fn pull(
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
         let all_jobs = sqlx::query_scalar!(
-            "SELECT scheduled_for FROM v2_job_queue  INNER JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
-             WHERE key = $1 AND running = false AND canceled_by IS NULL AND scheduled_for >= $2",
+            r#"
+            SELECT 
+                scheduled_for
+            FROM 
+                v2_job_queue
+            INNER JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
+            WHERE 
+                key = $1
+                AND running = FALSE
+                AND canceled_by IS NULL
+                AND scheduled_for >= $2
+            "#,
             job_concurrency_key,
             estimated_next_schedule_timestamp - inc
-        ).fetch_all(db).await?;
+        )
+        .fetch_all(db)
+        .await?;
 
         tracing::debug!(
             "all_jobs: {:?}, estimated_next_schedule_timestamp: {:?}, inc: {:?}",
@@ -2823,21 +2877,32 @@ pub async fn pull(
         .await;
 
         sqlx::query!(
-            "
+            r#"
             WITH ping AS (
-                UPDATE v2_job_runtime SET ping = null WHERE id = $2
+                UPDATE v2_job_runtime
+                SET ping = NULL
+                WHERE id = $2
             )
-            UPDATE v2_job_queue SET
-                running = false,
-                started_at = null,
+            UPDATE 
+             v2_job_queue
+            SET
+                running = FALSE,
+                started_at = NULL,
                 scheduled_for = $1
-            WHERE id = $2",
+            WHERE 
+                id = $2
+        "#,
             estimated_next_schedule_timestamp,
-            job_uuid,
+            job_uuid
         )
         .execute(db)
         .await
-        .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Could not update and re-queue job {job_uuid}. \
+         The job will be marked as running but it is not running: {e:#}"
+            ))
+        })?;
     }
 }
 
@@ -4669,18 +4734,7 @@ pub async fn push<'c, 'd>(
     };
 
     //todo: proper i64 hash function or conversion to i64
-    let shard_id = NUM_WORKERS.map(|num_workers| {
-        let mut std_hasher = DefaultHasher::new();
-        std_hasher.write(job_id.as_bytes());
-        let shard_id = std_hasher.finish() % num_workers;
-        tracing::debug!(
-            "Job {} has been assigned to worker (shard_id: {})",
-            &job_id,
-            shard_id
-        );
-
-        shard_id as i64
-    });
+    let shard_id_to_shards_url = &*SHARD_ID_TO_SHARD_URLS.read().await;
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -4701,8 +4755,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
         )
         INSERT INTO v2_job_queue
-            (shard_id, workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($41, $2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
         job_id,
         workspace_id,
         raw_code,
@@ -4747,7 +4801,6 @@ pub async fn push<'c, 'd>(
         root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
-        shard_id
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -5107,20 +5160,25 @@ pub async fn get_same_worker_job(
     same_worker_job: &SameWorkerPayload,
 ) -> windmill_common::error::Result<Option<PulledJob>> {
     sqlx::query_as::<_, PulledJob>(
-        "WITH ping AS (
-                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1
-                    ),
-                    started_at AS (
-                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
-                    )
-                    SELECT
+        r#"
+                WITH ping AS (
+                    UPDATE v2_job_runtime 
+                    SET ping = NOW() 
+                    WHERE id = $1
+                ),
+                started_at AS (
+                    UPDATE v2_job_queue 
+                    SET started_at = NOW() 
+                    WHERE id = $1
+                )
+                SELECT
                     v2_job_queue.workspace_id,
                     v2_job_queue.id,
                     v2_job.args,
                     v2_job.parent_job,
                     v2_job.created_by,
                     v2_job_queue.started_at,
-                    scheduled_for,
+                    v2_job_queue.scheduled_for,
                     v2_job.runnable_path,
                     v2_job.kind,
                     v2_job.runnable_id,
@@ -5149,16 +5207,26 @@ pub async fn get_same_worker_job(
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,
-                    pj.runnable_path as parent_runnable_path,
-                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
-                    FROM v2_job_queue
-                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
-                    LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
-                    LEFT JOIN job_perms p ON p.job_id = v2_job.id
-                    LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
-                    WHERE v2_job_queue.id = $1
-",
+                    pj.runnable_path AS parent_runnable_path,
+                    p.email AS permissioned_as_email,
+                    p.username AS permissioned_as_username,
+                    p.is_admin AS permissioned_as_is_admin,
+                    p.is_operator AS permissioned_as_is_operator,
+                    p.groups AS permissioned_as_groups,
+                    p.folders AS permissioned_as_folders
+                FROM 
+                    v2_job_queue
+                INNER JOIN 
+                    v2_job ON v2_job.id = v2_job_queue.id
+                LEFT JOIN 
+                    v2_job_status ON v2_job_status.id = v2_job_queue.id
+                LEFT JOIN 
+                    job_perms p ON p.job_id = v2_job.id
+                LEFT JOIN 
+                    v2_job pj ON v2_job.parent_job = pj.id
+                WHERE 
+                    v2_job_queue.id = $1
+            "#,
     )
     .bind(same_worker_job.job_id)
     .fetch_optional(db)
