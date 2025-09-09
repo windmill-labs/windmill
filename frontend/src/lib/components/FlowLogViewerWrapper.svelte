@@ -116,9 +116,30 @@
 	}
 
 	let timelineAvailableWidths = $state<Record<string, number>>({})
+	let lastJobId: string | undefined = $state(job.id)
+
 	const timelinelWidth = $derived(
 		Math.max(Math.min(...Object.values(timelineAvailableWidths)) - 12, 0)
 	)
+
+	function updateJobId() {
+		if (job.id !== lastJobId) {
+			lastJobId = job.id
+			navigationChain = {}
+			expandedRows = {}
+			timelineAvailableWidths = {}
+			currentId = 'flow-root'
+			allExpanded = false
+			showResultsInputs = true
+		}
+	}
+
+	$effect.pre(() => {
+		job.id
+		untrack(() => {
+			job.id && updateJobId()
+		})
+	})
 </script>
 
 <div
