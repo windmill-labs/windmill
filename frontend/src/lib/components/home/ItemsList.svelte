@@ -146,14 +146,14 @@
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp,
-		filterUserFolders: boolean
+		filterUserFolders: boolean,
+		filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined
 	) {
-		if ($workspaceStore == 'admins') return true
-		if (filterUserFolders) {
-			return !item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
-		} else {
-			return true
-		}
+		if (!filterUserFoldersType || !filterUserFolders) return true
+		if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+		if (filterUserFoldersType === 'u/username and f/*')
+			return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+		return true // should not happen
 	}
 
 	let ownerFilter: string | undefined = $state(undefined)
@@ -217,6 +217,13 @@
 	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
 	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
+	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 	let includeWithoutMain = $state(
 		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
@@ -302,12 +309,12 @@
 					(x) =>
 						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
@@ -486,13 +493,13 @@
 						</div>
 					{/snippet}
 				</Popover>
-				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+				{#if filterUserFoldersType === 'only f/*'}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+				{:else if filterUserFoldersType === 'u/username and f/*'}
 					<Toggle
 						size="xs"
 						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore.username} and f/*` }}
+						options={{ right: `Only u/${$userStore?.username} and f/*` }}
 					/>
 				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
