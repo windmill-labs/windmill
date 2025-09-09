@@ -2,6 +2,7 @@
 	import { msToReadableTime, msToReadableTimeShort } from '$lib/utils'
 	import { ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { GlobalIterationBounds } from './graph'
 
 	interface TimelineItem {
 		created_at?: number
@@ -21,6 +22,8 @@
 		showZoomButtons?: boolean
 		onZoom?: () => void
 		zoom?: 'in' | 'out'
+		globalIterationBounds?: GlobalIterationBounds
+		loadPreviousIterations?: () => void
 	}
 
 	let {
@@ -33,7 +36,9 @@
 		timelinelWidth,
 		showZoomButtons = false,
 		onZoom,
-		zoom = 'in'
+		zoom = 'in',
+		globalIterationBounds,
+		loadPreviousIterations
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
@@ -100,7 +105,7 @@
 
 {#if min && items.length > 0}
 	<div
-		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-3 group"
+		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
 		style="width: {timelinelWidth}px"
 	>
 		{#if showZoomButtons}
@@ -148,7 +153,7 @@
 					<div
 						style="width: {(selectedLen / total) * 100}%"
 						class={twMerge(
-							'h-full flex items-end hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+							'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
 							isRunning(selectedItem) ? 'float-right bg-blue-400' : 'float-left bg-blue-500'
 						)}
 						title={msToReadableTime(selectedLen, 1)}
@@ -156,6 +161,22 @@
 				{/if}
 			{:else}
 				<!-- All iterations -->
+
+				{#if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
+					<button
+						style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
+						class={twMerge(
+							'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+							'float-left'
+						)}
+						onclick={(e) => {
+							e.stopPropagation()
+							loadPreviousIterations?.()
+						}}
+					>
+						+</button
+					>
+				{/if}
 				{#each items as item, i}
 					{#if item.started_at}
 						<div
@@ -166,7 +187,7 @@
 						<div
 							style="width: {(getLength(item) / total) * 100}%"
 							class={twMerge(
-								'h-full group flex items-end hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+								'h-full group hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
 								isRunning(item) ? 'float-right bg-blue-400' : 'float-left bg-blue-500',
 								i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : ''
 							)}

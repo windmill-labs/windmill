@@ -1547,6 +1547,10 @@
 				{workspaceId}
 				{render}
 				{onSelectedIteration}
+				{globalIterationBounds}
+				loadPreviousIterations={(key, amount) => {
+					loadPreviousIters(key, amount)
+				}}
 			/>
 		</div>
 		{#if selected == 'assets' && render}
