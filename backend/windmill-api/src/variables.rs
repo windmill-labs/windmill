@@ -25,7 +25,7 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithAuthed},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
@@ -238,9 +238,10 @@ async fn get_value(
 ) -> JsonResult<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
-    let tx = user_db.begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+
     return get_value_internal(
-        tx,
+        &userdb_authed,
         &db,
         &w_id,
         &path,
@@ -772,8 +773,8 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
-pub async fn get_value_internal<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
+    acquire_db: A,
     db: &DB,
     w_id: &str,
     path: &str,
@@ -786,6 +787,7 @@ pub async fn get_value_internal<'c>(
         }
     }
 
+    let mut tx = acquire_db.begin().await?;
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
@@ -793,6 +795,7 @@ pub async fn get_value_internal<'c>(
     .fetch_optional(&mut *tx)
     .warn_after_seconds(5)
     .await?;
+    drop(tx);
 
     let variable = if let Some(variable) = variable_o {
         variable
@@ -802,6 +805,7 @@ pub async fn get_value_internal<'c>(
     };
 
     let r = if variable.is_secret {
+        let mut tx = db.begin().await?;
         audit_log(
             &mut *tx,
             audit_author,
@@ -812,6 +816,8 @@ pub async fn get_value_internal<'c>(
             None,
         )
         .await?;
+        tx.commit().await?;
+
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
@@ -828,7 +834,6 @@ pub async fn get_value_internal<'c>(
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
-            tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;
             decrypt(&mc, value)?
         } else {
