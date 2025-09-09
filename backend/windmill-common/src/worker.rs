@@ -375,7 +375,7 @@ fn format_pull_query(peek: String) -> String {
                 started_at = coalesce(started_at, now()),
                 suspend_until = null,
                 worker = $1
-            WHERE id = (SELECT id FROM peek)
+            WHERE id = (SELECT id FROM peek) AND shard_id = (SELECT shard_id FROM peek) 
             RETURNING
                 started_at, scheduled_for,
                 canceled_by, canceled_reason, worker
@@ -415,30 +415,30 @@ fn format_pull_query(peek: String) -> String {
 }
 
 #[inline]
-fn generate_shard_query_filer() -> String {
-    let shard_filter = SHARD_ID
-        .map(|shard_id| format!("shard_id = {}", shard_id))
-        .unwrap_or_else(|| "1=1".to_string());
-
-    shard_filter
+fn generate_shard_query_filter() -> String {
+    match &*SHARD_ID {
+        Some(shard_id) => shard_id.to_string(),
+        None => "null".to_string(),
+    }
 }
 
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
     let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
 
-    let shard_filter = generate_shard_query_filer();
+    let shard_filter = generate_shard_query_filter();
 
     let peek_query = format!(
         r#"
         SELECT 
-            id
+            id,
+            shard_id
         FROM 
             v2_job_queue
         WHERE 
             suspend_until IS NOT NULL AND 
             (suspend <= 0 OR suspend_until <= now()) AND 
             tag IN ({tags_list}) AND
-            {shard_filter}
+            shard_id = {shard_filter}
         ORDER BY 
             priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
@@ -460,21 +460,22 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    let shard_filter = generate_shard_query_filer();
+    let shard_filter = generate_shard_query_filter();
 
     let tags_list = tags.iter().map(|tag| format!("'{tag}'")).join(", ");
 
     let peek_query = format!(
         r#"
         SELECT 
-            id
+            id,
+            shard_id
         FROM 
             v2_job_queue
         WHERE 
-            running = false
-            AND tag IN ({tags_list})
-            AND scheduled_for <= now()
-            AND {shard_filter}
+            running = false AND
+            tag IN ({tags_list}) AND
+            scheduled_for <= now() AND
+            shard_id = {shard_filter}
         ORDER BY 
             priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
