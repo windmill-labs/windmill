@@ -87,7 +87,6 @@
 
 	$effect(() => {
 		open
-		console.log('open', open)
 		untrack(() => {
 			open ? openDrawer() : closeDrawer()
 		})
