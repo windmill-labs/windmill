@@ -57,7 +57,7 @@ struct OpenAIToolCall {
     r#type: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentPart {
     Text {
@@ -73,33 +73,29 @@ enum ContentPart {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct ImageUrlData {
     url: String, // data:image/png;base64,... or https://...
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+enum OpenAIContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+#[derive(Deserialize, Serialize, Clone, Default, Debug)]
 struct OpenAIMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<Vec<ContentPart>>,
+    content: Option<OpenAIContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAIToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
     #[serde(skip_serializing)]
     agent_action: Option<AgentAction>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Default)]
-struct OpenAIMessageResponse {
-    role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<OpenAIToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_call_id: Option<String>,
 }
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
@@ -113,7 +109,7 @@ struct Message<'a> {
 
 #[derive(Deserialize)]
 struct OpenAIChoice {
-    message: OpenAIMessageResponse,
+    message: OpenAIMessage,
 }
 
 #[derive(Deserialize)]
@@ -611,37 +607,44 @@ async fn prepare_messages_for_api(
     workspace_id: &str,
 ) -> error::Result<Vec<OpenAIMessage>> {
     let mut prepared_messages = Vec::new();
-    
+
     for message in messages {
         let mut prepared_message = message.clone();
-        
+
         if let Some(content) = &message.content {
-            let mut prepared_content = Vec::new();
-            
-            for part in content {
-                match part {
-                    ContentPart::S3Object { s3_object } => {
-                        // Convert S3Object to base64 image URL
-                        let image_data_url = download_and_encode_s3_image(s3_object, client, workspace_id).await?;
-                        prepared_content.push(ContentPart::ImageUrl {
-                            image_url: ImageUrlData {
-                                url: image_data_url,
-                            },
-                        });
+            match content {
+                OpenAIContent::Text(text) => {
+                    prepared_message.content = Some(OpenAIContent::Text(text.clone()));
+                }
+                OpenAIContent::Parts(parts) => {
+                    let mut prepared_content = Vec::new();
+
+                    for part in parts {
+                        match part {
+                            ContentPart::S3Object { s3_object } => {
+                                // Convert S3Object to base64 image URL
+                                let image_data_url =
+                                    download_and_encode_s3_image(s3_object, client, workspace_id)
+                                        .await?;
+                                prepared_content.push(ContentPart::ImageUrl {
+                                    image_url: ImageUrlData { url: image_data_url },
+                                });
+                            }
+                            other => {
+                                // Keep Text and ImageUrl as-is
+                                prepared_content.push(other.clone());
+                            }
+                        }
                     }
-                    other => {
-                        // Keep Text and ImageUrl as-is
-                        prepared_content.push(other.clone());
-                    }
+
+                    prepared_message.content = Some(OpenAIContent::Parts(prepared_content));
                 }
             }
-            
-            prepared_message.content = Some(prepared_content);
         }
-        
+
         prepared_messages.push(prepared_message);
     }
-    
+
     Ok(prepared_messages)
 }
 
@@ -858,7 +861,7 @@ async fn handle_image_output(
         if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
             vec![OpenAIMessage {
                 role: "system".to_string(),
-                content: Some(vec![ContentPart::Text { text: system_prompt }]),
+                content: Some(OpenAIContent::Text(system_prompt)),
                 ..Default::default()
             }]
         } else {
@@ -878,9 +881,9 @@ async fn handle_image_output(
     // Add assistant success message
     messages.push(OpenAIMessage {
         role: "assistant".to_string(),
-        content: Some(vec![ContentPart::Text {
-            text: "Image created successfully".to_string(),
-        }]),
+        content: Some(OpenAIContent::Text(
+            "Image created successfully".to_string(),
+        )),
         ..Default::default()
     });
 
@@ -920,7 +923,7 @@ async fn handle_text_output(
         if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
             vec![OpenAIMessage {
                 role: "system".to_string(),
-                content: Some(vec![ContentPart::Text { text: system_prompt }]),
+                content: Some(OpenAIContent::Text(system_prompt)),
                 ..Default::default()
             }]
         } else {
@@ -930,15 +933,15 @@ async fn handle_text_output(
     // Create user message with optional image
     let user_content = if let Some(image) = &args.image {
         if !image.s3.is_empty() {
-            vec![
+            OpenAIContent::Parts(vec![
                 ContentPart::Text { text: args.user_message.clone() },
                 ContentPart::S3Object { s3_object: image.clone() },
-            ]
+            ])
         } else {
-            vec![ContentPart::Text { text: args.user_message.clone() }]
+            OpenAIContent::Text(args.user_message.clone())
         }
     } else {
-        vec![ContentPart::Text { text: args.user_message.clone() }]
+        OpenAIContent::Text(args.user_message.clone())
     };
 
     messages.push(OpenAIMessage {
@@ -1014,8 +1017,11 @@ async fn handle_text_output(
 
         let response = {
             // Convert messages with S3Objects to base64 image URLs for API request
-            let prepared_messages = prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
-            
+            let prepared_messages =
+                prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
+
+            println!("prepared_messages: {:?}", prepared_messages);
+
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .bearer_auth(api_key)
@@ -1069,11 +1075,11 @@ async fn handle_text_output(
         content = first_choice.message.content;
         let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
 
-        if let Some(ref content) = content {
+        if let Some(ref response_content) = content {
             actions.push(AgentAction::Message {});
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
-                content: Some(vec![ContentPart::Text { text: content.clone() }]),
+                content: Some(response_content.clone()),
                 agent_action: Some(AgentAction::Message {}),
                 ..Default::default()
             });
@@ -1105,21 +1111,19 @@ async fn handle_text_output(
                 used_structured_output_tool = true;
                 messages.push(OpenAIMessage {
                     role: "tool".to_string(),
-                    content: Some(vec![ContentPart::Text {
-                        text: "Successfully ran structured_output tool".to_string(),
-                    }]),
+                    content: Some(OpenAIContent::Text(
+                        "Successfully ran structured_output tool".to_string(),
+                    )),
                     tool_call_id: Some(tool_call.id.clone()),
                     ..Default::default()
                 });
                 messages.push(OpenAIMessage {
                     role: "assistant".to_string(),
-                    content: Some(vec![ContentPart::Text {
-                        text: tool_call.function.arguments.clone(),
-                    }]),
+                    content: Some(OpenAIContent::Text(tool_call.function.arguments.clone())),
                     agent_action: Some(AgentAction::Message {}),
                     ..Default::default()
                 });
-                content = Some(tool_call.function.arguments.clone());
+                content = Some(OpenAIContent::Text(tool_call.function.arguments.clone()));
                 break;
             }
 
@@ -1157,9 +1161,7 @@ async fn handle_text_output(
                     Ok((success, result)) => {
                         messages.push(OpenAIMessage {
                             role: "tool".to_string(),
-                            content: Some(vec![ContentPart::Text {
-                                text: result.get().to_string(),
-                            }]),
+                            content: Some(OpenAIContent::Text(result.get().to_string())),
                             tool_call_id: Some(tool_call.id.clone()),
                             agent_action: Some(AgentAction::ToolCall {
                                 job_id,
@@ -1175,9 +1177,10 @@ async fn handle_text_output(
                         let err_string = format!("{}: {}", err.name(), err.to_string());
                         messages.push(OpenAIMessage {
                             role: "tool".to_string(),
-                            content: Some(vec![ContentPart::Text {
-                                text: format!("Error running tool: {}", err_string),
-                            }]),
+                            content: Some(OpenAIContent::Text(format!(
+                                "Error running tool: {}",
+                                err_string
+                            ))),
                             tool_call_id: Some(tool_call.id.clone()),
                             agent_action: Some(AgentAction::ToolCall {
                                 job_id,
@@ -1207,14 +1210,22 @@ async fn handle_text_output(
     // Parse content as JSON, fallback to string if it fails
     let output_value = match content {
         Some(content_str) => match has_output_properties {
-            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
-                Error::internal_err(format!(
-                    "Failed to parse structured output: {}",
-                    content_str
-                ))
-            })?,
-            false => to_raw_value(&content_str),
-        },
+            true => match content_str {
+                OpenAIContent::Text(text) => {
+                    serde_json::from_str::<Box<RawValue>>(&text).map_err(|_e| {
+                        Error::internal_err(format!("Failed to parse structured output: {}", text))
+                    })
+                }
+                // No need to handle this, it will always be a text string
+                OpenAIContent::Parts(parts) => Err(Error::internal_err(
+                    "Failed to parse structured output".to_string(),
+                )),
+            },
+            false => Ok(match content_str {
+                OpenAIContent::Text(text) => to_raw_value(&text),
+                OpenAIContent::Parts(parts) => to_raw_value(&parts),
+            }),
+        }?,
         None => to_raw_value(&""),
     };
 
