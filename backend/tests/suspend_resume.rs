@@ -1,9 +1,11 @@
+mod common;
+
 mod suspend_resume {
     #[cfg(feature = "deno_core")]
     use serde_json::json;
 
     #[cfg(feature = "deno_core")]
-    use super::*;
+    use crate::common::*;
     
     #[cfg(feature = "deno_core")]
     use sqlx::{Pool, Postgres};

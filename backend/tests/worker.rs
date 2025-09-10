@@ -1,18 +1,13 @@
 use serde::de::DeserializeOwned;
-use std::future::Future;
-use std::{str::FromStr, sync::Arc};
-use windmill_common::KillpillSender;
+
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
-use futures::StreamExt;
 
-use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
+use sqlx::{types::Uuid, Pool, Postgres};
 
-use tokio::sync::RwLock;
 #[cfg(feature = "enterprise")]
 use tokio::time::{timeout, Duration};
 
@@ -20,161 +15,24 @@ use tokio::time::{timeout, Duration};
 use windmill_api_client::types::{CreateFlowBody, RawScript};
 #[cfg(feature = "enterprise")]
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
-use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
-use serde::Serialize;
 #[cfg(feature = "deno_core")]
 use windmill_common::flows::InputTransform;
-use windmill_common::worker::WORKER_CONFIG;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
-use windmill_common::flow_status::{FlowStatus, FlowStatusModule, RestartedFrom};
+use windmill_common::flow_status::{ RestartedFrom};
 
 use windmill_common::{
-    flows::{FlowModule, FlowModuleValue, FlowValue},
-    jobs::{JobKind, JobPayload, RawCode},
-    jwt::JWT_SECRET,
-    scripts::{ScriptHash, ScriptLang},
-    worker::{
-        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
-    },
+    flows::{ FlowValue},
+    jobs::{ JobPayload, RawCode},
+    scripts::{ScriptLang},
+
 };
-use windmill_queue::PushIsolationLevel;
+mod common;
+use common::*;
 
-#[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct CompletedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i64,
-    pub success: bool,
-    pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
-    pub result: Option<serde_json::Value>,
-    pub logs: Option<String>,
-    pub deleted: bool,
-    pub raw_code: Option<String>,
-    pub canceled: bool,
-    pub canceled_by: Option<String>,
-    pub canceled_reason: Option<String>,
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    pub flow_status: Option<serde_json::Value>,
-    pub raw_flow: Option<serde_json::Value>,
-    pub is_flow_step: bool,
-    pub is_skipped: bool,
-    pub email: String,
-    pub visible_to_owner: bool,
-    pub mem_peak: Option<i32>,
-    pub tag: String,
-    pub script_hash: Option<ScriptHash>,
-    pub language: Option<ScriptLang>,
-    pub job_kind: JobKind,
-}
+use futures::StreamExt;
 
-impl CompletedJob {
-    pub fn json_result(&self) -> Option<serde_json::Value> {
-        self.result.clone()
-    }
-}
-
-pub async fn initialize_tracing() {
-    use std::sync::Once;
-
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let _ = windmill_common::tracing_init::initialize_tracing(
-            "test",
-            &windmill_common::utils::Mode::Standalone,
-            "test",
-        );
-    });
-}
-
-/// it's important this is unique between tests as there is one prometheus registry and
-/// run_worker shouldn't register the same metric with the same worker name more than once.
-///
-/// this must fit in varchar(50)
-fn next_worker_name() -> String {
-    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
-
-    static ID: AtomicUsize = AtomicUsize::new(0);
-
-    // n.b.: when tests are run with RUST_TEST_THREADS or --test-threads set to 1, the name
-    // will be "main"... The id provides uniqueness & thread_name gives context.
-    let id = ID.fetch_add(1, SeqCst);
-    let thread = std::thread::current();
-    let thread_name = thread
-        .name()
-        .map(|s| {
-            s.len()
-                .checked_sub(39)
-                .and_then(|start| s.get(start..))
-                .unwrap_or(s)
-        })
-        .unwrap_or("no thread name");
-    format!("{id}/worker-{thread_name}")
-}
-
-pub struct ApiServer {
-    pub addr: std::net::SocketAddr,
-    #[allow(unused)]
-    tx: tokio::sync::broadcast::Sender<()>,
-    #[allow(unused)]
-    task: tokio::task::JoinHandle<anyhow::Result<()>>,
-}
-
-impl ApiServer {
-    pub async fn start(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
-
-        let sock = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to bind TCP listener: {}", e))?;
-
-        let addr = sock
-            .local_addr()
-            .map_err(|e| anyhow::anyhow!("failed to get local address: {}", e))?;
-        drop(sock);
-        let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
-        let name = next_worker_name();
-        tracing::info!("starting api server for name={name}");
-        let task = tokio::task::spawn(windmill_api::run_server(
-            db.clone(),
-            None,
-            None,
-            addr,
-            rx,
-            port_tx,
-            false,
-            false,
-            format!("http://localhost:{}", addr.port()),
-            Some(name.clone()),
-        ));
-
-        tracing::info!("waiting for server port for name={name}");
-        _port_rx.await.map_err(|e| {
-            tracing::error!("failed to receive port for name={name}: {e}");
-            anyhow::anyhow!("failed to receive port for name={name}: {e}")
-        })?;
-
-        // clear the cache between tests
-        windmill_common::cache::clear();
-
-        Ok(Self { addr, tx, task })
-    }
-
-    #[allow(unused)]
-    async fn close(self) -> anyhow::Result<()> {
-        println!("closing api server");
-        let Self { tx, task, .. } = self;
-        drop(tx);
-        task.await.unwrap()
-    }
-}
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -186,26 +44,6 @@ impl ApiServer {
 //     Ok(())
 // }
 
-#[cfg(feature = "python")]
-fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
-    cjob.flow_status.clone().and_then(|fs| {
-        find_module_in_vec(
-            serde_json::from_value::<FlowStatus>(fs).unwrap().modules,
-            id,
-        )
-    })
-}
-
-#[cfg(feature = "python")]
-fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
-    modules.into_iter().find(|s| s.id() == id)
-}
-
-async fn set_jwt_secret() -> () {
-    let secret = "mytestsecret".to_string();
-    let mut l = JWT_SECRET.write().await;
-    *l = secret;
-}
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -328,228 +166,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-struct RunJob {
-    payload: JobPayload,
-    args: serde_json::Map<String, serde_json::Value>,
-}
 
-impl From<JobPayload> for RunJob {
-    fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default() }
-    }
-}
-
-impl RunJob {
-    fn arg<S: Into<String>>(mut self, k: S, v: serde_json::Value) -> Self {
-        self.args.insert(k.into(), v);
-        self
-    }
-
-    async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args } = self;
-        let mut hm_args = std::collections::HashMap::new();
-        for (k, v) in args {
-            hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
-        }
-
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-        let (uuid, tx) = windmill_queue::push(
-            &db,
-            tx,
-            "test-workspace",
-            payload,
-            windmill_queue::PushArgs::from(&hm_args),
-            /* user */ "test-user",
-            /* email  */ "test@windmill.dev",
-            /* permissioned_as */ "u/test-user".to_string(),
-            /* token_prefix */ None,
-            /* scheduled_for_o */ None,
-            /* schedule_path */ None,
-            /* parent_job */ None,
-            /* root job  */ None,
-            /* flow_innermost_root_job */ None,
-            /* job_id */ None,
-            /* is_flow_step */ false,
-            /* same_worker */ false,
-            None,
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-        )
-        .await
-        .expect("push has to succeed");
-        tx.commit().await.unwrap();
-
-        uuid
-    }
-
-    /// push the job, spawn a worker, wait until the job is in completed_job
-    async fn run_until_complete(self, db: &Pool<Postgres>, port: u16) -> CompletedJob {
-        let uuid = self.push(db).await;
-        let listener = listen_for_completed_jobs(db).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
-    }
-
-    /// push the job, spawn a worker, wait until the job is in completed_job
-    async fn run_until_complete_with<F: Future<Output = ()>>(
-        self,
-        db: &Pool<Postgres>,
-        port: u16,
-        test: impl Fn(Uuid) -> F,
-    ) -> CompletedJob {
-        let uuid = self.push(db).await;
-        let listener = listen_for_completed_jobs(db).await;
-        test(uuid).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
-    }
-}
-
-async fn run_job_in_new_worker_until_complete(
-    db: &Pool<Postgres>,
-    job: JobPayload,
-    port: u16,
-) -> CompletedJob {
-    RunJob::from(job).run_until_complete(db, port).await
-}
-
-/// Start a worker with a timeout and run a future, until the worker quits or we time out.
-///
-/// Cleans up the worker before resolving.
-async fn in_test_worker<Fut: std::future::Future>(
-    db: &Pool<Postgres>,
-    inner: Fut,
-    port: u16,
-) -> <Fut as std::future::Future>::Output {
-    set_jwt_secret().await;
-    let (quit, worker) = spawn_test_worker(db, port);
-    let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
-    tokio::pin!(worker);
-
-    let res = tokio::select! {
-        biased;
-        res = inner => res,
-        res = &mut worker => match
-            res.expect("worker timed out")
-               .expect("worker panicked") {
-            _ => panic!("worker quit early"),
-        },
-    };
-
-    /* ensure the worker quits before we return */
-    quit.send();
-
-    let _: () = worker
-        .await
-        .expect("worker timed out")
-        .expect("worker panicked");
-    res
-}
-
-fn spawn_test_worker(
-    db: &Pool<Postgres>,
-    port: u16,
-) -> (KillpillSender, tokio::task::JoinHandle<()>) {
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .create(windmill_worker::GO_BIN_CACHE_DIR)
-        .expect("could not create initial worker dir");
-
-    let (tx, rx) = KillpillSender::new(1);
-    let db = db.to_owned();
-    let worker_instance: &str = "test worker instance";
-    let worker_name: String = next_worker_name();
-    let ip: &str = Default::default();
-
-    let tx2 = tx.clone();
-    let future = async move {
-        let base_internal_url = format!("http://localhost:{}", port);
-        {
-            let mut wc = WORKER_CONFIG.write().await;
-            (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
-                priority: 0,
-                tags: (*wc).worker_tags.clone(),
-            }];
-            windmill_common::worker::store_suspended_pull_query(&wc).await;
-            windmill_common::worker::store_pull_query(&wc).await;
-        }
-        windmill_worker::run_worker(
-            &db.into(),
-            worker_instance,
-            worker_name,
-            1,
-            1,
-            ip,
-            rx,
-            tx2,
-            &base_internal_url,
-        )
-        .await
-    };
-
-    (tx, tokio::task::spawn(future))
-}
-
-async fn listen_for_completed_jobs(db: &Pool<Postgres>) -> impl Stream<Item = Uuid> + Unpin {
-    listen_for_uuid_on(db, "completed").await
-}
-
-#[cfg(feature = "deno_core")]
-async fn listen_for_queue(db: &Pool<Postgres>) -> impl Stream<Item = Uuid> + Unpin {
-    listen_for_uuid_on(db, "queued").await
-}
-
-async fn listen_for_uuid_on(
-    db: &Pool<Postgres>,
-    channel: &'static str,
-) -> impl Stream<Item = Uuid> + Unpin {
-    let mut listener = PgListener::connect_with(db).await.unwrap();
-    listener.listen(channel).await.unwrap();
-
-    Box::pin(stream::unfold(listener, |mut listener| async move {
-        let uuid = listener
-            .try_recv()
-            .await
-            .unwrap()
-            .expect("lost database connection")
-            .payload()
-            .parse::<Uuid>()
-            .expect("invalid uuid");
-        Some((uuid, listener))
-    }))
-}
-
-async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
-    sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, result->'wm_labels' as labels FROM v2_as_completed_job  WHERE id = $1",
-    )
-    .bind(uuid)
-    .fetch_one(db)
-    .await
-    .unwrap()
-}
-
-#[axum::async_trait(?Send)]
-trait StreamFind: futures::Stream + Unpin + Sized {
-    async fn find(self, item: &Self::Item) -> Option<Self::Item>
-    where
-        for<'l> &'l Self::Item: std::cmp::PartialEq,
-    {
-        use futures::{future::ready, StreamExt};
-
-        self.filter(|i| ready(i == item)).next().await
-    }
-}
-
-impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -562,6 +179,8 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     let doubles = "export function main(n) { return n * 2; }";
 
     let flow = {
+        use windmill_common::flows::{FlowModule, FlowModuleValue};
+
         FlowValue {
             modules: vec![
                 FlowModule {
@@ -715,9 +334,13 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+use windmill_common::flows::FlowModule;
+use windmill_common::flows::FlowModuleValue;
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
+
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -946,13 +569,13 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
         result,
         serde_json::json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
     );
+    Ok(())
 }
-
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    let server: Result<ApiServer, anyhow::Error> = ApiServer::start(db.clone()).await;
+    let server: ApiServer = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -1514,199 +1137,7 @@ public class Main {
     Ok(())
 }
 
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base"))]
-async fn test_python_job(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
 
-    let content = r#"
-def main():
-    return "hello world"
-        "#
-    .to_owned();
-
-    let job = JobPayload::Code(RawCode {
-        hash: None,
-        content,
-        path: None,
-        language: ScriptLang::Python3,
-        lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        cache_ttl: None,
-        dedicated_worker: None,
-    });
-
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
-        .await
-        .json_result()
-        .unwrap();
-
-    assert_eq!(result, serde_json::json!("hello world"));
-    Ok(())
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base"))]
-async fn test_python_global_site_packages(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::{cache::concatcp, worker::ROOT_CACHE_DIR};
-
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    // Shared for all 3.12.*
-    let path = concatcp!(ROOT_CACHE_DIR, "python_3_12/global-site-packages").to_owned();
-    std::fs::create_dir_all(&path).unwrap();
-    std::fs::write(path + "/my_global_site_package_3_12_any.py", "").unwrap();
-
-    // 3.12
-    {
-        let content = r#"# py: ==3.12
-#requirements:
-#
-
-import my_global_site_package_3_12_any
-
-def main():
-    return "hello world"
-                "#
-        .to_owned();
-
-        let job = JobPayload::Code(RawCode {
-            hash: None,
-            content,
-            path: None,
-            language: ScriptLang::Python3,
-            lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            cache_ttl: None,
-            dedicated_worker: None,
-        });
-
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
-            .await
-            .json_result()
-            .unwrap();
-
-        assert_eq!(result, serde_json::json!("hello world"));
-    }
-
-    // 3.12.1
-    {
-        let content = r#"# py: ==3.12.1
-#requirements:
-#
-
-import my_global_site_package_3_12_any
-
-def main():
-    return "hello world"
-                "#
-        .to_owned();
-
-        let job = JobPayload::Code(RawCode {
-            hash: None,
-            content,
-            path: None,
-            language: ScriptLang::Python3,
-            lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            cache_ttl: None,
-            dedicated_worker: None,
-        });
-
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
-            .await
-            .json_result()
-            .unwrap();
-
-        assert_eq!(result, serde_json::json!("hello world"));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base"))]
-async fn test_python_job_heavy_dep(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    let content = r#"
-import numpy as np
-
-def main():
-    a = np.arange(15).reshape(3, 5)
-    return len(a)
-        "#
-    .to_owned();
-
-    let job = JobPayload::Code(RawCode {
-        hash: None,
-        content,
-        path: None,
-        language: ScriptLang::Python3,
-        lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        cache_ttl: None,
-        dedicated_worker: None,
-    });
-
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
-        .await
-        .json_result()
-        .unwrap();
-
-    assert_eq!(result, serde_json::json!(3));
-    Ok(())
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base"))]
-async fn test_python_job_with_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    let content = r#"
-import wmill
-
-def main():
-    return wmill.get_workspace()
-        "#
-    .to_owned();
-
-    let job = JobPayload::Code(RawCode {
-        hash: None,
-        content,
-        path: None,
-        language: ScriptLang::Python3,
-        lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        cache_ttl: None,
-        dedicated_worker: None,
-    });
-
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
-        .await
-        .json_result()
-        .unwrap();
-
-    assert_eq!(result, serde_json::json!("test-workspace"));
-    Ok(())
-}
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_datetime(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -2010,6 +1441,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     assert_eq!(result, serde_json::json!(9));
+    Ok(())
 }
 
 fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
@@ -2116,6 +1548,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     assert_eq!(result, serde_json::json!([1, 3]));
+    Ok(())
 }
 
 #[cfg(feature = "deno_core")]
@@ -2155,6 +1588,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    Ok(())
 }
 
 #[cfg(feature = "deno_core")]
@@ -2193,6 +1627,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -2343,6 +1778,7 @@ async fn test_branchone_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     assert_eq!(result, serde_json::json!([1, 2, 3]));
+    Ok(())
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2518,6 +1954,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
             .json_result()
             .unwrap();
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
+    Ok(())
 }
 
 #[cfg(feature = "python")]
@@ -2657,6 +2094,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
             "{:?}", m.value
             );
         });
+    Ok(())
 }
 
 #[cfg(feature = "deno_core")]
@@ -2853,6 +2291,7 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) -> anyhow::Result<()> {
         serde_json::from_value::<i32>(restarted_flow_result.json_result().unwrap())
             .expect("restarted_flow_result was not an int");
     assert_eq!(first_run_result_int, restarted_flow_result_int);
+    Ok(())
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -3024,6 +2463,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
         port,
     )
     .await;
+
+    Ok(())
 }
 
 #[cfg(feature = "enterprise")]
@@ -3181,156 +2622,10 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
         port,
     )
     .await;
+
+    Ok(())
 }
 
-async fn run_deployed_relative_imports(
-    db: &Pool<Postgres>,
-    script_content: String,
-    language: ScriptLang,
-) {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let client = windmill_api_client::create_client(
-        &format!("http://localhost:{port}"),
-        "SECRET_TOKEN".to_string(),
-    );
-
-    client
-        .create_script(
-            "test-workspace",
-            &NewScript {
-                language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
-                content: script_content,
-                path: "f/system/test_import".to_string(),
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                cache_ttl: None,
-                dedicated_worker: None,
-                description: "".to_string(),
-                draft_only: None,
-                envs: vec![],
-                is_template: None,
-                kind: None,
-                parent_hash: None,
-                lock: None,
-                summary: "".to_string(),
-                tag: None,
-                schema: std::collections::HashMap::new(),
-                ws_error_handler_muted: Some(false),
-                priority: None,
-                delete_after_use: None,
-                timeout: None,
-                restart_unless_cancelled: None,
-                deployment_message: None,
-                concurrency_key: None,
-                visible_to_runner_only: None,
-                no_main_func: None,
-                codebase: None,
-                has_preprocessor: None,
-                on_behalf_of_email: None,
-                assets: vec![],
-            },
-        )
-        .await
-        .unwrap();
-
-    let mut completed = listen_for_completed_jobs(&db).await;
-    let db2 = db.clone();
-    in_test_worker(
-        &db,
-        async move {
-            completed.next().await; // deployed script
-
-            let script = sqlx::query!(
-                "SELECT hash FROM script WHERE path = $1",
-                "f/system/test_import".to_string()
-            )
-            .fetch_one(&db2)
-            .await
-            .unwrap();
-
-            let job = RunJob::from(JobPayload::ScriptHash {
-                path: "f/system/test_import".to_string(),
-                hash: ScriptHash(script.hash),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                cache_ttl: None,
-                dedicated_worker: None,
-                language,
-                priority: None,
-                apply_preprocessor: false,
-            })
-            .push(&db2)
-            .await;
-
-            completed.next().await; // completed job
-
-            let result = completed_job(job, &db2).await.json_result().unwrap();
-
-            assert_eq!(
-                result,
-                serde_json::json!([
-                    "f/system/same_folder_script",
-                    "f/system/same_folder_script",
-                    "f/system_relative/different_folder_script",
-                    "f/system_relative/different_folder_script"
-                ])
-            );
-        },
-        port,
-    )
-    .await;
-}
-
-async fn run_preview_relative_imports(
-    db: &Pool<Postgres>,
-    script_content: String,
-    language: ScriptLang,
-) {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    let mut completed = listen_for_completed_jobs(&db).await;
-    let db2 = db.clone();
-    in_test_worker(
-        &db,
-        async move {
-            let job = RunJob::from(JobPayload::Code(RawCode {
-                hash: None,
-                content: script_content,
-                path: Some("f/system/test_import".to_string()),
-                language,
-                lock: None,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                cache_ttl: None,
-                dedicated_worker: None,
-            }))
-            .push(&db2)
-            .await;
-
-            completed.next().await; // completed job
-
-            let result = completed_job(job, &db2).await.json_result().unwrap();
-
-            assert_eq!(
-                result,
-                serde_json::json!([
-                    "f/system/same_folder_script",
-                    "f/system/same_folder_script",
-                    "f/system_relative/different_folder_script",
-                    "f/system_relative/different_folder_script"
-                ])
-            );
-        },
-        port,
-    )
-    .await;
-}
 
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -3346,8 +2641,8 @@ export async function main() {
 "#
     .to_string();
 
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
     Ok(())
 }
 
@@ -3363,8 +2658,8 @@ export async function main() {
 "#
     .to_string();
 
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
     Ok(())
 }
 
@@ -3382,8 +2677,8 @@ export async function main() {
 "#
     .to_string();
 
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
     Ok(())
 }
 
@@ -3398,281 +2693,13 @@ export async function main() {
 "#
     .to_string();
 
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
     Ok(())
 }
 
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "relative_python"))]
-async fn test_relative_imports_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-from f.system.same_folder_script import main as test1
-from .same_folder_script import main as test2
-from f.system_relative.different_folder_script import main as test3
-from ..system_relative.different_folder_script import main as test4
-    
-def main():
-    return [test1(), test2(), test3(), test4()]
-"#
-    .to_string();
 
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
-}
 
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "relative_python"))]
-async fn test_nested_imports_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-
-from f.system_relative.nested_script import main as test
-
-def main():
-    return test()
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
-    run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
-}
-
-#[cfg(feature = "python")]
-async fn assert_lockfile(
-    db: &Pool<Postgres>,
-    script_content: String,
-    language: ScriptLang,
-    expected_lines: Vec<&str>,
-) {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let client = windmill_api_client::create_client(
-        &format!("http://localhost:{port}"),
-        "SECRET_TOKEN".to_string(),
-    );
-
-    client
-        .create_script(
-            "test-workspace",
-            &NewScript {
-                language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
-                content: script_content,
-                path: "f/system/test_import".to_string(),
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                cache_ttl: None,
-                dedicated_worker: None,
-                description: "".to_string(),
-                draft_only: None,
-                envs: vec![],
-                is_template: None,
-                kind: None,
-                parent_hash: None,
-                lock: None,
-                summary: "".to_string(),
-                tag: None,
-                schema: std::collections::HashMap::new(),
-                ws_error_handler_muted: Some(false),
-                priority: None,
-                delete_after_use: None,
-                timeout: None,
-                restart_unless_cancelled: None,
-                deployment_message: None,
-                concurrency_key: None,
-                visible_to_runner_only: None,
-                no_main_func: None,
-                codebase: None,
-                has_preprocessor: None,
-                on_behalf_of_email: None,
-                assets: vec![],
-            },
-        )
-        .await
-        .unwrap();
-
-    let mut completed = listen_for_completed_jobs(&db).await;
-    let db2 = db.clone();
-    in_test_worker(
-        &db,
-        async move {
-            completed.next().await; // deployed script
-
-            let script = sqlx::query!(
-                "SELECT hash FROM script WHERE path = $1",
-                "f/system/test_import".to_string()
-            )
-            .fetch_one(&db2)
-            .await
-            .unwrap();
-
-            let job = RunJob::from(JobPayload::Dependencies {
-                path: "f/system/test_import".to_string(),
-                hash: ScriptHash(script.hash),
-                dedicated_worker: None,
-                language,
-            })
-            .push(&db2)
-            .await;
-
-            completed.next().await; // completed job
-
-            let result = completed_job(job, &db2).await.json_result().unwrap();
-
-            assert_eq!(
-                result,
-                json!({
-                    "lock": expected_lines.join("\n"),
-                    "status": "Successful lock file generation"
-                })
-            );
-        },
-        port,
-    )
-    .await;
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "lockfile_python"))]
-async fn test_requirements_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"# py: ==3.11.11
-# requirements:
-# tiny==0.1.3
-
-import bar
-import baz # pin: foo
-import baz # repin: fee
-import bug # repin: free
-    
-def main():
-    pass
-"#
-    .to_string();
-
-    assert_lockfile(
-        &db,
-        content,
-        ScriptLang::Python3,
-        vec!["# py: 3.11.11", "tiny==0.1.3"],
-    )
-    .await;
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "lockfile_python"))]
-async fn test_extra_requirements_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    {
-        let content = r#"# py: ==3.11.11
-# extra_requirements:
-# tiny
-
-import f.system.extra_requirements
-import tiny # pin: tiny==0.1.0
-import tiny # pin: tiny==0.1.1
-import tiny # repin: tiny==0.1.2
-
-def main():
-    pass
-    "#
-        .to_string();
-
-        assert_lockfile(
-            &db,
-            content,
-            ScriptLang::Python3,
-            vec!["# py: 3.11.11", "bottle==0.13.2", "tiny==0.1.2"],
-        )
-        .await;
-    }
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "lockfile_python"))]
-async fn test_extra_requirements_python2(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"# py: ==3.11.11
-# extra_requirements:
-# tiny==0.1.3
-
-import simplejson # pin: simplejson==3.20.1
-def main():
-    pass
-"#
-    .to_string();
-
-    assert_lockfile(
-        &db,
-        content,
-        ScriptLang::Python3,
-        vec!["# py: 3.11.11", "simplejson==3.20.1", "tiny==0.1.3"],
-    )
-    .await;
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "lockfile_python"))]
-async fn test_pins_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"# py: ==3.11.11
-# extra_requirements:
-# tiny==0.1.3
-# bottle==0.13.2
-
-import f.system.requirements
-import f.system.pins
-import tiny # repin: tiny==0.1.3
-import simplejson
-
-def main():
-    pass
-"#
-    .to_string();
-
-    assert_lockfile(
-        &db,
-        content,
-        ScriptLang::Python3,
-        vec![
-            "# py: 3.11.11",
-            "bottle==0.13.2",
-            "microdot==2.2.0",
-            "simplejson==3.19.3",
-            "tiny==0.1.3",
-        ],
-    )
-    .await;
-}
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "multipython"))]
-async fn test_multipython_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"# py: <=3.12.2, >=3.12.0
-import f.multipython.script1
-import f.multipython.aliases
-"#
-    .to_string();
-
-    assert_lockfile(&db, content, ScriptLang::Python3, vec!["# py: 3.12.1\n"]).await;
-}
-
-#[cfg(feature = "python")]
-#[sqlx::test(fixtures("base", "multipython"))]
-async fn test_inline_script_metadata_python(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"# py_select_latest
-# /// script
-# requires-python = ">3.11,<3.12.3,!=3.12.2"
-# dependencies = [
-#   "tiny==0.1.3",
-# ]
-# ///
-"#
-    .to_string();
-
-    assert_lockfile(
-        &db,
-        content,
-        ScriptLang::Python3,
-        vec!["# py: 3.12.1", "tiny==0.1.3"],
-    )
-    .await;
-}
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
@@ -3902,16 +2929,3 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_for_versions<F: Future<Output = ()>>(
-    version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
-    test: impl Fn() -> F,
-) {
-    for version_flag in version_flags {
-        *version_flag.write().await = true;
-        test().await;
-    }
-}
-
-mod retry;
-mod suspend_resume;
-mod job_payload;

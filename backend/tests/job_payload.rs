@@ -1,5 +1,7 @@
+mod common;
+
+
 mod job_payload {
-    use super::*;
     use serde_json::json;
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -11,6 +13,7 @@ mod job_payload {
     use windmill_common::worker::{
         MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
     };
+    use crate::common::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -38,9 +41,11 @@ mod job_payload {
         ];
     }
 
+
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_script_hash_payload(db: Pool<Postgres>) -> anyhow::Result<()> {
+
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
@@ -273,19 +278,19 @@ mod job_payload {
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_427(db: Pool<Postgres>) -> anyhow::Result<()> {
         *MIN_VERSION_IS_AT_LEAST_1_427.write().await = true;
-        test_dependencies_payload(db).await;
+        test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_432(db: Pool<Postgres>) -> anyhow::Result<()> {
         *MIN_VERSION_IS_AT_LEAST_1_432.write().await = true;
-        test_dependencies_payload(db).await;
+        test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_440(db: Pool<Postgres>) -> anyhow::Result<()> {
         *MIN_VERSION_IS_AT_LEAST_1_440.write().await = true;
-        test_dependencies_payload(db).await;
+        test_dependencies_payload(db).await?;
         Ok(())
     }
 
@@ -461,6 +466,8 @@ mod job_payload {
 
         let db = &db;
         let test = || async {
+            use windmill_common::flow_status::{FlowStatus, FlowStatusModule};
+
             let job = RunJob::from(JobPayload::Flow {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
