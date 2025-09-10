@@ -61,6 +61,7 @@
 		>
 		timelineNow: number
 		parentLoopIndex?: number
+		parentIterationBounds?: GlobalIterationBounds
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
@@ -95,6 +96,7 @@
 		timelineItems,
 		timelineNow,
 		parentLoopIndex,
+		parentIterationBounds,
 		timelineAvailableWidths = $bindable(),
 		timelinelWidth,
 		showTimeline = true,
@@ -407,6 +409,10 @@
 		args: any,
 		jobId: string | undefined
 	) {
+		const iterationFrom = Math.max(globalIterationBounds[moduleId]?.iteration_from ?? 0, 0)
+		const selectedForloopIndex = localModuleStates[moduleId]?.selectedForloopIndex
+			? localModuleStates[moduleId]?.selectedForloopIndex - iterationFrom
+			: idx + iterationFrom
 		return {
 			id: jobId,
 			type:
@@ -422,14 +428,12 @@
 				? branchChosen === idx
 					? timelineItems?.[moduleId]?.[0]?.started_at
 					: undefined
-				: timelineItems?.[moduleId]?.[localModuleStates[moduleId]?.selectedForloopIndex ?? idx]
-						?.started_at,
+				: timelineItems?.[moduleId]?.[selectedForloopIndex]?.started_at,
 			duration_ms: !!branchChosen
 				? branchChosen === idx
 					? timelineItems?.[moduleId]?.[0]?.duration_ms
 					: undefined
-				: timelineItems?.[moduleId]?.[localModuleStates[moduleId]?.selectedForloopIndex ?? idx]
-						?.duration_ms
+				: timelineItems?.[moduleId]?.[selectedForloopIndex]?.duration_ms
 		} as RootJobData
 	}
 </script>
@@ -531,7 +535,7 @@
 										id: flowId
 									}
 								]}
-								selectedIndex={0}
+								selectedIteration={0}
 								now={timelineNow}
 								{timelinelWidth}
 								showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
@@ -719,14 +723,15 @@
 														total={timelineTotal}
 														min={timelineMin}
 														items={moduleItems ?? []}
-														selectedIndex={localModuleStates[module.id]?.selectedForloopIndex ??
+														selectedIteration={localModuleStates[module.id]?.selectedForloopIndex ??
 															parentLoopIndex ??
 															0}
+														globalIterationBounds={parentIterationBounds ??
+															globalIterationBounds[module.id]}
 														now={timelineNow}
 														showSingleItem={module.value.type !== 'forloopflow' &&
 															module.value.type !== 'whileloopflow'}
 														{timelinelWidth}
-														globalIterationBounds={globalIterationBounds[module.id]}
 														loadPreviousIterations={() => {
 															loadPreviousIterations?.(module.id, 20)
 														}}
@@ -738,8 +743,6 @@
 																moduleId: module.id
 															})
 														}}
-														selectedIteration={localModuleStates[module.id]?.selectedForloopIndex ??
-															0}
 													/>
 												</div>
 											{/if}
@@ -808,6 +811,7 @@
 														notRan={branchChosen !== undefined && branchChosen !== idx}
 														{globalIterationBounds}
 														{loadPreviousIterations}
+														parentIterationBounds={globalIterationBounds[module.id]}
 													/>
 												</div>
 											{/each}

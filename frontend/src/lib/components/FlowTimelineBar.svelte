@@ -16,7 +16,7 @@
 		total: number
 		min: number | undefined
 		items: TimelineItem[]
-		selectedIndex: number
+		selectedIteration: number
 		now: number
 		showSingleItem?: boolean
 		timelinelWidth: number
@@ -26,14 +26,13 @@
 		globalIterationBounds?: GlobalIterationBounds
 		loadPreviousIterations?: () => void
 		onSelectIteration?: (detail: { id: string; index: number }) => void
-		selectedIteration?: number
 	}
 
 	let {
 		total,
 		min,
 		items,
-		selectedIndex,
+		selectedIteration,
 		now,
 		showSingleItem = true,
 		timelinelWidth,
@@ -42,8 +41,7 @@
 		zoom = 'in',
 		globalIterationBounds,
 		loadPreviousIterations,
-		onSelectIteration,
-		selectedIteration
+		onSelectIteration
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
@@ -55,6 +53,9 @@
 		return item.started_at !== undefined && item.duration_ms === undefined
 	}
 
+	const selectedIndex = $derived(
+		selectedIteration - Math.max(globalIterationBounds?.iteration_from ?? 0, 0)
+	)
 	let selectedItem = $derived(showSingleItem ? items[selectedIndex] : items[0])
 
 	// Calculate total execution time for multiple items
@@ -106,6 +107,8 @@
 		}
 		return 0
 	}
+
+	$inspect('dbg selectedIndex', selectedIndex, globalIterationBounds?.iteration_from)
 </script>
 
 {#if min && items.length > 0}
