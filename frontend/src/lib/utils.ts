@@ -1552,3 +1552,26 @@ export function assert(msg: string, condition: boolean, value?: any) {
 		console.error(m)
 	}
 }
+
+export function createCache<Keys extends Record<string, any>, T>(
+	compute: (keys: Keys) => T,
+	params?: { maxSize?: number }
+): (keys: Keys) => T {
+	let cache = new Map<string, T>()
+	const maxSize = params?.maxSize ?? Infinity
+
+	return (keys: Keys) => {
+		let key = JSON.stringify(keys)
+		if (!cache.get(key)) {
+			let value = compute(keys)
+			cache.set(key, value)
+
+			if (cache.size > maxSize) {
+				// remove the oldest entry (first inserted)
+				const oldestKey = cache.keys().next().value!
+				cache.delete(oldestKey)
+			}
+		}
+		return cache.get(key)!
+	}
+}
