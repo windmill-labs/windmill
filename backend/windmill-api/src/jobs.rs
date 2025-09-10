@@ -203,6 +203,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
+        .route("/queue/position/:id", get(get_queue_position))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -302,7 +303,6 @@ pub fn workspace_unauthed_service() -> Router {
             post(cancel_persistent_script_api),
         )
         .route("/queue/force_cancel/:id", post(force_cancel))
-        .route("/queue/position/:id", get(get_queue_position))
 }
 
 pub fn global_root_service() -> Router {
@@ -541,31 +541,20 @@ async fn force_cancel(
 #[derive(Serialize)]
 struct QueuePosition {
     position: Option<i64>,
-    total_ahead: i64,
 }
 
 async fn get_queue_position(
     OptAuthed(_opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
+    Path((w_id, timestamp)): Path<(String, i64)>,
 ) -> error::Result<Json<QueuePosition>> {
     // First check if the job exists and is in queue
-    let job_info = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, Option<i32>, Option<chrono::DateTime<chrono::Utc>>, bool)>(
-        "SELECT scheduled_for, suspend, suspend_until, running 
-         FROM v2_job_queue 
-         WHERE id = $1 AND workspace_id = $2"
-    )
-    .bind(id)
-    .bind(&w_id)
-    .fetch_optional(&db)
-    .await?;
 
     if let Some((scheduled_for, _suspend, _suspend_until, running)) = job_info {
         if running {
             // Job is already running, not in queue
             return Ok(Json(QueuePosition {
                 position: None,
-                total_ahead: 0,
             }));
         }
 
@@ -586,13 +575,11 @@ async fn get_queue_position(
 
         Ok(Json(QueuePosition {
             position: Some(count + 1),
-            total_ahead: count,
         }))
     } else {
         // Job not found in queue, might be completed or doesn't exist
         Ok(Json(QueuePosition {
             position: None,
-            total_ahead: 0,
         }))
     }
 }

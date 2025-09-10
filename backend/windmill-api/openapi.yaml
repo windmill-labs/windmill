@@ -3186,7 +3186,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/variables/delete_bulk:
     delete:
       summary: delete variables in bulk
@@ -8378,11 +8378,7 @@ paths:
                 properties:
                   position:
                     type: integer
-                    nullable: true
                     description: The position in queue (1-based), null if not in queue or already running
-                  total_ahead:
-                    type: integer
-                    description: Total number of jobs ahead in queue
 
   /w/{workspace}/jobs/job_signature/{id}/{resume_id}:
     get:
@@ -18408,7 +18404,19 @@ components:
     CaptureTriggerKind:
       type: string
       enum:
-        [webhook, http, websocket, kafka, default_email, nats, postgres, sqs, mqtt, gcp, email]
+        [
+          webhook,
+          http,
+          websocket,
+          kafka,
+          default_email,
+          nats,
+          postgres,
+          sqs,
+          mqtt,
+          gcp,
+          email,
+        ]
 
     Capture:
       type: object
