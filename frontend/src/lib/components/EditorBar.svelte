@@ -135,7 +135,7 @@
 			'csharp',
 			'nu',
 			'java',
-      'ruby'
+			'ruby'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -155,7 +155,7 @@
 			'csharp',
 			'nu',
 			'java',
-      'ruby'
+			'ruby'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -175,7 +175,7 @@
 			'csharp',
 			'nu',
 			'java',
-      'ruby',
+			'ruby'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -715,10 +715,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	on:selectAndClose={(s3obj) => {
 		let s = `'${formatS3Object(s3obj.detail)}'`
 		if (lang === 'duckdb') {
-			if (s3obj.detail?.s3.endsWith('.json')) s = `read_json(${s})`
-			if (s3obj.detail?.s3.endsWith('.csv')) s = `read_csv(${s})`
-			if (s3obj.detail?.s3.endsWith('.parquet')) s = `read_parquet(${s})`
-			editor?.insertAtCursor(s)
+			editor?.insertAtCursor(`SELECT * FROM ${s}`)
 		} else if (lang === 'python3') {
 			if (!editor?.getCode().includes('import wmill')) {
 				editor?.insertAtBeginning('import wmill\n')
