@@ -1024,6 +1024,7 @@ async fn handle_text_output(
 
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
+                .timeout(std::time::Duration::from_secs(120))
                 .bearer_auth(api_key)
                 .json(&OpenAIRequest {
                     model: args.provider.get_model(),
