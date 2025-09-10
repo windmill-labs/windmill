@@ -2275,7 +2275,7 @@ async fn list_jobs(
             true,
             get_scope_tags(&authed),
         );
-
+        
         if let Some(sqlc) = sqlc {
             format!(
                 "{} UNION ALL {} LIMIT {} OFFSET {};",
