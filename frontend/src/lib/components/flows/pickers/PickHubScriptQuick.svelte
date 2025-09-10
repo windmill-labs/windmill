@@ -2,6 +2,20 @@
 	let listHubIntegrationsCached = createCache((params: { kind: HubScriptKind & string }) =>
 		IntegrationService.listHubIntegrations(params)
 	)
+	let listHubScriptsCached = createCache(
+		async ({
+			filter,
+			kind,
+			appFilter
+		}: {
+			filter: string
+			kind: HubScriptKind & string
+			appFilter: string | undefined
+		}) =>
+			filter.length > 0
+				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
+				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? [])
+	)
 </script>
 
 <script lang="ts">
@@ -12,6 +26,7 @@
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let hubNotAvailable = $state(false)
 
@@ -61,34 +76,20 @@
 		}
 	}
 
-	let startTs = 0
-	async function applyFilter(
-		filter: string,
-		filterKind: typeof kind,
-		appFilter: string | undefined
-	) {
-		try {
-			loading = true
-			hubNotAvailable = false
-			const ts = Date.now()
-			startTs = ts
-			await new Promise((resolved, rejected) => setTimeout(resolved, 200))
-			if (ts < startTs) return
-			const scripts =
-				filter.length > 0
-					? await ScriptService.queryHubScripts({
-							text: `${filter}`,
-							limit: 40,
-							kind: filterKind
-						})
-					: ((
-							await ScriptService.getTopHubScripts({
-								limit: 40,
-								kind: filterKind,
-								app: appFilter
-							})
-						).asks ?? [])
-
+	let hubScriptsFilteredPromise = usePromise(() =>
+		listHubScriptsCached({ appFilter, filter, kind })
+	)
+	$effect(() => {
+		;[filter, kind, appFilter]
+		hubScriptsFilteredPromise.refresh()
+	})
+	$effect(() => {
+		// TODO: these should be derived ...
+		loading = hubScriptsFilteredPromise.status === 'loading'
+		hubNotAvailable = !!hubScriptsFilteredPromise.error
+		const scripts = hubScriptsFilteredPromise.value
+		untrack(() => {
+			if (!scripts) return
 			const mappedItems = scripts.map(
 				(x: {
 					summary: string
@@ -110,18 +111,8 @@
 			}
 
 			items = appFilter ? mappedItems.filter((x) => x.app === appFilter) : mappedItems
-
-			if (ts === startTs) {
-				loading = false
-			}
-
-			hubNotAvailable = false
-		} catch (err) {
-			hubNotAvailable = true
-			console.error('Hub not available')
-			loading = false
-		}
-	}
+		})
+	})
 
 	function onKeyDown(e: KeyboardEvent) {
 		if (
@@ -136,12 +127,6 @@
 			dispatch('pickScript', item)
 		}
 	}
-	$effect(() => {
-		;[filter, kind, appFilter]
-		untrack(() => {
-			applyFilter(filter, kind, appFilter)
-		})
-	})
 	$effect(() => {
 		kind
 		untrack(() => {
