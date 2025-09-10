@@ -1,7 +1,13 @@
+<script module lang="ts">
+	let listHubIntegrationsCached = createCache((params: { kind: HubScriptKind & string }) =>
+		IntegrationService.listHubIntegrations(params)
+	)
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle } from 'lucide-svelte'
@@ -45,11 +51,7 @@
 	async function getAllApps(filterKind: typeof kind) {
 		try {
 			hubNotAvailable = false
-			allApps = (
-				await IntegrationService.listHubIntegrations({
-					kind: filterKind
-				})
-			).map((x) => x.name)
+			allApps = (await listHubIntegrationsCached({ kind: filterKind })).map((x) => x.name)
 			apps = allApps
 		} catch (err) {
 			console.error('Hub is not available')
