@@ -294,7 +294,6 @@
 									{/snippet}
 								</GitSyncFilterSettings>
 							{/if}
-
 							{#if !repo.isUnsavedConnection}
 								<div class="flex justify-between items-start">
 									<!-- Display mode settings as prominent text -->

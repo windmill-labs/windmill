@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path \n         FROM app \n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "policy",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "versions",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 6,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "draft_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "custom_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "0c7517fba8a6fb4c4e33b1a635cfefa362cdaf79d4f4a32b6d929701b68f4d1c"
+}

@@ -17,7 +17,8 @@ import {
   setLastUsedProfile
 } from "./branch-profiles.ts";
 import { readConfigFile } from "./conf.ts";
-import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
+import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, getWorkspaceIdForWorkspaceForkFromBranchName, isGitRepository } from "../utils/git.ts";
+import { WM_FORK_PREFIX } from "../main.ts";
 
 // Helper function to select from multiple matching profiles
 async function selectFromMultipleProfiles(
@@ -116,7 +117,7 @@ async function tryResolveWorkspace(
   };
 }
 
-async function tryResolveBranchWorkspace(
+export async function tryResolveBranchWorkspace(
   opts: GlobalOptions
 ): Promise<Workspace | undefined> {
   // Only try branch-based resolution if in a Git repository
@@ -124,9 +125,18 @@ async function tryResolveBranchWorkspace(
     return undefined;
   }
 
-  const currentBranch = getCurrentGitBranch();
-  if (!currentBranch) {
+  const rawBranch = getCurrentGitBranch();
+  if (!rawBranch) {
     return undefined;
+  }
+
+  let currentBranch: string;
+  const originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawBranch);
+  const workspaceIdIfForked = getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
+  if (originalBranchIfForked) {
+    currentBranch = originalBranchIfForked;
+  } else {
+    currentBranch = rawBranch;
   }
 
   // Read wmill.yaml to check for branch workspace configuration
@@ -138,7 +148,11 @@ async function tryResolveBranchWorkspace(
     return undefined;
   }
 
-  const { baseUrl, workspaceId } = branchConfig;
+  let { baseUrl, workspaceId } = branchConfig;
+  if (workspaceIdIfForked) {
+    workspaceId = workspaceIdIfForked;
+    log.info(`Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
+  }
   let normalizedBaseUrl: string;
   try {
     normalizedBaseUrl = new URL(baseUrl).toString();
@@ -155,10 +169,17 @@ async function tryResolveBranchWorkspace(
 
   if (matchingProfiles.length === 0) {
     // No matching profile exists - prompt to create one
-    log.info(colors.yellow(
-      `\nNo workspace profile found for branch '${currentBranch}'\n` +
-      `(${normalizedBaseUrl}, ${workspaceId})`
-    ));
+    if (!originalBranchIfForked) {
+      log.info(colors.yellow(
+        `\nNo workspace profile found for branch '${rawBranch}'\n` +
+        `(${normalizedBaseUrl}, ${workspaceId})`
+      ));
+    } else {
+      log.info(colors.yellow(
+        `\nNo workspace profile was found for this forked workspace\n` +
+        `(${normalizedBaseUrl}, ${workspaceId})`
+      ));
+    }
 
     if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
       log.info("Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first.");
@@ -166,7 +187,7 @@ async function tryResolveBranchWorkspace(
     }
 
     const shouldCreate = await Confirm.prompt({
-      message: "Would you like to create a new profile?",
+      message: "Would you like to create a new workspace profile?",
       default: true,
     });
 
@@ -327,10 +348,17 @@ export async function resolveWorkspace(
     }
   }
 
-  // Try explicit workspace flag first (highest priority)
+  const branch = getCurrentGitBranch();
+
+  // Try explicit workspace flag first (should override branch-based resolution). Unless it's a
+  // forked workspace, that we detect through the branch name
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
-    return res.value;
+    if (!branch || !branch.startsWith(WM_FORK_PREFIX)) {
+      return res.value;
+    } else {
+      log.info(`Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``);
+    }
   }
 
   // Try branch-based resolution (medium priority)
@@ -338,6 +366,12 @@ export async function resolveWorkspace(
   if (branchWorkspace) {
     (opts as any).__secret_workspace = branchWorkspace;
     return branchWorkspace;
+  } else {
+    const originalBranch = getOriginalBranchForWorkspaceForks(branch)
+    if (originalBranch) {
+      log.error(colors.red.bold(`Failed to resolve workspace profile for workspace fork. This most likely means that the original branch \`${originalBranch}\` where \`${branch}\` is originally forked from, is not setup in the wmill.yaml. You need to update the \`gitBranches\` section for \`${originalBranch}\` to include workspaceId and baseUrl.`))
+      return Deno.exit(-1);
+    }
   }
 
   // Fall back to active workspace (lowest priority)

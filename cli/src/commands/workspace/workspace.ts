@@ -4,6 +4,7 @@ import { getActiveWorkspaceConfigFilePath, getWorkspaceConfigFilePath } from "..
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
+import { forkCommand, deleteForkCommand } from "./fork.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -70,7 +71,7 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-async function list(opts: GlobalOptions) {
+export async function list(opts: GlobalOptions) {
   const workspaces = await allWorkspaces(opts.configDir);
   const activeName = await getActiveWorkspaceName(opts);
 
@@ -464,6 +465,8 @@ const command = new Command()
   .command("unbind")
   .description("Remove workspace binding from the current Git branch")
   .option("--branch <branch:string>", "Specify branch (defaults to current)")
-  .action((opts) => bind(opts as any, false));
+  .action((opts) => bind(opts as any, false))
+  .command("fork", forkCommand)
+  .command("delete-fork", deleteForkCommand);
 
 export default command;

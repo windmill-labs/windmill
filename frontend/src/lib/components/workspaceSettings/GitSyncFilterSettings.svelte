@@ -35,7 +35,7 @@
 		isInitialSetup = false,
 		requiresMigration = false,
 		actions = undefined,
-		useIndividualBranch = false
+		useIndividualBranch = false,
 	} = $props()
 
 	// Component state

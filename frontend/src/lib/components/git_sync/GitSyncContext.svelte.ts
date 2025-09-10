@@ -155,7 +155,7 @@ export function createGitSyncContext(workspace: string) {
 			use_individual_branch: repo.use_individual_branch,
 			group_by_folder: repo.group_by_folder,
 			settings: repo.settings,
-			exclude_types_override: repo.exclude_types_override
+			exclude_types_override: repo.exclude_types_override,
 		}
 	}
 

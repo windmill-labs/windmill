@@ -33,8 +33,9 @@ export interface UserWorkspace {
 	id: string
 	name: string
 	username: string
-	color: string | null
+	color?: string
 	operator_settings?: OperatorSettings
+	parent_workspace_id?: string | null
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()
@@ -86,8 +87,8 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					id: 'admins',
 					name: 'Admins',
 					username: 'superadmin',
-					color: null,
-					operator_settings: null
+					color: undefined,
+					operator_settings: undefined
 				}
 			]
 		} else {

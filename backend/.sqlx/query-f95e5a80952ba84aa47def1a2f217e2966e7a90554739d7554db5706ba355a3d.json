@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET versions = (\n            SELECT array_agg(av.id ORDER BY av.created_at)\n            FROM app_version av \n            WHERE av.app_id = app.id\n        ) WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f95e5a80952ba84aa47def1a2f217e2966e7a90554739d7554db5706ba355a3d"
+}
