@@ -44,6 +44,7 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
     // TODO: Use
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
+    static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
 }
 
 use crate::common::OccupancyMetrics;
@@ -1642,7 +1643,9 @@ async fn insert_flow_node<'c>(
         hasher.update(flow.unwrap_or(&Default::default()).get());
         if !*WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ {
             // We also want to take into account hashes of relative imports.
-            hasher.update(relative_imports_bytes(&mut *tx, code, path, language).await?);
+            hasher.update(
+                relative_imports_bytes(&mut *tx, code, &format!("{path}/flow"), language).await?,
+            );
             // TODO: Check if using relative relative and not absolute works
         }
         format!("{:x}", hasher.finalize())
@@ -1668,8 +1671,10 @@ async fn insert_flow_node<'c>(
     Ok((tx, FlowNodeId(id)))
 }
 
+// TODO: Clean up dependency map when moved/renamed?
 async fn insert_app_script(
     db: &sqlx::Pool<sqlx::Postgres>,
+    path: &str,
     app: i64,
     code: String,
     lock: Option<String>,
@@ -1682,7 +1687,9 @@ async fn insert_app_script(
         hasher.update(&code_sha256);
         hasher.update(lock.as_ref().unwrap_or(&Default::default()));
         // We also want to take into account hashes of relative imports.
-        hasher.update(relative_imports_bytes(db, Some(&code), "", language).await?);
+        hasher.update(
+            relative_imports_bytes(db, Some(&code), &format!("{path}/app"), language).await?,
+        );
         format!("{:x}", hasher.finalize())
     };
 
@@ -1866,7 +1873,12 @@ async fn reduce_flow<'c>(
     Ok(tx)
 }
 
-async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64) -> Result<()> {
+async fn reduce_app(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    path: &str,
+    value: &mut Value,
+    app: i64,
+) -> Result<()> {
     match value {
         Value::Object(object) => {
             if let Some(Value::Object(script)) = object.get_mut("inlineScript") {
@@ -1888,6 +1900,7 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
                 });
                 let id = insert_app_script(
                     db,
+                    path,
                     app,
                     code,
                     lock,
@@ -1898,13 +1911,13 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
                 script.insert("id".to_string(), json!(id.0));
             } else {
                 for (_, value) in object {
-                    Box::pin(reduce_app(db, value, app)).await?;
+                    Box::pin(reduce_app(db, path, value, app)).await?;
                 }
             }
         }
         Value::Array(array) => {
             for value in array {
-                Box::pin(reduce_app(db, value, app)).await?;
+                Box::pin(reduce_app(db, path, value, app)).await?;
             }
         }
         _ => {}
@@ -1949,11 +1962,13 @@ async fn lock_modules_app(
                 m.get("path").and_then(|s| s.as_str()),
                 m.get("type").and_then(|s| s.as_str()),
             ) {
+                // TODO: ???
                 // No script_hash because apps don't supports script version locks yet
                 sqlx::query!(
                     "INSERT INTO workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
                     job_path,
                     path,
+                    // TODO: Should this be flow? We are doing Apps here
                     run_type == "flow",
                     job.workspace_id
                 )
@@ -1974,26 +1989,26 @@ async fn lock_modules_app(
                                 .unwrap_or_default()
                                 .to_string();
                             let mut logs = "".to_string();
-                            // TODO: May be move somewhere else?
-                            // if let Some(locks_to_relock) = locks_to_reload {
-                            //     if !lock
 
-                            // } else {
-
-                            // }
-                            // locks_to_reload.inspect(|v| v.contains(&container_id))
-                            //                                 &&
-
-                            if let Some((l, id)) =
-                                locks_to_reload.as_ref().zip(container_id.as_ref())
+                            if let Some((l, id)) = locks_to_reload
+                                .as_ref()
+                                .zip(container_id.as_ref())
+                                // TODO: Remove fallback
+                                .and_then(|e| {
+                                    if *WMDEBUG_NO_COMPONENTS_TO_RELOCK {
+                                        None
+                                    } else {
+                                        Some(e)
+                                    }
+                                })
                             {
                                 if !l.contains(id) {
                                     return Ok(Value::Object(m.clone()));
                                 }
-                            } else if v
-                                .get("lock")
+                            } else if dbg!(v.get("lock"))
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
+                                dbg!("SKIP");
                                 // TODO: Make sure this is not triggered for jobs unexpectedly
                                 if skip_creating_new_lock(&language, &content) {
                                     logs.push_str(
@@ -2028,10 +2043,7 @@ async fn lock_modules_app(
 
                                     let mut tx = db.begin().await?;
 
-                                    // let dep_path =
-                                    //     path.clone().unwrap_or_else(|| job_path.to_string());
                                     tx = clear_dependency_map_for_item(
-                                        // TODO: PATHS!
                                         &job_path,
                                         &job.workspace_id,
                                         "app",
@@ -2042,8 +2054,7 @@ async fn lock_modules_app(
 
                                     let relative_imports = extract_relative_imports(
                                         &content,
-                                        // TODO:
-                                        dbg!(&format!("{job_path}/app")),
+                                        &format!("{job_path}/app"),
                                         &Some(language.clone()),
                                     );
 
@@ -2232,7 +2243,7 @@ pub async fn handle_app_dependency_job(
 
         // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
         let mut value_lite = value.clone();
-        reduce_app(db, &mut value_lite, app_id).await?;
+        reduce_app(db, dbg!(&job_path), &mut value_lite, app_id).await?;
         if let Value::Object(object) = &mut value_lite {
             object.insert("version".to_string(), json!(id));
         }
