@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{future::Future, str::FromStr, sync::Arc};
 
 use futures::Stream;

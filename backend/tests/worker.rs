@@ -20,7 +20,7 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_common::flows::InputTransform;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
-use windmill_common::flow_status::{ RestartedFrom};
+use windmill_common::flow_status::{RestartedFrom};
 
 use windmill_common::{
     flows::{ FlowValue},
@@ -31,6 +31,7 @@ use windmill_common::{
 mod common;
 use common::*;
 
+#[cfg(feature = "enterprise")]
 use futures::StreamExt;
 
 
