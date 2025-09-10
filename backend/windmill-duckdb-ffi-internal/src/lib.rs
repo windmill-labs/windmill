@@ -24,8 +24,9 @@ pub extern "C" fn run_duckdb_ffi(
     token: *const c_char,
     base_internal_url: *const c_char,
     w_id: *const c_char,
+    column_order_ptr: *mut *mut c_char,
 ) -> *mut c_char {
-    let r = match convert_args(
+    let (r, column_order) = match convert_args(
         query_block_list,
         query_block_list_count,
         job_args,
@@ -49,10 +50,22 @@ pub extern "C" fn run_duckdb_ffi(
         Err(err) => {
             let err = serde_json::to_string(&err)
                 .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
-            format!("ERROR {}", err)
+            (format!("ERROR {}", err), None)
         }
     };
-    // This one is CString::into_raw because it needs to outlive this function call.
+
+    unsafe {
+        if let Some(column_order) = column_order {
+            let column_order =
+                serde_json::to_string(&column_order).unwrap_or_else(|_| "[]".to_string());
+            let c_column_order =
+                CString::new(column_order).unwrap_or_else(|_| CString::new("[]").unwrap());
+            *column_order_ptr = c_column_order.into_raw();
+        } else {
+            *column_order_ptr = null_mut();
+        }
+    }
+    // CString::into_raw because it needs to outlive this function call.
     // The caller is responsible for freeing the memory through CString::from_raw.
     CString::new(r).map(|s| s.into_raw()).unwrap_or_else(|e| {
         println!("Failed to allocate error string in duckdb ffi lib: {:?}", e);
@@ -129,7 +142,7 @@ fn run_duckdb_internal<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
-) -> Result<String, String> {
+) -> Result<(String, Option<Vec<String>>), String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
     let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
@@ -181,7 +194,7 @@ fn run_duckdb_internal<'a>(
         );
     }
     let result = result.unwrap_or_else(|| RawValue::from_string("[]".to_string()).unwrap());
-    Ok(result.get().to_string())
+    Ok((result.get().to_string(), column_order))
 }
 
 fn do_duckdb_inner(

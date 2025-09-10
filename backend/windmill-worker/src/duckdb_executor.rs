@@ -128,7 +128,7 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
-        let result = tokio::task::spawn_blocking(move || {
+        let (result, column_order) = tokio::task::spawn_blocking(move || {
             run_duckdb_ffi_safe(
                 query_block_list.iter().map(String::as_str),
                 query_block_list.len(),
@@ -143,8 +143,7 @@ pub async fn do_duckdb(
 
         drop(bigquery_credentials);
 
-        // TODO
-        // *column_order_ref = column_order;
+        *column_order_ref = column_order;
         Ok(result)
     };
 
@@ -191,6 +190,7 @@ struct DuckDbFfiLib {
             token: *const c_char,
             base_internal_url: *const c_char,
             w_id: *const c_char,
+            column_order_ptr: *mut *mut c_char,
         ) -> *mut c_char,
     >,
 }
@@ -244,7 +244,7 @@ fn run_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
-) -> Result<Box<RawValue>> {
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
     let query_block_list = query_block_list
         .map(|s| {
             CString::new(s).map_err(|e| {
@@ -264,6 +264,7 @@ fn run_duckdb_ffi_safe<'a>(
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
     let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
+    let mut column_order: *mut c_char = std::ptr::null_mut();
     let result_cstr = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
@@ -272,8 +273,17 @@ fn run_duckdb_ffi_safe<'a>(
             token.as_ptr(),
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
+            &mut column_order,
         );
         CString::from_raw(ptr) // Using from_raw to take ownership and ensure it gets freed
+    };
+
+    let column_order = if column_order.is_null() {
+        None
+    } else {
+        Some(unsafe {
+            serde_json::from_str::<Vec<String>>(&CString::from_raw(column_order).to_string_lossy())?
+        })
     };
 
     let result_str = result_cstr
@@ -285,11 +295,12 @@ fn run_duckdb_ffi_safe<'a>(
             ))
         })?
         .to_string();
+
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))
     } else {
-        tracing::debug!("DuckDB result: {}", &result_str);
-        Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
+        let result = serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?;
+        Ok((result, column_order))
     }
 }
 
