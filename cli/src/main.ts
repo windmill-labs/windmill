@@ -70,6 +70,8 @@ export {
 
 export const VERSION = "1.541.1";
 
+export const WM_FORK_PREFIX = "wm-fork";
+
 const command = new Command()
   .name("wmill")
   .action(() =>
