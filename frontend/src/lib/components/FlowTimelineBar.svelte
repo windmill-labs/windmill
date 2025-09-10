@@ -253,16 +253,20 @@
 						style="left: {position.left}%; width: {position.width}%"
 						openDelay={100}
 					>
-						<div
+						<!-- svelte-ignore a11y_consider_explicit_label -->
+						<button
 							class={twMerge(
-								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+								'block w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
 								isRunning(selectedItem)
 									? 'bg-blue-400'
 									: isJobFailure?.(selectedItem.id)
 										? ' bg-red-500'
 										: ' bg-blue-500'
 							)}
-						></div>
+							onclick={(e) => {
+								e.stopPropagation()
+							}}
+						></button>
 						{#snippet text()}
 							{msToReadableTime(selectedLen, 1)}
 						{/snippet}
