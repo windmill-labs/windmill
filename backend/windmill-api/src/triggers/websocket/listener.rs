@@ -47,7 +47,7 @@ impl ListeningTrigger<WebsocketConfig> {
             None,
             authed,
             &self.workspace_id,
-            &self.path,
+            &self.script_path,
             self.is_flow,
             PushArgsOwned { args, extra: None },
             None,
