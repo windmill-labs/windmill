@@ -1698,6 +1698,55 @@ struct FailureContext {
     flow_job_id: Uuid,
 }
 
+#[instrument(level = "trace", skip_all)]
+pub async fn evaluate_input_transform<T>(
+    transform: &InputTransform,
+    last_result: Arc<Box<RawValue>>,
+    flow_args: Option<Marc<HashMap<String, Box<RawValue>>>>,
+    authed_client: Option<&AuthedClient>,
+    by_id: Option<&IdContext>,
+) -> error::Result<T>
+where
+    T: for<'de> serde::Deserialize<'de> + Send,
+{
+    let mut context = HashMap::with_capacity(2);
+    context.insert("result".to_string(), last_result.clone());
+    context.insert("previous_result".to_string(), last_result.clone());
+    match transform {
+        InputTransform::Static { value } => serde_json::from_str(value.get()).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Error parsing static value as {}: {e:#}",
+                std::any::type_name::<T>()
+            ))
+        }),
+        InputTransform::Javascript { expr } => {
+            let result = eval_timeout(
+                expr.to_string(),
+                context,
+                flow_args,
+                authed_client,
+                by_id,
+                None,
+            )
+            .warn_after_seconds(3)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Error during evaluation of expression `{expr}`:\n{e:#}"
+                ))
+            })?;
+
+            serde_json::from_str(result.get()).map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Error parsing result as {}: {e:#}. Value was: {}",
+                    std::any::type_name::<T>(),
+                    result.get()
+                ))
+            })
+        }
+    }
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
@@ -1901,10 +1950,13 @@ lazy_static::lazy_static! {
     pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
 }
 
+#[derive(Debug)]
 enum PushNextFlowJob {
     Rec(PushNextFlowJobRec),
     Done(Option<UpdateFlow>),
 }
+
+#[derive(Debug)]
 struct PushNextFlowJobRec {
     flow_job: Arc<MiniPulledJob>,
     status: FlowStatus,
@@ -2143,9 +2195,10 @@ async fn push_next_flow_job(
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
             if user_auth_required {
                 let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
-                let mut user_groups_required: Vec<String> = Vec::new();
-                if suspend.user_groups_required.is_some() {
-                    match suspend.user_groups_required.unwrap() {
+                let user_groups_required: Vec<String>;
+                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                {
+                    match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
                             user_groups_required = serde_json::from_str::<Vec<String>>(value.get())
                                 .expect("Unable to deserialize group names");
@@ -2184,7 +2237,10 @@ async fn push_next_flow_job(
                             }
                         }
                     }
-                }
+                } else {
+                    user_groups_required = Vec::new();
+                };
+
                 let approval_conditions = ApprovalConditions {
                     user_auth_required,
                     user_groups_required,
@@ -2408,35 +2464,16 @@ async fn push_next_flow_job(
                 None
             };
 
-            if let Some(it) = sleep_input_transform {
-                let json_value = match it {
-                    InputTransform::Static { value } => Ok(value),
-                    InputTransform::Javascript { expr } => {
-                        let mut context = HashMap::with_capacity(2);
-                        context.insert("result".to_string(), arc_last_job_result.clone());
-                        context.insert("previous_result".to_string(), arc_last_job_result.clone());
-
-                        serde_json::from_str(
-                             eval_timeout(
-                                 expr.to_string(),
-                                 context,
-                                 Some(arc_flow_job_args.clone()),
-                                 None,
-                                 None,
-                                 None,
-                             )
-                             .warn_after_seconds(3)
-                             .await
-                             .map_err(|e| {
-                                 Error::ExecutionErr(format!(
-                                     "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
-                                 ))
-                             })?
-                             .get(),
-                         )
-                    }
-                };
-                match json_value.and_then(|x| serde_json::from_str::<serde_json::Value>(x.get())) {
+            if let Some(input_transform) = sleep_input_transform {
+                let timeout_value = evaluate_input_transform::<serde_json::Value>(
+                    &input_transform,
+                    arc_last_job_result.clone(),
+                    Some(arc_flow_job_args.clone()),
+                    Some(client),
+                    None,
+                )
+                .await;
+                match timeout_value {
                     Ok(serde_json::Value::Number(n)) => {
                         if n.is_f64() {
                             n.as_f64()
@@ -2959,6 +2996,31 @@ async fn push_next_flow_job(
             )
         };
 
+        let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
+            let ctx = get_transform_context(&flow_job, &previous_id, &status)
+                .warn_after_seconds(3)
+                .await?;
+
+            let timeout_value = evaluate_input_transform::<i32>(
+                timeout_transform,
+                arc_last_job_result.clone(),
+                Some(arc_flow_job_args.clone()),
+                Some(client),
+                Some(&ctx),
+            )
+            .await?;
+
+            if timeout_value < 0 {
+                return Err(Error::ExecutionErr(
+                    "Timeout value cannot be negative".to_string(),
+                ));
+            }
+
+            Some(timeout_value)
+        } else {
+            payload_tag.timeout
+        };
+
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2984,7 +3046,7 @@ async fn push_next_flow_job(
             err,
             flow_job.visible_to_owner,
             tag,
-            payload_tag.timeout,
+            evaluated_timeout,
             Some(module.id.clone()),
             new_job_priority_override,
             job_perms.as_ref(),
@@ -3363,7 +3425,7 @@ enum NextStatus {
     },
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct JobPayloadWithTag {
     pub payload: JobPayload,
     pub tag: Option<String>,
@@ -3585,7 +3647,7 @@ async fn compute_next_flow_transform(
                 },
                 tag: tag.clone(),
                 delete_after_use,
-                timeout: module.timeout,
+                timeout: None,
                 on_behalf_of: None,
             };
             Ok(NextFlowTransform::Continue(
@@ -4205,7 +4267,7 @@ async fn payload_from_simple_module(
             },
             tag,
             delete_after_use,
-            timeout: module.timeout,
+            timeout: None, // timeout evaluation handled at higher level
             on_behalf_of: None,
         },
         _ => unreachable!("is simple flow"),
@@ -4239,7 +4301,7 @@ pub fn raw_script_to_payload(
         }),
         tag,
         delete_after_use,
-        timeout: module.timeout,
+        timeout: None, // timeout evaluation handled at higher level
         on_behalf_of: None,
     }
 }
@@ -4341,7 +4403,12 @@ pub async fn script_to_payload(
     // the module value overrides the value set at the script level. Defaults to false if both are unset.
     let final_delete_after_user =
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
-    let flow_step_timeout = module.timeout.or(script_timeout);
+
+    let flow_step_timeout = if module.timeout.is_some() {
+        None
+    } else {
+        script_timeout
+    };
     Ok(JobPayloadWithTag {
         payload,
         tag,

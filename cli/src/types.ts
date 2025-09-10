@@ -53,7 +53,8 @@ export const TRIGGER_TYPES = [
   'postgres',
   'mqtt',
   'sqs',
-  'gcp'
+  'gcp',
+  'email',
 ] as const;
 
 export type GlobalOptions = {
@@ -180,6 +181,8 @@ export async function pushObj(
     await pushTrigger("sqs", workspace, p, befObj, newObj);
   } else if (typeEnding === "gcp_trigger") {
     await pushTrigger("gcp", workspace, p, befObj, newObj);
+  } else if (typeEnding === "email_trigger") {
+    await pushTrigger("email", workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
@@ -230,6 +233,7 @@ export function getTypeStrFromPath(
   | "mqtt_trigger"
   | "sqs_trigger"
   | "gcp_trigger"
+  | "email_trigger"
   | "user"
   | "group"
   | "settings"
@@ -281,6 +285,7 @@ export function getTypeStrFromPath(
     typeEnding === "mqtt_trigger" ||
     typeEnding === "sqs_trigger" ||
     typeEnding === "gcp_trigger" ||
+    typeEnding === "email_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
     typeEnding === "settings" ||

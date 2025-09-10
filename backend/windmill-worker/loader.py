@@ -2,8 +2,7 @@ import sys
 import os
 from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import ModuleSpec, SourceFileLoader
-import urllib.response
-
+import time
 
 class WindmillLoader(Loader):
     def __init__(self, path):
@@ -53,6 +52,7 @@ class WindmillFinder(MetaPathFinder):
 
             req = urllib.request.Request(url, None, headers)
             try:
+                req_start = time.time()
                 with urllib.request.urlopen(req) as response:
                     os.makedirs(folder, exist_ok=True)
                     r = response.read().decode("utf-8")
@@ -62,11 +62,13 @@ class WindmillFinder(MetaPathFinder):
                         f.write(r)
                     return ModuleSpec(name, SourceFileLoader(name, fullpath))
             except urllib.error.HTTPError as e:
+                duration = time.time() - req_start
                 if e.code != 404:
-                    print(f"Error fetching script {script_path}: HTTP {e.code} - {e.reason}")
+                    print(f"Error fetching script {script_path}: HTTP {e.code} - {e.reason} - {duration}s")
                 return ModuleSpec(name, WindmillLoader(name))
             except Exception as e:
-                print(f"Error fetching script {script_path}: {e}")
+                duration = time.time() - req_start
+                print(f"Error fetching script {script_path}: {e} - {duration}s")
                 return ModuleSpec(name, WindmillLoader(name))
 
 

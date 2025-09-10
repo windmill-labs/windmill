@@ -34,7 +34,9 @@
 		Unplug,
 		AlertCircle,
 		Database,
-		Pyramid
+		Pyramid,
+		Trash2,
+		MailIcon
 	} from 'lucide-svelte'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
@@ -66,6 +68,13 @@
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
 		sendUserToast('You left the workspace')
+		clearStores()
+		goto('/user/workspaces')
+	}
+
+	async function deleteFork() {
+		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
 	}
@@ -136,6 +145,7 @@
 	let { numUnacknowledgedCriticalAlerts = 0, isCollapsed = false }: Props = $props()
 
 	let leaveWorkspaceModal = $state(false)
+	let deleteWorkspaceForkModal = $state(false)
 
 	function computeAllNotificationsCount(menuItems: any[]) {
 		let count = 0
@@ -261,6 +271,15 @@
 			kind: 'mqtt',
 			aiId: 'sidebar-menu-link-mqtt',
 			aiDescription: 'Button to navigate to MQTT triggers'
+		},
+		{
+			label: 'Email',
+			href: '/email_triggers',
+			icon: MailIcon,
+			disabled: $userStore?.operator,
+			kind: 'email',
+			aiId: 'sidebar-menu-link-email',
+			aiDescription: 'Button to navigate to Email triggers'
 		}
 	])
 	let triggerMenuLinks = $derived([
@@ -339,7 +358,19 @@
 								faIcon: undefined
 							}
 						]
-					: [])
+					: []),
+				...($workspaceStore?.startsWith("wm-fork")
+					? [
+							{
+								label: 'Delete Forked Workspace',
+								action: () => {
+									deleteWorkspaceForkModal = true
+								},
+								icon: Trash2,
+								faIcon: undefined
+							}
+						]
+					: []),
 			],
 			disabled: $userStore?.operator
 		},
@@ -633,3 +664,21 @@
 		<span>Are you sure you want to leave this workspace?</span>
 	</div>
 </ConfirmationModal>
+
+{#if $workspaceStore?.startsWith("wm-fork-")}
+<ConfirmationModal
+	open={deleteWorkspaceForkModal}
+	title="Delete forked workspace"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteWorkspaceForkModal = false
+	}}
+	on:confirmed={() => {
+		deleteFork()
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to delete this workspace fork? (deleting {$workspaceStore})</span>
+	</div>
+</ConfirmationModal>
+{/if}

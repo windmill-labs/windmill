@@ -311,6 +311,7 @@ pub struct WorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub parent_workspace_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -616,7 +617,13 @@ async fn list_invites(
     let mut tx = db.begin().await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE email = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id WHERE email = $1",
         authed.email
     )
     .fetch_all(&mut *tx)
@@ -1364,6 +1371,7 @@ async fn update_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let mut revoke_tokens = false;
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
@@ -1372,6 +1380,7 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
     }
 
     if let Some(dv) = eu.is_devops {
@@ -1382,6 +1391,13 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
+    }
+
+    if revoke_tokens {
+        sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
+            .execute(&mut *tx)
+            .await?;
     }
 
     if let Some(n) = eu.name {
