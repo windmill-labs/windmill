@@ -230,6 +230,49 @@ struct GeminiInlineData {
     data: String, // base64 encoded image
 }
 
+// OpenRouter image generation structures
+#[derive(Serialize)]
+struct OpenRouterImageRequest<'a> {
+    model: &'a str,
+    messages: Vec<OpenRouterImageMessage>,
+    modalities: Vec<&'a str>,
+}
+
+#[derive(Serialize)]
+struct OpenRouterImageMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterImageResponse {
+    choices: Vec<OpenRouterImageChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterImageChoice {
+    message: OpenRouterImageResponseMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterImageResponseMessage {
+    role: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<OpenRouterImageData>>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterImageData {
+    r#type: String,
+    image_url: OpenRouterImageUrl,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterImageUrl {
+    url: String, // data:image/png;base64,... format
+}
+
 #[derive(Serialize)]
 struct OpenAIRequest<'a> {
     model: &'a str,
@@ -797,6 +840,80 @@ async fn generate_image_from_provider(
                         .unwrap_or_else(|_| "<failed to read body>".to_string());
                     Err(Error::internal_err(format!(
                         "Gemini API error: {} - {}",
+                        e, text
+                    )))
+                }
+            }
+        }
+        AIProvider::OpenRouter => {
+            let mut messages = Vec::new();
+            
+            // Add system message if provided
+            if let Some(system_prompt) = system_prompt {
+                messages.push(OpenRouterImageMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                });
+            }
+            
+            // Add user message
+            messages.push(OpenRouterImageMessage {
+                role: "user".to_string(),
+                content: user_message.to_string(),
+            });
+            
+            let openrouter_request = OpenRouterImageRequest {
+                model: provider.get_model(),
+                messages,
+                modalities: vec!["image", "text"],
+            };
+            
+            let resp = HTTP_CLIENT
+                .post(format!("{}/chat/completions", base_url))
+                .bearer_auth(api_key)
+                .json(&openrouter_request)
+                .send()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to call OpenRouter API: {}", e)))?;
+            
+            match resp.error_for_status_ref() {
+                Ok(_) => {
+                    let openrouter_response = resp.json::<OpenRouterImageResponse>().await.map_err(|e| {
+                        Error::internal_err(format!("Failed to parse OpenRouter response: {}", e))
+                    })?;
+                    
+                    // Extract base64 image from the first choice
+                    let image_url = openrouter_response
+                        .choices
+                        .get(0)
+                        .and_then(|choice| choice.message.images.as_ref())
+                        .and_then(|images| images.get(0))
+                        .map(|image| &image.image_url.url);
+                    
+                    if let Some(data_url) = image_url {
+                        // Extract base64 data from data URL format: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+                        if let Some(base64_start) = data_url.find("base64,") {
+                            let base64_data = &data_url[base64_start + 7..]; // Skip "base64," prefix
+                            Ok(base64_data.to_string())
+                        } else {
+                            Err(Error::internal_err(
+                                "Invalid data URL format received from OpenRouter".to_string(),
+                            ))
+                        }
+                    } else {
+                        Err(Error::internal_err(
+                            "No image data received from OpenRouter".to_string(),
+                        ))
+                    }
+                }
+                Err(e) => {
+                    let _status = resp.status();
+                    let text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                    Err(Error::internal_err(format!(
+                        "OpenRouter API error: {} - {}",
                         e, text
                     )))
                 }
