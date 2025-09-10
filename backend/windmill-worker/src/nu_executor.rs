@@ -311,6 +311,7 @@ async fn run<'a>(
                 //         .join(",")
                 // ),
             ])
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

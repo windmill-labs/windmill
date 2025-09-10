@@ -599,6 +599,7 @@ pub async fn handle_csharp_job(
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
