@@ -55,7 +55,7 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
-		annotation = 'test',
+		annotation = undefined,
 		bgColor = '',
 		bgHoverColor = '',
 		moving = undefined,
