@@ -16,36 +16,38 @@
 		total: number
 		min: number | undefined
 		items: TimelineItem[]
-		selectedIteration: number
+		selectedIndex?: number
 		now: number
-		showSingleItem?: boolean
+		showAllIterations?: boolean
 		timelinelWidth: number
 		showZoomButtons?: boolean
 		onZoom?: () => void
 		zoom?: 'in' | 'out'
 		globalIterationBounds?: GlobalIterationBounds
 		loadPreviousIterations?: () => void
-		onSelectIteration?: (detail: { id: string; index: number }) => void
+		onSelectIteration?: (id: string) => void
+		idToIterationIndex?: (id: string) => number | undefined
 	}
 
 	let {
 		total,
 		min,
 		items,
-		selectedIteration,
+		selectedIndex,
 		now,
-		showSingleItem = true,
+		showAllIterations = false,
 		timelinelWidth,
 		showZoomButtons = false,
 		onZoom,
 		zoom = 'in',
 		globalIterationBounds,
 		loadPreviousIterations,
-		onSelectIteration
+		onSelectIteration,
+		idToIterationIndex
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
-		if (!item.started_at) return 0
+		if (!item?.started_at) return 0
 		return item.duration_ms ?? now - item.started_at
 	}
 
@@ -53,15 +55,11 @@
 		return item.started_at !== undefined && item.duration_ms === undefined
 	}
 
-	const selectedIndex = $derived(
-		selectedIteration - Math.max(globalIterationBounds?.iteration_from ?? 0, 0)
-	)
-	let selectedItem = $derived(showSingleItem ? items[selectedIndex] : items[0])
+	let selectedItem = $derived(selectedIndex && selectedIndex >= 0 ? items[selectedIndex] : items[0])
+	let startItem = $derived(showAllIterations ? items[0] : selectedItem)
 
 	// Calculate total execution time for multiple items
 	function calculateTotalExecutionTime(): number {
-		if (showSingleItem) return 0
-
 		let earliestStart: number | undefined
 		let latestEnd = 0
 
@@ -81,18 +79,18 @@
 		return earliestStart ? latestEnd - earliestStart : 0
 	}
 
-	let totalExecutionTime = $derived(calculateTotalExecutionTime())
 	let selectedLen = $derived(
-		showSingleItem ? (selectedItem?.started_at ? getLength(selectedItem) : 0) : totalExecutionTime
+		// If selectedIteration is set, it means we are in a loop and we are selecting an iteration
+		showAllIterations ? calculateTotalExecutionTime() : getLength(selectedItem)
 	)
 
 	const waitingLen = $derived(
-		selectedItem?.created_at
-			? selectedItem.started_at
-				? selectedItem.started_at - selectedItem.created_at
-				: selectedItem.duration_ms
+		startItem?.created_at
+			? startItem.started_at
+				? startItem.started_at - startItem.created_at
+				: startItem.duration_ms
 					? 0
-					: now - selectedItem.created_at
+					: now - startItem.created_at
 			: 0
 	)
 
@@ -107,8 +105,6 @@
 		}
 		return 0
 	}
-
-	$inspect('dbg selectedIndex', selectedIndex, globalIterationBounds?.iteration_from)
 </script>
 
 {#if min && items.length > 0}
@@ -136,9 +132,9 @@
 		<div
 			class="flex-1 h-1 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden group-hover:h-full transition-all duration-100"
 		>
-			{#if waitingLen > 100 && selectedItem.created_at}
+			{#if waitingLen > 100 && startItem.created_at}
 				<div
-					style="width: {((selectedItem.created_at - min) / total) * 100}%"
+					style="width: {((startItem.created_at - min) / total) * 100}%"
 					class="h-full float-left"
 				>
 				</div>
@@ -148,36 +144,16 @@
 					title={msToReadableTime(waitingLen, 1)}
 				>
 				</div>
-			{:else if selectedItem?.started_at}
+			{:else if startItem?.started_at}
 				<div
-					style="width: {((selectedItem.started_at - min) / total) * 100}%"
+					style="width: {((startItem.started_at - min) / total) * 100}%"
 					class="h-full float-left"
 				></div>
 			{/if}
 
-			{#if items.length === 1 || showSingleItem}
-				<!-- Single item case (non-loop) -->
-				{#if selectedItem?.started_at}
-					<Tooltip
-						class={twMerge('h-full', isRunning(selectedItem) ? 'float-right' : 'float-left')}
-						style="width: {(selectedLen / total) * 100}%"
-						openDelay={100}
-					>
-						<div
-							class={twMerge(
-								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-								isRunning(selectedItem) ? ' bg-blue-400' : ' bg-blue-500'
-							)}
-						></div>
-						{#snippet text()}
-							{msToReadableTime(selectedLen, 1)}
-						{/snippet}
-					</Tooltip>
-				{/if}
-			{:else}
+			{#if showAllIterations}
 				<!-- All iterations -->
 				{#each items as item, i}
-					{@const iterationIndex = i + Math.max(globalIterationBounds?.iteration_from ?? 0, 0)}
 					{#if item.started_at}
 						<div
 							style="width: {(getGap(items, i) / total) * 100}%"
@@ -195,14 +171,11 @@
 										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block',
 										isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
 										i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : '',
-										iterationIndex === selectedIteration ? 'outline' : ''
+										i === selectedIndex ? 'outline' : ''
 									)}
 									onclick={(e) => {
 										e.stopPropagation()
-										onSelectIteration?.({
-											id: item.id,
-											index: iterationIndex
-										})
+										onSelectIteration?.(item.id)
 									}}
 								>
 								</button>
@@ -227,13 +200,32 @@
 								{/if}
 							</div>
 							{#snippet text()}
-								{`#${iterationIndex + 1}`}
+								{`#${(idToIterationIndex?.(item.id) ?? 0) + 1}`}
 								<br />
 								{msToReadableTime(getLength(item), 1)}
 							{/snippet}
 						</Tooltip>
 					{/if}
 				{/each}
+			{:else}
+				<!-- Single item case or inside a loop -->
+				{#if selectedItem?.started_at}
+					<Tooltip
+						class={twMerge('h-full', isRunning(selectedItem) ? 'float-right' : 'float-left')}
+						style="width: {(selectedLen / total) * 100}%"
+						openDelay={100}
+					>
+						<div
+							class={twMerge(
+								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
+								isRunning(selectedItem) ? ' bg-blue-400' : ' bg-blue-500'
+							)}
+						></div>
+						{#snippet text()}
+							{msToReadableTime(selectedLen, 1)}
+						{/snippet}
+					</Tooltip>
+				{/if}
 			{/if}
 		</div>
 		{#if selectedLen > 0}

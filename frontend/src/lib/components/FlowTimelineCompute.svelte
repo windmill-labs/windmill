@@ -2,15 +2,11 @@
 	import { debounce, readFieldsRecursively } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
+	import type { DurationStatus } from './graph'
 
 	interface Props {
 		flowModules: string[]
-		durationStatuses: Record<
-			string,
-			{
-				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-			}
-		>
+		durationStatuses: Record<string, DurationStatus>
 		flowDone?: boolean
 		min: undefined | number
 		max: undefined | number
