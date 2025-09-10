@@ -124,10 +124,26 @@ struct ImageGenerationTool {
     background: Option<String>,
 }
 
+// Input content for image generation - supports both text and images
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ImageGenerationContent {
+    #[serde(rename = "input_text")]
+    InputText { text: String },
+    #[serde(rename = "input_image")]
+    InputImage { image_url: String },
+}
+
+#[derive(Serialize)]
+struct ImageGenerationMessage {
+    role: String,
+    content: Vec<ImageGenerationContent>,
+}
+
 #[derive(Serialize)]
 struct ImageGenerationRequest<'a> {
     model: &'a str,
-    input: &'a str,
+    input: Vec<ImageGenerationMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<&'a str>,
     tools: Vec<ImageGenerationTool>,
@@ -168,9 +184,18 @@ enum MessageContent {
 }
 
 // Gemini API structures
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    data: String,
+}
+
 #[derive(Serialize)]
-struct GeminiPart {
-    text: String,
+#[serde(untagged)]
+enum GeminiPart {
+    Text { text: String },
+    InlineData { inline_data: GeminiInlineData },
 }
 
 #[derive(Serialize)]
@@ -221,13 +246,6 @@ struct GeminiResponseContent {
 struct GeminiResponsePart {
     #[serde(rename = "inlineData")]
     inline_data: Option<GeminiInlineData>,
-}
-
-#[derive(Deserialize)]
-struct GeminiInlineData {
-    #[serde(rename = "mimeType")]
-    mime_type: String,
-    data: String, // base64 encoded image
 }
 
 // OpenRouter image generation structures
@@ -698,12 +716,38 @@ async fn generate_image_from_provider(
     system_prompt: Option<&str>,
     base_url: &str,
     api_key: &str,
+    image: Option<&S3Object>,
+    client: &AuthedClient,
+    workspace_id: &str,
 ) -> error::Result<String> {
     match provider.kind {
         AIProvider::OpenAI => {
+            // Build content array with text and optional image
+            let mut content =
+                vec![ImageGenerationContent::InputText { text: user_message.to_string() }];
+
+            // Add image if provided
+            if let Some(image) = image {
+                if !image.s3.is_empty() {
+                    // Download and encode S3 image to base64
+                    let image_bytes = client
+                        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!("Failed to download S3 image: {}", e))
+                        })?;
+
+                    let base64_image =
+                        base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+                    let image_data_url = format!("data:image/jpeg;base64,{}", base64_image);
+
+                    content.push(ImageGenerationContent::InputImage { image_url: image_data_url });
+                }
+            }
+
             let image_request = ImageGenerationRequest {
                 model: provider.get_model(),
-                input: user_message,
+                input: vec![ImageGenerationMessage { role: "user".to_string(), content }],
                 instructions: system_prompt,
                 tools: vec![ImageGenerationTool {
                     r#type: "image_generation".to_string(),
@@ -714,6 +758,7 @@ async fn generate_image_from_provider(
 
             let resp = HTTP_CLIENT
                 .post(format!("{}/responses", base_url))
+                .timeout(std::time::Duration::from_secs(120))
                 .bearer_auth(api_key)
                 .json(&image_request)
                 .send()
@@ -759,21 +804,46 @@ async fn generate_image_from_provider(
         }
         AIProvider::GoogleAI => {
             let is_imagen = provider.get_model().contains("imagen");
-            let gemini_request = GeminiImageRequest {
-                instances: if is_imagen {
-                    Some(vec![GeminiPredictContent {
+
+            let gemini_request = if is_imagen {
+                // For Imagen models, we keep the simple prompt format (no image support)
+                GeminiImageRequest {
+                    instances: Some(vec![GeminiPredictContent {
                         prompt: user_message.trim().to_string(),
-                    }])
-                } else {
-                    None
-                },
-                contents: if !is_imagen {
-                    Some(vec![GeminiContent {
-                        parts: vec![GeminiPart { text: user_message.trim().to_string() }],
-                    }])
-                } else {
-                    None
-                },
+                    }]),
+                    contents: None,
+                }
+            } else {
+                // For Gemini models, build parts array with text and optional image
+                let mut parts = vec![GeminiPart::Text { text: user_message.trim().to_string() }];
+
+                // Add image if provided
+                if let Some(image) = image {
+                    if !image.s3.is_empty() {
+                        // Download and encode S3 image to base64
+                        let image_bytes = client
+                            .download_s3_file(workspace_id, &image.s3, image.storage.clone())
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!("Failed to download S3 image: {}", e))
+                            })?;
+
+                        let base64_image =
+                            base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+
+                        parts.push(GeminiPart::InlineData {
+                            inline_data: GeminiInlineData {
+                                mime_type: "image/jpeg".to_string(),
+                                data: base64_image,
+                            },
+                        });
+                    }
+                }
+
+                GeminiImageRequest {
+                    instances: None,
+                    contents: Some(vec![GeminiContent { parts }]),
+                }
             };
 
             let url_suffix = if is_imagen {
@@ -789,6 +859,7 @@ async fn generate_image_from_provider(
 
             let resp = HTTP_CLIENT
                 .post(&gemini_url)
+                .timeout(std::time::Duration::from_secs(120))
                 .header("x-goog-api-key", api_key)
                 .header("Content-Type", "application/json")
                 .json(&gemini_request)
@@ -798,9 +869,18 @@ async fn generate_image_from_provider(
 
             match resp.error_for_status_ref() {
                 Ok(_) => {
-                    let gemini_response =
-                        resp.json::<GeminiImageResponse>().await.map_err(|e| {
-                            Error::internal_err(format!("Failed to parse Gemini response: {}", e))
+                    let response_text = resp.text().await.map_err(|e| {
+                        Error::internal_err(format!("Failed to read response text: {}", e))
+                    })?;
+
+                    tracing::info!("Raw Gemini response: {}", response_text);
+
+                    let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to parse Gemini response: {}. Raw response: {}",
+                                e, response_text
+                            ))
                         })?;
 
                     // Find the first candidate with inline image data
@@ -870,6 +950,7 @@ async fn generate_image_from_provider(
             
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
+                .timeout(std::time::Duration::from_secs(120))
                 .bearer_auth(api_key)
                 .json(&openrouter_request)
                 .send()
@@ -992,6 +1073,9 @@ async fn handle_image_output(
         args.system_prompt.as_deref(),
         &base_url,
         api_key,
+        args.image.as_ref(),
+        client,
+        &job.workspace_id,
     )
     .await?;
 
