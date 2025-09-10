@@ -71,7 +71,7 @@
 		</div>
 	</button>
 
-	{#if isExpanded(id) || !isCollapsible}
+	{#if isExpanded(id, isRunning) || !isCollapsible}
 		<div class="my-1 transition-all duration-200 ease-in-out">
 			<div class="pl-4">
 				{@render children()}
