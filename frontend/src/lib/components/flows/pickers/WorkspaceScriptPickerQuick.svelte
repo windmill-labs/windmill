@@ -1,9 +1,18 @@
 <script module lang="ts">
 	let loadItemsCached = createCache(
-		({ workspace, kind, isTemplate }: { workspace: string; kind: string; isTemplate?: boolean }) =>
+		({
+			workspace,
+			kind,
+			isTemplate
+		}: {
+			workspace: string
+			kind?: string
+			isTemplate?: boolean
+		}) =>
 			kind == 'flow'
 				? FlowService.listFlows({ workspace })
-				: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+				: ScriptService.listScripts({ workspace, kinds: kind, isTemplate }),
+		{ initial: { workspace: 'data-pipeline-demo', kind: 'script' } }
 	)
 </script>
 

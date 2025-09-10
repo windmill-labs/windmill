@@ -1,6 +1,7 @@
 <script module lang="ts">
-	let listHubIntegrationsCached = createCache((params: { kind: HubScriptKind & string }) =>
-		IntegrationService.listHubIntegrations(params)
+	let listHubIntegrationsCached = createCache(
+		(params: { kind: HubScriptKind & string }) => IntegrationService.listHubIntegrations(params),
+		{ initial: { kind: 'script' } }
 	)
 	let listHubScriptsCached = createCache(
 		async ({
@@ -14,7 +15,8 @@
 		}) =>
 			filter.length > 0
 				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
-				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? [])
+				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? []),
+		{ initial: { filter: '', kind: 'script', appFilter: undefined } }
 	)
 </script>
 
