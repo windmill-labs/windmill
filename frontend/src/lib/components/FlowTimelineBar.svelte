@@ -120,25 +120,45 @@
 
 {#if min && filteredItems.length > 0}
 	<div
-		class="flex filteredItems-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
+		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
 		style="width: {timelinelWidth}px"
 	>
 		{#if showZoomButtons}
-			<button
-				onclick={(e) => {
-					e.stopPropagation()
-					onZoom?.()
-				}}
-				class="hover:text-primary hover:bg-surface p-1 -my-1 w-6 rounded-md flex filteredItems-center justify-center"
+			<div class="w-24 flex items-center justify-end">
+				<button
+					onclick={(e) => {
+						e.stopPropagation()
+						onZoom?.()
+					}}
+					class="hover:text-primary hover:bg-surface p-1 -my-1 rounded-md"
+				>
+					{#if zoom === 'in'}
+						<ZoomOut size={12} />
+					{:else}
+						<ZoomIn size={12} />
+					{/if}
+				</button>
+			</div>
+		{:else if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
+			<Tooltip
+				class="hover:text-primary hover:bg-surface p-1 -my-1 w-24 rounded-md flex items-center justify-center"
+				openDelay={100}
 			>
-				{#if zoom === 'in'}
-					<ZoomOut size={12} />
-				{:else}
-					<ZoomIn size={12} />
-				{/if}
-			</button>
+				<button
+					class="text-2xs text-primary whitespace-nowrap"
+					onclick={(e) => {
+						e.stopPropagation()
+						loadPreviousIterations?.()
+					}}
+				>
+					load more...
+				</button>
+				{#snippet text()}
+					Load previous iterations
+				{/snippet}
+			</Tooltip>
 		{:else}
-			<div class="w-6"></div>
+			<div class="w-24"></div>
 		{/if}
 		<div
 			class="flex-1 h-1 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden group-hover:h-full transition-all duration-100"
@@ -190,25 +210,6 @@
 									}}
 								>
 								</button>
-								{#if i === 0 && globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
-									<Tooltip class="absolute -left-1 -translate-x-full top-0 h-full" openDelay={100}>
-										<button
-											class={twMerge(
-												'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm'
-											)}
-											style="width: 56px; background: linear-gradient(to left, rgb(59 130 246) 0%, oklch(27.8% 0.033 256.848) 100%)"
-											onclick={(e) => {
-												e.stopPropagation()
-												loadPreviousIterations?.()
-											}}
-										>
-											+</button
-										>
-										{#snippet text()}
-											Load previous iterations
-										{/snippet}
-									</Tooltip>
-								{/if}
 							</div>
 							{#snippet text()}
 								{`#${(idToIterationIndex?.(item.id) ?? 0) + 1}`}
