@@ -151,7 +151,7 @@ export async function tryResolveBranchWorkspace(
   let { baseUrl, workspaceId } = branchConfig;
   if (workspaceIdIfForked) {
     workspaceId = workspaceIdIfForked;
-    log.info(`Infered workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
+    log.info(`Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
   }
   let normalizedBaseUrl: string;
   try {

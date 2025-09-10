@@ -273,7 +273,6 @@
 
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 
-{console.log(invites)}
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 	{#if nonForkInvites.length == 0}
 		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>

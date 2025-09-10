@@ -89,9 +89,9 @@
 					}
 				})
 
-				sendUserToast(`Succesfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+				sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 			} else {
-				sendUserToast('No workspace selected, cannot fork non-existant workspace', true)
+				sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
 			}
 		} else {
 			await createWorkspace()

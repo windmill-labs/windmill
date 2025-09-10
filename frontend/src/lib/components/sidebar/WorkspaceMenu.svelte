@@ -96,7 +96,7 @@
 	<Menu {createMenu} usePointerDownOutside>
 		{#snippet triggr({ trigger })}
 			<div
-				class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs items-center"
+				class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs"
 			>
 				<Building size={12} class="text-tertiary" />
 				<span class="text-xs text-tertiary"> {parentWorkspace?.name ?? ''} </span>

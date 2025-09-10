@@ -158,7 +158,7 @@ async function createWorkspaceFork(
 
   const newBranchName = `${WM_FORK_PREFIX}/${clonedBranchName}/${workspaceId}`
 
-  log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:\n\n\t`+colors.white(`git checkout -b ${newBranchName}`) + `\n\nThe changes will then be reflected in your fork if you've setup the git sync worfkflows correctly.`);
+  log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:\n\n\t`+colors.white(`git checkout -b ${newBranchName}`) + `\n\nThe changes will then be reflected in your fork if you've setup the git sync workflows correctly.`);
 }
 
 async function deleteWorkspaceFork(
@@ -186,7 +186,7 @@ async function deleteWorkspaceFork(
 
   if (!workspace.workspaceId.startsWith(WM_FORK_PREFIX)) {
       throw new Error(
-        `You can only deleted forked workspaces where the workspace id starts with \`${WM_FORK_PREFIX}.\` Failed while attempting to delete \`${workspace.workspaceId}\``,
+        `You can only delete forked workspaces where the workspace id starts with \`${WM_FORK_PREFIX}.\` Failed while attempting to delete \`${workspace.workspaceId}\``,
       );
   }
 
