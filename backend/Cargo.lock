@@ -633,8 +633,9 @@ dependencies = [
 
 [[package]]
 name = "async-oauth2"
-version = "0.5.0"
-source = "git+https://github.com/rubenfiszel/async-oauth2?rev=3daef3162b44c4739745578a5bb1fa7e1132e3e5#3daef3162b44c4739745578a5bb1fa7e1132e3e5"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "850b60ddcc664dcd848f8a2fa8436ab9336e051d6dd2b3f21f897dd8e9c24703"
 dependencies = [
  "base64 0.22.1",
  "bytes",
