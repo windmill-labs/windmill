@@ -67,6 +67,10 @@ enum ContentPart {
     ImageUrl {
         image_url: ImageUrlData,
     },
+    #[serde(rename = "s3_object")]
+    S3Object {
+        s3_object: S3Object,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -600,6 +604,47 @@ async fn download_and_encode_s3_image(
     Ok(format!("data:{};base64,{}", mime_type, base64_data))
 }
 
+/// Convert messages with S3Objects to messages with base64 image URLs for API calls
+async fn prepare_messages_for_api(
+    messages: &[OpenAIMessage],
+    client: &AuthedClient,
+    workspace_id: &str,
+) -> error::Result<Vec<OpenAIMessage>> {
+    let mut prepared_messages = Vec::new();
+    
+    for message in messages {
+        let mut prepared_message = message.clone();
+        
+        if let Some(content) = &message.content {
+            let mut prepared_content = Vec::new();
+            
+            for part in content {
+                match part {
+                    ContentPart::S3Object { s3_object } => {
+                        // Convert S3Object to base64 image URL
+                        let image_data_url = download_and_encode_s3_image(s3_object, client, workspace_id).await?;
+                        prepared_content.push(ContentPart::ImageUrl {
+                            image_url: ImageUrlData {
+                                url: image_data_url,
+                            },
+                        });
+                    }
+                    other => {
+                        // Keep Text and ImageUrl as-is
+                        prepared_content.push(other.clone());
+                    }
+                }
+            }
+            
+            prepared_message.content = Some(prepared_content);
+        }
+        
+        prepared_messages.push(prepared_message);
+    }
+    
+    Ok(prepared_messages)
+}
+
 /// Generate image from provider and extract base64 data
 async fn generate_image_from_provider(
     provider: &ProviderWithResource,
@@ -882,17 +927,16 @@ async fn handle_text_output(
             vec![]
         };
 
-    let has_image = args.image.is_some() && args.image.as_ref().unwrap().s3.len() > 0;
     // Create user message with optional image
-    let user_content = if has_image {
-        // Download and encode the image
-        let image = args.image.as_ref().unwrap();
-        let image_data_url = download_and_encode_s3_image(image, client, &job.workspace_id).await?;
-
-        vec![
-            ContentPart::Text { text: args.user_message.clone() },
-            ContentPart::ImageUrl { image_url: ImageUrlData { url: image_data_url } },
-        ]
+    let user_content = if let Some(image) = &args.image {
+        if !image.s3.is_empty() {
+            vec![
+                ContentPart::Text { text: args.user_message.clone() },
+                ContentPart::S3Object { s3_object: image.clone() },
+            ]
+        } else {
+            vec![ContentPart::Text { text: args.user_message.clone() }]
+        }
     } else {
         vec![ContentPart::Text { text: args.user_message.clone() }]
     };
@@ -969,12 +1013,15 @@ async fn handle_text_output(
         }
 
         let response = {
+            // Convert messages with S3Objects to base64 image URLs for API request
+            let prepared_messages = prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
+            
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .bearer_auth(api_key)
                 .json(&OpenAIRequest {
                     model: args.provider.get_model(),
-                    messages: &messages,
+                    messages: &prepared_messages,
                     tools: tool_defs.as_ref(),
                     temperature: args.temperature,
                     max_completion_tokens: args.max_completion_tokens,
@@ -1020,9 +1067,7 @@ async fn handle_text_output(
             .ok_or_else(|| Error::internal_err("No response from API"))?;
 
         content = first_choice.message.content;
-        println!("HERE content: {:?}", content);
         let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
-        println!("HERE tool_calls: {:?}", tool_calls);
 
         if let Some(ref content) = content {
             actions.push(AgentAction::Message {});
@@ -1052,7 +1097,6 @@ async fn handle_text_output(
         });
 
         for tool_call in tool_calls.iter() {
-            println!("HERE tool_call: {:?}", tool_call);
             // Structured output tool is used, we stop here as this will be the final output
             if structured_output_tool_name
                 .as_ref()
