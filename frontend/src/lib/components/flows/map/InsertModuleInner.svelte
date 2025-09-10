@@ -6,37 +6,37 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 
-	// import type { Writable } from 'svelte/store'
-
 	const dispatch = createEventDispatcher()
-	export let stop = false
-	export let funcDesc = ''
-	export let disableAi = false
-	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
-	export let allowTrigger = true
-	export let scriptOnly = false
+	interface Props {
+		stop?: boolean
+		funcDesc?: string
+		disableAi?: boolean
+		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
+		allowTrigger?: boolean
+		scriptOnly?: boolean
+	}
+
+	let {
+		stop = false,
+		funcDesc = $bindable(''),
+		disableAi = false,
+		kind = 'script',
+		allowTrigger = true,
+		scriptOnly = false
+	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' = kind
-	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
-	let loading = false
-	let small = false
+	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
+		$state(kind)
+	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+	let loading = $state(false)
+	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
-	let width = 0
-	let height = 0
+	let width = $state(0)
+	let height = $state(0)
 
-	$: displayPath = width > 650 || height > 400
-
-	$: small = kind === 'preprocessor' || kind === 'failure'
+	let displayPath = $derived(width > 650 || height > 400)
 </script>
-
-<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
-
-<!-- {floatingConfig}
-floatingClasses="mt-2"
-containerClasses="border rounded-lg shadow-lg  bg-surface"
-noTransition
-shouldUsePortal={true} -->
 
 <div
 	id="flow-editor-insert-module"
@@ -45,7 +45,7 @@ shouldUsePortal={true} -->
 		: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto {small
 		? 'min-w-[450px]'
 		: 'min-w-[650px]'} min-h-[400px]"
-	on:wheel={(e) => {
+	onwheel={(e) => {
 		e.stopPropagation()
 	}}
 	role="none"
