@@ -1,5 +1,7 @@
 use sqlx::{Acquire, Pool, Postgres, Transaction};
 
+use crate::worker::{SHARD_DB_INSTANCE, SHARD_DB_URL};
+
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug, Hash)]
@@ -55,6 +57,15 @@ impl Authable for AuthedRef<'_> {
 #[derive(Clone)]
 pub struct UserDB {
     db: DB,
+}
+
+pub async fn shard_db_or_main_db(db: &Pool<Postgres>) -> Pool<Postgres> {
+    let pull_db = if SHARD_DB_URL.is_some() {
+        SHARD_DB_INSTANCE.read().await.clone().unwrap()
+    } else {
+        db.clone()
+    };
+    pull_db
 }
 
 pub trait Authable {

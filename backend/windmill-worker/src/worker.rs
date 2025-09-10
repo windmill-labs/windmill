@@ -13,6 +13,7 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::db::shard_db_or_main_db;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
@@ -645,7 +646,7 @@ async fn insert_wait_time(
     Ok(())
 }
 
-fn add_outstanding_wait_time(
+async fn add_outstanding_wait_time(
     conn: &Connection,
     queued_job: &MiniPulledJob,
     waiting_threshold: i64,
@@ -667,7 +668,7 @@ fn add_outstanding_wait_time(
     let conn = conn.clone();
 
     if let Some(db) = conn.as_sql() {
-        let db = db.clone();
+        let db = shard_db_or_main_db(db).await;
         tokio::spawn(async move {
             match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
                 Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
@@ -1473,7 +1474,8 @@ pub async fn run_worker(
 
                 match &conn {
                     Connection::Sql(db) => {
-                        let job = get_same_worker_job(db, &same_worker_job).await;
+                        let db = shard_db_or_main_db(db).await;
+                        let job = get_same_worker_job(&db, &same_worker_job).await;
                         // tracing::error!("r: {:?}", r);
                         if job.is_err() && !same_worker_job.recoverable {
                             tracing::error!(
@@ -1537,7 +1539,7 @@ pub async fn run_worker(
                         if suspend_first {
                             last_suspend_first = Instant::now();
                         }
-
+                        let db = shard_db_or_main_db(db).await;
                         let maybe_job = timeout(
                             Duration::from_secs(10),
                             pull(
@@ -1691,7 +1693,8 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS)
+                        .await;
 
                     #[cfg(feature = "prometheus")]
                     register_metric(

@@ -1,6 +1,5 @@
 CREATE TABLE public.v2_job_queue (
     id uuid NOT NULL,
-    shard_id BIGINT DEFAULT NULL,
     workspace_id character varying(50) NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     started_at timestamp with time zone,
@@ -20,11 +19,11 @@ ALTER TABLE ONLY public.v2_job_queue
     ADD CONSTRAINT queue_pkey PRIMARY KEY (id);
 
 CREATE INDEX queue_sort_v2 
-    ON public.v2_job_queue (shard_id, priority DESC NULLS LAST, scheduled_for, tag) 
-    WHERE (running = false AND shard_id is NULL);
+    ON public.v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) 
+    WHERE (running = false);
 
 CREATE INDEX queue_suspended 
-    ON public.v2_job_queue (shard_id, priority DESC NULLS LAST, created_at, suspend_until, suspend, tag) 
+    ON public.v2_job_queue (priority DESC NULLS LAST, created_at, suspend_until, suspend, tag) 
     WHERE (suspend_until IS NOT NULL);
 
 CREATE INDEX root_queue_index_by_path 

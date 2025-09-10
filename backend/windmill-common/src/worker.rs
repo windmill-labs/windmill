@@ -27,13 +27,7 @@ use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::PingJobStatusResponse,
-    cache::{unwrap_or_error, RawNode, RawScript},
-    error::{self, to_anyhow},
-    global_settings::CUSTOM_TAGS_SETTING,
-    indexer::TantivyIndexerSettings,
-    server::Smtp,
-    KillpillSender, BASE_INTERNAL_URL, DB,
+    agent_workers::PingJobStatusResponse, cache::{unwrap_or_error, RawNode, RawScript}, db::shard_db_or_main_db, error::{self, to_anyhow}, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, KillpillSender, BASE_INTERNAL_URL, DB
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -1365,6 +1359,7 @@ pub async fn update_job_ping_query(
     db: &DB,
     mem_peak: Option<i32>,
 ) -> anyhow::Result<PingJobStatusResponse> {
+    let pull_db = shard_db_or_main_db(db).await;
     let ro = sqlx::query!(
         "UPDATE v2_job_runtime r SET
         memory_peak = $1,
@@ -1380,7 +1375,7 @@ pub async fn update_job_ping_query(
         canceled_reason: x.canceled_reason,
         already_completed: false,
     })
-    .fetch_optional(db)
+    .fetch_optional(&pull_db)
     .await;
 
     // TODO: add memory metrics to memory time series
