@@ -61,12 +61,12 @@
 		>
 		timelineNow: number
 		parentIterationBounds?: GlobalIterationBounds
-		parentSelectedIndex?: number
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
 		globalIterationBounds: Record<string, GlobalIterationBounds>
 		loadPreviousIterations?: (key: string, amount: number) => void
+		parentVisibleIndexes?: Record<string, number[]>
 	}
 
 	let {
@@ -95,7 +95,6 @@
 		timelineItems,
 		timelineNow,
 		parentIterationBounds,
-		parentSelectedIndex,
 		timelineAvailableWidths = $bindable(),
 		timelinelWidth,
 		showTimeline = true,
@@ -449,17 +448,11 @@
 			| Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
 			| undefined
 	) {
-		if (
-			!moduleItems ||
-			!localModuleStates[moduleId]?.flow_jobs ||
-			!localModuleStates[moduleId]?.selectedForloopIndex
-		)
-			return undefined
-		const index = moduleItems?.findIndex(
-			(item) =>
-				item.id ===
-				localModuleStates[moduleId].flow_jobs![localModuleStates[moduleId].selectedForloopIndex!]
-		)
+		if (!moduleItems || !localModuleStates[moduleId]) return undefined
+
+		const idToFind =
+			localModuleStates[moduleId].selectedForloop ?? localModuleStates[moduleId].job_id
+		const index = moduleItems?.findIndex((item) => item.id === idToFind)
 		if (index === -1) {
 			return undefined
 		}
@@ -649,6 +642,7 @@
 										? (localModuleStates[module.id]?.branchChosen ?? 0)
 										: undefined}
 								{@const selectedIndex = getSelectedIndex(module.id, moduleItems)}
+
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -771,11 +765,8 @@
 																})
 															}
 														}}
-														showAllIterations={module.value.type === 'forloopflow' ||
-															module.value.type === 'whileloopflow'}
-														selectedIndex={parentSelectedIndex && parentSelectedIndex >= 0
-															? parentSelectedIndex
-															: selectedIndex}
+														showInterations={localModuleStates[module.id]?.flow_jobs}
+														{selectedIndex}
 														idToIterationIndex={(id) => {
 															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)
 														}}
@@ -840,7 +831,6 @@
 														{timelineMin}
 														{timelineTotal}
 														{timelineItems}
-														parentSelectedIndex={selectedIndex}
 														bind:timelineAvailableWidths
 														{timelinelWidth}
 														{showTimeline}

@@ -18,7 +18,6 @@
 		items: TimelineItem[]
 		selectedIndex?: number
 		now: number
-		showAllIterations?: boolean
 		timelinelWidth: number
 		showZoomButtons?: boolean
 		onZoom?: () => void
@@ -27,6 +26,7 @@
 		loadPreviousIterations?: () => void
 		onSelectIteration?: (id: string) => void
 		idToIterationIndex?: (id: string) => number | undefined
+		showInterations?: string[]
 	}
 
 	let {
@@ -35,7 +35,6 @@
 		items,
 		selectedIndex,
 		now,
-		showAllIterations = false,
 		timelinelWidth,
 		showZoomButtons = false,
 		onZoom,
@@ -43,7 +42,8 @@
 		globalIterationBounds,
 		loadPreviousIterations,
 		onSelectIteration,
-		idToIterationIndex
+		idToIterationIndex,
+		showInterations
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
@@ -55,15 +55,21 @@
 		return item.started_at !== undefined && item.duration_ms === undefined
 	}
 
-	let selectedItem = $derived(selectedIndex && selectedIndex >= 0 ? items[selectedIndex] : items[0])
-	let startItem = $derived(showAllIterations ? items[0] : selectedItem)
+	const filteredItems = $derived(
+		showInterations ? items.filter((item) => showInterations.includes(item.id)) : items
+	)
 
-	// Calculate total execution time for multiple items
+	let selectedItem = $derived(
+		selectedIndex && selectedIndex >= 0 ? filteredItems[selectedIndex] : filteredItems[0]
+	)
+	let startItem = $derived(showInterations ? filteredItems[0] : selectedItem)
+
+	// Calculate total execution time for multiple filteredItems
 	function calculateTotalExecutionTime(): number {
 		let earliestStart: number | undefined
 		let latestEnd = 0
 
-		for (const item of items) {
+		for (const item of filteredItems) {
 			if (item.started_at) {
 				// Track earliest start
 				if (!earliestStart || item.started_at < earliestStart) {
@@ -81,7 +87,7 @@
 
 	let selectedLen = $derived(
 		// If selectedIteration is set, it means we are in a loop and we are selecting an iteration
-		showAllIterations ? calculateTotalExecutionTime() : getLength(selectedItem)
+		showInterations ? calculateTotalExecutionTime() : getLength(selectedItem)
 	)
 
 	const waitingLen = $derived(
@@ -94,22 +100,27 @@
 			: 0
 	)
 
-	function getGap(items: TimelineItem[], i: number): number {
+	function getGap(filteredItems: TimelineItem[], i: number): number {
 		// The gap between the start of the current item and the end of the previous item
-		if (i > 0 && items[i].started_at && items[i - 1].started_at && items[i - 1].duration_ms) {
+		if (
+			i > 0 &&
+			filteredItems[i].started_at &&
+			filteredItems[i - 1].started_at &&
+			filteredItems[i - 1].duration_ms
+		) {
 			return (
-				(items[i].started_at ?? 0) -
-				(items[i - 1].started_at ?? 0) -
-				(items[i - 1].duration_ms ?? 0)
+				(filteredItems[i].started_at ?? 0) -
+				(filteredItems[i - 1].started_at ?? 0) -
+				(filteredItems[i - 1].duration_ms ?? 0)
 			)
 		}
 		return 0
 	}
 </script>
 
-{#if min && items.length > 0}
+{#if min && filteredItems.length > 0}
 	<div
-		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
+		class="flex filteredItems-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
 		style="width: {timelinelWidth}px"
 	>
 		{#if showZoomButtons}
@@ -118,7 +129,7 @@
 					e.stopPropagation()
 					onZoom?.()
 				}}
-				class="hover:text-primary hover:bg-surface p-1 -my-1 w-6 rounded-md flex items-center justify-center"
+				class="hover:text-primary hover:bg-surface p-1 -my-1 w-6 rounded-md flex filteredItems-center justify-center"
 			>
 				{#if zoom === 'in'}
 					<ZoomOut size={12} />
@@ -151,12 +162,12 @@
 				></div>
 			{/if}
 
-			{#if showAllIterations}
+			{#if showInterations}
 				<!-- All iterations -->
-				{#each items as item, i}
+				{#each filteredItems as item, i}
 					{#if item.started_at}
 						<div
-							style="width: {(getGap(items, i) / total) * 100}%"
+							style="width: {(getGap(filteredItems, i) / total) * 100}%"
 							class={twMerge('h-full float-left bg-gray-300 dark:bg-gray-800')}
 						></div>
 						<Tooltip
