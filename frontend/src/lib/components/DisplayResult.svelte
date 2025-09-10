@@ -492,8 +492,6 @@
 			resultHeaderHeight
 		)
 	})
-
-	$inspect(resultKind)
 </script>
 
 <HighlightTheme />
