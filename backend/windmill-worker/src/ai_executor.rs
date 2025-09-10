@@ -44,27 +44,6 @@ lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
 }
 
-/// Find a unique tool name to avoid collisions with user-provided tools
-fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
-    let Some(tools) = existing_tools else {
-        return base_name.to_string();
-    };
-
-    if !tools.iter().any(|t| t.function.name == base_name) {
-        return base_name.to_string();
-    }
-
-    for i in 1..100 {
-        let candidate = format!("{}_{}", base_name, i);
-        if !tools.iter().any(|t| t.function.name == candidate) {
-            return candidate;
-        }
-    }
-
-    // Fallback with process id if somehow we can't find a unique name
-    format!("{}_{}_fallback", base_name, std::process::id())
-}
-
 #[derive(Deserialize, Serialize, Clone, Debug)]
 struct OpenAIFunction {
     name: String,
@@ -117,8 +96,6 @@ struct OpenAIMessageResponse {
     tool_calls: Option<Vec<OpenAIToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
-    #[serde(skip_serializing)]
-    agent_action: Option<AgentAction>,
 }
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
@@ -158,11 +135,6 @@ struct ImageGenerationRequest<'a> {
 
 #[derive(Deserialize)]
 struct OpenAIImageResponse {
-    id: String,
-    object: String,
-    created_at: u64,
-    status: String,
-    model: String,
     output: Vec<OpenAIOutput>,
 }
 
@@ -256,35 +228,6 @@ struct GeminiInlineData {
     #[serde(rename = "mimeType")]
     mime_type: String,
     data: String, // base64 encoded image
-}
-
-/// Helper function to download an S3 image and convert it to a base64 data URL
-async fn download_and_encode_s3_image(
-    image: &S3Object,
-    client: &AuthedClient,
-    workspace_id: &str,
-) -> error::Result<String> {
-    // Download the image from S3
-    let image_bytes = client
-        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
-
-    // Encode as base64 data URL
-    let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
-
-    // Determine MIME type based on file extension or default to PNG
-    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if image.s3.ends_with(".gif") {
-        "image/gif"
-    } else if image.s3.ends_with(".webp") {
-        "image/webp"
-    } else {
-        "image/png" // default
-    };
-
-    Ok(format!("data:{};base64,{}", mime_type, base64_data))
 }
 
 #[derive(Serialize)]
@@ -605,6 +548,636 @@ impl OpenAPISchema {
         }
         self
     }
+}
+
+/// Find a unique tool name to avoid collisions with user-provided tools
+fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
+    let Some(tools) = existing_tools else {
+        return base_name.to_string();
+    };
+
+    if !tools.iter().any(|t| t.function.name == base_name) {
+        return base_name.to_string();
+    }
+
+    for i in 1..100 {
+        let candidate = format!("{}_{}", base_name, i);
+        if !tools.iter().any(|t| t.function.name == candidate) {
+            return candidate;
+        }
+    }
+
+    // Fallback with process id if somehow we can't find a unique name
+    format!("{}_{}_fallback", base_name, std::process::id())
+}
+
+/// Helper function to download an S3 image and convert it to a base64 data URL
+async fn download_and_encode_s3_image(
+    image: &S3Object,
+    client: &AuthedClient,
+    workspace_id: &str,
+) -> error::Result<String> {
+    // Download the image from S3
+    let image_bytes = client
+        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
+
+    // Encode as base64 data URL
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+
+    // Determine MIME type based on file extension or default to PNG
+    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if image.s3.ends_with(".gif") {
+        "image/gif"
+    } else if image.s3.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/png" // default
+    };
+
+    Ok(format!("data:{};base64,{}", mime_type, base64_data))
+}
+
+/// Generate image from provider and extract base64 data
+async fn generate_image_from_provider(
+    provider: &ProviderWithResource,
+    user_message: &str,
+    system_prompt: Option<&str>,
+    base_url: &str,
+    api_key: &str,
+) -> error::Result<String> {
+    match provider.kind {
+        AIProvider::OpenAI => {
+            let image_request = ImageGenerationRequest {
+                model: provider.get_model(),
+                input: user_message,
+                instructions: system_prompt,
+                tools: vec![ImageGenerationTool {
+                    r#type: "image_generation".to_string(),
+                    quality: Some("low".to_string()),
+                    background: None,
+                }],
+            };
+
+            let resp = HTTP_CLIENT
+                .post(format!("{}/responses", base_url))
+                .bearer_auth(api_key)
+                .json(&image_request)
+                .send()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to call OpenAI API: {}", e)))?;
+
+            match resp.error_for_status_ref() {
+                Ok(_) => {
+                    let image_response = resp.json::<OpenAIImageResponse>().await.map_err(|e| {
+                        Error::internal_err(format!("Failed to parse OpenAI response: {}", e))
+                    })?;
+
+                    // Find the first image generation output
+                    let image_generation_call =
+                        image_response
+                            .output
+                            .iter()
+                            .find_map(|output| match output {
+                                OpenAIOutput::ImageGenerationCall { result, .. } => Some(result),
+                                _ => None,
+                            });
+
+                    if let Some(base64_image) = image_generation_call {
+                        Ok(base64_image.clone())
+                    } else {
+                        Err(Error::internal_err(
+                            "No image output received from OpenAI".to_string(),
+                        ))
+                    }
+                }
+                Err(e) => {
+                    let _status = resp.status();
+                    let text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                    Err(Error::internal_err(format!(
+                        "OpenAI API error: {} - {}",
+                        e, text
+                    )))
+                }
+            }
+        }
+        AIProvider::GoogleAI => {
+            let is_imagen = provider.get_model().contains("imagen");
+            let gemini_request = GeminiImageRequest {
+                instances: if is_imagen {
+                    Some(vec![GeminiPredictContent {
+                        prompt: user_message.trim().to_string(),
+                    }])
+                } else {
+                    None
+                },
+                contents: if !is_imagen {
+                    Some(vec![GeminiContent {
+                        parts: vec![GeminiPart { text: user_message.trim().to_string() }],
+                    }])
+                } else {
+                    None
+                },
+            };
+
+            let url_suffix = if is_imagen {
+                "predict"
+            } else {
+                "generateContent"
+            };
+            let gemini_url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
+                provider.get_model(),
+                url_suffix
+            );
+
+            let resp = HTTP_CLIENT
+                .post(&gemini_url)
+                .header("x-goog-api-key", api_key)
+                .header("Content-Type", "application/json")
+                .json(&gemini_request)
+                .send()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to call Gemini API: {}", e)))?;
+
+            match resp.error_for_status_ref() {
+                Ok(_) => {
+                    let gemini_response =
+                        resp.json::<GeminiImageResponse>().await.map_err(|e| {
+                            Error::internal_err(format!("Failed to parse Gemini response: {}", e))
+                        })?;
+
+                    // Find the first candidate with inline image data
+                    let mut image_data =
+                        gemini_response.candidates.as_ref().and_then(|candidates| {
+                            candidates.iter().find_map(|candidate| {
+                                candidate.content.parts.iter().find_map(|part| {
+                                    part.inline_data.as_ref().map(|data| &data.data)
+                                })
+                            })
+                        });
+
+                    if image_data.is_none() {
+                        image_data = gemini_response
+                            .predictions
+                            .as_ref()
+                            .and_then(|predictions| {
+                                predictions
+                                    .iter()
+                                    .find_map(|prediction| Some(&prediction.bytes_base64_encoded))
+                            });
+                    }
+
+                    if let Some(base64_image) = image_data {
+                        Ok(base64_image.clone())
+                    } else {
+                        Err(Error::internal_err(
+                            "No image data received from Gemini".to_string(),
+                        ))
+                    }
+                }
+                Err(e) => {
+                    let _status = resp.status();
+                    let text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                    Err(Error::internal_err(format!(
+                        "Gemini API error: {} - {}",
+                        e, text
+                    )))
+                }
+            }
+        }
+        _ => Err(Error::BadRequest(format!(
+            "Image generation is not supported for provider: {:?}",
+            provider.kind
+        ))),
+    }
+}
+
+/// Upload image to S3 and return S3Object
+async fn upload_image_to_s3(
+    base64_image: &str,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
+) -> error::Result<S3Object> {
+    let image_bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_image)
+        .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
+
+    // Generate unique S3 key
+    let unique_id = ulid::Ulid::new().to_string();
+    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
+
+    // Create byte stream
+    let byte_stream = futures::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(image_bytes))
+    });
+
+    // Upload to S3
+    client
+        .upload_s3_file(
+            &job.workspace_id,
+            s3_key.clone(),
+            None, // storage - use default
+            byte_stream,
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to upload image to S3: {}", e)))?;
+
+    Ok(S3Object {
+        s3: s3_key,
+        storage: None,
+        filename: Some("generated_image.png".to_string()),
+        presigned: None,
+    })
+}
+
+/// Handle image output generation and return S3 object and messages
+async fn handle_image_output(
+    args: &AIAgentArgs,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
+    db: &DB,
+) -> error::Result<(Option<S3Object>, Vec<OpenAIMessage>)> {
+    let base_url = args.provider.get_base_url(db).await?;
+    let api_key = args.provider.get_api_key();
+
+    let mut messages =
+        if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
+            vec![OpenAIMessage {
+                role: "system".to_string(),
+                content: Some(vec![ContentPart::Text { text: system_prompt }]),
+                ..Default::default()
+            }]
+        } else {
+            vec![]
+        };
+
+    // Generate image from provider
+    let base64_image = generate_image_from_provider(
+        &args.provider,
+        &args.user_message,
+        args.system_prompt.as_deref(),
+        &base_url,
+        api_key,
+    )
+    .await?;
+
+    // Add assistant success message
+    messages.push(OpenAIMessage {
+        role: "assistant".to_string(),
+        content: Some(vec![ContentPart::Text {
+            text: "Image created successfully".to_string(),
+        }]),
+        ..Default::default()
+    });
+
+    // Upload to S3
+    let s3_object = upload_image_to_s3(&base64_image, job, client).await?;
+
+    Ok((Some(s3_object), messages))
+}
+
+/// Handle text output generation with tools and structured output support
+#[async_recursion]
+async fn handle_text_output(
+    // connection
+    db: &DB,
+    conn: &Connection,
+
+    // agent job and flow data
+    job: &MiniPulledJob,
+    parent_job: &uuid::Uuid,
+    args: AIAgentArgs,
+    tools: Vec<Tool>,
+
+    // job execution context
+    client: &AuthedClient,
+    occupancy_metrics: &mut OccupancyMetrics,
+    job_completed_tx: &JobCompletedSender,
+    worker_dir: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    hostname: &str,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> error::Result<Box<RawValue>> {
+    let base_url = args.provider.get_base_url(db).await?;
+    let api_key = args.provider.get_api_key();
+
+    let mut messages =
+        if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
+            vec![OpenAIMessage {
+                role: "system".to_string(),
+                content: Some(vec![ContentPart::Text { text: system_prompt }]),
+                ..Default::default()
+            }]
+        } else {
+            vec![]
+        };
+
+    let has_image = args.image.is_some() && args.image.as_ref().unwrap().s3.len() > 0;
+    // Create user message with optional image
+    let user_content = if has_image {
+        // Download and encode the image
+        let image = args.image.as_ref().unwrap();
+        let image_data_url = download_and_encode_s3_image(image, client, &job.workspace_id).await?;
+
+        vec![
+            ContentPart::Text { text: args.user_message.clone() },
+            ContentPart::ImageUrl { image_url: ImageUrlData { url: image_data_url } },
+        ]
+    } else {
+        vec![ContentPart::Text { text: args.user_message.clone() }]
+    };
+
+    messages.push(OpenAIMessage {
+        role: "user".to_string(),
+        content: Some(user_content),
+        ..Default::default()
+    });
+
+    let mut actions = vec![];
+    let mut content = None;
+
+    let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
+        None
+    } else {
+        Some(tools.iter().map(|t| t.def.clone()).collect())
+    };
+
+    let has_output_properties = args
+        .output_schema
+        .as_ref()
+        .and_then(|schema| schema.properties.as_ref())
+        .map(|props| !props.is_empty())
+        .unwrap_or(false);
+    let provider_is_anthropic = args.provider.kind.is_anthropic();
+    let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
+        && args.provider.model.starts_with("anthropic/");
+    let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
+    let mut response_format: Option<ResponseFormat> = None;
+    let mut used_structured_output_tool = false;
+    let mut structured_output_tool_name: Option<String> = None;
+
+    if has_output_properties {
+        let schema = args.output_schema.as_ref().unwrap(); // we know it's some because of the check above
+        if is_anthropic {
+            // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
+            let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
+            structured_output_tool_name = Some(unique_tool_name.clone());
+
+            let output_tool = ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: unique_tool_name,
+                    description: Some(
+                        "This tool MUST be used last to return a structured JSON object as the final output."
+                            .to_string(),
+                    ),
+                    parameters: to_raw_value(&schema),
+                },
+            };
+            if let Some(ref mut existing_tools) = tool_defs {
+                existing_tools.push(output_tool);
+            } else {
+                tool_defs = Some(vec![output_tool]);
+            }
+        } else {
+            // if output schema is provided, and provider is openai, add a response_format with json_schema
+            let strict_schema = schema.clone().make_strict();
+            response_format = Some(ResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: JsonSchemaFormat {
+                    name: "structured_output".to_string(),
+                    schema: strict_schema,
+                    strict: Some(true),
+                },
+            });
+        }
+    }
+
+    for i in 0..MAX_AGENT_ITERATIONS {
+        if used_structured_output_tool {
+            break;
+        }
+
+        let response = {
+            let resp = HTTP_CLIENT
+                .post(format!("{}/chat/completions", base_url))
+                .bearer_auth(api_key)
+                .json(&OpenAIRequest {
+                    model: args.provider.get_model(),
+                    messages: &messages,
+                    tools: tool_defs.as_ref(),
+                    temperature: args.temperature,
+                    max_completion_tokens: args.max_completion_tokens,
+                    response_format: if has_output_properties && !is_anthropic {
+                        response_format.clone()
+                    } else {
+                        None
+                    },
+                })
+                .send()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+
+            match resp.error_for_status_ref() {
+                Ok(_) => resp,
+                Err(e) => {
+                    let status = resp.status();
+                    let text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                    tracing::error!(
+                        "Non 200 response from API: status: {}, body: {}",
+                        status,
+                        text
+                    );
+                    return Err(Error::internal_err(format!(
+                        "Non 200 response from API: {} - {}",
+                        e, text
+                    )));
+                }
+            }
+        };
+
+        let mut response = response
+            .json::<OpenAIResponse>()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to parse API response: {}", e)))?;
+
+        let first_choice = response
+            .choices
+            .pop()
+            .ok_or_else(|| Error::internal_err("No response from API"))?;
+
+        content = first_choice.message.content;
+        println!("HERE content: {:?}", content);
+        let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
+        println!("HERE tool_calls: {:?}", tool_calls);
+
+        if let Some(ref content) = content {
+            actions.push(AgentAction::Message {});
+            messages.push(OpenAIMessage {
+                role: "assistant".to_string(),
+                content: Some(vec![ContentPart::Text { text: content.clone() }]),
+                agent_action: Some(AgentAction::Message {}),
+                ..Default::default()
+            });
+
+            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+            update_flow_status_module_with_actions_success(db, parent_job, true).await?;
+        }
+
+        if tool_calls.is_empty() {
+            break;
+        } else if i == MAX_AGENT_ITERATIONS - 1 {
+            return Err(Error::internal_err(
+                "AI agent reached max iterations, but there are still tool calls".to_string(),
+            ));
+        }
+
+        messages.push(OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(tool_calls.clone()),
+            ..Default::default()
+        });
+
+        for tool_call in tool_calls.iter() {
+            println!("HERE tool_call: {:?}", tool_call);
+            // Structured output tool is used, we stop here as this will be the final output
+            if structured_output_tool_name
+                .as_ref()
+                .map_or(false, |name| tool_call.function.name == *name)
+            {
+                used_structured_output_tool = true;
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some(vec![ContentPart::Text {
+                        text: "Successfully ran structured_output tool".to_string(),
+                    }]),
+                    tool_call_id: Some(tool_call.id.clone()),
+                    ..Default::default()
+                });
+                messages.push(OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: Some(vec![ContentPart::Text {
+                        text: tool_call.function.arguments.clone(),
+                    }]),
+                    agent_action: Some(AgentAction::Message {}),
+                    ..Default::default()
+                });
+                content = Some(tool_call.function.arguments.clone());
+                break;
+            }
+
+            let tool = tools
+                .iter()
+                .find(|t| t.def.function.name == tool_call.function.name);
+            if let Some(tool) = tool {
+                let job_id = ulid::Ulid::new().into();
+                actions.push(AgentAction::ToolCall {
+                    job_id,
+                    function_name: tool_call.function.name.clone(),
+                    module_id: tool.module.id.clone(),
+                });
+
+                update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+
+                match call_tool(
+                    db,
+                    conn,
+                    job,
+                    &tool.module,
+                    &tool_call,
+                    job_id,
+                    client,
+                    occupancy_metrics,
+                    base_internal_url,
+                    worker_dir,
+                    worker_name,
+                    hostname,
+                    job_completed_tx,
+                    killpill_rx,
+                )
+                .await
+                {
+                    Ok((success, result)) => {
+                        messages.push(OpenAIMessage {
+                            role: "tool".to_string(),
+                            content: Some(vec![ContentPart::Text {
+                                text: result.get().to_string(),
+                            }]),
+                            tool_call_id: Some(tool_call.id.clone()),
+                            agent_action: Some(AgentAction::ToolCall {
+                                job_id,
+                                function_name: tool_call.function.name.clone(),
+                                module_id: tool.module.id.clone(),
+                            }),
+                            ..Default::default()
+                        });
+                        update_flow_status_module_with_actions_success(db, parent_job, success)
+                            .await?;
+                    }
+                    Err(err) => {
+                        let err_string = format!("{}: {}", err.name(), err.to_string());
+                        messages.push(OpenAIMessage {
+                            role: "tool".to_string(),
+                            content: Some(vec![ContentPart::Text {
+                                text: format!("Error running tool: {}", err_string),
+                            }]),
+                            tool_call_id: Some(tool_call.id.clone()),
+                            agent_action: Some(AgentAction::ToolCall {
+                                job_id,
+                                function_name: tool_call.function.name.clone(),
+                                module_id: tool.module.id.clone(),
+                            }),
+                            ..Default::default()
+                        });
+                        update_flow_status_module_with_actions_success(db, parent_job, false)
+                            .await?;
+                    }
+                }
+            } else {
+                return Err(Error::internal_err(format!(
+                    "Tool not found: {}",
+                    tool_call.function.name
+                )));
+            }
+        }
+    }
+
+    let final_messages: Vec<Message> = messages
+        .iter()
+        .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+        .collect();
+
+    // Parse content as JSON, fallback to string if it fails
+    let output_value = match content {
+        Some(content_str) => match has_output_properties {
+            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
+                Error::internal_err(format!(
+                    "Failed to parse structured output: {}",
+                    content_str
+                ))
+            })?,
+            false => to_raw_value(&content_str),
+        },
+        None => to_raw_value(&""),
+    };
+
+    Ok(to_raw_value(&AIAgentResult {
+        output: output_value,
+        messages: final_messages,
+    }))
 }
 
 async fn update_flow_status_module_with_actions(
@@ -935,668 +1508,46 @@ async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<Box<RawValue>> {
-    let mut messages =
-        if let Some(system_prompt) = args.system_prompt.clone().filter(|s| !s.is_empty()) {
-            vec![OpenAIMessage {
-                role: "system".to_string(),
-                content: Some(vec![ContentPart::Text { text: system_prompt }]),
-                ..Default::default()
-            }]
-        } else {
-            vec![]
-        };
-
-    // Create user message with optional image
-    let user_content = if let Some(image) = &args.image {
-        // Download and encode the image
-        let image_data_url = download_and_encode_s3_image(image, client, &job.workspace_id).await?;
-
-        vec![
-            ContentPart::Text { text: args.user_message.clone() },
-            ContentPart::ImageUrl { image_url: ImageUrlData { url: image_data_url } },
-        ]
-    } else {
-        vec![ContentPart::Text { text: args.user_message.clone() }]
-    };
-
-    messages.push(OpenAIMessage {
-        role: "user".to_string(),
-        content: Some(user_content),
-        ..Default::default()
-    });
-
-    let mut actions = vec![];
-
-    let mut content = None;
-
-    let base_url = args.provider.get_base_url(db).await?;
-    let api_key = args.provider.get_api_key();
-
-    let mut tool_defs: Option<Vec<ToolDef>> = if tools.is_empty() {
-        None
-    } else {
-        Some(tools.iter().map(|t| t.def.clone()).collect())
-    };
-
-    let has_output_properties = args
-        .output_schema
-        .as_ref()
-        .and_then(|schema| schema.properties.as_ref())
-        .map(|props| !props.is_empty())
-        .unwrap_or(false);
-    let provider_is_anthropic = args.provider.kind.is_anthropic();
-    let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
-        && args.provider.model.starts_with("anthropic/");
-    let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
-    let mut response_format: Option<ResponseFormat> = None;
-    let mut used_structured_output_tool = false;
-    let mut structured_output_tool_name: Option<String> = None;
-
-    if has_output_properties {
-        let schema = args.output_schema.as_ref().unwrap(); // we know it's some because of the check above
-        if is_anthropic {
-            // if output schema is provided, and provider is anthropic, add a structured_output tool in the list of tools
-            let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
-            structured_output_tool_name = Some(unique_tool_name.clone());
-
-            let output_tool = ToolDef {
-                r#type: "function".to_string(),
-                function: ToolDefFunction {
-                    name: unique_tool_name,
-                    description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
-                            .to_string(),
-                    ),
-                    parameters: to_raw_value(&schema),
-                },
-            };
-            if let Some(ref mut existing_tools) = tool_defs {
-                existing_tools.push(output_tool);
-            } else {
-                tool_defs = Some(vec![output_tool]);
-            }
-        } else {
-            // if output schema is provided, and provider is openai, add a response_format with json_schema
-            let strict_schema = schema.clone().make_strict();
-            response_format = Some(ResponseFormat {
-                r#type: "json_schema".to_string(),
-                json_schema: JsonSchemaFormat {
-                    name: "structured_output".to_string(),
-                    schema: strict_schema,
-                    strict: Some(true),
-                },
-            });
-        }
-    }
-
-    // Handle image generation separately
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    if *output_type == OutputType::Image {
-        let mut s3_output = None;
-        // Placeholder logic for image generation
-        let placeholder_result = match args.provider.kind {
-            AIProvider::OpenAI => {
-                // Make actual API call to OpenAI's /responses endpoint
-                let image_request = ImageGenerationRequest {
-                    model: args.provider.get_model(),
-                    input: &args.user_message,
-                    instructions: args.system_prompt.as_deref(),
-                    tools: vec![ImageGenerationTool {
-                        r#type: "image_generation".to_string(),
-                        quality: Some("low".to_string()),
-                        background: None,
-                    }],
-                };
 
-                let resp = HTTP_CLIENT
-                    .post(format!("{}/responses", base_url))
-                    .bearer_auth(api_key)
-                    .json(&image_request)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("Failed to call OpenAI API: {}", e))
-                    })?;
+    match *output_type {
+        OutputType::Image => {
+            let (s3_result, messages) = handle_image_output(&args, job, client, db).await?;
 
-                match resp.error_for_status_ref() {
-                    Ok(_) => {
-                        let image_response =
-                            resp.json::<OpenAIImageResponse>().await.map_err(|e| {
-                                Error::internal_err(format!(
-                                    "Failed to parse OpenAI response: {}",
-                                    e
-                                ))
-                            })?;
-
-                        // Find the first image generation output
-                        let image_generation_call =
-                            image_response
-                                .output
-                                .iter()
-                                .find_map(|output| match output {
-                                    OpenAIOutput::ImageGenerationCall {
-                                        id,
-                                        status,
-                                        background,
-                                        output_format,
-                                        quality,
-                                        result,
-                                    } => Some((
-                                        id,
-                                        status,
-                                        background,
-                                        output_format,
-                                        quality,
-                                        result,
-                                    )),
-                                    _ => None,
-                                });
-
-                        if let Some((
-                            id,
-                            status,
-                            background,
-                            output_format,
-                            quality,
-                            base64_image,
-                        )) = image_generation_call
-                        {
-                            // Add assistant message with the stringified image output
-                            let metadata_text = serde_json::json!({
-                                "type": "image_generation_call",
-                                "id": id,
-                                "status": status,
-                                "background": background,
-                                "output_format": output_format,
-                                "quality": quality
-                            })
-                            .to_string();
-
-                            messages.push(OpenAIMessage {
-                                role: "assistant".to_string(),
-                                content: Some(vec![ContentPart::Text { text: metadata_text }]),
-                                ..Default::default()
-                            });
-
-                            // Add any message outputs as additional assistant messages
-                            for output in &image_response.output {
-                                if let OpenAIOutput::Message { content, role, .. } = output {
-                                    for content_item in content {
-                                        let MessageContent::OutputText { text, .. } = content_item;
-                                        messages.push(OpenAIMessage {
-                                            role: role.clone(),
-                                            content: Some(vec![ContentPart::Text {
-                                                text: text.clone(),
-                                            }]),
-                                            ..Default::default()
-                                        });
-                                    }
-                                }
-                            }
-
-                            // Attempt to upload image to S3
-                            let s3_object = match base64::engine::general_purpose::STANDARD
-                                .decode(base64_image)
-                            {
-                                Ok(image_bytes) => {
-                                    // Generate unique S3 key
-                                    let unique_id = ulid::Ulid::new().to_string();
-                                    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
-
-                                    // Create byte stream
-                                    let byte_stream = futures::stream::once(async move {
-                                        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                                            image_bytes,
-                                        ))
-                                    });
-
-                                    // Try to upload to S3
-                                    match client
-                                        .upload_s3_file(
-                                            &job.workspace_id,
-                                            s3_key.clone(),
-                                            None, // storage - use default
-                                            byte_stream,
-                                        )
-                                        .await
-                                    {
-                                        Ok(_) => Some(S3Object {
-                                            s3: s3_key,
-                                            storage: None,
-                                            filename: Some("generated_image.png".to_string()),
-                                            presigned: None,
-                                        }),
-                                        Err(e) => {
-                                            tracing::warn!("Failed to upload image to S3: {}", e);
-                                            None
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to decode base64 image: {}", e);
-                                    None
-                                }
-                            };
-
-                            s3_output = s3_object.clone();
-
-                            serde_json::json!({
-                                "s3_object": s3_object,
-                                "generated": true
-                            })
-                        } else {
-                            return Err(Error::internal_err(
-                                "No image output received from OpenAI".to_string(),
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        let _status = resp.status();
-                        let text = resp
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "<failed to read body>".to_string());
-                        return Err(Error::internal_err(format!(
-                            "OpenAI API error: {} - {}",
-                            e, text
-                        )));
-                    }
-                }
-            }
-            AIProvider::GoogleAI => {
-                let is_imagen = args.provider.get_model().contains("imagen");
-                // Make actual API call to Gemini's generateContent endpoint
-                let gemini_request = GeminiImageRequest {
-                    instances: if is_imagen {
-                        Some(vec![GeminiPredictContent {
-                            prompt: args.user_message.trim().to_string(),
-                        }])
-                    } else {
-                        None
-                    },
-                    contents: if !is_imagen {
-                        Some(vec![GeminiContent {
-                            parts: vec![GeminiPart { text: args.user_message.trim().to_string() }],
-                        }])
-                    } else {
-                        None
-                    },
-                };
-
-                // Construct the Gemini API URL with the model
-                let url_suffix = if is_imagen {
-                    "predict"
-                } else {
-                    "generateContent"
-                };
-                let gemini_url = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
-                    args.provider.get_model(),
-                    url_suffix
-                );
-
-                let resp = HTTP_CLIENT
-                    .post(&gemini_url)
-                    .header("x-goog-api-key", api_key)
-                    .header("Content-Type", "application/json")
-                    .json(&gemini_request)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("Failed to call Gemini API: {}", e))
-                    })?;
-
-                match resp.error_for_status_ref() {
-                    Ok(_) => {
-                        let gemini_response =
-                            resp.json::<GeminiImageResponse>().await.map_err(|e| {
-                                Error::internal_err(format!(
-                                    "Failed to parse Gemini response: {}",
-                                    e
-                                ))
-                            })?;
-
-                        // Find the first candidate with inline image data
-                        let mut image_data =
-                            gemini_response.candidates.as_ref().and_then(|candidates| {
-                                candidates.iter().find_map(|candidate| {
-                                    candidate.content.parts.iter().find_map(|part| {
-                                        part.inline_data.as_ref().map(|data| &data.data)
-                                    })
-                                })
-                            });
-
-                        if let None = image_data {
-                            image_data =
-                                gemini_response
-                                    .predictions
-                                    .as_ref()
-                                    .and_then(|predictions| {
-                                        predictions.iter().find_map(|prediction| {
-                                            Some(&prediction.bytes_base64_encoded)
-                                        })
-                                    });
-                        }
-
-                        if let Some(base64_image) = image_data {
-                            // Add assistant message with Gemini metadata
-                            let gemini_metadata = serde_json::json!({
-                                "type": "image_generation",
-                                "provider": "gemini",
-                                "model": args.provider.get_model()
-                            })
-                            .to_string();
-
-                            messages.push(OpenAIMessage {
-                                role: "assistant".to_string(),
-                                content: Some(vec![ContentPart::Text { text: gemini_metadata }]),
-                                ..Default::default()
-                            });
-
-                            // Attempt to upload image to S3
-                            let s3_object = match base64::engine::general_purpose::STANDARD
-                                .decode(base64_image)
-                            {
-                                Ok(image_bytes) => {
-                                    // Generate unique S3 key
-                                    let unique_id = ulid::Ulid::new().to_string();
-                                    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
-
-                                    // Create byte stream
-                                    let byte_stream = futures::stream::once(async move {
-                                        Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                                            image_bytes,
-                                        ))
-                                    });
-
-                                    // Try to upload to S3
-                                    match client
-                                        .upload_s3_file(
-                                            &job.workspace_id,
-                                            s3_key.clone(),
-                                            None, // storage - use default
-                                            byte_stream,
-                                        )
-                                        .await
-                                    {
-                                        Ok(_) => Some(S3Object {
-                                            s3: s3_key,
-                                            storage: None,
-                                            filename: Some("generated_image.png".to_string()),
-                                            presigned: None,
-                                        }),
-                                        Err(e) => {
-                                            tracing::warn!("Failed to upload image to S3: {}", e);
-                                            None
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to decode base64 image: {}", e);
-                                    None
-                                }
-                            };
-
-                            s3_output = s3_object.clone();
-
-                            serde_json::json!({
-                                "s3_object": s3_object,
-                                "generated": true,
-                                "provider": "gemini"
-                            })
-                        } else {
-                            return Err(Error::internal_err(
-                                "No image data received from Gemini".to_string(),
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        let _status = resp.status();
-                        let text = resp
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "<failed to read body>".to_string());
-                        return Err(Error::internal_err(format!(
-                            "Gemini API error: {} - {}",
-                            e, text
-                        )));
-                    }
-                }
-            }
-            _ => {
-                return Err(Error::BadRequest(format!(
-                    "Image generation is not supported for provider: {:?}",
-                    args.provider.kind
-                )));
-            }
-        };
-
-        let final_messages: Vec<Message> = messages
-            .iter()
-            .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
-            .collect();
-
-        return match s3_output {
-            Some(s3_output) => Ok(to_raw_value(&s3_output)),
-            None => Ok(to_raw_value(&AIAgentResult {
-                output: to_raw_value(&placeholder_result),
-                messages: final_messages,
-            })),
-        };
-    }
-
-    for i in 0..MAX_AGENT_ITERATIONS {
-        if used_structured_output_tool {
-            break;
-        }
-
-        let response = {
-            let resp = HTTP_CLIENT
-                .post(format!("{}/chat/completions", base_url))
-                .bearer_auth(api_key)
-                .json(&OpenAIRequest {
-                    model: args.provider.get_model(),
-                    messages: &messages,
-                    tools: tool_defs.as_ref(),
-                    temperature: args.temperature,
-                    max_completion_tokens: args.max_completion_tokens,
-                    response_format: if has_output_properties && !is_anthropic {
-                        response_format.clone()
-                    } else {
-                        None
-                    },
-                })
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
-
-            match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
-                    tracing::error!(
-                        "Non 200 response from API: status: {}, body: {}",
-                        status,
-                        text
-                    );
-                    return Err(Error::internal_err(format!(
-                        "Non 200 response from API: {} - {}",
-                        e, text
-                    )));
-                }
-            }
-        };
-
-        let mut response = response
-            .json::<OpenAIResponse>()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to parse API response: {}", e)))?;
-
-        let first_choice = response
-            .choices
-            .pop()
-            .ok_or_else(|| Error::internal_err("No response from API"))?;
-
-        content = first_choice.message.content;
-        let tool_calls = first_choice.message.tool_calls.unwrap_or_default();
-
-        if let Some(ref content) = content {
-            actions.push(AgentAction::Message {});
-            messages.push(OpenAIMessage {
-                role: "assistant".to_string(),
-                content: Some(vec![ContentPart::Text { text: content.clone() }]),
-                agent_action: Some(AgentAction::Message {}),
-                ..Default::default()
-            });
-
-            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-            update_flow_status_module_with_actions_success(db, parent_job, true).await?;
-        }
-
-        if tool_calls.is_empty() {
-            break;
-        } else if i == MAX_AGENT_ITERATIONS - 1 {
-            return Err(Error::internal_err(
-                "AI agent reached max iterations, but there are still tool calls".to_string(),
-            ));
-        }
-
-        messages.push(OpenAIMessage {
-            role: "assistant".to_string(),
-            tool_calls: Some(tool_calls.clone()),
-            ..Default::default()
-        });
-
-        for tool_call in tool_calls.iter() {
-            // Structured output tool is used, we stop here as this will be the final output
-            if structured_output_tool_name
-                .as_ref()
-                .map_or(false, |name| tool_call.function.name == *name)
-            {
-                used_structured_output_tool = true;
-                messages.push(OpenAIMessage {
-                    role: "tool".to_string(),
-                    content: Some(vec![ContentPart::Text {
-                        text: "Successfully ran structured_output tool".to_string(),
-                    }]),
-                    tool_call_id: Some(tool_call.id.clone()),
-                    ..Default::default()
-                });
-                messages.push(OpenAIMessage {
-                    role: "assistant".to_string(),
-                    content: Some(vec![ContentPart::Text {
-                        text: tool_call.function.arguments.clone(),
-                    }]),
-                    agent_action: Some(AgentAction::Message {}),
-                    ..Default::default()
-                });
-                content = Some(tool_call.function.arguments.clone());
-                break;
-            }
-
-            let tool = tools
+            let final_messages: Vec<Message> = messages
                 .iter()
-                .find(|t| t.def.function.name == tool_call.function.name);
-            if let Some(tool) = tool {
-                let job_id = ulid::Ulid::new().into();
-                actions.push(AgentAction::ToolCall {
-                    job_id,
-                    function_name: tool_call.function.name.clone(),
-                    module_id: tool.module.id.clone(),
-                });
+                .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+                .collect();
 
-                update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-
-                match call_tool(
-                    db,
-                    conn,
-                    job,
-                    &tool.module,
-                    &tool_call,
-                    job_id,
-                    client,
-                    occupancy_metrics,
-                    base_internal_url,
-                    worker_dir,
-                    worker_name,
-                    hostname,
-                    job_completed_tx,
-                    killpill_rx,
-                )
-                .await
-                {
-                    Ok((success, result)) => {
-                        messages.push(OpenAIMessage {
-                            role: "tool".to_string(),
-                            content: Some(vec![ContentPart::Text {
-                                text: result.get().to_string(),
-                            }]),
-                            tool_call_id: Some(tool_call.id.clone()),
-                            agent_action: Some(AgentAction::ToolCall {
-                                job_id,
-                                function_name: tool_call.function.name.clone(),
-                                module_id: tool.module.id.clone(),
-                            }),
-                            ..Default::default()
-                        });
-                        update_flow_status_module_with_actions_success(db, parent_job, success)
-                            .await?;
-                    }
-                    Err(err) => {
-                        let err_string = format!("{}: {}", err.name(), err.to_string());
-                        messages.push(OpenAIMessage {
-                            role: "tool".to_string(),
-                            content: Some(vec![ContentPart::Text {
-                                text: format!("Error running tool: {}", err_string),
-                            }]),
-                            tool_call_id: Some(tool_call.id.clone()),
-                            agent_action: Some(AgentAction::ToolCall {
-                                job_id,
-                                function_name: tool_call.function.name.clone(),
-                                module_id: tool.module.id.clone(),
-                            }),
-                            ..Default::default()
-                        });
-                        update_flow_status_module_with_actions_success(db, parent_job, false)
-                            .await?;
-                    }
-                }
+            if let Some(s3_output) = s3_result {
+                Ok(to_raw_value(&s3_output))
             } else {
-                return Err(Error::internal_err(format!(
-                    "Tool not found: {}",
-                    tool_call.function.name
-                )));
+                Ok(to_raw_value(&AIAgentResult {
+                    output: to_raw_value(&None::<String>),
+                    messages: final_messages,
+                }))
             }
         }
+        OutputType::Text => {
+            handle_text_output(
+                db,
+                conn,
+                job,
+                parent_job,
+                args,
+                tools,
+                client,
+                occupancy_metrics,
+                job_completed_tx,
+                worker_dir,
+                base_internal_url,
+                worker_name,
+                hostname,
+                killpill_rx,
+            )
+            .await
+        }
     }
-
-    let final_messages: Vec<Message> = messages
-        .iter()
-        .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
-        .collect();
-
-    // Parse content as JSON, fallback to string if it fails
-    let output_value = match content {
-        Some(content_str) => match has_output_properties {
-            true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
-                Error::internal_err(format!(
-                    "Failed to parse structured output: {}",
-                    content_str
-                ))
-            })?,
-            false => to_raw_value(&content_str),
-        },
-        None => to_raw_value(&""),
-    };
-
-    Ok(to_raw_value(&AIAgentResult {
-        output: output_value,
-        messages: final_messages,
-    }))
 }
 
 pub struct FlowJobRunnableIdAndRawFlow {
