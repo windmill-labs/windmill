@@ -417,26 +417,45 @@
 		moduleId: string,
 		idx: number,
 		branchChosen: number | undefined,
-		logs: string | undefined,
-		result: any,
-		args: any,
-		jobId: string | undefined
+		moduleType: FlowModuleValue['type']
 	) {
 		// if a branch is chosen, ignore the other branches
 		if (branchChosen !== undefined && branchChosen !== idx) {
 			return undefined
 		}
 
+		const jobType =
+			localModuleStates[moduleId]?.type === 'Failure' ||
+			localModuleStates[moduleId]?.type === 'Success'
+				? 'CompletedJob'
+				: ('QueuedJob' as Job['type'])
+
+		// if the subflow is part of a loop or branchAll
+		if (localModuleStates[moduleId]?.flow_jobs) {
+			const index =
+				moduleType === 'forloopflow' || moduleType === 'whileloopflow'
+					? (localModuleStates[moduleId]?.selectedForloopIndex ?? idx)
+					: idx
+			return {
+				id: localModuleStates[moduleId]?.flow_jobs[index],
+				type: jobType,
+				logs: localModuleStates[moduleId]?.logs,
+				result: localModuleStates[moduleId]?.flow_jobs_results?.[index],
+				args: localModuleStates[moduleId]?.args,
+				success: localModuleStates[moduleId]?.flow_jobs_success?.[index] ?? false
+			}
+		}
+
 		return {
-			id: jobId,
+			id: localModuleStates[moduleId]?.job_id,
 			type:
 				localModuleStates[moduleId]?.type === 'Failure' ||
 				localModuleStates[moduleId]?.type === 'Success'
 					? 'CompletedJob'
 					: ('QueuedJob' as Job['type']),
-			logs,
-			result,
-			args,
+			logs: localModuleStates[moduleId]?.logs,
+			result: localModuleStates[moduleId]?.result,
+			args: localModuleStates[moduleId]?.args,
 			success: localModuleStates[moduleId]?.type === 'Success'
 		} as RootJobData
 	}
@@ -788,10 +807,6 @@
 									{/snippet}
 
 									{#if isCollapsible && isExpanded(module.id, isRunning)}
-										{@const args = localModuleStates[module.id]?.args}
-										{@const logs = localModuleStates[module.id]?.logs}
-										{@const result = localModuleStates[module.id]?.result}
-										{@const jobId = localModuleStates[module.id]?.job_id}
 										{@const subflows = getSubflows(module)}
 										<div class="my-1 transition-all duration-200 ease-in-out border-l">
 											<!-- Show child steps if they exist -->
@@ -800,10 +815,7 @@
 													module.id,
 													idx,
 													branchChosen,
-													logs,
-													result,
-													args,
-													jobId
+													module.value.type
 												)}
 												<div class="border-l mb-2">
 													<!-- Recursively render child steps using FlowLogViewer -->
@@ -843,6 +855,10 @@
 											{/each}
 
 											{#if subflows.length === 0}
+												{@const args = localModuleStates[module.id]?.args}
+												{@const logs = localModuleStates[module.id]?.logs}
+												{@const result = localModuleStates[module.id]?.result}
+												{@const jobId = localModuleStates[module.id]?.job_id}
 												<!-- Show input arguments -->
 												{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
 													<FlowLogRow
