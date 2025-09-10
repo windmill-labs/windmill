@@ -38,10 +38,12 @@ use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
 
+// TODO: To be removed in future versions
 lazy_static::lazy_static! {
-    // TODO: To be removed in future versions
     static ref WMDEBUG_NO_HASH_CHANGE_ON_DJ: bool = std::env::var("WMDEBUG_NO_HASH_CHANGE_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
+    // TODO: Use
+    static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
 }
 
 use crate::common::OccupancyMetrics;
@@ -785,6 +787,12 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         } else if kind == "app" {
             // Create transaction to make operation atomic.
             let mut tx = db.begin().await?;
+
+            args.insert(
+                "components_to_relock".to_string(),
+                dbg!(to_raw_value(&s.importer_node_ids)),
+            );
+
             let r = sqlx::query_scalar!(
                 "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
@@ -1930,6 +1938,9 @@ async fn lock_modules_app(
     base_internal_url: &str,
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    locks_to_reload: &Option<Vec<String>>,
+    // Represents the closest container id
+    container_id: Option<String>,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1950,7 +1961,6 @@ async fn lock_modules_app(
                 .await?;
             }
             if m.contains_key("inlineScript") {
-                dbg!(&m);
                 let v = m.get_mut("inlineScript").unwrap();
                 if let Some(v) = v.as_object_mut() {
                     if v.contains_key("content") && v.contains_key("language") {
@@ -1965,17 +1975,33 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
                             // TODO: May be move somewhere else?
-                            // if v.get("lock")
-                            //     .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
-                            // {
-                            //     // TODO: Make sure this is not triggered for jobs unexpectedly
-                            //     if skip_creating_new_lock(&language, &content) {
-                            //         logs.push_str(
-                            //             "Found already locked inline script. Skipping lock...\n",
-                            //         );
-                            //         return Ok(Value::Object(m.clone()));
-                            //     }
+                            // if let Some(locks_to_relock) = locks_to_reload {
+                            //     if !lock
+
+                            // } else {
+
                             // }
+                            // locks_to_reload.inspect(|v| v.contains(&container_id))
+                            //                                 &&
+
+                            if let Some((l, id)) =
+                                locks_to_reload.as_ref().zip(container_id.as_ref())
+                            {
+                                if !l.contains(id) {
+                                    return Ok(Value::Object(m.clone()));
+                                }
+                            } else if v
+                                .get("lock")
+                                .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
+                            {
+                                // TODO: Make sure this is not triggered for jobs unexpectedly
+                                if skip_creating_new_lock(&language, &content) {
+                                    logs.push_str(
+                                        "Found already locked inline script. Skipping lock...\n",
+                                    );
+                                    return Ok(Value::Object(m.clone()));
+                                }
+                            }
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
                                 &job.id,
@@ -2004,20 +2030,20 @@ async fn lock_modules_app(
 
                                     // let dep_path =
                                     //     path.clone().unwrap_or_else(|| job_path.to_string());
-                                    dbg!(&v);
                                     tx = clear_dependency_map_for_item(
+                                        // TODO: PATHS!
                                         &job_path,
                                         &job.workspace_id,
                                         "app",
                                         tx,
-                                        // &Some(e.id.clone()),
-                                        // TODO: Make more specific
-                                        &None,
+                                        &container_id,
                                     )
                                     .await?;
+
                                     let relative_imports = extract_relative_imports(
                                         &content,
-                                        dbg!(&format!("{job_path}/flow")),
+                                        // TODO:
+                                        dbg!(&format!("{job_path}/app")),
                                         &Some(language.clone()),
                                     );
 
@@ -2034,8 +2060,7 @@ async fn lock_modules_app(
                                             "app",
                                             tx,
                                             &mut logs,
-                                            // Some(e.id.clone()),
-                                            None,
+                                            container_id,
                                         )
                                         .await?;
                                         append_logs(&job.id, &job.workspace_id, logs, &db.into())
@@ -2097,6 +2122,11 @@ async fn lock_modules_app(
                         base_internal_url,
                         token,
                         occupancy_metrics,
+                        locks_to_reload,
+                        m.get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or(container_id.clone()),
                     )
                     .await?,
                 );
@@ -2120,6 +2150,8 @@ async fn lock_modules_app(
                         base_internal_url,
                         token,
                         occupancy_metrics,
+                        locks_to_reload,
+                        container_id.clone(),
                     )
                     .await?,
                 );
@@ -2154,6 +2186,18 @@ pub async fn handle_app_dependency_job(
         .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
 
+    let components_to_relock = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("components_to_relock")
+                .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+                .flatten()
+        })
+        .flatten();
+
+    dbg!(&components_to_relock);
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -2169,7 +2213,7 @@ pub async fn handle_app_dependency_job(
 
     if let Some((app_id, value)) = record {
         let value = lock_modules_app(
-            dbg!(value),
+            value,
             job,
             mem_peak,
             canceled_by,
@@ -2181,6 +2225,8 @@ pub async fn handle_app_dependency_job(
             base_internal_url,
             token,
             occupancy_metrics,
+            &components_to_relock,
+            None,
         )
         .await?;
 
@@ -2214,13 +2260,9 @@ pub async fn handle_app_dependency_job(
             return Ok(());
         }
 
-        sqlx::query!(
-            "UPDATE app_version SET value = $1 WHERE id = $2",
-            dbg!(value),
-            dbg!(id),
-        )
-        .execute(db)
-        .await?;
+        sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
+            .execute(db)
+            .await?;
 
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
