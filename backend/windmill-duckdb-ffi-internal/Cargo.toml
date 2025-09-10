@@ -1,0 +1,14 @@
+[package]
+name = "windmill_duckdb_ffi_internal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.41"
+duckdb = { version = "^1.3.2", features = ["bundled"] }
+rust_decimal = "1.37.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+
+[lib]
+crate-type = ["cdylib"]
