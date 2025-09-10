@@ -27,6 +27,7 @@ fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
         ("sqs_triggers", "AWS SQS"),
         ("gcp_triggers", "GCP Pub/Sub"),
         ("postgres_triggers", "PostgreSQL"),
+        ("email_triggers", "Email"),
     ];
 
     TRIGGER_DOMAINS
