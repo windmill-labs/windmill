@@ -30,7 +30,6 @@
 
 	interface Props {
 		modules: FlowModule[]
-		moduleId?: string
 		localModuleStates: Record<string, GraphModuleState>
 		rootJob: RootJobData | undefined
 		flowStatus: FlowStatusModule['type'] | undefined
@@ -61,18 +60,15 @@
 			Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
 		>
 		timelineNow: number
-		parentIterationBounds?: GlobalIterationBounds
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
 		globalIterationBounds: Record<string, GlobalIterationBounds>
 		loadPreviousIterations?: (key: string, amount: number) => void
-		parentVisibleIndexes?: Record<string, number[]>
 	}
 
 	let {
 		modules,
-		moduleId,
 		localModuleStates,
 		rootJob,
 		flowStatus,
@@ -96,7 +92,6 @@
 		timelineTotal: timelineTotalAbsolute,
 		timelineItems,
 		timelineNow,
-		parentIterationBounds,
 		timelineAvailableWidths = $bindable(),
 		timelinelWidth,
 		showTimeline = true,
@@ -429,6 +424,10 @@
 			localModuleStates[moduleId]?.type === 'Success'
 				? 'CompletedJob'
 				: ('QueuedJob' as Job['type'])
+		let jobId = localModuleStates[moduleId]?.job_id
+		let timelineItem = timelineItems?.[moduleId]?.find((item) => item.id === jobId)
+		let success = localModuleStates[moduleId]?.type === 'Success'
+		let result = localModuleStates[moduleId]?.result
 
 		// if the subflow is part of a loop or branchAll
 		if (localModuleStates[moduleId]?.flow_jobs) {
@@ -436,27 +435,21 @@
 				moduleType === 'forloopflow' || moduleType === 'whileloopflow'
 					? (localModuleStates[moduleId]?.selectedForloopIndex ?? idx)
 					: idx
-			return {
-				id: localModuleStates[moduleId]?.flow_jobs[index],
-				type: jobType,
-				logs: localModuleStates[moduleId]?.logs,
-				result: localModuleStates[moduleId]?.flow_jobs_results?.[index],
-				args: localModuleStates[moduleId]?.args,
-				success: localModuleStates[moduleId]?.flow_jobs_success?.[index] ?? false
-			}
+			jobId = localModuleStates[moduleId]?.flow_jobs[index]
+			timelineItem = timelineItems?.[moduleId]?.find((item) => item.id === jobId)
+			result = localModuleStates[moduleId]?.flow_jobs_results?.[index]
+			success = localModuleStates[moduleId]?.flow_jobs_success?.[index] ?? false
 		}
-
 		return {
-			id: localModuleStates[moduleId]?.job_id,
-			type:
-				localModuleStates[moduleId]?.type === 'Failure' ||
-				localModuleStates[moduleId]?.type === 'Success'
-					? 'CompletedJob'
-					: ('QueuedJob' as Job['type']),
+			id: jobId,
+			type: jobType,
 			logs: localModuleStates[moduleId]?.logs,
-			result: localModuleStates[moduleId]?.result,
+			result: result,
 			args: localModuleStates[moduleId]?.args,
-			success: localModuleStates[moduleId]?.type === 'Success'
+			success: success,
+			started_at: timelineItem?.started_at,
+			created_at: timelineItem?.created_at,
+			duration_ms: timelineItem?.duration_ms
 		} as RootJobData
 	}
 
@@ -563,18 +556,15 @@
 						}
 					>
 						{#if timelineItems && showTimeline && timelineMin != undefined && timelineTotal}
-							{@const moduleItems = moduleId
-								? timelineItems?.[moduleId].filter((item) => item.id === rootJob?.id)
-								: [
-										{
-											started_at: rootJob?.started_at
-												? new Date(rootJob.started_at).getTime()
-												: undefined,
-											duration_ms: rootJob?.['duration_ms'] ?? timelineTotal,
-											id: flowId
-										}
-									]}
-
+							{@const moduleItems = [
+								{
+									started_at: rootJob?.started_at
+										? new Date(rootJob.started_at).getTime()
+										: undefined,
+									duration_ms: rootJob?.['duration_ms'] ?? timelineTotal,
+									id: flowId
+								}
+							]}
 							<FlowTimelineBar
 								total={timelineTotal}
 								min={timelineMin}
@@ -766,14 +756,20 @@
 														total={timelineTotal}
 														min={timelineMin}
 														items={moduleItems ?? []}
-														globalIterationBounds={parentIterationBounds ??
-															globalIterationBounds[module.id]}
+														hasMoreIterations={globalIterationBounds?.[module.id] &&
+															(globalIterationBounds[module.id].iteration_from ?? 0) > 0}
 														now={timelineNow}
 														{timelinelWidth}
 														loadPreviousIterations={() => {
 															loadPreviousIterations?.(module.id, 20)
 														}}
 														onSelectIteration={(id) => {
+															if (
+																module.value.type !== 'forloopflow' &&
+																module.value.type !== 'whileloopflow'
+															) {
+																return
+															}
 															const index =
 																localModuleStates[module.id]?.flow_jobs?.indexOf(id) ?? undefined
 															if (index !== undefined) {
@@ -821,7 +817,6 @@
 													<!-- Recursively render child steps using FlowLogViewer -->
 													<FlowLogViewer
 														modules={subflow.modules}
-														moduleId={module.id}
 														{localModuleStates}
 														rootJob={subflowJob}
 														flowStatus={localModuleStates[module.id]?.type}
@@ -849,7 +844,6 @@
 														{showTimeline}
 														{globalIterationBounds}
 														{loadPreviousIterations}
-														parentIterationBounds={globalIterationBounds[module.id]}
 													/>
 												</div>
 											{/each}
