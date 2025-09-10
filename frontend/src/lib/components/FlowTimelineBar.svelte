@@ -100,21 +100,36 @@
 			: 0
 	)
 
-	function getGap(filteredItems: TimelineItem[], i: number): number {
-		// The gap between the start of the current item and the end of the previous item
-		if (
-			i > 0 &&
-			filteredItems[i].started_at &&
-			filteredItems[i - 1].started_at &&
-			filteredItems[i - 1].duration_ms
-		) {
-			return (
-				(filteredItems[i].started_at ?? 0) -
-				(filteredItems[i - 1].started_at ?? 0) -
-				(filteredItems[i - 1].duration_ms ?? 0)
-			)
+	function calculateItemPosition(item: TimelineItem): { left: number; width: number } {
+		if (!item.started_at || !min) return { left: 0, width: 0 }
+
+		const startOffset = item.started_at - min!
+		const duration = getLength(item)
+		const leftPercent = (startOffset / total) * 100
+		const widthPercent = (duration / total) * 100
+
+		return { left: leftPercent, width: widthPercent }
+	}
+
+	function getOverlapOpacity(item: TimelineItem, allItems: TimelineItem[]): number {
+		if (!item.started_at) return 1
+
+		const itemEnd = item.duration_ms ? item.started_at + item.duration_ms : now
+		let overlapCount = 0
+
+		for (const otherItem of allItems) {
+			if (otherItem.id === item.id || !otherItem.started_at) continue
+
+			const otherEnd = otherItem.duration_ms ? otherItem.started_at + otherItem.duration_ms : now
+
+			// Check if time ranges overlap
+			if (item.started_at < otherEnd && otherItem.started_at < itemEnd) {
+				overlapCount++
+			}
 		}
-		return 0
+
+		// Base opacity of 1, reduce by 0.2 for each overlap, minimum 0.3
+		return Math.max(0.3, 1 - overlapCount * 0.2)
 	}
 </script>
 
@@ -161,49 +176,50 @@
 			<div class="w-24"></div>
 		{/if}
 		<div
-			class="flex-1 h-1 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden group-hover:h-full transition-all duration-100"
+			class="flex-1 h-1 bg-gray-300 dark:bg-gray-800 rounded-sm overflow-hidden group-hover:h-full transition-all duration-100 relative"
 		>
 			{#if waitingLen > 100 && startItem.created_at}
 				<div
 					style="width: {((startItem.created_at - min) / total) * 100}%"
-					class="h-full float-left"
+					class="h-full absolute left-0 top-0"
 				>
 				</div>
 				<div
-					style="width: {(waitingLen / total) * 100}%"
-					class="h-full float-left bg-gray-300 dark:bg-gray-600"
+					style="left: {((startItem.created_at - min) / total) * 100}%; width: {(waitingLen /
+						total) *
+						100}%"
+					class="h-full absolute top-0 bg-gray-300 dark:bg-gray-600"
 					title={msToReadableTime(waitingLen, 1)}
 				>
 				</div>
 			{:else if startItem?.started_at}
 				<div
 					style="width: {((startItem.started_at - min) / total) * 100}%"
-					class="h-full float-left"
+					class="h-full absolute left-0 top-0"
 				></div>
 			{/if}
 
 			{#if showInterations}
-				<!-- All iterations -->
+				<!-- All iterations with absolute positioning -->
 				{#each filteredItems as item, i}
 					{#if item.started_at}
-						<div
-							style="width: {(getGap(filteredItems, i) / total) * 100}%"
-							class={twMerge('h-full float-left bg-gray-300 dark:bg-gray-800')}
-						></div>
+						{@const position = calculateItemPosition(item)}
+						{@const opacity = getOverlapOpacity(item, filteredItems)}
 						<Tooltip
-							style="width: {(getLength(item) / total) * 100}%"
-							class={twMerge('h-full ', isRunning(item) ? 'float-right' : 'float-left')}
+							style="left: {position.left}%; width: {position.width}%"
+							class="h-full absolute top-0"
 							openDelay={100}
 						>
 							<!-- svelte-ignore a11y_consider_explicit_label -->
 							<div class="relative w-full h-full">
 								<button
 									class={twMerge(
-										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block',
+										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block transition-opacity duration-200',
 										isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
 										i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : '',
 										i === selectedIndex ? 'outline' : ''
 									)}
+									style="opacity: {opacity}"
 									onclick={(e) => {
 										e.stopPropagation()
 										onSelectIteration?.(item.id)
@@ -215,6 +231,10 @@
 								{`#${(idToIterationIndex?.(item.id) ?? 0) + 1}`}
 								<br />
 								{msToReadableTime(getLength(item), 1)}
+								{#if opacity < 1}
+									<br />
+									<span class="text-xs opacity-75">Overlapping</span>
+								{/if}
 							{/snippet}
 						</Tooltip>
 					{/if}
@@ -222,9 +242,10 @@
 			{:else}
 				<!-- Single item case or inside a loop -->
 				{#if selectedItem?.started_at}
+					{@const position = calculateItemPosition(selectedItem)}
 					<Tooltip
-						class={twMerge('h-full', isRunning(selectedItem) ? 'float-right' : 'float-left')}
-						style="width: {(selectedLen / total) * 100}%"
+						class="h-full absolute top-0"
+						style="left: {position.left}%; width: {position.width}%"
 						openDelay={100}
 					>
 						<div
