@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * from workspace_invite WHERE workspace_id = $1",
+  "query": "SELECT\n            workspace_invite.workspace_id,\n            workspace_invite.email,\n            workspace_invite.is_admin,\n            workspace_invite.operator,\n            workspace.parent_workspace_id\n        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id\n        WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "operator",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -33,8 +38,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b3b80de52d0931a2fdb5d38b7603a2d69cc25ab1cda413228c363a5ffd777113"
+  "hash": "ce5c081bbf8322371a6ec95b6a0b033837d574a1ec72dfe42b666172daf10880"
 }

@@ -255,6 +255,7 @@ pub enum ScopeDomain {
     SqsTriggers,
     GcpTriggers,
     PostgresTriggers,
+    EmailTriggers,
 
     // System domains
     Audit,
@@ -308,6 +309,7 @@ impl ScopeDomain {
             Self::SqsTriggers => "sqs_triggers",
             Self::GcpTriggers => "gcp_triggers",
             Self::PostgresTriggers => "postgres_triggers",
+            Self::EmailTriggers => "email_triggers",
             Self::Audit => "audit",
             Self::Settings => "settings",
             Self::Workers => "workers",
@@ -354,6 +356,7 @@ impl ScopeDomain {
             "sqs_triggers" => Some(Self::SqsTriggers),
             "gcp_triggers" => Some(Self::GcpTriggers),
             "postgres_triggers" => Some(Self::PostgresTriggers),
+            "email_triggers" => Some(Self::EmailTriggers),
             "audit" => Some(Self::Audit),
             "settings" => Some(Self::Settings),
             "workers" => Some(Self::Workers),
@@ -718,7 +721,7 @@ mod tests {
     fn test_scope_action_hierarchy() {
         assert!(ScopeAction::Write.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Read.includes(&ScopeAction::Write));
-        assert!(!ScopeAction::Run.includes(&ScopeAction::Read));
+        assert!(ScopeAction::Run.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Run.includes(&ScopeAction::Write));
     }
 

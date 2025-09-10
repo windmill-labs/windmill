@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
-
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_oss::send_email_if_possible;
@@ -29,12 +27,18 @@ use chrono::Utc;
 
 use regex::Regex;
 
+use hex;
+use sha2::{Digest, Sha256};
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
+use windmill_common::scripts::{NewScript, ScriptKind, ScriptLang};
 use windmill_common::users::username_to_permissioned_as;
+use windmill_common::variables::ExportableListableVariable;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
@@ -172,6 +176,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
+        .route("/create_fork", post(create_workspace_fork))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -194,6 +199,7 @@ struct Workspace {
     deleted: bool,
     premium: bool,
     color: Option<String>,
+    parent_workspace_id: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -333,6 +339,15 @@ struct CreateWorkspace {
 }
 
 #[derive(Deserialize)]
+struct CreateWorkspaceFork {
+    id: String,
+    name: String,
+    username: Option<String>,
+    color: Option<String>,
+    parent_workspace_id: String,
+}
+
+#[derive(Deserialize)]
 struct EditWorkspace {
     name: String,
     owner: String,
@@ -351,6 +366,7 @@ struct UserWorkspace {
     pub username: String,
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
+    pub parent_workspace_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -399,7 +415,14 @@ async fn list_pending_invites(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE workspace_id = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
+        WHERE workspace_id = $1",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -447,7 +470,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -720,6 +743,7 @@ async fn edit_deploy_to() -> Result<String> {
 }
 
 pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+pub const WM_FORK_PREFIX: &str = "wm-fork-";
 pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
@@ -2012,6 +2036,7 @@ struct UsedTriggers {
     pub mqtt_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
+    pub email_used: bool,
 }
 
 async fn get_used_triggers(
@@ -2031,7 +2056,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
-            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
+            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!"
         "#,
         w_id
     )
@@ -2061,7 +2087,8 @@ async fn list_workspaces_as_super_admin(
             workspace.owner AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
-            workspace_settings.color AS \"color\"
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -2081,7 +2108,7 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color,
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
@@ -2312,6 +2339,884 @@ async fn create_workspace(
     .await?;
     tx.commit().await?;
     Ok(format!("Created workspace {}", &nw.id))
+}
+
+fn hash_script(ns: &NewScript) -> i64 {
+    let mut dh = DefaultHasher::new();
+    ns.hash(&mut dh);
+    dh.finish() as i64
+}
+
+async fn clone_workspace_data(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+    db: &DB,
+) -> Result<()> {
+    // Clone workspace settings (merge with existing basic settings)
+    update_workspace_settings(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone workspace environment variables
+    clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone folders
+    clone_folders(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone groups
+    clone_groups(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone resource types
+    clone_resource_types(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone resources
+    clone_resources(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone variables with re-encryption
+    clone_variables(tx, source_workspace_id, target_workspace_id, db).await?;
+
+    // Clone scripts with new hashes
+    let script_hash_mapping = clone_scripts(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone flows with new versions
+    clone_flows(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone flow nodes
+    clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone apps with new IDs and app scripts
+    let _app_id_mapping = clone_apps(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .await?;
+
+    // Clone raw apps
+    clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone workspace runnable dependencies with updated mappings
+    clone_workspace_dependencies(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        &script_hash_mapping,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn update_workspace_settings(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    _target_username: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+        UPDATE workspace_settings
+        SET
+            deploy_to = $1,
+            ai_config = source_ws.ai_config,
+            large_file_storage = source_ws.large_file_storage,
+            git_app_installations = source_ws.git_app_installations
+        FROM workspace_settings source_ws
+        WHERE source_ws.workspace_id = $1
+        AND workspace_settings.workspace_id = $2
+        "#,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let current_git_sync_settings = sqlx::query!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let mut git_sync_settings = if let Some(row) = current_git_sync_settings {
+        if let Some(git_sync) = row.git_sync {
+            serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync)
+                .map_err(|err| Error::internal_err(err.to_string()))?
+        } else {
+            WorkspaceGitSyncSettings::default()
+        }
+    } else {
+        WorkspaceGitSyncSettings::default()
+    };
+
+    // We only keep the first git sync repo, since it is considered the main one
+    // Context: see WIN-1559
+    git_sync_settings.repositories.truncate(1);
+
+    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_workspace_env(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO workspace_env (workspace_id, name, value)
+         SELECT $2, name, value
+         FROM workspace_env
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_folders(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by)
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, $3
+         FROM folder
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_groups(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms)
+         SELECT $2, name, summary, extra_perms
+         FROM group_
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_resource_types(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension)
+         SELECT $2, name, schema, description, edited_at, $3, format_extension
+         FROM resource_type 
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_resources(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
+         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, $3
+         FROM resource 
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_variables(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    db: &DB,
+) -> Result<()> {
+    // Get all variables from source workspace
+    let variables = sqlx::query_as!(
+        ExportableListableVariable,
+        "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+         FROM variable 
+         WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if variables.is_empty() {
+        return Ok(());
+    }
+
+    // Get workspace keys from within the transaction
+    let source_key = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+        source_workspace_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    let target_key = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
+        target_workspace_id
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Build encryption keys manually
+    use windmill_common::variables::SECRET_SALT;
+    let source_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}", source_key, salt)
+    } else {
+        source_key
+    };
+    let target_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}", target_key, salt)
+    } else {
+        target_key
+    };
+
+    let source_mc = magic_crypt::new_magic_crypt!(source_crypt_key, 256);
+    let target_mc = magic_crypt::new_magic_crypt!(target_crypt_key, 256);
+
+    // Process each variable
+    for var in variables {
+        let final_value = if var.is_secret && var.value.is_some() {
+            // Decrypt with source key and re-encrypt with target key
+            let decrypted_value = decrypt(&source_mc, var.value.unwrap())?;
+            Some(encrypt(&target_mc, &decrypted_value))
+        } else {
+            var.value
+        };
+
+        sqlx::query!(
+            "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            target_workspace_id,
+            var.path,
+            final_value,
+            var.is_secret,
+            var.description,
+            var.extra_perms,
+            var.account,
+            var.is_oauth,
+            var.expires_at,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn clone_scripts(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<HashMap<i64, i64>> {
+    // Get all scripts from source workspace
+    let scripts = sqlx::query!(
+        r#"SELECT hash, path, summary, description, content,
+                  created_at, archived, schema, deleted, is_template,
+                  extra_perms, lock, lock_error_logs, language as "language: ScriptLang", 
+                  kind as "kind: ScriptKind", tag, draft_only, envs, concurrent_limit, 
+                  concurrency_time_window_s, cache_ttl, dedicated_worker, 
+                  ws_error_handler_muted, priority, timeout, delete_after_use, 
+                  restart_unless_cancelled, concurrency_key, visible_to_runner_only,
+                  no_main_func, codebase, has_preprocessor, on_behalf_of_email,
+                  parent_hashes, assets
+           FROM script WHERE workspace_id = $1"#,
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut script_hash_mapping: HashMap<i64, i64> = HashMap::new();
+
+    // Process each script with new hash computation
+    for script in scripts {
+        // Create a duplicate of ScriptKind by matching the enum
+        let script_kind_for_hash = match script.kind {
+            ScriptKind::Script => ScriptKind::Script,
+            ScriptKind::Trigger => ScriptKind::Trigger,
+            ScriptKind::Failure => ScriptKind::Failure,
+            ScriptKind::Approval => ScriptKind::Approval,
+            ScriptKind::Preprocessor => ScriptKind::Preprocessor,
+        };
+        let script_kind_for_db = match script.kind {
+            ScriptKind::Script => ScriptKind::Script,
+            ScriptKind::Trigger => ScriptKind::Trigger,
+            ScriptKind::Failure => ScriptKind::Failure,
+            ScriptKind::Approval => ScriptKind::Approval,
+            ScriptKind::Preprocessor => ScriptKind::Preprocessor,
+        };
+
+        // Create NewScript for hash computation - simplified approach
+        let new_script = NewScript {
+            path: script.path.clone(),
+            parent_hash: None,
+            summary: script.summary.clone(),
+            description: script.description.clone(),
+            content: script.content.clone(),
+            schema: None, // Keep it simple for hash computation
+            is_template: Some(script.is_template.unwrap_or(false)),
+            lock: script.lock.clone(),
+            language: script.language.clone(),
+            kind: Some(script_kind_for_hash),
+            tag: script.tag.clone(),
+            draft_only: script.draft_only,
+            envs: script.envs.clone(),
+            concurrent_limit: script.concurrent_limit,
+            concurrency_time_window_s: script.concurrency_time_window_s,
+            cache_ttl: script.cache_ttl,
+            dedicated_worker: script.dedicated_worker,
+            ws_error_handler_muted: Some(script.ws_error_handler_muted),
+            priority: script.priority,
+            timeout: script.timeout,
+            delete_after_use: script.delete_after_use,
+            restart_unless_cancelled: script.restart_unless_cancelled,
+            deployment_message: None,
+            concurrency_key: script.concurrency_key.clone(),
+            visible_to_runner_only: script.visible_to_runner_only,
+            no_main_func: script.no_main_func,
+            codebase: script.codebase.clone(),
+            has_preprocessor: script.has_preprocessor,
+            on_behalf_of_email: script.on_behalf_of_email.clone(),
+            assets: None,
+        };
+
+        // Generate new hash
+        let new_hash = hash_script(&new_script);
+
+        // Store mapping for later reference updates
+        script_hash_mapping.insert(script.hash, new_hash);
+
+        // Insert script with new hash - direct copy most fields
+        sqlx::query!(
+            r#"INSERT INTO script (
+                workspace_id, hash, path, parent_hashes, summary, description, content,
+                created_by, created_at, archived, schema, deleted, is_template,
+                extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+                envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
+                dedicated_worker, ws_error_handler_muted, priority, timeout,
+                delete_after_use, restart_unless_cancelled, concurrency_key,
+                visible_to_runner_only, no_main_func, codebase, has_preprocessor,
+                on_behalf_of_email, assets
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+                $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
+                $36, $37
+            )"#,
+            target_workspace_id,
+            new_hash,
+            script.path,
+            script.parent_hashes.as_deref(),
+            script.summary,
+            script.description,
+            script.content,
+            target_username,
+            script.created_at,
+            script.archived,
+            script.schema,
+            script.deleted,
+            script.is_template,
+            script.extra_perms,
+            script.lock,
+            script.lock_error_logs,
+            script.language as _,
+            script_kind_for_db as _,
+            script.tag,
+            script.draft_only,
+            script.envs.as_deref(),
+            script.concurrent_limit,
+            script.concurrency_time_window_s,
+            script.cache_ttl,
+            script.dedicated_worker,
+            script.ws_error_handler_muted,
+            script.priority,
+            script.timeout,
+            script.delete_after_use,
+            script.restart_unless_cancelled,
+            script.concurrency_key,
+            script.visible_to_runner_only,
+            script.no_main_func,
+            script.codebase,
+            script.has_preprocessor,
+            script.on_behalf_of_email,
+            script.assets,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(script_hash_mapping)
+}
+
+async fn clone_flows(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<()> {
+    // First, clone flows without versions
+    sqlx::query!(
+        "INSERT INTO flow (
+            workspace_id, path, summary, description, value, edited_by, edited_at,
+            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
+            concurrency_key, versions, on_behalf_of_email, lock_error_logs
+        )
+        SELECT $2, path, summary, description, value, $3, edited_at,
+               archived, schema, extra_perms, NULL, draft_only, tag,
+               ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
+               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
+        FROM flow 
+        WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+        target_username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Then clone flow versions
+    let flow_versions = sqlx::query!(
+        "SELECT id, workspace_id, path, value, schema, created_by, created_at 
+         FROM flow_version 
+         WHERE workspace_id = $1 
+         ORDER BY path, created_at",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for version in flow_versions {
+        let new_version_id = sqlx::query_scalar!(
+            "INSERT INTO flow_version (workspace_id, path, value, schema, created_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id",
+            target_workspace_id,
+            version.path,
+            version.value,
+            version.schema,
+            target_username,
+            version.created_at,
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // Update flow to include this version
+        sqlx::query!(
+            "UPDATE flow
+             SET versions = array_append(versions, $1)
+             WHERE workspace_id = $2 AND path = $3",
+            new_version_id,
+            target_workspace_id,
+            version.path,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn clone_flow_nodes(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO flow_node (workspace_id, hash, path, lock, code, flow, hash_v2)
+         SELECT $2,
+                (SELECT COALESCE(MAX(hash), 0) FROM flow_node) + row_number() OVER () AS new_hash,
+                source_fn.path, source_fn.lock, source_fn.code, source_fn.flow, source_fn.hash_v2
+         FROM flow_node source_fn
+         WHERE source_fn.workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_apps(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    target_username: &str,
+) -> Result<HashMap<i64, i64>> {
+    // Get all apps from source workspace
+    let apps = sqlx::query!(
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path 
+         FROM app 
+         WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut app_id_mapping: HashMap<i64, i64> = HashMap::new();
+
+    // Clone apps with new IDs
+    for app in apps {
+        let new_app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id",
+            target_workspace_id,
+            app.path,
+            app.summary,
+            app.policy,
+            &Vec::<i64>::new(), // Start with empty versions array
+            app.extra_perms,
+            app.draft_only,
+            app.custom_path,
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        app_id_mapping.insert(app.id, new_app_id);
+    }
+
+    // Clone app versions
+    let app_versions = sqlx::query!(
+        "SELECT app_id, value, created_by, created_at, raw_app
+         FROM app_version 
+         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
+         ORDER BY app_id, created_at",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for version in app_versions {
+        if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+            sqlx::query!(
+                "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+                 VALUES ($1, $2, $3, $4, $5)",
+                new_app_id,
+                version.value,
+                target_username,
+                version.created_at,
+                version.raw_app,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    // Update app versions arrays
+    sqlx::query!(
+        "UPDATE app SET versions = (
+            SELECT array_agg(av.id ORDER BY av.created_at)
+            FROM app_version av 
+            WHERE av.app_id = app.id
+        ) WHERE workspace_id = $1",
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Clone app scripts with recomputed hashes
+    let app_scripts = sqlx::query!(
+        "SELECT app, hash, lock, code, code_sha256 
+         FROM app_script 
+         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for app_script in app_scripts {
+        if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
+            // Recompute hash using app_id, code_sha256, and lock
+            let mut hasher = Sha256::new();
+            hasher.update(new_app_id.to_be_bytes());
+            hasher.update(hex::decode(&app_script.code_sha256)?);
+            if let Some(lock) = &app_script.lock {
+                hasher.update(lock.as_bytes());
+            }
+            let new_hash = hex::encode(hasher.finalize());
+
+            sqlx::query!(
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
+                 VALUES ($1, $2, $3, $4, $5)",
+                new_app_id,
+                new_hash,
+                app_script.lock,
+                app_script.code,
+                app_script.code_sha256,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(app_id_mapping)
+}
+
+async fn clone_raw_apps(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO raw_app (path, version, workspace_id, summary, edited_at, data, extra_perms)
+         SELECT path, version, $2, summary, edited_at, data, extra_perms
+         FROM raw_app 
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_workspace_dependencies(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    script_hash_mapping: &HashMap<i64, i64>,
+) -> Result<()> {
+    let dependencies = sqlx::query!(
+        "SELECT flow_path, runnable_path, script_hash, runnable_is_flow, app_path
+         FROM workspace_runnable_dependencies 
+         WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for dep in dependencies {
+        let new_script_hash = if let Some(old_hash) = dep.script_hash {
+            script_hash_mapping.get(&old_hash).copied()
+        } else {
+            None
+        };
+
+        sqlx::query!(
+            "INSERT INTO workspace_runnable_dependencies (
+                flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path
+            ) VALUES ($1, $2, $3, $4, $5, $6)",
+            dep.flow_path,
+            dep.runnable_path,
+            new_script_hash,
+            dep.runnable_is_flow,
+            target_workspace_id,
+            dep.app_path,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn create_workspace_fork(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(nw): Json<CreateWorkspaceFork>,
+) -> Result<String> {
+    // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+    //     require_super_admin(&db, &authed.email).await?;
+    // }
+
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(format!(
+            "Forking workspaces is not available on Cloud"
+        )));
+    }
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Generate unique forked workspace ID with wm-fork prefix
+    if !nw.id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
+            nw.id, WM_FORK_PREFIX
+        )));
+    }
+
+    let forked_id = nw.id;
+
+    // Determine username early so we can use it in workspace creation
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        nw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
+    sqlx::query!(
+        "INSERT INTO workspace
+            (id, name, owner, parent_workspace_id)
+            VALUES ($1, $2, $3, $4)",
+        forked_id,
+        nw.name,
+        authed.email,
+        nw.parent_workspace_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_settings
+            (workspace_id, color)
+            VALUES ($1, $2)",
+        forked_id,
+        nw.color,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let key = rd_string(64);
+    sqlx::query!(
+        "INSERT INTO workspace_key
+            (workspace_id, kind, key)
+            VALUES ($1, 'cloud', $2)",
+        forked_id,
+        &key
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin)
+            VALUES ($1, $2, $3, $4)",
+        forked_id,
+        authed.email,
+        username,
+        authed.is_admin,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Clone all data from the parent workspace using Rust implementation
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &username, &db).await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
+           SELECT $1, email, is_admin, operator
+           FROM usr
+         WHERE workspace_id = $2",
+        &forked_id,
+        &nw.parent_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.create_fork",
+        ActionKind::Create,
+        &forked_id,
+        Some(nw.name.as_str()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Created forked workspace {}", &forked_id))
 }
 
 async fn edit_workspace(

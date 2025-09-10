@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.540.0
+  version: 1.541.1
   title: Windmill API
 
   contact:
@@ -669,6 +669,27 @@ paths:
       responses:
         "201":
           description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/create_fork:
+    post:
+      summary: create forked workspace
+      operationId: createWorkspaceFork
+      tags:
+        - workspace
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace created
           content:
             text/plain:
               schema:
@@ -1561,6 +1582,9 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                parent_workspace_id:
+                  type: string
+                  nullable: true
               required:
                 - email
                 - is_admin
@@ -2907,6 +2931,8 @@ paths:
                     type: boolean
                   sqs_used:
                     type: boolean
+                  email_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -2916,6 +2942,7 @@ paths:
                   - mqtt_used
                   - gcp_used
                   - sqs_used
+                  - email_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -10914,6 +10941,171 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/email_triggers/create:
+    post:
+      summary: create email trigger
+      operationId: createEmailTrigger
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new email trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewEmailTrigger"
+      responses:
+        "201":
+          description: email trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/email_triggers/update/{path}:
+    post:
+      summary: update email trigger
+      operationId: updateEmailTrigger
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditEmailTrigger"
+      responses:
+        "200":
+          description: email trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/email_triggers/delete/{path}:
+    delete:
+      summary: delete email trigger
+      operationId: deleteEmailTrigger
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: email trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/email_triggers/get/{path}:
+    get:
+      summary: get email trigger
+      operationId: getEmailTrigger
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: email trigger retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTrigger"
+
+  /w/{workspace}/email_triggers/list:
+    get:
+      summary: list email triggers
+      operationId: listEmailTriggers
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: email trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailTrigger"
+
+  /w/{workspace}/email_triggers/exists/{path}:
+    get:
+      summary: does email trigger exists
+      operationId: existsEmailTrigger
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: email trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/email_triggers/local_part_exists:
+    post:
+      summary: does email local part exists
+      operationId: existsEmailLocalPart
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: email local part exists request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                local_part:
+                  type: string
+                workspaced_local_part:
+                  type: boolean
+                trigger_path:
+                  type: string
+
+              required:
+                - local_part
+      responses:
+        "200":
+          description: email local part exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /groups/list:
     get:
       summary: list instance groups
@@ -11999,6 +12191,7 @@ paths:
                 mqtt_trigger,
                 gcp_trigger,
                 sqs_trigger,
+                email_trigger,
               ]
       responses:
         "200":
@@ -12043,6 +12236,7 @@ paths:
                 mqtt_trigger,
                 gcp_trigger,
                 sqs_trigger,
+                email_trigger,
               ]
       requestBody:
         description: acl to add
@@ -12098,6 +12292,7 @@ paths:
                 mqtt_trigger,
                 gcp_trigger,
                 sqs_trigger,
+                email_trigger,
               ]
       requestBody:
         description: acl to add
@@ -16131,6 +16326,8 @@ components:
           type: number
         email_count:
           type: number
+        default_email_count:
+          type: number
         websocket_count:
           type: number
         postgres_count:
@@ -17086,6 +17283,75 @@ components:
         - subjects
         - is_flow
 
+    EmailTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        local_part:
+          type: string
+        workspaced_local_part:
+          type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+
+      required:
+        - local_part
+
+    NewEmailTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        local_part:
+          type: string
+        workspaced_local_part:
+          type: boolean
+        is_flow:
+          type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+
+      required:
+        - path
+        - script_path
+        - local_part
+        - is_flow
+
+    EditEmailTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        local_part:
+          type: string
+        workspaced_local_part:
+          type: boolean
+        is_flow:
+          type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+      required:
+        - path
+        - script_path
+        - is_flow
+
     Group:
       type: object
       properties:
@@ -17246,6 +17512,12 @@ components:
                 type: string
               operator_settings:
                 $ref: "#/components/schemas/OperatorSettings"
+              parent_workspace_id:
+                type: string
+                nullable: true
+              created_by:
+                type: string
+                nullable: true
             required:
               - id
               - name
@@ -17270,6 +17542,24 @@ components:
         - id
         - name
 
+    CreateWorkspaceFork:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        color:
+          type: string
+        parent_workspace_id:
+          type: string
+      required:
+        - id
+        - name
+        - parent_workspace_id
+
     Workspace:
       type: object
       properties:
@@ -17283,10 +17573,14 @@ components:
           type: string
         color:
           type: string
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - id
         - name
         - owner
+        - created_at
 
     WorkspaceInvite:
       type: object
@@ -17299,6 +17593,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - workspace_id
         - email
@@ -18141,7 +18438,7 @@ components:
     CaptureTriggerKind:
       type: string
       enum:
-        [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp]
+        [webhook, http, websocket, kafka, default_email, nats, postgres, sqs, mqtt, gcp, email]
 
     Capture:
       type: object
