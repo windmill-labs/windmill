@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    ffi::{CStr, CString, c_char},
+    ffi::{c_char, CStr, CString},
     ptr::null_mut,
 };
 
-use duckdb::{Row, params_from_iter, types::TimeUnit};
-use rust_decimal::{Decimal, prelude::FromPrimitive};
+use duckdb::{params_from_iter, types::TimeUnit, Row};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
@@ -244,9 +244,7 @@ fn do_duckdb_inner(
         }
     }
 
-    if let (Some(column_order), Some(column_names)) = (column_order.as_mut(), column_names) {
-        *column_order = column_names.clone();
-    }
+    *column_order = column_names;
 
     serde_json::value::to_raw_value(&rows_vec).map_err(|e| e.to_string())
 }
