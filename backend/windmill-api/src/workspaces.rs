@@ -47,7 +47,7 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
-use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType, WorkspaceGitSyncSettings};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
