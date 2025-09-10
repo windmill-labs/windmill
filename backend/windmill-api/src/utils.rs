@@ -31,6 +31,12 @@ pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
 }
 
+// Shared structs for bulk delete operations
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
+
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
 

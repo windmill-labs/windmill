@@ -121,6 +121,39 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithAuthed<'d, T> {
     }
 }
 
+pub struct UserDbWithOptAuthed<'c, T: Authable + Sync> {
+    pub authed: &'c T,
+    pub user_db: Option<UserDB>,
+    pub db: DB,
+}
+
+impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> {
+    type Database = Postgres;
+    type Connection = Transaction<'c, Postgres>;
+
+    fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, sqlx::Error>> {
+        Box::pin(async move {
+            if let Some(db) = &self.user_db {
+                db.clone().begin(self.authed).await
+            } else {
+                self.db.clone().begin().await
+            }
+        })
+    }
+
+    fn begin(
+        self,
+    ) -> futures_core::future::BoxFuture<'c, Result<Transaction<'c, Postgres>, sqlx::Error>> {
+        Box::pin(async move {
+            if let Some(db) = &self.user_db {
+                db.clone().begin(self.authed).await
+            } else {
+                self.db.clone().begin().await
+            }
+        })
+    }
+}
+
 impl UserDB {
     pub fn new(db: DB) -> Self {
         Self { db }
