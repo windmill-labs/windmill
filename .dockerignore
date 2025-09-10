@@ -3,3 +3,4 @@ frontend/build/
 frontend/.svelte-kit/
 
 backend/target/
+backend/windmill-duckdb-ffi-internal/target/

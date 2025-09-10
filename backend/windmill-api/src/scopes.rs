@@ -255,6 +255,7 @@ pub enum ScopeDomain {
     SqsTriggers,
     GcpTriggers,
     PostgresTriggers,
+    EmailTriggers,
 
     // System domains
     Audit,
@@ -308,6 +309,7 @@ impl ScopeDomain {
             Self::SqsTriggers => "sqs_triggers",
             Self::GcpTriggers => "gcp_triggers",
             Self::PostgresTriggers => "postgres_triggers",
+            Self::EmailTriggers => "email_triggers",
             Self::Audit => "audit",
             Self::Settings => "settings",
             Self::Workers => "workers",
@@ -338,7 +340,7 @@ impl ScopeDomain {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
             "flows" => Some(Self::Flows),
-            "apps" => Some(Self::Apps),
+            "apps" | "apps_u" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
             "schedules" => Some(Self::Schedules),
@@ -354,6 +356,7 @@ impl ScopeDomain {
             "sqs_triggers" => Some(Self::SqsTriggers),
             "gcp_triggers" => Some(Self::GcpTriggers),
             "postgres_triggers" => Some(Self::PostgresTriggers),
+            "email_triggers" => Some(Self::EmailTriggers),
             "audit" => Some(Self::Audit),
             "settings" => Some(Self::Settings),
             "workers" => Some(Self::Workers),
@@ -413,13 +416,13 @@ impl ScopeAction {
     pub fn includes(&self, other: &ScopeAction) -> bool {
         match (self, other) {
             (ScopeAction::Write, ScopeAction::Read) => true,
+            (ScopeAction::Run, ScopeAction::Read) => true,
             (a, b) => a == b,
         }
     }
 }
 
-pub fn 
-check_route_access(
+pub fn check_route_access(
     token_scopes: &[String],
     route_path: &str,
     http_method: &str,
@@ -435,11 +438,13 @@ check_route_access(
         return Ok(());
     }
 
+    // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
         if !scope_str.starts_with("if_jobs:filter_tags:") {
             if let Ok(scope) = ScopeDefinition::from_scope_string(scope_str) {
+                // tracing::error!("Checking scope {:?} for required domain {:?} and action {:?} and kind {:?} and route suffix {:?}", scope, required_domain, required_action, required_kind, route_suffix);
                 if scope_grants_access(
                     &scope,
                     required_domain,
@@ -447,6 +452,7 @@ check_route_access(
                     required_kind.as_deref(),
                     route_suffix.as_deref(),
                 )? {
+                    // tracing::error!("Scope grants access: {:?}", scope);
                     return Ok(());
                 }
             }
@@ -497,7 +503,7 @@ const FLOW_JOBS: [&'static str; 5] = [
 
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies",];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component"];
 
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
@@ -567,6 +573,7 @@ fn extract_domain_from_route(
     };
 
     if let Some(domain) = domain {
+        // tracing::error!("Extracted domain {:?} from route {:?} with kind {:?} and route suffix {:?}", domain, route_path, kind, route_suffix);
         return Ok((domain, kind, route_suffix));
     }
 
@@ -714,7 +721,7 @@ mod tests {
     fn test_scope_action_hierarchy() {
         assert!(ScopeAction::Write.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Read.includes(&ScopeAction::Write));
-        assert!(!ScopeAction::Run.includes(&ScopeAction::Read));
+        assert!(ScopeAction::Run.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Run.includes(&ScopeAction::Write));
     }
 

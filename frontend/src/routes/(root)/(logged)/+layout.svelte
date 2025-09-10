@@ -201,7 +201,8 @@
 			nats_used,
 			sqs_used,
 			mqtt_used,
-			gcp_used
+			gcp_used,
+			email_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -228,6 +229,9 @@
 		}
 		if (gcp_used) {
 			usedKinds.push('gcp')
+		}
+		if (email_used) {
+			usedKinds.push('email')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -378,7 +382,7 @@
 	$effect(() => {
 		if (isCloudHosted()) {
 			const workspace = $workspaceStore
-			if (workspace) {
+			if (workspace && $userStore?.is_admin) {
 				checkTeamPlanStatus(workspace)
 			}
 		}

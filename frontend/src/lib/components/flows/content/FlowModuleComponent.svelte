@@ -648,7 +648,7 @@
 															</Tooltip>
 														</div>
 														<div class="my-8"></div>
-														<FlowRetries bind:flowModuleRetry={flowModule.retry} />
+														<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 													<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
@@ -710,7 +710,10 @@
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
 													<div>
-														<FlowModuleTimeout bind:flowModule />
+														<FlowModuleTimeout
+															previousModuleId={previousModule?.id}
+															bind:flowModule
+														/>
 													</div>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
 													<Section label="Priority" class="flex flex-col gap-4">

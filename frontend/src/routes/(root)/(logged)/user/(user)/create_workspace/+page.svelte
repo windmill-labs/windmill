@@ -26,7 +26,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
+	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -115,15 +115,15 @@
 							providers: {
 								[selected]: {
 									resource_path: path,
-									models: [AI_DEFAULT_MODELS[selected][0]]
+									models: [AI_PROVIDERS[selected].defaultModels[0]]
 								}
 							},
 							default_model: {
-								model: AI_DEFAULT_MODELS[selected][0],
+								model: AI_PROVIDERS[selected].defaultModels[0],
 								provider: selected
 							},
 							code_completion_model: codeCompletionEnabled
-								? { model: AI_DEFAULT_MODELS[selected][0], provider: selected }
+								? { model: AI_PROVIDERS[selected].defaultModels[0], provider: selected }
 								: undefined
 						}
 					: {}
@@ -291,7 +291,7 @@
 				apiKey={aiKey}
 				disabled={!aiKey}
 				aiProvider={selected}
-				model={AI_DEFAULT_MODELS[selected][0]}
+				model={AI_PROVIDERS[selected].defaultModels[0]}
 			/>
 		</div>
 		{#if aiKey}

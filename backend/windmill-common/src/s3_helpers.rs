@@ -1,4 +1,5 @@
-use crate::error;
+use crate::db::Authed;
+use crate::error::{self};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
@@ -236,6 +237,16 @@ impl LargeFileStorage {
             LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
         }
     }
+    pub fn is_public_resource(&self) -> bool {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.public_resource,
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.public_resource,
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.public_resource,
+        }
+        .unwrap_or(false)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -321,6 +332,18 @@ pub struct AzureBlobResource {
     pub access_key: Option<String>,
     #[serde(rename = "federatedTokenFile")]
     pub federated_token_file: Option<String>,
+}
+
+impl AzureBlobResource {
+    pub fn get_endpoint_url(&self) -> error::Result<String> {
+        Ok(render_endpoint(
+            self.endpoint.clone().unwrap_or_else(|| "".to_string()),
+            self.use_ssl.unwrap_or(false),
+            None,
+            None,
+            "".to_string(),
+        ))
+    }
 }
 
 fn as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -1080,4 +1103,45 @@ pub fn duckdb_connection_settings_internal(
         s3_bucket: Some(s3_resource.bucket),
     };
     return Ok(response);
+}
+
+impl ObjectStoreResource {
+    pub fn get_endpoint_url(&self) -> error::Result<String> {
+        match self {
+            ObjectStoreResource::S3(s3_resource) => Ok(render_endpoint(
+                s3_resource.endpoint.clone(),
+                s3_resource.use_ssl,
+                s3_resource.port,
+                s3_resource.path_style,
+                s3_resource.bucket.clone(),
+            )),
+            ObjectStoreResource::Gcs(gcs_resource) => Ok(format!(
+                "https://storage.googleapis.com/{}",
+                gcs_resource.bucket
+            )),
+            ObjectStoreResource::Azure(az_resource) => az_resource.get_endpoint_url(),
+        }
+    }
+}
+
+pub fn check_lfs_object_path_permissions(
+    lfs: &LargeFileStorage,
+    _object_path: &str,
+    authed: &Authed,
+) -> error::Result<()> {
+    if authed.is_admin || lfs.is_public_resource() {
+        return Ok(());
+    }
+    let _username = authed.username.as_str();
+
+    // TODO : Extend permission possibilities
+
+    // if lfs.restrict_to_user_paths() {
+    //     if !object_path.starts_with(&format!("u/{username}/")) {
+    //         return Err(error::Error::NotAuthorized(format!(
+    //             "Can only access paths u/{username}/**"
+    //         )));
+    //     }
+    // }
+    return Ok(());
 }

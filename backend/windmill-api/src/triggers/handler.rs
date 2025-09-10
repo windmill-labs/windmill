@@ -231,8 +231,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 edited_by = $3,
                 edited_at = now(),
                 server_id = NULL,
-                error = NULL,
-                last_server_ping = NULL
+                error = NULL
             WHERE 
                 workspace_id = $4 AND 
                 path = $5
@@ -737,6 +736,16 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
+    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    {
+        use crate::triggers::email::EmailTrigger;
+
+        router = router.nest(
+            EmailTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(EmailTrigger),
+        );
+    }
+
     router
 }
 
@@ -752,6 +761,7 @@ pub struct TriggersCount {
     http_routes_count: i64,
     webhook_count: i64,
     email_count: i64,
+    default_email_count: i64,
     websocket_count: i64,
     kafka_count: i64,
     nats_count: i64,
@@ -872,6 +882,18 @@ pub async fn get_triggers_count_internal(
     };
     #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
     let gcp_count = 0;
+
+    #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
+    let email_count = {
+        use crate::triggers::email::EmailTrigger;
+        let count = EmailTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(all(feature = "smtp", feature = "enterprise", feature = "private")))]
+    let email_count = 0;
+
     tx.commit().await?;
 
     let webhook_count = (if is_flow {
@@ -890,7 +912,7 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
-    let email_count = (if is_flow {
+    let default_email_count = (if is_flow {
         sqlx::query_scalar!(
             "SELECT COUNT(*) FROM token WHERE label LIKE 'email-%' AND workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
             w_id,
@@ -911,6 +933,7 @@ pub async fn get_triggers_count_internal(
         schedule_count,
         http_routes_count,
         webhook_count,
+        default_email_count,
         email_count,
         websocket_count,
         kafka_count,

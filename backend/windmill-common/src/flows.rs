@@ -12,8 +12,10 @@ use std::{
     u8,
 };
 
+use anyhow::Context;
 use rand::Rng;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
@@ -137,6 +139,65 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
+impl FlowValue {
+    pub fn get_flow_module_at_step(&self, step: Step) -> anyhow::Result<&FlowModule> {
+        let flow_module = match step {
+            Step::PreprocessorStep => self
+                .preprocessor_module
+                .as_deref()
+                .with_context(|| format!("no preprocessor module")),
+            Step::Step(i) => self
+                .modules
+                .get(i)
+                .with_context(|| format!("no module found at index: {i}")),
+            Step::FailureStep => self
+                .failure_module
+                .as_deref()
+                .with_context(|| format!("no failure module")),
+        };
+
+        flow_module
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Step {
+    Step(usize),
+    PreprocessorStep,
+    FailureStep,
+}
+
+impl Step {
+    pub fn from_i32_and_len(step: i32, len: usize) -> Self {
+        if step < 0 {
+            Step::PreprocessorStep
+        } else if (step as usize) < len {
+            Step::Step(step as usize)
+        } else {
+            Step::FailureStep
+        }
+    }
+
+    pub fn get_step_index(&self) -> Option<usize> {
+        match self {
+            Step::Step(index) => Some(*index),
+            _ => None,
+        }
+    }
+
+    pub fn is_index_step(&self) -> bool {
+        matches!(self, Step::Step(_))
+    }
+
+    pub fn is_preprocessor_step(&self) -> bool {
+        matches!(self, Step::PreprocessorStep)
+    }
+
+    pub fn is_failure_step(&self) -> bool {
+        matches!(self, Step::FailureStep)
+    }
+}
+
 #[derive(Default, Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
@@ -145,10 +206,17 @@ pub struct StopAfterIf {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+pub struct RetryIf {
+    pub expr: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Retry {
     pub constant: ConstantDelay,
     pub exponential: ExponentialDelay,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_if: Option<RetryIf>,
 }
 
 impl Retry {
@@ -156,7 +224,7 @@ impl Retry {
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
     pub fn interval(&self, previous_attempts: u32, silent: bool) -> Option<Duration> {
-        let Self { constant, exponential } = self;
+        let Self { constant, exponential, .. } = self;
 
         if previous_attempts < constant.attempts {
             Some(Duration::from_secs(constant.seconds as u64))
@@ -257,7 +325,7 @@ pub struct Mock {
 pub struct FlowModule {
     #[serde(default = "default_id")]
     pub id: String,
-    pub value: Box<serde_json::value::RawValue>,
+    pub value: Box<RawValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -274,8 +342,12 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, i32>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timeout: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow step level
     pub priority: Option<i16>,
@@ -368,7 +440,7 @@ impl FlowModule {
 pub struct UntaggedInputTransform {
     #[serde(rename = "type")]
     pub type_: String,
-    pub value: Option<Box<serde_json::value::RawValue>>,
+    pub value: Option<Box<RawValue>>,
     pub expr: Option<String>,
 }
 
@@ -379,20 +451,10 @@ impl<'de> Deserialize<'de> for InputTransform {
     {
         let untagged: UntaggedInputTransform = UntaggedInputTransform::deserialize(deserializer)?;
 
-        match untagged.type_.as_str() {
-            "static" => {
-                let value = untagged.value.unwrap_or_else(default_null);
-                Ok(InputTransform::Static { value })
-            }
-            "javascript" => {
-                let expr = untagged.expr.unwrap_or_else(default_empty_string);
-                Ok(InputTransform::Javascript { expr })
-            }
-            other => Err(serde::de::Error::unknown_variant(
-                other,
-                &["static", "javascript"],
-            )),
-        }
+        let input_transform = TryInto::<InputTransform>::try_into(untagged)
+            .map_err(|e| serde::de::Error::custom(e))?;
+
+        Ok(input_transform)
     }
 }
 
@@ -404,12 +466,73 @@ impl<'de> Deserialize<'de> for InputTransform {
 pub enum InputTransform {
     Static {
         #[serde(default = "default_null")]
-        value: Box<serde_json::value::RawValue>,
+        value: Box<RawValue>,
     },
     Javascript {
         #[serde(default = "default_empty_string")]
         expr: String,
     },
+}
+
+impl InputTransform {
+    pub fn new_static_value(value: Box<RawValue>) -> InputTransform {
+        InputTransform::Static { value }
+    }
+
+    pub fn new_javascript_expr(expr: &str) -> InputTransform {
+        InputTransform::Javascript { expr: expr.to_owned() }
+    }
+}
+
+impl TryFrom<UntaggedInputTransform> for InputTransform {
+    type Error = anyhow::Error;
+    fn try_from(value: UntaggedInputTransform) -> Result<Self, Self::Error> {
+        let input_transform = match value.type_.as_str() {
+            "static" => InputTransform::new_static_value(value.value.unwrap_or_else(default_null)),
+            "javascript" => InputTransform::new_javascript_expr(&value.expr.unwrap_or_default()),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "got value: {other} for field `type`, expected value: `static` or `javascript`"
+                ))
+            }
+        };
+
+        Ok(input_transform)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawValueOrFormatted<T> {
+    RawValue(T),
+    Formatted { r#type: String, value: Option<T>, expr: Option<String> },
+}
+
+fn raw_value_to_input_transform<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<InputTransform>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned + Serialize,
+{
+    let val = Option::<RawValueOrFormatted<T>>::deserialize(deserializer)?;
+    let input_tranform = match val {
+        Some(RawValueOrFormatted::RawValue(v)) => {
+            Some(InputTransform::new_static_value(to_raw_value(&v)))
+        }
+        Some(RawValueOrFormatted::Formatted { r#type, expr, value }) => {
+            let untaged_input_transform = UntaggedInputTransform {
+                type_: r#type,
+                expr,
+                value: value.map(|val| to_raw_value(&val)),
+            };
+            let input_transform = TryInto::<InputTransform>::try_into(untaged_input_transform)
+                .map_err(|e| serde::de::Error::custom(e))?;
+            Some(input_transform)
+        }
+        _ => None,
+    };
+    Ok(input_tranform)
 }
 
 /// Id in the `flow_node` table.
@@ -684,9 +807,9 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
     }
 }
 
-impl Into<Box<serde_json::value::RawValue>> for FlowModuleValue {
-    fn into(self) -> Box<serde_json::value::RawValue> {
-        crate::worker::to_raw_value(&self)
+impl Into<Box<RawValue>> for FlowModuleValue {
+    fn into(self) -> Box<RawValue> {
+        to_raw_value(&self)
     }
 }
 
