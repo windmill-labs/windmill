@@ -30,6 +30,7 @@
 
 	interface Props {
 		modules: FlowModule[]
+		moduleId?: string
 		localModuleStates: Record<string, GraphModuleState>
 		rootJob: RootJobData | undefined
 		flowStatus: FlowStatusModule['type'] | undefined
@@ -71,6 +72,7 @@
 
 	let {
 		modules,
+		moduleId,
 		localModuleStates,
 		rootJob,
 		flowStatus,
@@ -418,8 +420,7 @@
 		logs: string | undefined,
 		result: any,
 		args: any,
-		jobId: string | undefined,
-		selectedIndex: number | undefined
+		jobId: string | undefined
 	) {
 		// if a branch is chosen, ignore the other branches
 		if (branchChosen !== undefined && branchChosen !== idx) {
@@ -436,9 +437,7 @@
 			logs,
 			result,
 			args,
-			success: localModuleStates[moduleId]?.type === 'Success',
-			started_at: timelineItems?.[moduleId]?.[selectedIndex ?? idx]?.started_at,
-			duration_ms: timelineItems?.[moduleId]?.[selectedIndex ?? idx]?.duration_ms
+			success: localModuleStates[moduleId]?.type === 'Success'
 		} as RootJobData
 	}
 
@@ -544,19 +543,23 @@
 							(v) => (timelineAvailableWidths[flowId] = v)
 						}
 					>
-						{#if timelineItems && showTimeline && timelineMin != undefined && timelineTotal && rootJob?.started_at}
+						{#if timelineItems && showTimeline && timelineMin != undefined && timelineTotal}
+							{@const moduleItems = moduleId
+								? timelineItems?.[moduleId].filter((item) => item.id === rootJob?.id)
+								: [
+										{
+											started_at: rootJob?.started_at
+												? new Date(rootJob.started_at).getTime()
+												: undefined,
+											duration_ms: rootJob?.['duration_ms'] ?? timelineTotal,
+											id: flowId
+										}
+									]}
+
 							<FlowTimelineBar
 								total={timelineTotal}
 								min={timelineMin}
-								items={[
-									{
-										started_at: rootJob.started_at
-											? new Date(rootJob.started_at).getTime()
-											: undefined,
-										duration_ms: rootJob['duration_ms'] ?? timelineTotal,
-										id: flowId
-									}
-								]}
+								items={moduleItems}
 								now={timelineNow}
 								{timelinelWidth}
 								showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
@@ -641,8 +644,6 @@
 									module.value.type === 'branchone'
 										? (localModuleStates[module.id]?.branchChosen ?? 0)
 										: undefined}
-								{@const selectedIndex = getSelectedIndex(module.id, moduleItems)}
-
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -766,7 +767,7 @@
 															}
 														}}
 														showInterations={localModuleStates[module.id]?.flow_jobs}
-														{selectedIndex}
+														selectedIndex={getSelectedIndex(module.id, moduleItems)}
 														idToIterationIndex={(id) => {
 															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)
 														}}
@@ -802,13 +803,13 @@
 													logs,
 													result,
 													args,
-													jobId,
-													selectedIndex
+													jobId
 												)}
 												<div class="border-l mb-2">
 													<!-- Recursively render child steps using FlowLogViewer -->
 													<FlowLogViewer
 														modules={subflow.modules}
+														moduleId={module.id}
 														{localModuleStates}
 														rootJob={subflowJob}
 														flowStatus={localModuleStates[module.id]?.type}
