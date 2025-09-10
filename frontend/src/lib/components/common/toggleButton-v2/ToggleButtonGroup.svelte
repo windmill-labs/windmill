@@ -14,6 +14,7 @@
 		tabListClass?: string
 		allowEmpty?: boolean
 		class?: string
+		wrap?: boolean
 		children?: import('svelte').Snippet<[any]>
 		onSelected?: (value: any) => void
 	}
@@ -26,6 +27,7 @@
 		tabListClass = '',
 		allowEmpty = false,
 		class: className = '',
+		wrap = false,
 		onSelected,
 		children
 	}: Props = $props()
@@ -61,14 +63,20 @@
 <div
 	use:melt={$root}
 	class={twMerge(
-		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
+		`flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
 		className,
 		'flex items-center data-[orientation="vertical"]:flex-col'
 	)}
 	aria-label="Toggle button group"
 	{id}
 >
-	<div class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}>
+	<div
+		class={twMerge(
+			'flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full',
+			wrap ? 'flex-wrap' : '',
+			tabListClass
+		)}
+	>
 		{@render children?.({ item, disabled })}
 	</div>
 </div>

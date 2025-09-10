@@ -7,10 +7,6 @@ use strum::AsRefStr;
 use crate::{
     error::{to_anyhow, Error, Result},
     get_database_url, parse_postgres_url,
-    s3_helpers::{
-        format_duckdb_connection_settings, lfs_to_object_store_resource,
-        DuckdbConnectionSettingsResponse, LargeFileStorage,
-    },
     variables::{build_crypt, decrypt},
     DB,
 };
@@ -86,22 +82,47 @@ impl Default for GitSyncSettings {
     }
 }
 
+#[derive(Clone)]
+pub struct TeamPlanStatus {
+    pub premium: bool,
+    pub is_past_due: bool,
+    pub max_tolerated_executions: Option<i32>,
+}
+
 lazy_static::lazy_static! {
-    pub static ref IS_PREMIUM_CACHE: Cache<String, bool> = Cache::new(5000);
+    pub static ref TEAM_PLAN_CACHE: Cache<String, TeamPlanStatus> = Cache::new(5000);
 }
 
 #[cfg(feature = "cloud")]
-pub async fn is_premium_workspace(_db: &crate::DB, _w_id: &str) -> bool {
-    let cached = IS_PREMIUM_CACHE.get(_w_id);
+pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> TeamPlanStatus {
+    let cached = TEAM_PLAN_CACHE.get(_w_id);
     if let Some(cached) = cached {
         return cached;
     }
-    let premium = sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-        .fetch_one(_db)
-        .await
-        .unwrap_or(false);
-    IS_PREMIUM_CACHE.insert(_w_id.to_string(), premium);
-    premium
+    let team_plan_info = sqlx::query_as!(
+        TeamPlanStatus,
+        r#"
+            SELECT
+                w.premium,
+                COALESCE(cw.is_past_due, false) as "is_past_due!",
+                cw.max_tolerated_executions
+            FROM
+                workspace w
+                LEFT JOIN cloud_workspace_settings cw ON cw.workspace_id = w.id
+            WHERE
+                w.id = $1
+        "#,
+        _w_id
+    )
+    .fetch_one(_db)
+    .await
+    .unwrap_or_else(|_| TeamPlanStatus {
+        premium: false,
+        is_past_due: false,
+        max_tolerated_executions: None,
+    });
+    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
+    team_plan_info
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -139,7 +160,6 @@ pub struct DucklakeWithConnData {
     pub catalog: DucklakeCatalog,
     pub catalog_resource: serde_json::Value,
     pub storage: DucklakeStorage,
-    pub storage_settings: DuckdbConnectionSettingsResponse,
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -163,24 +183,6 @@ pub async fn get_ducklake_from_db_unchecked(
 
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)?;
 
-    let lfs = if let Some(storage) = &ducklake.storage.storage {
-        sqlx::query_scalar!("SELECT large_file_storage->'secondary_storage'->$2 FROM workspace_settings WHERE workspace_id = $1", w_id, storage)
-    } else {
-        sqlx::query_scalar!("SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1", w_id)
-    }.fetch_optional(db)
-    .await?
-    .flatten()
-    .map(serde_json::from_value::<LargeFileStorage>)
-    .ok_or_else(|| Error::ExecutionErr("Ducklake storage not found".to_string()))??;
-
-    let s3_resource = transform_json_unchecked(
-        &serde_json::Value::String(lfs.get_s3_resource_path().to_string()),
-        w_id,
-        db,
-    )
-    .await?;
-    let object_store_resource = lfs_to_object_store_resource(&lfs, s3_resource)?;
-
     let catalog_resource =
         if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
             let pg_creds = parse_postgres_url(&get_database_url().await?)?;
@@ -202,7 +204,6 @@ pub async fn get_ducklake_from_db_unchecked(
         };
     let ducklake = DucklakeWithConnData {
         catalog_resource,
-        storage_settings: format_duckdb_connection_settings(object_store_resource)?,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
     };

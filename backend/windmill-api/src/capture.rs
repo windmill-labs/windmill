@@ -8,54 +8,54 @@
 
 #[cfg(feature = "http_trigger")]
 use {
-    crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs},
+    crate::triggers::http::{http_trigger_args::RawHttpTriggerArgs, HttpMethod},
     axum::response::{IntoResponse, Response},
     std::collections::HashMap,
 };
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 use {
-    crate::gcp_triggers_oss::{
+    crate::triggers::gcp::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
-        CreateUpdateConfig, SubscriptionMode,
+        CreateUpdateConfig, GcpSubscriptionMode,
     },
     axum::extract::Request,
     http::HeaderMap,
 };
 
 #[cfg(any(
-    all(feature = "enterprise", feature = "gcp_trigger"),
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private"),
     feature = "postgres_trigger"
 ))]
 use windmill_common::utils::empty_as_none;
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 use windmill_common::auth::aws::AwsAuthResourceType;
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 use serde::de::DeserializeOwned;
 
 #[cfg(any(
     feature = "http_trigger",
     feature = "postgres_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 use windmill_common::error::Error;
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_oss::NatsTriggerConfigConnection;
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
+use crate::triggers::nats::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
+use crate::triggers::postgres::{
     create_logical_replication_slot, create_pg_publication, generate_random_string,
     get_default_pg_connection, PublicationData,
 };
@@ -122,7 +122,7 @@ pub fn workspaced_unauthed_service() -> Router {
             head(|| async {}).fallback(http_payload)
         });
 
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
         let router = router.route("/gcp/:runnable_kind/*path", post(gcp_payload));
 
         router
@@ -146,7 +146,13 @@ struct HttpTriggerConfig {
     wrap_body: Option<bool>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+#[derive(Serialize, Deserialize)]
+struct EmailTriggerConfig {
+    local_part: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     #[serde(flatten)]
@@ -155,7 +161,7 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
@@ -164,11 +170,11 @@ pub struct SqsTriggerConfig {
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    pub subscription_mode: SubscriptionMode,
+    pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -179,7 +185,7 @@ pub struct GcpTriggerConfig {
     pub auto_acknowledge_msg: Option<bool>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct NatsTriggerConfig {
     #[serde(flatten)]
@@ -231,16 +237,18 @@ enum TriggerConfig {
     Postgres(PostgresTriggerConfig),
     #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     Sqs(SqsTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
     Kafka(KafkaTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    Email(EmailTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -365,7 +373,7 @@ async fn set_postgres_trigger_config(
     Ok(capture_config)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn set_gcp_trigger_config(
     w_id: &str,
     authed: ApiAuthed,
@@ -392,14 +400,14 @@ async fn set_gcp_trigger_config(
     )
     .await?;
     gcp_config.create_update = Some(config);
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
+    gcp_config.subscription_mode = GcpSubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
 }
 
 #[inline]
-#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger", feature = "private")))]
 async fn set_gcp_trigger_config(
     _w_id: &str,
     _authed: ApiAuthed,
@@ -721,7 +729,7 @@ pub async fn get_active_capture_owner_and_email(
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
@@ -900,7 +908,7 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn gcp_payload(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -908,7 +916,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::triggers::{gcp::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
@@ -931,9 +939,9 @@ async fn gcp_payload(
     )
     .await?;
 
-    let (payload, gcp) = process_google_push_request(headers, request).await?;
+    let (payload, trigger_info) = process_google_push_request(headers, request).await?;
 
-    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(payload, gcp);
+    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(&payload, trigger_info);
 
     let _ = insert_capture_payload(
         &db,

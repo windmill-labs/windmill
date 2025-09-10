@@ -35,9 +35,8 @@
 		AlertCircle,
 		Database,
 		Pyramid,
-
-		Trash2
-
+		Trash2,
+		MailIcon
 	} from 'lucide-svelte'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
@@ -272,6 +271,15 @@
 			kind: 'mqtt',
 			aiId: 'sidebar-menu-link-mqtt',
 			aiDescription: 'Button to navigate to MQTT triggers'
+		},
+		{
+			label: 'Email',
+			href: '/email_triggers',
+			icon: MailIcon,
+			disabled: $userStore?.operator,
+			kind: 'email',
+			aiId: 'sidebar-menu-link-email',
+			aiDescription: 'Button to navigate to Email triggers'
 		}
 	])
 	let triggerMenuLinks = $derived([

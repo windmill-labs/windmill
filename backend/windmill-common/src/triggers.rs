@@ -1,40 +1,18 @@
+use lazy_static::lazy_static;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use strum::EnumIter;
-
-#[derive(Eq, PartialEq, Hash)]
-pub enum HubOrWorkspaceId {
-    Hub,
-    WorkspaceId(String),
-}
-
-type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub struct RunnableFormat {
-    pub version: RunnableFormatVersion,
-    pub has_preprocessor: bool,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub enum RunnableFormatVersion {
-    V1,
-    V2,
-}
-
-lazy_static::lazy_static! {
-    pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> = Cache::new(1000);
-}
+use strum_macros::EnumIter;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, EnumIter)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TRIGGER_KIND", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum TriggerKind {
     Webhook,
     Http,
     Websocket,
     Kafka,
+    DefaultEmail,
     Email,
     Nats,
     Mqtt,
@@ -51,6 +29,7 @@ impl TriggerKind {
             TriggerKind::Websocket => "websocket".to_string(),
             TriggerKind::Kafka => "kafka".to_string(),
             TriggerKind::Email => "email".to_string(),
+            TriggerKind::DefaultEmail => "email".to_string(), // to the user we also show kind email for default email
             TriggerKind::Nats => "nats".to_string(),
             TriggerKind::Mqtt => "mqtt".to_string(),
             TriggerKind::Sqs => "sqs".to_string(),
@@ -68,6 +47,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Websocket => "websocket",
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
+            TriggerKind::DefaultEmail => "default_email",
             TriggerKind::Nats => "nats",
             TriggerKind::Mqtt => "mqtt",
             TriggerKind::Sqs => "sqs",
@@ -76,4 +56,29 @@ impl fmt::Display for TriggerKind {
         };
         write!(f, "{}", s)
     }
+}
+
+#[derive(Eq, PartialEq, Hash)]
+pub enum HubOrWorkspaceId {
+    Hub,
+    WorkspaceId(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub struct RunnableFormat {
+    pub version: RunnableFormatVersion,
+    pub has_preprocessor: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub enum RunnableFormatVersion {
+    V1,
+    V2,
+}
+
+pub type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
+
+lazy_static! {
+    pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> =
+        Cache::new(1000);
 }

@@ -39,7 +39,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::scripts::{NewScript, ScriptKind, ScriptLang};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::ExportableListableVariable;
-use windmill_common::variables::{build_crypt, decrypt, encrypt};
+use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
@@ -438,7 +438,9 @@ async fn is_premium(
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
-    let premium = windmill_common::workspaces::is_premium_workspace(&_db, &_w_id).await;
+    let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
+        .await
+        .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;
     Ok(Json(premium))
@@ -742,6 +744,7 @@ async fn edit_deploy_to() -> Result<String> {
 
 pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
 pub const WM_FORK_PREFIX: &str = "wm-fork-";
+pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
@@ -841,6 +844,20 @@ async fn edit_copilot_config(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Validate custom prompts length
+    if let Some(ref custom_prompts) = ai_config.custom_prompts {
+        for (mode, prompt) in custom_prompts.iter() {
+            if prompt.len() > MAX_CUSTOM_PROMPT_LENGTH {
+                return Err(Error::BadRequest(format!(
+                    "Custom prompt for mode '{}' exceeds maximum length of {} characters (current: {})",
+                    mode,
+                    MAX_CUSTOM_PROMPT_LENGTH,
+                    prompt.len()
+                )));
+            }
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -909,6 +926,7 @@ async fn get_copilot_info(
             providers: None,
             default_model: None,
             code_completion_model: None,
+            custom_prompts: None,
         }))
     }
 }
@@ -1950,6 +1968,8 @@ async fn set_encryption_key(
     .execute(&db)
     .await?;
 
+    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
     if !request.skip_reencrypt.unwrap_or(false) {
         let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
@@ -1972,7 +1992,13 @@ async fn set_encryption_key(
             if !variable.is_secret {
                 continue;
             }
-            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let decrypted_value =
+                decrypt(&previous_encryption_key, variable.value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?;
             let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
             sqlx::query!(
                 "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
@@ -2010,6 +2036,7 @@ struct UsedTriggers {
     pub mqtt_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
+    pub email_used: bool,
 }
 
 async fn get_used_triggers(
@@ -2029,7 +2056,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
-            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
+            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!"
         "#,
         w_id
     )

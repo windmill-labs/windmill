@@ -1,21 +1,18 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
 use std::env;
+use std::ffi::{c_char, CString};
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
-use duckdb::types::TimeUnit;
-use duckdb::{params_from_iter, Row};
-use rust_decimal::prelude::FromPrimitive;
-use rust_decimal::Decimal;
+use libloading::{Library, Symbol};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use tokio::task;
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{
-    DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
-};
+use windmill_common::s3_helpers::S3Object;
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::worker::Connection;
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -29,63 +26,6 @@ use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use windmill_common::client::AuthedClient;
 
-fn do_duckdb_inner(
-    conn: &duckdb::Connection,
-    query: &str,
-    job_args: &HashMap<String, duckdb::types::Value>,
-    skip_collect: bool,
-    column_order: &mut Option<Vec<String>>,
-) -> Result<Box<RawValue>> {
-    let mut rows_vec = vec![];
-
-    let (query, job_args) = interpolate_named_args(query, &job_args);
-
-    let mut stmt = conn
-        .prepare(&query)
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    let mut rows = stmt
-        .query(params_from_iter(job_args))
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    if skip_collect {
-        return Ok(to_raw_value(&json!([])));
-    }
-
-    // Statement needs to be stepped at least once or stmt.column_names() will panic
-    let mut column_names = None;
-    loop {
-        let row = rows.next();
-        match row {
-            Ok(Some(row)) => {
-                // Set column names if not already set
-                let stmt = row.as_ref();
-                let column_names = match column_names.as_ref() {
-                    Some(column_names) => column_names,
-                    None => {
-                        column_names = Some(stmt.column_names());
-                        column_names.as_ref().unwrap()
-                    }
-                };
-
-                let row = row_to_value(row, &column_names.as_slice())
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                rows_vec.push(row);
-            }
-            Ok(None) => break,
-            Err(e) => {
-                return Err(Error::ExecutionErr(e.to_string()));
-            }
-        }
-    }
-
-    if let (Some(column_order), Some(column_names)) = (column_order.as_mut(), column_names) {
-        *column_order = column_names.clone();
-    }
-
-    return Ok(to_raw_value(&rows_vec));
-}
-
 pub async fn do_duckdb(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -94,25 +34,25 @@ pub async fn do_duckdb(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
-    column_order_ref: &mut Option<Vec<String>>,
+    // TODO
+    #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
+    let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
 
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
         let mut bigquery_credentials = None;
-        let mut duckdb_connection_settings_cache =
-            HashMap::<Option<String>, DuckdbConnectionSettingsResponse>::new();
 
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
-        let query = transform_s3_uris(query, client, &mut duckdb_connection_settings_cache).await?;
+        let query = transform_s3_uris(query).await?;
 
         let job_args = {
-            let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
+            let mut m = Vec::new();
             for sig_arg in sig.into_iter() {
                 let json_value = job_args
                     .remove(&sig_arg.name)
@@ -123,27 +63,22 @@ pub async fn do_duckdb(
                     let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
                         Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
                     })?;
-                    let duckdb_conn_settings: DuckdbConnectionSettingsResponse =
-                        get_duckdb_connection_settings(
-                            &s3_obj.storage,
-                            &mut duckdb_connection_settings_cache,
-                            client,
-                        )
-                        .await?;
-
-                    let uri =
-                        duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, &s3_obj.s3)?;
-                    m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
+                    let uri = format!(
+                        "s3://{}/{}",
+                        s3_obj.storage.as_deref().unwrap_or("_default_"),
+                        s3_obj.s3
+                    );
+                    m.push(Arg {
+                        json_value: serde_json::Value::String(uri),
+                        name: sig_arg.name,
+                        arg_type: "string".to_string(),
+                    });
                 } else {
-                    let duckdb_value = json_value_to_duckdb_value(
-                        &json_value,
-                        sig_arg
-                            .otyp
-                            .clone()
-                            .unwrap_or_else(|| "text".to_string())
-                            .as_str(),
-                    )?;
-                    m.insert(sig_arg.name, duckdb_value);
+                    m.push(Arg {
+                        json_value,
+                        name: sig_arg.name,
+                        arg_type: sig_arg.otyp.unwrap_or_else(|| "text".to_string()),
+                    });
                 }
             }
             m
@@ -177,7 +112,6 @@ pub async fn do_duckdb(
                     None => match transform_attach_ducklake(
                         &query_block,
                         conn,
-                        &mut duckdb_connection_settings_cache,
                         &mut hidden_passwords,
                         &job.workspace_id,
                     )
@@ -191,39 +125,18 @@ pub async fn do_duckdb(
             v
         };
 
-        // duckdb::Connection is not Send so we run the queries in a single blocking task
-        let (result, column_order) = task::spawn_blocking(move || {
-            let conn = duckdb::Connection::open_in_memory()
-                .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
+        let base_internal_url = client.base_internal_url.clone();
+        let w_id = job.workspace_id.clone();
 
-            for DuckdbConnectionSettingsResponse { connection_settings_str, .. } in
-                duckdb_connection_settings_cache.values()
-            {
-                hidden_passwords
-                    .lock()
-                    .unwrap()
-                    .push(connection_settings_str.clone());
-                conn.execute_batch(&connection_settings_str)
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-            }
-
-            let mut result: Option<Box<RawValue>> = None;
-            let mut column_order = None;
-
-            for (query_block_index, query_block) in query_block_list.iter().enumerate() {
-                result = Some(
-                    do_duckdb_inner(
-                        &conn,
-                        query_block.as_str(),
-                        &job_args,
-                        query_block_index != query_block_list.len() - 1,
-                        &mut column_order,
-                    )
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?,
-                );
-            }
-            let result = result.unwrap_or_else(|| to_raw_value(&json!([])));
-            Ok::<_, Error>((result, column_order))
+        let (result, column_order) = tokio::task::spawn_blocking(move || {
+            run_duckdb_ffi_safe(
+                query_block_list.iter().map(String::as_str),
+                query_block_list.len(),
+                job_args,
+                &token,
+                &base_internal_url,
+                &w_id,
+            )
         })
         .await
         .map_err(to_anyhow)??;
@@ -263,184 +176,132 @@ pub async fn do_duckdb(
     }
 }
 
-fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>> {
-    let mut obj = serde_json::Map::new();
-    for (i, key) in column_names.iter().enumerate() {
-        let value: duckdb::types::Value =
-            row.get(i).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-        let json_value = match value {
-            duckdb::types::Value::Null => serde_json::Value::Null,
-            duckdb::types::Value::Boolean(b) => serde_json::Value::Bool(b),
-            duckdb::types::Value::TinyInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::SmallInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::Int(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::BigInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::HugeInt(i) => serde_json::Value::String(i.to_string()),
-            duckdb::types::Value::UTinyInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::USmallInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::UInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::UBigInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::Float(f) => serde_json::Value::Number(
-                serde_json::Number::from_f64(f as f64)
-                    .ok_or_else(|| Error::ExecutionErr("Could not convert to f64".to_string()))?,
-            ),
-            duckdb::types::Value::Double(f) => serde_json::Value::Number(
-                serde_json::Number::from_f64(f)
-                    .ok_or_else(|| Error::ExecutionErr("Could not convert to f64".to_string()))?,
-            ),
-            duckdb::types::Value::Decimal(d) => serde_json::Value::String(d.to_string()),
-            duckdb::types::Value::Timestamp(_, ts) => serde_json::Value::String(ts.to_string()),
-            duckdb::types::Value::Text(s) => serde_json::Value::String(s),
-            duckdb::types::Value::Blob(b) => serde_json::Value::Array(
-                b.into_iter()
-                    .map(|byte| serde_json::Value::Number(byte.into()))
-                    .collect(),
-            ),
-            duckdb::types::Value::Date32(d) => serde_json::Value::Number(d.into()),
-            duckdb::types::Value::Time64(_, t) => serde_json::Value::String(t.to_string()),
-            duckdb::types::Value::Interval { months, days, nanos } => serde_json::json!({
-                "months": months,
-                "days": days,
-                "nanos": nanos
-            }),
-            duckdb::types::Value::List(values) => serde_json::Value::Array(
-                values
-                    .into_iter()
-                    .map(|v| serde_json::Value::String(format!("{:?}", v)))
-                    .collect(),
-            ),
-            duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
-            duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
-                fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), serde_json::Value::String(format!("{:?}", v))))
-                    .collect(),
-            ),
-            duckdb::types::Value::Array(values) => serde_json::Value::Array(
-                values
-                    .into_iter()
-                    .map(|v| serde_json::Value::String(format!("{:?}", v)))
-                    .collect(),
-            ),
-            duckdb::types::Value::Map(map) => serde_json::Value::Object(
-                map.iter()
-                    .map(|(k, v)| {
-                        (
-                            format!("{:?}", k),
-                            serde_json::Value::String(format!("{:?}", v)),
-                        )
-                    })
-                    .collect(),
-            ),
-            duckdb::types::Value::Union(value) => {
-                serde_json::Value::String(format!("{:?}", *value))
+thread_local! {
+    static DUCKDB_FFI_LIB_SINGLETON: RefCell<*const DuckDbFfiLib> = RefCell::new(std::ptr::null());
+}
+
+struct DuckDbFfiLib {
+    run_duckdb_ffi: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            query_block_list: *const *const c_char,
+            query_block_list_count: usize,
+            job_args: *const c_char,
+            token: *const c_char,
+            base_internal_url: *const c_char,
+            w_id: *const c_char,
+            column_order_ptr: *mut *mut c_char,
+        ) -> *mut c_char,
+    >,
+}
+
+impl DuckDbFfiLib {
+    fn get_singleton() -> Result<&'static DuckDbFfiLib> {
+        DUCKDB_FFI_LIB_SINGLETON.with(|cell| unsafe {
+            let mut singleton = cell.borrow_mut();
+            if singleton.is_null() {
+                let lib = DuckDbFfiLib::init()?;
+                let boxed_lib = Box::new(lib);
+                let lib_ptr = Box::leak(boxed_lib);
+                *singleton = lib_ptr as *const _;
+                Ok(NonNull::new_unchecked(*singleton as *mut DuckDbFfiLib).as_ref())
+            } else {
+                Ok(&**singleton)
             }
-        };
-        obj.insert(key.clone(), json_value);
+        })
     }
-    serde_json::value::to_raw_value(&obj).map_err(|e| e.into())
+    fn init() -> Result<Self> {
+        let lib = unsafe {
+            Library::new(if cfg!(target_os = "macos") {
+                "libwindmill_duckdb_ffi_internal.dylib"
+            } else if cfg!(target_os = "windows") {
+                "windmill_duckdb_ffi_internal.dll"
+            } else {
+                "libwindmill_duckdb_ffi_internal.so"
+            })
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "Could not init duckdb. Make sure you have the latest windmill_duckdb_ffi_lib.{} alongside your binary : https://github.com/windmill-labs/windmill/releases \n{}",
+                    if cfg!(target_os = "macos") { "dylib" }
+                        else if cfg!(target_os = "windows") { "dll" }
+                        else { "so" },
+                    e.to_string()
+                ))
+            })?
+        };
+        let lib = Box::leak(Box::new(lib));
+        Ok(DuckDbFfiLib {
+            run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+        })
+    }
 }
 
-fn json_value_to_duckdb_value(
-    json_value: &serde_json::Value,
-    arg_type: &str,
-) -> Result<duckdb::types::Value> {
-    let arg_type = arg_type.to_lowercase();
-    let duckdb_value = match json_value {
-        serde_json::Value::Null => duckdb::types::Value::Null,
-        serde_json::Value::Bool(b) => duckdb::types::Value::Boolean(*b),
+// Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
+fn run_duckdb_ffi_safe<'a>(
+    query_block_list: impl Iterator<Item = &'a str>,
+    query_block_list_count: usize,
+    job_args: Vec<Arg>,
+    token: &str,
+    base_internal_url: &str,
+    w_id: &str,
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
+    let query_block_list = query_block_list
+        .map(|s| {
+            CString::new(s).map_err(|e| {
+                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let query_block_list = query_block_list
+        .iter()
+        .map(|s| s.as_ptr())
+        .collect::<Vec<_>>();
+    let job_args = serde_json::to_string(&job_args).map_err(to_anyhow)?;
 
-        serde_json::Value::String(s)
-            if matches!(
-                arg_type.as_str(),
-                "timestamp" | "timestamptz" | "timestamp with time zone" | "datetime"
-            ) =>
-        {
-            string_to_duckdb_timestamp(&s)?
-        }
-        serde_json::Value::String(s) if arg_type.as_str() == "date" => string_to_duckdb_date(&s)?,
-        serde_json::Value::String(s) if arg_type.as_str() == "time" => string_to_duckdb_time(&s)?,
-        serde_json::Value::String(s) => duckdb::types::Value::Text(s.clone()),
+    let job_args = CString::new(job_args).map_err(to_anyhow)?;
+    let token = CString::new(token).map_err(to_anyhow)?;
+    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
+    let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
-        serde_json::Value::Number(n) if n.is_i64() => {
-            let v = n.as_i64().unwrap();
-            match arg_type.as_str() {
-                "tinyint" | "int1" => duckdb::types::Value::TinyInt(v as i8),
-                "smallint" | "int2" | "short" => duckdb::types::Value::SmallInt(v as i16),
-                "integer" | "int4" | "int" | "signed" => duckdb::types::Value::Int(v as i32),
-                "bigint" | "int8" | "long" => duckdb::types::Value::BigInt(v),
-                "hugeint" => duckdb::types::Value::HugeInt(v as i128),
-                "float" | "float4" | "real" => duckdb::types::Value::Float(v as f32),
-                "double" | "float8" => duckdb::types::Value::Double(v as f64),
-                _ => duckdb::types::Value::BigInt(v), // default fallback
-            }
-        }
-
-        serde_json::Value::Number(n) if n.is_u64() => {
-            let v = n.as_u64().unwrap();
-            match arg_type.as_str() {
-                "utinyint" => duckdb::types::Value::UTinyInt(v as u8),
-                "usmallint" => duckdb::types::Value::USmallInt(v as u16),
-                "uinteger" => duckdb::types::Value::UInt(v as u32),
-                "ubigint" | "uhugeint" => duckdb::types::Value::UBigInt(v),
-                _ => duckdb::types::Value::UBigInt(v), // default fallback
-            }
-        }
-
-        serde_json::Value::Number(n) if n.is_f64() => {
-            let v = n.as_f64().unwrap();
-            match arg_type.as_str() {
-                "float" | "float4" | "real" => duckdb::types::Value::Float(v as f32),
-                "double" | "float8" => duckdb::types::Value::Double(v),
-                "decimal" | "numeric" => {
-                    duckdb::types::Value::Decimal(Decimal::from_f64(v).ok_or_else(|| {
-                        Error::ExecutionErr("Could not convert f64 to Decimal".to_string())
-                    })?)
-                }
-                _ => duckdb::types::Value::Double(v), // default fallback
-            }
-        }
-
-        serde_json::Value::Array(arr) => {
-            duckdb::types::Value::Text(serde_json::to_string(arr).map_err(to_anyhow)?)
-        }
-        serde_json::Value::Object(map) => {
-            duckdb::types::Value::Text(serde_json::to_string(map).map_err(to_anyhow)?)
-        }
-
-        value @ _ => {
-            return Err(Error::ExecutionErr(format!(
-                "Unsupported type in query: {:?} and signature {arg_type:?}",
-                value
-            )))
-        }
+    let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
+    let mut column_order: *mut c_char = std::ptr::null_mut();
+    let result_cstr = unsafe {
+        let ptr = run_duckdb_ffi(
+            query_block_list.as_ptr(),
+            query_block_list_count,
+            job_args.as_ptr(),
+            token.as_ptr(),
+            base_internal_url.as_ptr(),
+            w_id.as_ptr(),
+            &mut column_order,
+        );
+        CString::from_raw(ptr) // Using from_raw to take ownership and ensure it gets freed
     };
-    Ok(duckdb_value)
-}
 
-fn string_to_duckdb_timestamp(s: &str) -> Result<duckdb::types::Value> {
-    let ts = chrono::DateTime::parse_from_rfc3339(s)
-        .map_err(|e: chrono::ParseError| Error::ExecutionErr(e.to_string()))?;
-    Ok(duckdb::types::Value::Timestamp(
-        TimeUnit::Millisecond,
-        ts.timestamp_millis(),
-    ))
-}
+    let column_order = if column_order.is_null() {
+        None
+    } else {
+        Some(unsafe {
+            serde_json::from_str::<Vec<String>>(&CString::from_raw(column_order).to_string_lossy())?
+        })
+    };
 
-fn string_to_duckdb_date(s: &str) -> Result<duckdb::types::Value> {
-    use chrono::Datelike;
-    let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map_err(|e| Error::ExecutionErr(format!("Invalid date format: {}", e)))?;
-    Ok(duckdb::types::Value::Date32(date.num_days_from_ce()))
-}
+    let result_str = result_cstr
+        .to_str()
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Failed to convert result C string to Rust string: {}",
+                e.to_string()
+            ))
+        })?
+        .to_string();
 
-fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value> {
-    use chrono::Timelike;
-    let time = chrono::NaiveTime::parse_from_str(s, "%H:%M:%S").unwrap();
-    Ok(duckdb::types::Value::Time64(
-        TimeUnit::Microsecond,
-        time.num_seconds_from_midnight() as i64,
-    ))
+    if result_str.starts_with("ERROR") {
+        Err(Error::ExecutionErr(result_str[6..].to_string()))
+    } else {
+        let result = serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?;
+        Ok((result, column_order))
+    }
 }
 
 struct ParsedAttachDbResource<'a> {
@@ -581,7 +442,6 @@ async fn transform_attach_db_resource_query(
 async fn transform_attach_ducklake(
     query: &str,
     conn: &Connection,
-    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
 ) -> Result<Option<Vec<String>>> {
@@ -616,17 +476,11 @@ async fn transform_attach_ducklake(
     }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
-
-    let storage_settings = ducklake.storage_settings;
-    let storage = ducklake.storage.storage;
-    if !duckdb_connection_settings_cache.contains_key(&storage) {
-        duckdb_connection_settings_cache.insert(storage.clone(), storage_settings.clone());
-    };
-    let s3_network_uri =
-        duckdb_conn_settings_to_s3_network_uri(&storage_settings, &ducklake.storage.path)?;
+    let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
+    let data_path = ducklake.storage.path;
 
     let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH '{s3_network_uri}'{extra_args});",
+        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
@@ -637,12 +491,7 @@ async fn transform_attach_ducklake(
     ]))
 }
 
-// Replaces all s3 URIs in the windmill syntax with the actual S3 network URIs
-async fn transform_s3_uris(
-    query: &str,
-    client: &AuthedClient,
-    duckdb_connection_settings_cache: &mut DuckDbConnectionSettingsCache,
-) -> Result<String> {
+async fn transform_s3_uris(query: &str) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']*)'").unwrap();
@@ -650,44 +499,22 @@ async fn transform_s3_uris(
     for cap in RE.captures_iter(query) {
         if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
             let s3_path = s3_path.as_str();
-            let storage = match storage.map(|m| m.as_str()) {
-                Some("") | None => None,
-                Some(s) => Some(s.to_string()),
-            };
-            let original_str_lit =
-                format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
-            let duckdb_conn_settings =
-                get_duckdb_connection_settings(&storage, duckdb_connection_settings_cache, client)
-                    .await?;
-            let url = duckdb_conn_settings_to_s3_network_uri(&duckdb_conn_settings, s3_path)?;
-            let url = format!("'{url}'");
+            let mut storage = storage.map(|m| m.as_str()).unwrap_or("");
+            if !storage.is_empty() {
+                continue;
+            }
+            let original_str_lit: String = format!("'s3://{}/{}'", storage, s3_path);
+            storage = "_default_";
+
+            let new_s3_lit = format!("'s3://{}/{}'", storage, s3_path);
             transformed_query = Some(
                 transformed_query
-                    .unwrap_or(query.to_string())
-                    .replace(&original_str_lit, &url),
+                    .unwrap_or_else(|| query.to_string())
+                    .replace(&original_str_lit, &new_s3_lit),
             );
         }
     }
     Ok(transformed_query.unwrap_or(query.to_string()))
-}
-
-pub fn duckdb_conn_settings_to_s3_network_uri(
-    s: &DuckdbConnectionSettingsResponse,
-    s3_path: &str,
-) -> Result<String> {
-    match &s {
-        DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
-            Ok(format!("s3://{bucket}/{s3_path}"))
-        }
-        DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
-            Ok(format!("{base}/{s3_path}"))
-        }
-        _ => {
-            Err(Error::ExecutionErr(
-                "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
-            ))
-        }
-    }
 }
 
 // BigQuery extension requires a json file as credentials
@@ -715,26 +542,12 @@ impl Drop for UseBigQueryCredentialsFile {
     }
 }
 
-// duckdb-rs does not support named parameters,
-// and it raises an error when passing unused arguments. We cannot prepare batch statements
-// but only single SQL statements so it doesn't work when all arguments are not used by
-// every single statement.
-fn interpolate_named_args<'a>(
-    query: &str,
-    args: &'a HashMap<String, duckdb::types::Value>,
-) -> (String, Vec<&'a duckdb::types::Value>) {
-    let mut query = query.to_string();
-
-    let mut values = vec![];
-    for (arg_name, arg_value) in args {
-        let pat = format!("${}", arg_name);
-        if !query.contains(&pat) {
-            continue;
-        }
-        values.push(arg_value);
-        query = query.replace(&pat, &format!("${}", values.len()));
-    }
-    (query, values)
+// Shared with ffi module
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+pub struct Arg {
+    pub name: String,
+    pub arg_type: String,
+    pub json_value: serde_json::Value,
 }
 
 // input should contain a single statement. remove all comments before and after it
@@ -764,25 +577,6 @@ fn remove_comments(stmt: &str) -> &str {
     }
 
     return &stmt[start.unwrap_or(0)..end];
-}
-
-async fn get_duckdb_connection_settings(
-    storage: &Option<String>,
-    cache: &mut DuckDbConnectionSettingsCache,
-    client: &AuthedClient,
-) -> Result<DuckdbConnectionSettingsResponse> {
-    if let Some(settings) = cache.get(storage) {
-        return Ok(settings.clone());
-    } else {
-        let settings = client
-            .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
-                s3_resource_path: None,
-                storage: storage.clone(),
-            })
-            .await?;
-        cache.insert(storage.clone(), settings.clone());
-        return Ok(settings);
-    }
 }
 
 #[cfg(test)]
@@ -819,5 +613,3 @@ mod tests {
         assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
     }
 }
-
-type DuckDbConnectionSettingsCache = HashMap<Option<String>, DuckdbConnectionSettingsResponse>;

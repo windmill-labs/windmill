@@ -58,7 +58,8 @@
 						left: 'Sync mode',
 						leftTooltip: 'Changes will be committed directly to the branch',
 						right: 'Promotion mode',
-						rightTooltip: "Changes will be made to a new branch per deployed object (prefixed with 'wm_deploy/')"
+						rightTooltip:
+							"Changes will be made to a new branch per deployed object (prefixed with 'wm_deploy/')"
 					}}
 				/>
 
@@ -68,7 +69,8 @@
 						bind:checked={repo.group_by_folder}
 						options={{
 							right: 'Group all changes from same folder in the same branch',
-							rightTooltip: 'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+							rightTooltip:
+								'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
 						}}
 					/>
 				{/if}
@@ -78,12 +80,12 @@
 			<div class="flex justify-start">
 				<Button
 					color="primary"
-					variant="border"
-					size="sm"
+					variant="contained"
+					size="lg"
 					onclick={handleDetect}
 					startIcon={{ icon: FileSearch }}
 				>
-					Check repo settings
+					Check repo settings to continue and save
 				</Button>
 			</div>
 		{:else if repo.detectionState === 'loading'}
@@ -114,7 +116,9 @@
 			<!-- Display mode settings as prominent text -->
 			<div class="text-base">
 				{#if repo.use_individual_branch}
-					<div><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div>
+					<div
+						><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div
+					>
 					{#if repo.group_by_folder}
 						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
 					{/if}
@@ -125,11 +129,7 @@
 
 			<!-- Initialize button -->
 			<div class="flex justify-start">
-				<Button
-					size="md"
-					onclick={handleInitialize}
-					startIcon={{ icon: Save }}
-				>
+				<Button size="md" onclick={handleInitialize} startIcon={{ icon: Save }}>
 					Initialize Git repository
 				</Button>
 			</div>
@@ -155,7 +155,9 @@
 			<!-- Display mode settings as prominent text -->
 			<div class="text-base">
 				{#if repo.use_individual_branch}
-					<div><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div>
+					<div
+						><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div
+					>
 					{#if repo.group_by_folder}
 						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
 					{/if}
@@ -166,11 +168,7 @@
 
 			<!-- Save connection button -->
 			<div class="flex justify-start">
-				<Button
-					size="md"
-					onclick={handleSaveConnection}
-					startIcon={{ icon: Save }}
-				>
+				<Button size="md" onclick={handleSaveConnection} startIcon={{ icon: Save }}>
 					Save connection
 				</Button>
 			</div>

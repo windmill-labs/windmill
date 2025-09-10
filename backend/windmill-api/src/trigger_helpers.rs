@@ -6,7 +6,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithAuthed},
     error::Result,
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
@@ -60,6 +60,7 @@ pub enum RunnableId {
 }
 
 impl RunnableId {
+    #[allow(dead_code)]
     pub fn from_script_hash(hash: ScriptHash) -> Self {
         Self::ScriptId(ScriptId::ScriptHash(hash))
     }
@@ -78,6 +79,7 @@ impl RunnableId {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[allow(unused)]
 pub enum ScriptId {
     ScriptPath(String),
     ScriptHash(ScriptHash),
@@ -87,7 +89,8 @@ impl ScriptId {
     async fn get_script_hash(self, workspace_id: &str, db: &DB) -> Result<i64> {
         let hash = match self {
             ScriptId::ScriptPath(path) => {
-                let info = get_latest_deployed_hash_for_path(db, workspace_id, &path).await?;
+                let info = get_latest_deployed_hash_for_path(None, db.clone(), workspace_id, &path)
+                    .await?;
                 info.hash
             }
             ScriptId::ScriptHash(hash) => hash.0,
@@ -250,7 +253,7 @@ pub async fn get_runnable_format(
         }
         RunnableId::FlowPath(path) => {
             let FlowVersionInfo { version, .. } =
-                get_latest_flow_version_info_for_path(db, workspace_id, &path, true).await?;
+                get_latest_flow_version_info_for_path(None, &db, workspace_id, &path, true).await?;
 
             let key = (
                 HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()),
@@ -271,7 +274,7 @@ pub async fn get_runnable_format(
                     value->'preprocessor_module'->'value' as \"preprocessor_module: _\",
                     schema as \"schema: _\"
                 FROM flow_version
-                WHERE 
+                WHERE
                     path = $1
                     AND workspace_id = $2
                 ORDER BY created_at DESC
@@ -291,8 +294,13 @@ pub async fn get_runnable_format(
                         let hash = if let Some(hash) = hash {
                             hash.0
                         } else {
-                            let script_hash =
-                                get_latest_deployed_hash_for_path(db, workspace_id, &path).await?;
+                            let script_hash = get_latest_deployed_hash_for_path(
+                                None,
+                                db.clone(),
+                                workspace_id,
+                                &path,
+                            )
+                            .await?;
                             script_hash.hash
                         };
                         let script_info = get_script_info(db, workspace_id, hash).await?;
@@ -472,12 +480,12 @@ async fn trigger_runnable_inner(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
-) -> Result<(Uuid, Option<bool>)> {
+) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let (uuid, delete_after_use) = if is_flow {
+    let (uuid, delete_after_use, early_return) = if is_flow {
         let run_query = RunJobQuery::default();
         let path = StripPath(runnable_path.to_string());
-        let uuid = run_flow_by_path_inner(
+        let (uuid, early_return) = run_flow_by_path_inner(
             authed,
             db.clone(),
             user_db,
@@ -487,9 +495,9 @@ async fn trigger_runnable_inner(
             args,
         )
         .await?;
-        (uuid, None)
+        (uuid, None, early_return)
     } else {
-        trigger_script_internal(
+        let (uuid, delete_after_use) = trigger_script_internal(
             db,
             user_db,
             authed,
@@ -501,10 +509,11 @@ async fn trigger_runnable_inner(
             error_handler_args,
             trigger_path,
         )
-        .await?
+        .await?;
+        (uuid, delete_after_use, None)
     };
 
-    Ok((uuid, delete_after_use))
+    Ok((uuid, delete_after_use, early_return))
 }
 
 #[allow(dead_code)]
@@ -521,7 +530,7 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
 ) -> Result<axum::response::Response> {
-    let (uuid, _) = trigger_runnable_inner(
+    let (uuid, _, _) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -553,7 +562,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     trigger_path: String,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
-    let (uuid, delete_after_use) = trigger_runnable_inner(
+    let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -568,7 +577,8 @@ pub async fn trigger_runnable_and_wait_for_result(
     )
     .await?;
     let (result, success) =
-        run_wait_result_internal(db, uuid, workspace_id.to_string(), None, &username).await?;
+        run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
+            .await?;
 
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
@@ -592,7 +602,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     trigger_path: String,
 ) -> Result<Box<RawValue>> {
     let username = authed.username.clone();
-    let (uuid, delete_after_use) = trigger_runnable_inner(
+    let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -606,23 +616,6 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         trigger_path,
     )
     .await?;
-
-    let early_return = if is_flow {
-        sqlx::query_scalar!(
-            r#"SELECT flow_version.value->>'early_return' as early_return
-            FROM flow 
-            LEFT JOIN flow_version
-                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 and flow.workspace_id = $2"#,
-            runnable_path,
-            workspace_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten()
-    } else {
-        None
-    };
 
     let (result, success) =
         run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
@@ -714,8 +707,15 @@ async fn trigger_script_with_retry_and_error_handler(
     let error_handler_args = error_handler_args.map(|args| args.0.clone());
 
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = {
-        let mut tx = user_db.clone().begin(&authed).await?;
-        script_path_to_payload(script_path, &mut *tx, &workspace_id, Some(false)).await?
+        let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+        script_path_to_payload(
+            script_path,
+            Some(db_authed),
+            db.clone(),
+            &workspace_id,
+            Some(false),
+        )
+        .await?
     };
 
     check_tag_available_for_workspace(&db, &workspace_id, &tag, &authed).await?;
@@ -784,6 +784,7 @@ async fn trigger_script_with_retry_and_error_handler(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,

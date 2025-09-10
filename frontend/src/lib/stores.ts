@@ -101,11 +101,13 @@ export const copilotInfo = writable<{
 	codeCompletionModel?: AIProviderModel
 	defaultModel?: AIProviderModel
 	aiModels: AIProviderModel[]
+	customPrompts?: Record<string, string>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
-	aiModels: []
+	aiModels: [],
+	customPrompts: {}
 })
 
 export async function loadCopilot(workspace: string) {
@@ -140,7 +142,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: true,
 			codeCompletionModel: aiConfig.code_completion_model,
 			defaultModel: aiConfig.default_model,
-			aiModels: aiModels
+			aiModels: aiModels,
+			customPrompts: aiConfig.custom_prompts ?? {}
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -149,7 +152,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: false,
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
-			aiModels: []
+			aiModels: [],
+			customPrompts: {}
 		})
 	}
 }

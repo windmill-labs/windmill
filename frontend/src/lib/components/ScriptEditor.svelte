@@ -49,6 +49,7 @@
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
+	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 
 	interface Props {
 		// Exported
@@ -81,6 +82,7 @@
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -111,7 +113,8 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right
+		editor_bar_right,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -430,9 +433,9 @@
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
-			aiChatManager.scriptEditorApplyCode = (code: string, applyAll: boolean = false) => {
+			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
-				editor?.reviewAndApplyCode(code, applyAll)
+				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 		})
@@ -625,6 +628,7 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						{enablePreprocessorSnippet}
 					/>
 					<DiffEditor
 						className="h-full"

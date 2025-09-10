@@ -17,7 +17,7 @@ use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
@@ -37,6 +37,12 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
+
+lazy_static::lazy_static! {
+    // TODO: To be removed in future versions
+    static ref WMDEBUG_NO_HASH_CHANGE_ON_DJ: bool = std::env::var("WMDEBUG_NO_HASH_CHANGE_ON_DJ").is_ok();
+    static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
+}
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
@@ -251,6 +257,7 @@ pub async fn handle_dependency_job(
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+
     let npm_mode = if job
         .script_lang
         .as_ref()
@@ -338,22 +345,132 @@ pub async fn handle_dependency_job(
                 ));
             }
 
-            let hash = job.runnable_id.unwrap_or(ScriptHash(0));
+            let current_hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
-            sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                &content,
-                &hash.0,
-                w_id
-            )
-            .execute(db)
-            .await?;
-
-            // `lock` has been updated; invalidate the cache.
-            cache::script::invalidate(hash);
-
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
+            let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
+                "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
+            )
+            .bind(&current_hash.0)
+            .bind(w_id)
+            .fetch_one(db)
+            .await?;
+
+            // DependencyJob can be triggered only from 2 places:
+            // 1. create_script function in windmill-api/src/scripts.rs
+            // 2. trigger_dependents_to_recompute_dependencies (in this file)
+            //
+            // First will **always** produce script with null in `lock`
+            // where Second will **always** do with lock being not null
+            let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+                let mut tx = db.begin().await?;
+                // This entire section exists to solve following problem:
+                //
+                // 2 workers, one script that depend on another in python
+                // run the original script on both workers
+                // you update the dependenecy of a relative import,
+                // run it again until you ran it on both, normally it should fail on one of those
+                //
+                // It happens because every worker has cached their own script versions.
+                // However usual dependency job does not update hash of the script (and cache is keyed by the hash).
+                // This logical branch will create new script which will update the hash and automatically invalidate cache.
+                //
+                // IMPORTANT: This will **only** be triggered by another DependencyJob. It will never be triggered by script (re)deployement
+
+                let ns = NewScript {
+                    path: script_info.path,
+                    parent_hash: Some(current_hash),
+                    summary: script_info.summary,
+                    description: script_info.description,
+                    content: script_info.content,
+                    schema: script_info.schema,
+                    is_template: Some(script_info.is_template),
+                    // TODO: Make it either None everywhere (particularely when raw reqs are calculated)
+                    // Or handle this case and conditionally make Some (only with raw reqs)
+                    lock: None,
+                    language: script_info.language,
+                    kind: Some(script_info.kind),
+                    tag: script_info.tag,
+                    draft_only: script_info.draft_only,
+                    envs: script_info.envs,
+                    concurrent_limit: script_info.concurrent_limit,
+                    concurrency_time_window_s: script_info.concurrency_time_window_s,
+                    cache_ttl: script_info.cache_ttl,
+                    dedicated_worker: script_info.dedicated_worker,
+                    ws_error_handler_muted: script_info.ws_error_handler_muted,
+                    priority: script_info.priority,
+                    timeout: script_info.timeout,
+                    delete_after_use: script_info.delete_after_use,
+                    restart_unless_cancelled: script_info.restart_unless_cancelled,
+                    deployment_message: deployment_message.clone(),
+                    concurrency_key: script_info.concurrency_key,
+                    visible_to_runner_only: script_info.visible_to_runner_only,
+                    no_main_func: script_info.no_main_func,
+                    codebase: script_info.codebase,
+                    has_preprocessor: script_info.has_preprocessor,
+                    on_behalf_of_email: script_info.on_behalf_of_email,
+                    assets: script_info.assets,
+                };
+
+                let new_hash = hash_script(&ns);
+
+                sqlx::query!("
+    INSERT INTO script
+    (workspace_id, hash, path, parent_hashes, summary, description, content, \
+    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+    delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+
+    SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+            content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+
+    FROM script WHERE hash = $2 AND workspace_id = $3;
+            ",
+                new_hash, current_hash.0, w_id, &content).execute(db).await?;
+
+                // Archive current
+                sqlx::query!(
+                    "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
+                    current_hash.0,
+                    w_id
+                )
+                .execute(&mut *tx)
+                .await?;
+
+                tx.commit().await?;
+
+                ScriptHash(new_hash)
+            } else {
+                // We do not create new row for this update
+                // That means we can keep current hash and just update lock
+                sqlx::query!(
+                    "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &content,
+                    &current_hash.0,
+                    w_id
+                )
+                .execute(db)
+                .await?;
+
+                // `lock` has been updated; invalidate the cache.
+                // Since only worker that ran this Dependency Job has the cache
+                // we do not need to think about invalidating cache for other workers.
+                cache::script::invalidate(current_hash);
+
+                if *WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+                    tracing::warn!("WMDEBUG_NO_HASH_CHANGE_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
+                }
+
+                current_hash
+            };
 
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
@@ -361,7 +478,7 @@ pub async fn handle_dependency_job(
                 &db,
                 &w_id,
                 DeployedObject::Script {
-                    hash,
+                    hash: deployed_hash,
                     path: script_path.to_string(),
                     parent_path: parent_path.clone(),
                 },
@@ -502,7 +619,7 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
-async fn trigger_dependents_to_recompute_dependencies(
+pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
     deployment_message: Option<String>,
@@ -529,12 +646,17 @@ async fn trigger_dependents_to_recompute_dependencies(
         if already_visited.contains(&s.importer_path) {
             continue;
         }
+
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = parent_path {
+            // NOTE:
+            // it's not used but maybe one day it will be useful. allows more back-compatibility for the workers when we need it
+            // also very useful for debugging/observability
+            // it adds that information to the job args so you can see from the runs page
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
@@ -542,10 +664,15 @@ async fn trigger_dependents_to_recompute_dependencies(
             "already_visited".to_string(),
             to_raw_value(&already_visited),
         );
+
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
-            let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
+            let r =
+                get_latest_deployed_hash_for_path(None, db.clone(), w_id, s.importer_path.as_str())
+                    .await;
             match r {
+                // We will create Dependency job as is. But the Dep Job Handler will detect that the job originates
+                // from [[trigger_dependents_to_recompute_dependencies]] and will create new script with new hash instead
                 Ok(r) => JobPayload::Dependencies {
                     path: s.importer_path.clone(),
                     hash: ScriptHash(r.hash),
@@ -562,28 +689,86 @@ async fn trigger_dependents_to_recompute_dependencies(
                 }
             }
         } else if kind == "flow" {
+            // Unlike 'script', 'flow' will not delegate redeployment of new flow to the Dep Job Handler.
+            // We will create new flow in-place.
+            // It would be harder to do otherwise.
+
+            // Create transaction to make operation atomic.
+            let mut flow_tx = db.begin().await?;
             args.insert(
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
             );
+
             let r = sqlx::query_scalar!(
                 "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
                 w_id,
-            ).fetch_one(db)
+            ).fetch_one(&mut *flow_tx)
             .await
             .map_err(to_anyhow);
+
             match r {
-                Ok(Some(version)) => JobPayload::FlowDependencies {
-                    path: s.importer_path.clone(),
-                    dedicated_worker: None,
-                    version: version,
-                },
+                // TODO: Fallback - remove eventually.
+                Ok(Some(version)) if *WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ => {
+                    tracing::warn!("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.");
+                    JobPayload::FlowDependencies {
+                        path: s.importer_path.clone(),
+                        dedicated_worker: None,
+                        version,
+                    }
+                }
+                // Get current version of current flow.
+                Ok(Some(cur_version)) => {
+                    // NOTE: Temporary solution. See the usage for more details.
+                    args.insert(
+                        "triggered_by_relative_import".to_string(),
+                        to_raw_value(&()),
+                    );
+                    // Find out what would be the next version.
+                    // Also clone current flow_version to get new_version (which is usually c_v + 1).
+                    // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
+                    // This version will just remain in db and cause no trouble.
+                    let new_version = sqlx::query_scalar!(
+                        "INSERT INTO flow_version
+                (workspace_id, path, value, schema, created_by)
+
+                SELECT workspace_id, path, value, schema, created_by
+                FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                RETURNING id",
+                        &s.importer_path,
+                        w_id,
+                        cur_version
+                    )
+                    .fetch_one(&mut *flow_tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Error updating flow due to flow history insert: {e:#}"
+                        ))
+                    })?;
+
+                    // Commit the transaction.
+                    // NOTE:
+                    // We do not append flow.versions with new version.
+                    // We will do this in the end of the dependency job handler.
+                    // Otherwise it might become a source of race-conditions.
+                    flow_tx.commit().await?;
+                    JobPayload::FlowDependencies {
+                        path: s.importer_path.clone(),
+                        dedicated_worker: None,
+                        // Point Dep Job to the new version.
+                        // We do this since we want to assume old ones are immutable.
+                        version: new_version,
+                    }
+                }
                 Ok(None) => {
                     tracing::error!(
                         "no flow version found for path {path}",
                         path = s.importer_path
                     );
+                    // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
                 Err(err) => {
@@ -591,6 +776,7 @@ async fn trigger_dependents_to_recompute_dependencies(
                         "error getting latest deployed flow version for path {path}: {err}",
                         path = s.importer_path,
                     );
+                    // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
             }
@@ -613,6 +799,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             email,
             permissioned_as.to_string(),
             Some("trigger.dependents.to.recompute.dependencies"),
+            None,
             None,
             None,
             None,
@@ -707,6 +894,12 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
+    let triggered_by_relative_import = job
+        .args
+        .as_ref()
+        .map(|x| x.get("triggered_by_relative_import").is_some())
+        .unwrap_or_default();
+
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
@@ -721,9 +914,9 @@ pub async fn handle_flow_dependency_job(
     .clone();
 
     let mut tx = db.begin().await?;
-
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+
     if !skip_flow_update {
         sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
@@ -733,6 +926,7 @@ pub async fn handle_flow_dependency_job(
         .execute(&mut *tx)
         .await?;
     }
+
     clear_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
 
     let modified_ids;
@@ -756,6 +950,7 @@ pub async fn handle_flow_dependency_job(
         raw_deps,
     )
     .await?;
+
     if !errors.is_empty() {
         let error_message = errors
             .iter()
@@ -771,6 +966,7 @@ pub async fn handle_flow_dependency_job(
         .await?
         .flatten()
         .unwrap_or_else(|| "no logs".to_string());
+
         sqlx::query!(
             "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
             &format!("{logs2}\n{error_message}"),
@@ -779,6 +975,7 @@ pub async fn handle_flow_dependency_job(
         )
         .execute(db)
         .await?;
+
         return Err(Error::ExecutionErr(format!(
             "Error locking flow modules:\n{}\n\nlogs:\n{}",
             error_message,
@@ -793,6 +990,7 @@ pub async fn handle_flow_dependency_job(
         .execute(db)
         .await?;
     }
+
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
@@ -844,6 +1042,7 @@ pub async fn handle_flow_dependency_job(
             flow.same_worker,
         )
         .await?;
+
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
@@ -852,6 +1051,19 @@ pub async fn handle_flow_dependency_job(
         )
         .execute(&mut *tx)
         .await?;
+
+        // NOTE: Temporary solution.
+        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
+        if triggered_by_relative_import {
+            // Making new version viewable as the current one.
+            // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
+            // which will invalidate cache for the latest flow versions for all workers.
+            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+                version,
+                &job_path,
+                &job.workspace_id,
+            ).execute(&mut *tx).await?;
+        }
 
         tx.commit().await?;
 
@@ -1284,12 +1496,33 @@ async fn insert_flow_node<'c>(
     code: Option<&String>,
     lock: Option<&String>,
     flow: Option<&Json<Box<RawValue>>>,
+    language: Option<ScriptLang>,
 ) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
     let hash = {
         let mut hasher = sha2::Sha256::new();
         hasher.update(code.unwrap_or(&Default::default()));
         hasher.update(lock.unwrap_or(&Default::default()));
         hasher.update(flow.unwrap_or(&Default::default()).get());
+
+        if !*WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ {
+            if let Some(imports) = extract_relative_imports(
+                code.map(|s| s.as_str()).unwrap_or_default(),
+                path,
+                &language,
+            ) {
+                // We also want to take into account hashes of relative imports.
+                // TODO: May be use bytemuck or cast it in different, more proper way.
+                hasher.update(&format!(
+                    "{:?}",
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT hash FROM script WHERE path = ANY($1) AND archived = false"
+                    )
+                    .bind(imports)
+                    .fetch_all(&mut *tx)
+                    .await?
+                ));
+            }
+        }
         format!("{:x}", hasher.finalize())
     };
 
@@ -1382,6 +1615,7 @@ async fn insert_flow_modules<'c>(
             same_worker,
             ..Default::default()
         }))),
+        None,
     )
     .await?;
     *modules_node = Some(id);
@@ -1426,9 +1660,16 @@ async fn reduce_flow<'c>(
                     unreachable!()
                 };
                 let id;
-                (tx, id) =
-                    insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None)
-                        .await?;
+                (tx, id) = insert_flow_node(
+                    tx,
+                    path,
+                    workspace_id,
+                    Some(&content),
+                    lock.as_ref(),
+                    None,
+                    Some(language),
+                )
+                .await?;
                 val = FlowScript {
                     input_transforms,
                     id,

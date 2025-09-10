@@ -5,6 +5,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -82,6 +83,12 @@
 			displayName: 'GCP Pub/Sub',
 			action: () => onAddDraftTrigger?.('gcp'),
 			icon: triggerIconMap.gcp,
+			extra: cloudHosted ? extra : undefined
+		},
+		{
+			displayName: 'Email',
+			action: () => onAddDraftTrigger?.('email'),
+			icon: triggerIconMap.email,
 			extra: cloudHosted ? extra : undefined
 		},
 		{

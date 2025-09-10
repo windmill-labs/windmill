@@ -131,6 +131,12 @@ impl FromStr for ScriptLang {
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 
+impl Into<u64> for ScriptHash {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
+
 #[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
@@ -648,4 +654,10 @@ pub struct HubScript {
     pub language: ScriptLang,
     pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
+}
+
+pub fn hash_script(ns: &NewScript) -> i64 {
+    let mut dh = std::hash::DefaultHasher::new();
+    ns.hash(&mut dh);
+    dh.finish() as i64
 }

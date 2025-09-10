@@ -152,6 +152,7 @@
             sqlx-cli
             sccache
             nsjail
+            jq
 
             # Python
             flock
@@ -238,7 +239,7 @@
               set -e
               cd ./backend
               ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
-              ${pkgs.minio-client}/bin/mc admin accesskey create myminio | tee .minio-data/secrets.txt
+              ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
               echo ""
               echo 'Saving to: ./backend/.minio-data/secrets.txt'
               echo "bucket: wmill"

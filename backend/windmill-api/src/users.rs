@@ -1371,6 +1371,7 @@ async fn update_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let mut revoke_tokens = false;
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
@@ -1379,6 +1380,7 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
     }
 
     if let Some(dv) = eu.is_devops {
@@ -1389,6 +1391,13 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
+    }
+
+    if revoke_tokens {
+        sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
+            .execute(&mut *tx)
+            .await?;
     }
 
     if let Some(n) = eu.name {

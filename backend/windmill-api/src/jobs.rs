@@ -28,6 +28,7 @@ use tower::ServiceBuilder;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
+use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
@@ -48,7 +49,7 @@ use crate::{
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
-    trigger_helpers::RunnableId,
+    triggers::trigger_helpers::RunnableId,
     users::{get_scope_tags, require_owner_of_path, OptAuthed},
     utils::{check_scopes, content_plain, require_super_admin},
 };
@@ -177,14 +178,20 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
-        .route("/run_wait_result/preview", post(run_wait_result_preview_script))
+        .route(
+            "/run_wait_result/preview",
+            post(run_wait_result_preview_script),
+        )
         .route(
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
-        .route("/run_wait_result/preview_flow", post(run_wait_result_preview_flow))
+        .route(
+            "/run_wait_result/preview_flow",
+            post(run_wait_result_preview_flow),
+        )
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -274,7 +281,10 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
-        .route("/get_completed_logs_tail/:id", get(get_completed_job_logs_tail))
+        .route(
+            "/get_completed_logs_tail/:id",
+            get(get_completed_job_logs_tail),
+        )
         .route("/get_args/:id", get(get_args))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
@@ -332,21 +342,16 @@ async fn get_root_job(
     Ok(Json(res))
 }
 
-async fn compute_root_job_for_flow(db: &DB, w_id: &str, mut job_id: Uuid) -> error::Result<String> {
-    // TODO: use `root_job` ?
-    loop {
-        job_id = match sqlx::query_scalar!(
-            "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            w_id
-        )
-        .fetch_one(db)
-        .await
-        {
-            Ok(Some(job_id)) => job_id,
-            _ => return Ok(job_id.to_string()),
-        }
-    }
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let root_job = sqlx::query_scalar!(
+        r#"SELECT COALESCE(root_job, flow_innermost_root_job, parent_job, id) as "root_job!" FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    Ok(root_job.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
@@ -1110,7 +1115,7 @@ async fn send_workspace_trigger_failure_email_notification(
     <div class="section">
       <span class="label">Trigger path:</span> {}
     </div>
-    
+
     <div class="section">
       <span class="label">Trigger Type:</span> {}
     </div>"#,
@@ -1152,7 +1157,7 @@ async fn send_workspace_trigger_failure_email_notification(
   </head>
   <body>
     <h1>{}</h1>
-    
+
     <div class="section">
       <span class="label">Workspace:</span> {}
     </div>
@@ -1160,27 +1165,21 @@ async fn send_workspace_trigger_failure_email_notification(
     <div class="section">
       <span class="label">Script/Flow Path:</span> {}
     </div>
-    
+
     <div class="section">
       <span class="label">Job ID:</span> {}
     </div>
-    
+
     <div class="section">
       <span class="label">Error Details:</span>
       <pre>{}</pre>
     </div>
-    
+
     <a href="{}" class="button">View Job Details</a>
   </body>
 </html>
 "#,
-        email_title,
-        w_id,
-        trigger_info,
-        runnable_path,
-        &job_id,
-        error_details,
-        job_url
+        email_title, w_id, trigger_info, runnable_path, &job_id, error_details, job_url
     );
 
     if let Err(e) = send_email_html(
@@ -1369,7 +1368,6 @@ async fn get_completed_job_logs_tail(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<String> {
-
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -1395,7 +1393,7 @@ async fn get_completed_job_logs_tail(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
         }
- 
+
         let logs = record.logs.unwrap_or_default();
         Ok(Json(logs))
     } else {
@@ -3741,7 +3739,7 @@ async fn batch_rerun_handle_job(
                 PushArgsOwned { extra: None, args },
             )
             .await;
-            if let Ok(uuid) = result {
+            if let Ok((uuid, _)) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -3798,7 +3796,7 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    let uuid =
+    let (uuid, _) =
         run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -3812,14 +3810,14 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<Uuid> {
+) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
     let FlowVersionInfo {
         version,
@@ -3828,10 +3826,10 @@ pub async fn run_flow_by_path_inner(
         has_preprocessor,
         on_behalf_of_email,
         edited_by,
+        early_return,
         ..
-    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
-
-    drop(tx);
+    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
 
@@ -3874,6 +3872,7 @@ pub async fn run_flow_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -3885,11 +3884,11 @@ pub async fn run_flow_by_path_inner(
         None,
         None,
         push_authed.as_ref(),
-        false
+        false,
     )
     .await?;
     tx.commit().await?;
-    Ok(uuid)
+    Ok((uuid, early_return))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -3969,6 +3968,7 @@ pub async fn restart_flow(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -3980,7 +3980,7 @@ pub async fn restart_flow(
         None,
         completed_job.priority,
         Some(&authed.clone().into()),
-        false
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -4026,10 +4026,15 @@ pub async fn run_script_by_path_inner(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
-    drop(tx);
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
+        script_path,
+        Some(userdb_authed),
+        db.clone(),
+        &w_id,
+        run_query.skip_preprocessor,
+    )
+    .await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -4065,6 +4070,7 @@ pub async fn run_script_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4149,10 +4155,12 @@ pub async fn run_workflow_as_code(
             None,
         ),
         JobKind::Script => {
-            let mut tx = user_db.clone().begin(&authed).await?;
+            let userdb_authed =
+                UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
             script_path_to_payload(
                 job.script_path(),
-                &mut *tx,
+                Some(userdb_authed),
+                db.clone(),
                 &w_id,
                 run_query.skip_preprocessor,
             )
@@ -4214,6 +4222,7 @@ pub async fn run_workflow_as_code(
         scheduled_for,
         None,
         Some(job_id),
+        None,
         job.root_job.or(Some(job_id)),
         run_query.job_id,
         false,
@@ -4707,10 +4716,16 @@ pub async fn run_wait_result_job_by_path_get(
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_authed) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
-    drop(tx);
+    let user_db_with_authed =
+        UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_authed) = script_path_to_payload(
+        script_path,
+        Some(user_db_with_authed),
+        db.clone(),
+        &w_id,
+        run_query.skip_preprocessor,
+    )
+    .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4745,6 +4760,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4853,15 +4869,15 @@ pub async fn run_wait_result_script_by_path_internal(
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
         script_path.to_path(),
-        &mut *tx,
+        Some(db_authed),
+        db.clone(),
         &w_id,
         run_query.skip_preprocessor,
     )
     .await?;
-    drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4896,6 +4912,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -4943,7 +4960,7 @@ pub async fn run_wait_result_script_by_hash(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let ScriptHashInfo {
         path,
         tag,
@@ -4960,7 +4977,7 @@ pub async fn run_wait_result_script_by_hash(
         on_behalf_of_email,
         created_by,
         ..
-    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
+    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -5011,6 +5028,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -5077,7 +5095,7 @@ pub async fn run_wait_result_flow_by_path_internal(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
     let FlowVersionInfo {
         tag,
@@ -5087,8 +5105,8 @@ pub async fn run_wait_result_flow_by_path_internal(
         on_behalf_of_email,
         edited_by,
         version,
-    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
-    drop(tx);
+    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -5129,6 +5147,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -5200,6 +5219,7 @@ async fn run_preview_script(
         None,
         None,
         None,
+        None,
         run_query.job_id,
         false,
         false,
@@ -5226,16 +5246,18 @@ async fn run_wait_result_preview_script(
     Query(run_query): Query<RunJobQuery>,
     Json(preview): Json<Preview>,
 ) -> error::Result<Response> {
-
     let (_status_code, uuid) = run_preview_script(
-        authed.clone(), 
-        Extension(db.clone()), 
-        Extension(user_db.clone()), 
-        Path(w_id.clone()), 
-        Query(run_query.clone()), 
-        Json(preview)
-    ).await?;
-    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+        authed.clone(),
+        Extension(db.clone()),
+        Extension(user_db.clone()),
+        Path(w_id.clone()),
+        Query(run_query.clone()),
+        Json(preview),
+    )
+    .await?;
+    let uuid = uuid
+        .parse::<Uuid>()
+        .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
     let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     return result;
 }
@@ -5308,6 +5330,7 @@ async fn run_bundle_preview_script(
                 username_to_permissioned_as(&authed.username),
                 authed.token_prefix.as_deref(),
                 scheduled_for,
+                None,
                 None,
                 None,
                 None,
@@ -5478,6 +5501,7 @@ async fn run_dependencies_job(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -5544,6 +5568,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -5605,7 +5630,8 @@ async fn add_batch_jobs(
     ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
-                let mut tx = user_db.clone().begin(&authed).await?;
+                let db_authed =
+                    UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
                 let ScriptHashInfo {
                     hash: script_hash,
                     concurrency_key,
@@ -5615,7 +5641,7 @@ async fn add_batch_jobs(
                     dedicated_worker,
                     timeout,
                     .. // TODO: consider on_behalf_of_email and created_by for batch jobs
-                 } = get_latest_deployed_hash_for_path(&mut *tx, &w_id, &path).await?;
+                 } = get_latest_deployed_hash_for_path(Some(db_authed), db.clone(), &w_id, &path).await?;
                 (
                     Some(script_hash),
                     Some(path),
@@ -5884,6 +5910,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        None,
         run_query.job_id,
         false,
         false,
@@ -5910,8 +5937,18 @@ async fn run_wait_result_preview_flow(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<Response> {
-    let (_status_code, uuid) = run_preview_flow_job(authed.clone(), Extension(db.clone()), Extension(user_db.clone()), Path(w_id.clone()), Query(run_query.clone()), Json(raw_flow)).await?;
-    let uuid = uuid.parse::<Uuid>().map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
+    let (_status_code, uuid) = run_preview_flow_job(
+        authed.clone(),
+        Extension(db.clone()),
+        Extension(user_db.clone()),
+        Path(w_id.clone()),
+        Query(run_query.clone()),
+        Json(raw_flow),
+    )
+    .await?;
+    let uuid = uuid
+        .parse::<Uuid>()
+        .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
     let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     return result;
 }
@@ -5953,7 +5990,7 @@ pub async fn run_job_by_hash_inner(
     check_license_key_valid().await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let ScriptHashInfo {
         path,
         tag,
@@ -5970,7 +6007,7 @@ pub async fn run_job_by_hash_inner(
         created_by,
         delete_after_use,
         ..
-    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
+    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
@@ -6023,6 +6060,7 @@ pub async fn run_job_by_hash_inner(
         scheduled_for,
         None,
         run_query.parent_job,
+        None,
         run_query.root_job,
         run_query.job_id,
         false,
@@ -6162,9 +6200,15 @@ async fn get_job_update(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, stream_offset, get_progress, running, only_result, no_logs, .. }): Query<
-        JobUpdateQuery,
-    >,
+    Query(JobUpdateQuery {
+        log_offset,
+        stream_offset,
+        get_progress,
+        running,
+        only_result,
+        no_logs,
+        ..
+    }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     Ok(Json(
         get_job_update_data(
@@ -6191,9 +6235,15 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, stream_offset, get_progress, running, no_logs, only_result, fast }): Query<
-        JobUpdateQuery,
-    >,
+    Query(JobUpdateQuery {
+        log_offset,
+        stream_offset,
+        get_progress,
+        running,
+        no_logs,
+        only_result,
+        fast,
+    }): Query<JobUpdateQuery>,
 ) -> Response {
     let stream = get_job_update_sse_stream(
         opt_authed,
@@ -6467,7 +6517,7 @@ async fn get_job_update_data(
 
     if only_result.unwrap_or(false) {
         let result = if let Some(tags) = tags {
-            let r = 
+            let r =
                 sqlx::query!(
                     "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
                 v2_job_queue.running as \"running: Option<bool>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) AS stream_offset
@@ -6492,11 +6542,16 @@ async fn get_job_update_data(
                 )));
             }
             let running = r.running.as_ref().map(|x| *x);
-            (r.result.map(|x| x.0), running, r.result_stream.flatten(), r.stream_offset)
+            (
+                r.result.map(|x| x.0),
+                running,
+                r.result_stream.flatten(),
+                r.stream_offset,
+            )
         } else {
             if running.is_some_and(|x| !x) {
                 let r = sqlx::query!(
-                    "SELECT 
+                    "SELECT
                         COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         jq.running as \"running: Option<bool>\",
                         SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
@@ -6514,15 +6569,20 @@ async fn get_job_update_data(
                 ).fetch_optional(db).await?;
                 if let Some(r) = r {
                     let running = r.running.as_ref().map(|x| *x);
-                    (r.result.map(|x| x.0), running, r.result_stream.flatten(), r.stream_offset)
+                    (
+                        r.result.map(|x| x.0),
+                        running,
+                        r.result_stream.flatten(),
+                        r.stream_offset,
+                    )
                 } else {
                     (None, None, None, None)
                 }
             } else {
                 let q =  sqlx::query!(
-                    "SELECT 
-                        COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\", 
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", 
+                    "SELECT
+                        COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",
+                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
                         CHAR_LENGTH(rs.stream) + 1 AS stream_offset
                     FROM (
                         SELECT $2::uuid as job_id, $1::text as workspace_id
@@ -6537,7 +6597,12 @@ async fn get_job_update_data(
                 .fetch_optional(db)
                 .await?;
                 if let Some(r) = q {
-                    (r.result.map(|x| x.0), running, r.result_stream.flatten(), r.stream_offset)
+                    (
+                        r.result.map(|x| x.0),
+                        running,
+                        r.result_stream.flatten(),
+                        r.stream_offset,
+                    )
                 } else {
                     (None, None, None, None)
                 }
@@ -6561,7 +6626,7 @@ async fn get_job_update_data(
         let record = sqlx::query!(
             "SELECT
                 c.id IS NOT NULL AS completed,
-                CASE 
+                CASE
                     WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                     ELSE false
                 END AS running,

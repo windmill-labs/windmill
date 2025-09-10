@@ -638,7 +638,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: setForLoopOptionsToolDef,
+		def: {
+			...setForLoopOptionsToolDef,
+			function: { ...setForLoopOptionsToolDef.function, strict: false }
+		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setForLoopOptionsSchema.parse(args)
 			await helpers.setForLoopOptions(parsedArgs.id, {
@@ -656,7 +659,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: setModuleControlOptionsToolDef,
+		def: {
+			...setModuleControlOptionsToolDef,
+			function: { ...setModuleControlOptionsToolDef.function, strict: false }
+		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setModuleControlOptionsSchema.parse(args)
 			await helpers.setModuleControlOptions(parsedArgs.id, {
@@ -879,8 +885,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	}
 ]
 
-export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
-	const content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
+export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
+	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
@@ -1005,6 +1011,11 @@ On Windmill, credentials and configuration are stored in resources. Resource typ
 If the user needs a resource as flow input, you should set the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
 If the user wants a specific resource as step input, you should set the step value to a static string in the following format: "$res:path/to/resource".
 `
+
+	// If there's a custom prompt, append it to the system prompt
+	if (customPrompt?.trim()) {
+		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	}
 
 	return {
 		role: 'system',

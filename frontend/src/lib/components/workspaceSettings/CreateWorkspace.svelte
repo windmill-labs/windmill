@@ -26,7 +26,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
+	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
 	import { GitFork } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 
@@ -153,15 +153,15 @@
 							providers: {
 								[selected]: {
 									resource_path: path,
-									models: [AI_DEFAULT_MODELS[selected][0]]
+									models: [AI_PROVIDERS[selected].defaultModels[0]]
 								}
 							},
 							default_model: {
-								model: AI_DEFAULT_MODELS[selected][0],
+								model: AI_PROVIDERS[selected].defaultModels[0],
 								provider: selected
 							},
 							code_completion_model: codeCompletionEnabled
-								? { model: AI_DEFAULT_MODELS[selected][0], provider: selected }
+								? { model: AI_PROVIDERS[selected].defaultModels[0], provider: selected }
 								: undefined
 						}
 					: {}
@@ -169,6 +169,11 @@
 		}
 
 		sendUserToast(`Created workspace id: ${id}`)
+
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		switchWorkspace(id)
+
+		goto(rd ?? '/')
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -356,7 +361,7 @@
 					apiKey={aiKey}
 					disabled={!aiKey}
 					aiProvider={selected}
-					model={AI_DEFAULT_MODELS[selected][0]}
+					model={AI_PROVIDERS[selected].defaultModels[0]}
 				/>
 			</div>
 			{#if aiKey}
@@ -420,45 +425,3 @@
 		</Button>
 	</div>
 </CenteredModal>
-
-<style>
-	/* .input-wrapper { */
-	/*   display: flex; */
-	/*   border: 1px solid #ccc; */
-	/*   border-radius: 4px; */
-	/*   overflow: hidden; */
-	/* } */
-	/**/
-	/* .prefix { */
-	/*   padding: 8px 12px; */
-	/*   border-right: 1px solid #ddd; */
-	/*   white-space: nowrap; */
-	/* } */
-	/**/
-	/* .prefixed-input { */
-	/*   border: none; */
-	/*   outline: none; */
-	/*   padding: 8px 12px; */
-	/*   flex: 1; */
-	/* } */
-	.input-wrapper {
-		position: relative;
-		display: inline-block;
-	}
-
-	.prefix {
-		position: absolute;
-		left: 12px;
-		top: 50%;
-		transform: translateY(-50%);
-		pointer-events: none;
-		color: #666;
-	}
-
-	.prefixed-input {
-		padding-left: 60px; /* Adjust based on prefix width */
-		height: 36px;
-		font-family: inherit;
-		font-size: 14px;
-	}
-</style>

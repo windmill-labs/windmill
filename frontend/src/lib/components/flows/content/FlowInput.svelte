@@ -40,9 +40,10 @@
 	} from '$lib/components/schema/schemaUtils.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
-	import { isObjectTooBig } from '$lib/utils'
+	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { ScriptLang } from '$lib/gen'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		noEditor: boolean
@@ -76,8 +77,8 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
 	let isValid = $state(true)
-	let dynSelectCode: string | undefined = $state(undefined)
-	let dynSelectLang: ScriptLang | undefined = $state(undefined)
+	let dynCode: string | undefined = $state(undefined)
+	let dynLang: ScriptLang | undefined = $state(undefined)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -333,10 +334,18 @@
 
 	function resetArgs() {
 		if (!previewSchema) {
-			// previewArguments = undefined
 			savedPreviewArgs = undefined
 		}
 	}
+
+	$effect(() => {
+		if (!previewArgs && savedPreviewArgs != undefined) {
+			readFieldsRecursively(flowStore.val.schema)
+			untrack(() => {
+				resetArgs()
+			})
+		}
+	})
 
 	let historicInputs: HistoricInputs | undefined = $state(undefined)
 	let captureTable: CaptureTable | undefined = $state(undefined)
@@ -363,13 +372,10 @@
 				bind:this={editableSchemaForm}
 				bind:schema={flowStore.val.schema}
 				isFlowInput
-				on:edit={(e) => {
-					addPropertyV2?.openDrawer(e.detail)
-				}}
 				on:delete={(e) => {
 					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
-				showDynSelectOpt
+				showDynOpt
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
@@ -399,18 +405,17 @@
 					})
 				}}
 				shouldDispatchChanges={true}
-				on:change={() => {
+				onChange={() => {
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
+						let args = $state.snapshot(previewArgs.val)
+						if (!deepEqual(args, savedPreviewArgs)) {
+							savedPreviewArgs = args
+						}
 					}
-					refreshStateStore(flowStore)
-				}}
-				on:schemaChange={() => {
-					resetArgs()
 				}}
 				bind:isValid
-				bind:dynSelectCode
-				bind:dynSelectLang
+				bind:dynCode
+				bind:dynLang
 			>
 				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
@@ -475,15 +480,9 @@
 						<AddPropertyV2
 							bind:schema={flowStore.val.schema}
 							bind:this={addPropertyV2}
-							on:change={() => {
-								refreshStateStore(flowStore)
-								if (editableSchemaForm) {
-									editableSchemaForm.updateJson()
-								}
-							}}
-							on:addNew={(e) => {
+							onAddNew={(argName) => {
 								handleEditSchema('inputEditor')
-								editableSchemaForm?.openField(e.detail)
+								editableSchemaForm?.openField(argName)
 								refreshStateStore(flowStore)
 							}}
 						>

@@ -3,12 +3,13 @@ use crate::ee_oss::ExternalJwks;
 use axum::{
     async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
-    Extension,
+    Extension, Json,
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
 use quick_cache::sync::Cache;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tower_cookies::Cookies;
 use tracing::Span;
 
@@ -22,7 +23,7 @@ use tokio::sync::RwLock;
 
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
-    error::Error,
+    error::{Error, JsonResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
@@ -30,8 +31,8 @@ use windmill_common::{
 lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
-}
 
+}
 // Global function to invalidate a specific token from cache
 pub fn invalidate_token_from_cache(token: &str) {
     // Remove all cache entries for this token (across all workspaces)
@@ -640,4 +641,72 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TruncatedTokenWithEmail {
+    pub label: Option<String>,
+    pub token_prefix: Option<String>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub email: Option<String>,
+}
+
+pub async fn list_tokens_internal(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let tokens = if is_flow {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:flows:' || $2]::text[]
+               OR scopes @> ARRAY['run:flow/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:scripts:' || $2]::text[]
+               OR scopes @> ARRAY['run:script/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    };
+
+    Ok(Json(tokens))
 }

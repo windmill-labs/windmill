@@ -2,12 +2,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy, untrack } from 'svelte'
-	import { isObject, sendUserToast, sleep } from '$lib/utils'
+	import { sendUserToast, sleep } from '$lib/utils'
 	import RouteCapture from './http/RouteCapture.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
-	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
+	import DefaultEmailCapture from './email/DefaultEmailCapture.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
@@ -15,6 +15,7 @@
 	import MqttCapture from './mqtt/MqttCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
+	import EmailCapture from './email/EmailCapture.svelte'
 
 	interface Props {
 		isFlow: boolean
@@ -37,7 +38,7 @@
 		captureType = 'webhook',
 		data = {},
 		connectionInfo = $bindable(undefined),
-		args = $bindable({}),
+		args = {},
 		isValid = false,
 		triggerDeployed = false
 	}: Props = $props()
@@ -100,7 +101,6 @@
 		}
 		return captureConfigs
 	}
-	getCaptureConfigs().then((captureConfigs) => setDefaultArgs(captureConfigs))
 
 	async function capture() {
 		let i = 0
@@ -118,16 +118,6 @@
 			i++
 			await sleep(1000)
 		}
-	}
-
-	function setDefaultArgs(captureConfigs: { [key: string]: CaptureConfig }) {
-		if (captureType in captureConfigs) {
-			const triggerConfig = captureConfigs[captureType].trigger_config
-			args = isObject(triggerConfig) ? triggerConfig : {}
-		} else {
-			args = {}
-		}
-		ready = true
 	}
 
 	onDestroy(() => {
@@ -249,8 +239,8 @@
 				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
-		{:else if captureType === 'email'}
-			<EmailTriggerCaptures
+		{:else if captureType === 'default_email'}
+			<DefaultEmailCapture
 				{path}
 				{isFlow}
 				emailDomain={data?.emailDomain}
@@ -327,6 +317,21 @@
 				{isFlow}
 				{triggerDeployed}
 				deliveryType={args.delivery_type}
+				{captureLoading}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'email'}
+			<EmailCapture
+				local_part={args.local_part}
+				emailDomain={data?.emailDomain}
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
 				{captureLoading}
 				on:applyArgs
 				on:updateSchema

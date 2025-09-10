@@ -9,18 +9,13 @@ import {
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
 import {
-	extractCodeFromMarkdown,
-	getLatestAssistantMessage,
-	processToolCall,
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayMessage
 } from './shared'
 import type {
-	ChatCompletionChunk,
 	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
@@ -34,19 +29,22 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getCompletion, getModelContextWindow } from '../lib'
+import { getCompletion, getModelContextWindow, parseOpenAICompletion } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { getCurrentModel, type DBSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { getCurrentModel, type DBSchemas, copilotInfo } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
+import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import type { ReviewChangesOpts } from './monaco-adapter'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -88,7 +86,7 @@ class AIChatManager {
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, applyAll?: boolean) => void) | undefined>(
+	scriptEditorApplyCode = $state<((code: string, opts?: ReviewChangesOpts) => void) | undefined>(
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
@@ -210,7 +208,8 @@ class AIChatManager {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			this.systemMessage = prepareScriptSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareScriptSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
@@ -224,18 +223,8 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
-				getLastSuggestedCode: () => {
-					const latestMessage = getLatestAssistantMessage(this.displayMessages)
-					if (latestMessage) {
-						const codeBlocks = extractCodeFromMarkdown(latestMessage)
-						if (codeBlocks.length > 0) {
-							return codeBlocks[codeBlocks.length - 1]
-						}
-					}
-					return undefined
-				},
-				applyCode: (code: string, applyAll?: boolean) => {
-					this.scriptEditorApplyCode?.(code, applyAll)
+				applyCode: (code: string, opts?: ReviewChangesOpts) => {
+					this.scriptEditorApplyCode?.(code, opts)
 				}
 			}
 			if (options?.closeScriptSettings) {
@@ -245,20 +234,24 @@ class AIChatManager {
 				}
 			}
 		} else if (mode === AIMode.FLOW) {
-			this.systemMessage = prepareFlowSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
-			this.systemMessage = prepareNavigatorSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
 			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
-			this.systemMessage = prepareAskSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareAskSystemMessage(customPrompt)
 			this.tools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
-			this.systemMessage = prepareApiSystemMessage()
+			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
 		}
@@ -380,10 +373,8 @@ class AIChatManager {
 		}
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
-		let addedMessages: ChatCompletionMessageParam[] = []
 		try {
-			let completion: any = null
-
+			let addedMessages: ChatCompletionMessageParam[] = []
 			while (true) {
 				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const helpers = this.helpers
@@ -413,99 +404,28 @@ class AIChatManager {
 					}
 					this.pendingPrompt = ''
 				}
-				completion = await getCompletion(
+
+				const model = getCurrentModel()
+				const completionFn = model.provider === 'anthropic' ? getAnthropicCompletion : getCompletion
+				const parseFn =
+					model.provider === 'anthropic' ? parseAnthropicCompletion : parseOpenAICompletion
+
+				const completion = await completionFn(
 					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
 					abortController,
 					tools.map((t) => t.def)
 				)
 
 				if (completion) {
-					const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-					let answer = ''
-					for await (const chunk of completion) {
-						if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-							continue
-						}
-						const c = chunk as ChatCompletionChunk
-						const delta = c.choices[0].delta.content
-						if (delta) {
-							answer += delta
-							callbacks.onNewToken(delta)
-						}
-						const toolCalls = c.choices[0].delta.tool_calls || []
-						if (toolCalls.length > 0 && answer) {
-							// if tool calls are present but we have some textual content already, we need to display it to the user first
-							callbacks.onMessageEnd()
-							answer = ''
-						}
-						for (const toolCall of toolCalls) {
-							const { index } = toolCall
-							let finalToolCall = finalToolCalls[index]
-							if (!finalToolCall) {
-								finalToolCalls[index] = toolCall
-							} else {
-								if (toolCall.function?.arguments) {
-									if (!finalToolCall.function) {
-										finalToolCall.function = toolCall.function
-									} else {
-										finalToolCall.function.arguments =
-											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-									}
-								}
-							}
-							finalToolCall = finalToolCalls[index]
-							if (finalToolCall?.function) {
-								const {
-									function: { name: funcName },
-									id: toolCallId
-								} = finalToolCall
-								if (funcName && toolCallId) {
-									const tool = tools.find((t) => t.def.function.name === funcName)
-									if (tool && tool.preAction) {
-										tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
-									}
-								}
-							}
-						}
-					}
-
-					if (answer) {
-						const toAdd = { role: 'assistant' as const, content: answer }
-						addedMessages.push(toAdd)
-						messages.push(toAdd)
-					}
-
-					callbacks.onMessageEnd()
-
-					const toolCalls = Object.values(finalToolCalls).filter(
-						(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-					) as ChatCompletionMessageToolCall[]
-
-					if (toolCalls.length > 0) {
-						const toAdd = {
-							role: 'assistant' as const,
-							tool_calls: toolCalls.map((t) => ({
-								...t,
-								function: {
-									...t.function,
-									arguments: t.function.arguments || '{}'
-								}
-							}))
-						}
-						messages.push(toAdd)
-						addedMessages.push(toAdd)
-						for (const toolCall of toolCalls) {
-							const messageToAdd = await processToolCall({
-								tools,
-								toolCall,
-								helpers,
-								toolCallbacks: callbacks
-							})
-							messages.push(messageToAdd)
-							addedMessages.push(messageToAdd)
-						}
-					} else {
+					const continueCompletion = await parseFn(
+						completion as any,
+						callbacks,
+						messages,
+						addedMessages,
+						tools,
+						helpers
+					)
+					if (!continueCompletion) {
 						break
 					}
 				}
