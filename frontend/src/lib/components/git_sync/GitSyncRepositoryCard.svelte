@@ -9,7 +9,6 @@
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
 	import hubPaths from '$lib/hubPaths.json'
-	import Toggle from '../Toggle.svelte'
 
 	let { idx } = $props<{ idx: number }>()
 

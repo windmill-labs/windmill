@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	let {
 		prefix = '',
 		value = $bindable(''),
@@ -7,7 +7,7 @@
 		...restProps
 	} = $props()
 
-	let inputElement = $state(null)
+	let inputElement: HTMLInputElement = $state(null!)
 	let internalValue = $state(prefix + value)
 
 	// Update internal value when prop changes
@@ -68,14 +68,14 @@
 
 	function handleClick() {
 		// Prevent cursor from being placed within prefix
-		if (inputElement.selectionStart < prefix.length) {
+		if ((inputElement.selectionStart ?? 0) < prefix.length) {
 			inputElement.setSelectionRange(prefix.length, prefix.length)
 		}
 	}
 
 	function handleFocus() {
 		// Ensure cursor starts after prefix when focusing
-		if (inputElement.selectionStart < prefix.length) {
+		if ((inputElement.selectionStart ?? 0) < prefix.length) {
 			inputElement.setSelectionRange(prefix.length, prefix.length)
 		}
 	}
@@ -83,8 +83,8 @@
 	function handlePaste(e) {
 		e.preventDefault()
 		const pasteData = e.clipboardData.getData('text')
-		const cursorPos = inputElement.selectionStart
-		const selectionEnd = inputElement.selectionEnd
+		const cursorPos = inputElement.selectionStart ?? 0
+		const selectionEnd = inputElement.selectionEnd ?? 0
 
 		if (cursorPos < prefix.length) {
 			// Paste at the end of prefix

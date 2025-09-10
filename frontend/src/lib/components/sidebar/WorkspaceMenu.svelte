@@ -21,7 +21,7 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { buildWorkspaceHierarchy, getWorkspaceIndentation } from '$lib/utils/workspaceHierarchy'
+	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 
 	interface Props {
 		isCollapsed?: boolean

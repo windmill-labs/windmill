@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
-	import { UserService, type WorkspaceInvite, WorkspaceService, type Workspace } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import {
 		superadmin,
 		usersWorkspaceStore,
@@ -35,7 +35,6 @@
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
-	let forkedWorkspaces: Workspace[] = []
 
 	$: rd = $page.url.searchParams.get('rd')
 
@@ -75,16 +74,6 @@
 		})
 	}
 
-	async function loadForkedWorkspaces() {
-		try {
-			forkedWorkspaces = (await WorkspaceService.listWorkspaces()).filter(
-				(w) => w.parent_workspace_id != undefined
-			)
-		} catch {
-			forkedWorkspaces = []
-		}
-	}
-
 	function handleListWorkspaces() {
 		if (list_all_as_super_admin) {
 			loadWorkspacesAsAdmin()
@@ -96,24 +85,6 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	// Main workspaces - only root workspaces (no forks)
-	$: mainWorkspaces = (() => {
-		if (!workspaces) return []
-
-		// Filter out admin workspace and only show root workspaces (no parent)
-		const nonAdminWorkspaces = workspaces.filter(
-			(x) => x.id !== 'admins' && x.parent_workspace_id == null
-		)
-
-		// Convert to hierarchy format for consistent rendering (depth 0, not forked)
-		return nonAdminWorkspaces.map((workspace) => ({
-			workspace,
-			depth: 0,
-			isForked: false,
-			parentName: undefined,
-			hasChildren: workspaces.some((w) => w.parent_workspace_id === workspace.id)
-		}))
-	})()
 
 	// Complete workspace hierarchy with all forks
 	$: forkedWorkspacesHierarchy = (() => {
@@ -125,10 +96,7 @@
 		return buildWorkspaceHierarchy(nonAdminWorkspaces)
 	})()
 
-	// Check if there are any forked workspaces to show the toggle
-	$: hasForkedWorkspaces = workspaces?.some((w) => w.parent_workspace_id != null) ?? false
 
-	// $: groupedNonAdminWorkspaces = showAllForks ? forkedWorkspacesHierarchy : mainWorkspaces
 	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
@@ -151,7 +119,6 @@
 	refreshSuperadmin()
 	loadInvites()
 	loadWorkspaces()
-	loadForkedWorkspaces()
 
 	let loading = false
 
