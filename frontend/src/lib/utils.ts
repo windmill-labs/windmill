@@ -1558,7 +1558,7 @@ export function createCache<Keys extends Record<string, any>, T>(
 	params?: { maxSize?: number }
 ): (keys: Keys) => T {
 	let cache = new Map<string, T>()
-	const maxSize = params?.maxSize ?? Infinity
+	const maxSize = params?.maxSize ?? 15
 
 	return (keys: Keys) => {
 		let key = JSON.stringify(keys)

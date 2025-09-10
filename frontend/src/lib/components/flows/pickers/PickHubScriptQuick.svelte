@@ -76,8 +76,9 @@
 		}
 	}
 
-	let hubScriptsFilteredPromise = usePromise(() =>
-		listHubScriptsCached({ appFilter, filter, kind })
+	let hubScriptsFilteredPromise = usePromise(
+		() => listHubScriptsCached({ appFilter, filter, kind }),
+		{ loadInit: false }
 	)
 	$effect(() => {
 		;[filter, kind, appFilter]

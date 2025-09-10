@@ -17,6 +17,7 @@
 	import { Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	type Item = {
 		path: string
@@ -25,13 +26,12 @@
 		hash?: string
 	}
 
-	let items: Item[] | undefined = $state(undefined)
+	let items = usePromise(
+		async () => await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate }),
+		{ loadInit: false }
+	)
 
 	let filteredItems: (Item & { marked?: string })[] | undefined = $state(undefined)
-
-	async function loadItems(): Promise<void> {
-		items = await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate })
-	}
 
 	interface Props {
 		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor'
@@ -78,7 +78,7 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && kind && untrack(() => loadItems())
+		$workspaceStore && kind && untrack(() => items.refresh())
 	})
 	$effect(() => {
 		if ($workspaceStore) {
@@ -108,7 +108,7 @@
 
 <SearchItems
 	{filter}
-	{items}
+	items={items.value}
 	bind:filteredItems
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
