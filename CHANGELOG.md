@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.541.1](https://github.com/windmill-labs/windmill/compare/v1.541.0...v1.541.1) (2025-09-10)
+
+
+### Bug Fixes
+
+* revoke tokens on demotions of superadmins ([1c6af66](https://github.com/windmill-labs/windmill/commit/1c6af66a84da5cbeeb76bd8833da528ea74f021b))
+
 ## [1.541.0](https://github.com/windmill-labs/windmill/compare/v1.540.2...v1.541.0) (2025-09-09)
 
 
