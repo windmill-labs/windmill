@@ -1,10 +1,19 @@
+<script module lang="ts">
+	let loadItemsCached = createCache(
+		({ workspace, kind, isTemplate }: { workspace: string; kind: string; isTemplate?: boolean }) =>
+			kind == 'flow'
+				? FlowService.listFlows({ workspace })
+				: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+	)
+</script>
+
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { emptyString } from '$lib/utils'
+	import { createCache, emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -21,14 +30,7 @@
 	let filteredItems: (Item & { marked?: string })[] | undefined = $state(undefined)
 
 	async function loadItems(): Promise<void> {
-		items =
-			kind == 'flow'
-				? await FlowService.listFlows({ workspace: $workspaceStore! })
-				: await ScriptService.listScripts({
-						workspace: $workspaceStore!,
-						kinds: kind,
-						isTemplate
-					})
+		items = await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate })
 	}
 
 	interface Props {
