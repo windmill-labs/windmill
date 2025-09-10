@@ -1,7 +1,7 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.88-slim-bookworm
 
-# Build windmill_duckdb_ffi_internal.so separately
+# Build libwindmill_duckdb_ffi_internal.so separately
 FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
 
 WORKDIR /windmill-duckdb-ffi-internal
@@ -200,7 +200,7 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/
+COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
