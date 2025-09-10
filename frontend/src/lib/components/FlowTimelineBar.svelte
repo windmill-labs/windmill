@@ -2,7 +2,6 @@
 	import { msToReadableTime, msToReadableTimeShort } from '$lib/utils'
 	import { ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { GlobalIterationBounds } from './graph'
 	import { Tooltip } from './meltComponents'
 
 	interface TimelineItem {
@@ -22,11 +21,12 @@
 		showZoomButtons?: boolean
 		onZoom?: () => void
 		zoom?: 'in' | 'out'
-		globalIterationBounds?: GlobalIterationBounds
+		hasMoreIterations?: boolean
 		loadPreviousIterations?: () => void
 		onSelectIteration?: (id: string) => void
 		idToIterationIndex?: (id: string) => number | undefined
 		showInterations?: string[]
+		isJobFailure?: (id: string) => boolean
 	}
 
 	let {
@@ -39,11 +39,12 @@
 		showZoomButtons = false,
 		onZoom,
 		zoom = 'in',
-		globalIterationBounds,
+		hasMoreIterations,
 		loadPreviousIterations,
 		onSelectIteration,
 		idToIterationIndex,
-		showInterations
+		showInterations,
+		isJobFailure
 	}: Props = $props()
 
 	function getLength(item: TimelineItem): number {
@@ -133,7 +134,7 @@
 	}
 </script>
 
-{#if min && filteredItems.length > 0}
+{#if min && filteredItems.length > 0 && startItem?.started_at}
 	<div
 		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
 		style="width: {timelinelWidth}px"
@@ -154,7 +155,7 @@
 					{/if}
 				</button>
 			</div>
-		{:else if globalIterationBounds && globalIterationBounds.iteration_from && globalIterationBounds.iteration_from > 0}
+		{:else if hasMoreIterations}
 			<Tooltip
 				class="hover:text-primary hover:bg-surface p-1 -my-1 w-24 rounded-md flex items-center justify-center"
 				openDelay={100}
@@ -215,7 +216,11 @@
 								<button
 									class={twMerge(
 										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block transition-opacity duration-200',
-										isRunning(item) ? 'bg-blue-400' : 'bg-blue-500',
+										isRunning(item)
+											? 'bg-blue-400'
+											: isJobFailure?.(item.id)
+												? ' bg-red-500'
+												: ' bg-blue-500',
 										i > 0 ? 'border-l border-gray-300 dark:border-gray-800 ' : '',
 										i === selectedIndex ? 'outline' : ''
 									)}
@@ -251,7 +256,11 @@
 						<div
 							class={twMerge(
 								'h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm',
-								isRunning(selectedItem) ? ' bg-blue-400' : ' bg-blue-500'
+								isRunning(selectedItem)
+									? 'bg-blue-400'
+									: isJobFailure?.(selectedItem.id)
+										? ' bg-red-500'
+										: ' bg-blue-500'
 							)}
 						></div>
 						{#snippet text()}

@@ -32,7 +32,6 @@
 		modules: FlowModule[]
 		localModuleStates: Record<string, GraphModuleState>
 		rootJob: RootJobData | undefined
-		flowStatus: FlowStatusModule['type'] | undefined
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
 		showResultsInputs?: boolean
@@ -71,7 +70,6 @@
 		modules,
 		localModuleStates,
 		rootJob,
-		flowStatus,
 		expandedRows,
 		allExpanded,
 		showResultsInputs,
@@ -469,6 +467,19 @@
 		}
 		return index
 	}
+
+	function isJobFailure(id: string, moduleId?: string) {
+		if (!moduleId) {
+			return rootJob?.['success'] === false
+		}
+		if (localModuleStates[moduleId]?.flow_jobs_success) {
+			const index = localModuleStates[moduleId]?.flow_jobs?.indexOf(id)
+			if (index !== undefined && index >= 0) {
+				return localModuleStates[moduleId]?.flow_jobs_success?.[index] === false
+			}
+		}
+		return localModuleStates[moduleId]?.type === 'Failure'
+	}
 </script>
 
 {#if render}
@@ -538,7 +549,7 @@
 			{#snippet label()}
 				<div class="flex items-center gap-2">
 					<!-- Flow icon -->
-					{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo?.hasErrors)}
+					{@render flowIcon(getFlowStatus(rootJob), flowInfo?.hasErrors)}
 
 					<div class="text-xs text-left font-mono">
 						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
@@ -576,6 +587,7 @@
 									useRelativeTimeline = !useRelativeTimeline
 								}}
 								zoom={useRelativeTimeline ? 'in' : 'out'}
+								isJobFailure={(id) => isJobFailure(id)}
 							/>
 						{/if}
 					</div>
@@ -786,6 +798,7 @@
 														idToIterationIndex={(id) => {
 															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)
 														}}
+														isJobFailure={(id) => isJobFailure(id, module.id)}
 													/>
 												</div>
 											{/if}
@@ -819,7 +832,6 @@
 														modules={subflow.modules}
 														{localModuleStates}
 														rootJob={subflowJob}
-														flowStatus={localModuleStates[module.id]?.type}
 														{expandedRows}
 														{allExpanded}
 														{showResultsInputs}

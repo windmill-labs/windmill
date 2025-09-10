@@ -181,7 +181,6 @@
 		{render}
 		{getSelectedIteration}
 		flowId="root"
-		flowStatus={undefined}
 		{mode}
 		{currentId}
 		bind:navigationChain
