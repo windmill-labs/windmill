@@ -151,36 +151,13 @@ struct ImageGenerationRequest<'a> {
 
 #[derive(Deserialize)]
 struct OpenAIImageResponse {
-    output: Vec<OpenAIOutput>,
+    output: Vec<OpenAIImageOutput>,
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type")]
-enum OpenAIOutput {
-    #[serde(rename = "image_generation_call")]
-    ImageGenerationCall {
-        id: String,
-        status: String,
-        background: Option<String>,
-        output_format: Option<String>,
-        quality: Option<String>,
-        result: String, // Base64 encoded image
-    },
-    #[serde(rename = "message")]
-    Message { id: String, status: String, content: Vec<MessageContent>, role: String },
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum MessageContent {
-    #[serde(rename = "output_text")]
-    OutputText {
-        text: String,
-        #[serde(default)]
-        annotations: Vec<serde_json::Value>,
-        #[serde(default)]
-        logprobs: Vec<serde_json::Value>,
-    },
+struct OpenAIImageOutput {
+    r#type: String, // Expected to be "image_generation_call"
+    result: String, // Base64 encoded image
 }
 
 // Gemini API structures
@@ -231,8 +208,6 @@ struct GeminiCandidate {
 
 #[derive(Deserialize)]
 struct GeminiPredictCandidate {
-    #[serde(rename = "mimeType")]
-    mime_type: String,
     #[serde(rename = "bytesBase64Encoded")]
     bytes_base64_encoded: String, // base64 encoded image
 }
@@ -274,15 +249,12 @@ struct OpenRouterImageChoice {
 
 #[derive(Deserialize)]
 struct OpenRouterImageResponseMessage {
-    role: String,
-    content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     images: Option<Vec<OpenRouterImageData>>,
 }
 
 #[derive(Deserialize)]
 struct OpenRouterImageData {
-    r#type: String,
     image_url: OpenRouterImageUrl,
 }
 
@@ -772,14 +744,11 @@ async fn generate_image_from_provider(
                     })?;
 
                     // Find the first image generation output
-                    let image_generation_call =
-                        image_response
-                            .output
-                            .iter()
-                            .find_map(|output| match output {
-                                OpenAIOutput::ImageGenerationCall { result, .. } => Some(result),
-                                _ => None,
-                            });
+                    let image_generation_call = image_response
+                        .output
+                        .iter()
+                        .find(|output| output.r#type == "image_generation_call")
+                        .map(|output| &output.result);
 
                     if let Some(base64_image) = image_generation_call {
                         Ok(base64_image.clone())
@@ -816,6 +785,15 @@ async fn generate_image_from_provider(
             } else {
                 // For Gemini models, build parts array with text and optional image
                 let mut parts = vec![GeminiPart::Text { text: user_message.trim().to_string() }];
+
+                if let Some(system_prompt) = system_prompt {
+                    parts.insert(
+                        0,
+                        GeminiPart::Text {
+                            text: format!("SYSTEM PROMPT: {}", system_prompt.trim().to_string()),
+                        },
+                    );
+                }
 
                 // Add image if provided
                 if let Some(image) = image {
@@ -873,8 +851,6 @@ async fn generate_image_from_provider(
                         Error::internal_err(format!("Failed to read response text: {}", e))
                     })?;
 
-                    tracing::info!("Raw Gemini response: {}", response_text);
-
                     let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
                         .map_err(|e| {
                             Error::internal_err(format!(
@@ -927,7 +903,7 @@ async fn generate_image_from_provider(
         }
         AIProvider::OpenRouter => {
             let mut messages = Vec::new();
-            
+
             // Add system message if provided
             if let Some(system_prompt) = system_prompt {
                 messages.push(OpenRouterImageMessage {
@@ -935,19 +911,19 @@ async fn generate_image_from_provider(
                     content: system_prompt.to_string(),
                 });
             }
-            
+
             // Add user message
             messages.push(OpenRouterImageMessage {
                 role: "user".to_string(),
                 content: user_message.to_string(),
             });
-            
+
             let openrouter_request = OpenRouterImageRequest {
                 model: provider.get_model(),
                 messages,
                 modalities: vec!["image", "text"],
             };
-            
+
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .timeout(std::time::Duration::from_secs(120))
@@ -955,14 +931,20 @@ async fn generate_image_from_provider(
                 .json(&openrouter_request)
                 .send()
                 .await
-                .map_err(|e| Error::internal_err(format!("Failed to call OpenRouter API: {}", e)))?;
-            
+                .map_err(|e| {
+                    Error::internal_err(format!("Failed to call OpenRouter API: {}", e))
+                })?;
+
             match resp.error_for_status_ref() {
                 Ok(_) => {
-                    let openrouter_response = resp.json::<OpenRouterImageResponse>().await.map_err(|e| {
-                        Error::internal_err(format!("Failed to parse OpenRouter response: {}", e))
-                    })?;
-                    
+                    let openrouter_response =
+                        resp.json::<OpenRouterImageResponse>().await.map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to parse OpenRouter response: {}",
+                                e
+                            ))
+                        })?;
+
                     // Extract base64 image from the first choice
                     let image_url = openrouter_response
                         .choices
@@ -970,7 +952,7 @@ async fn generate_image_from_provider(
                         .and_then(|choice| choice.message.images.as_ref())
                         .and_then(|images| images.get(0))
                         .map(|image| &image.image_url.url);
-                    
+
                     if let Some(data_url) = image_url {
                         // Extract base64 data from data URL format: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
                         if let Some(base64_start) = data_url.find("base64,") {
@@ -1221,8 +1203,6 @@ async fn handle_text_output(
             let prepared_messages =
                 prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
 
-            println!("prepared_messages: {:?}", prepared_messages);
-
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
                 .timeout(std::time::Duration::from_secs(120))
@@ -1419,7 +1399,7 @@ async fn handle_text_output(
                     })
                 }
                 // No need to handle this, it will always be a text string
-                OpenAIContent::Parts(parts) => Err(Error::internal_err(
+                OpenAIContent::Parts(_parts) => Err(Error::internal_err(
                     "Failed to parse structured output".to_string(),
                 )),
             },
@@ -1530,7 +1510,6 @@ fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<R
     Ok(to_raw_value(&schema))
 }
 
-#[async_recursion] // we only need it because handle_queued_job could call this function again but in practice it won't because we only accept workspace/raw script flow modules
 async fn call_tool(
     // connection
     db: &DB,
