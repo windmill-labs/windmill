@@ -1531,6 +1531,22 @@ pub async fn monitor_db(
             }
         }
     };
+    // run every hour (60 minutes / 30 seconds = 120)
+    let cleanup_worker_group_stats_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                match windmill_common::worker_group_job_stats::cleanup_old_stats(db, 60).await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!("Deleted {} old worker group job stats rows", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up worker group job stats: {:?}", e);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
 
     // run every hour
     let vacuum_queue_f = async {
@@ -1633,6 +1649,7 @@ pub async fn monitor_db(
         update_min_worker_version_f,
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
+        cleanup_worker_group_stats_f,
     );
 }
 

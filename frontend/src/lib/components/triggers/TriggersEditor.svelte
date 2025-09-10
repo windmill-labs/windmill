@@ -29,7 +29,8 @@
 		MqttTriggerService,
 		HttpTriggerService,
 		GcpTriggerService,
-		SqsTriggerService
+		SqsTriggerService,
+		EmailTriggerService
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -105,7 +106,8 @@
 			gcp: () => GcpTriggerService.deleteGcpTrigger,
 			sqs: () => SqsTriggerService.deleteSqsTrigger,
 			mqtt: () => MqttTriggerService.deleteMqttTrigger,
-			http: () => HttpTriggerService.deleteHttpTrigger
+			http: () => HttpTriggerService.deleteHttpTrigger,
+			email: () => EmailTriggerService.deleteEmailTrigger
 		}
 
 		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
@@ -225,6 +227,14 @@
 				isFlow,
 				$userStore
 			)
+		} else if (triggerType === 'email') {
+			await triggersState.fetchEmailTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		}
 
 		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
@@ -285,7 +295,7 @@
 								onDeleteDraft={deleteTrigger}
 								onReset={handleResetDraft}
 								webhookToken={$triggersCount?.webhook_count}
-								emailToken={$triggersCount?.email_count}
+								emailToken={$triggersCount?.default_email_count}
 							/>
 						</div>
 					{:else}
@@ -359,8 +369,8 @@
 										onReset={() => {
 											handleResetDraft(triggersState.selectedTriggerIndex)
 										}}
-										on:email-domain={({ detail }) => {
-											emailDomain = detail
+										onEmailDomain={(domain) => {
+											emailDomain = domain
 										}}
 									/>
 								</div>

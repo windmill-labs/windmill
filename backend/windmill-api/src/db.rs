@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
 pub use windmill_common::db::DB;
 use windmill_common::{
-    db::{Authable, Authed},
+    db::{Authable, Authed, AuthedRef},
     error::Error,
     utils::generate_lock_id,
 };
@@ -48,7 +48,7 @@ lazy_static::lazy_static! {
                     (20250429211554, include_str!(
                         "../../migrations/20250429211554_create_indices_on_queue.up.sql"
                     ).replace("public.", "")),
-                    (20241006144414, include_str!(
+                     (20241006144414, include_str!(
                         "../../custom_migrations/grant_all_current_schema.sql"
                     ).to_string()),
                     (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
@@ -200,29 +200,15 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
-    }
-
-    // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
-    }
-
-    // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
     if let Err(err) = sqlx::query!(
-        "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+        "DELETE FROM _sqlx_migrations WHERE
+        version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
+        version=20250201145631 OR version=20250201145632"
     )
     .execute(db)
     .await
     {
-        tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
+        tracing::info!("Could not remove sqlx migrations: {err:#}");
     }
 
     match sqlx::migrate!("../migrations")
@@ -255,6 +241,21 @@ pub struct ApiAuthed {
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
     pub token_prefix: Option<String>,
+}
+
+impl ApiAuthed {
+    pub fn to_authed_ref<'e>(&'e self) -> AuthedRef<'e> {
+        AuthedRef {
+            email: &self.email,
+            username: &self.username,
+            is_admin: &self.is_admin,
+            is_operator: &self.is_operator,
+            groups: &self.groups,
+            folders: &self.folders,
+            scopes: &self.scopes,
+            token_prefix: &self.token_prefix,
+        }
+    }
 }
 
 impl From<ApiAuthed> for Authed {

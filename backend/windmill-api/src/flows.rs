@@ -327,26 +327,51 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct ListPathsFromWorkspaceRunnableQuery {
+    match_path_start: Option<bool>,
+}
+
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+    Query(query): Query<ListPathsFromWorkspaceRunnableQuery>,
 ) -> JsonResult<Vec<String>> {
     let path = path.to_path();
-    check_scopes(&authed, || format!("flows:read:{}", path))?;
+    check_scopes(&authed, || {
+        format!("flows:read:{}", format!("{}/{}", runnable_kind, path))
+    })?;
     let mut tx = user_db.begin(&authed).await?;
-    let runnables = sqlx::query_scalar!(
-        r#"SELECT f.path
-            FROM workspace_runnable_dependencies wru 
-            JOIN flow f
-                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
-            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
-        path,
-        matches!(runnable_kind, RunnableKind::Flow),
-        w_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+
+    let runnables = if query.match_path_start.unwrap_or(false) {
+        sqlx::query_scalar!(
+            r#"SELECT DISTINCT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path LIKE $1 || '%' AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            r#"SELECT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
     tx.commit().await?;
     Ok(Json(runnables))
 }
@@ -718,6 +743,7 @@ async fn update_flow(
 ) -> Result<String> {
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
@@ -732,7 +758,6 @@ async fn update_flow(
     }
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
-
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
@@ -745,10 +770,9 @@ async fn update_flow(
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
-
     let is_new_path = nf.path != flow_path;
-
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
 
     sqlx::query!(
@@ -965,7 +989,7 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
-            version: version,
+            version,
         },
         windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
@@ -1003,6 +1027,7 @@ async fn update_flow(
             "Error updating flow due to updating dependency job field: {e:#}"
         ))
     })?;
+
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE v2_job_queue SET
@@ -1653,7 +1678,8 @@ mod tests {
                   "exponential": {
                     "multiplier": 1,
                     "seconds": 0
-                  }
+                  },
+                  "retry_if": null
                 }
                 "#
             )
@@ -1668,13 +1694,15 @@ mod tests {
                     multiplier: 1,
                     seconds: 123,
                     random_factor: None
-                }
+                },
+                retry_if: None
             },
             serde_json::from_str(
                 r#"
                 {
                   "constant": {},
-                  "exponential": { "seconds": 123 }
+                  "exponential": { "seconds": 123 },
+                  "retry_if" : null
                 }
                 "#
             )
@@ -1692,6 +1720,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![
@@ -1718,6 +1747,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![

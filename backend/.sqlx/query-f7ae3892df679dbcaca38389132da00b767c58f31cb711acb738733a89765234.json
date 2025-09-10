@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow\n             SET versions = array_append(versions, $1)\n             WHERE workspace_id = $2 AND path = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f7ae3892df679dbcaca38389132da00b767c58f31cb711acb738733a89765234"
+}

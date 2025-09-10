@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by)\n         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, $3\n         FROM folder\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b7ba64475398162ba43001a9932ac9a2b9ce8295e4ac85421091ab7da17a9a7c"
+}

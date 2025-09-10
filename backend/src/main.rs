@@ -431,7 +431,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         (Connection::Sql(db), None)
     };
 
-    let environment = load_base_url(&conn)
+    let environment = if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
+        environment
+    } else {
+        load_base_url(&conn)
         .await
         .unwrap_or_else(|_| "local".to_string())
         .trim_start_matches("https://")
@@ -439,7 +442,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         .split(".")
         .next()
         .unwrap_or_else(|| "local")
-        .to_string();
+        .to_string()
+    };
+
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -473,9 +478,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
-        
+
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
-        
+
         Connection::Sql(db)
     };
 
@@ -725,6 +730,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_mode,
                         mcp_mode,
                         base_internal_url.clone(),
+                        None,
                     )
                     .await?;
                 }
@@ -938,7 +944,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 "var_cache_invalidation" => {
                                                     if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) = 
+                                                        if let (Some(workspace_id), Some(path)) =
                                                             (payload.get("workspace_id").and_then(|v| v.as_str()),
                                                              payload.get("path").and_then(|v| v.as_str())) {
                                                             tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
@@ -948,7 +954,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 "resource_cache_invalidation" => {
                                                     if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) = 
+                                                        if let (Some(workspace_id), Some(path)) =
                                                             (payload.get("workspace_id").and_then(|v| v.as_str()),
                                                              payload.get("path").and_then(|v| v.as_str())) {
                                                             tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);

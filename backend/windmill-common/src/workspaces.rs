@@ -7,10 +7,6 @@ use strum::AsRefStr;
 use crate::{
     error::{to_anyhow, Error, Result},
     get_database_url, parse_postgres_url,
-    s3_helpers::{
-        format_duckdb_connection_settings, lfs_to_object_store_resource,
-        DuckdbConnectionSettingsResponse, LargeFileStorage,
-    },
     variables::{build_crypt, decrypt},
     DB,
 };
@@ -164,7 +160,6 @@ pub struct DucklakeWithConnData {
     pub catalog: DucklakeCatalog,
     pub catalog_resource: serde_json::Value,
     pub storage: DucklakeStorage,
-    pub storage_settings: DuckdbConnectionSettingsResponse,
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -188,24 +183,6 @@ pub async fn get_ducklake_from_db_unchecked(
 
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)?;
 
-    let lfs = if let Some(storage) = &ducklake.storage.storage {
-        sqlx::query_scalar!("SELECT large_file_storage->'secondary_storage'->$2 FROM workspace_settings WHERE workspace_id = $1", w_id, storage)
-    } else {
-        sqlx::query_scalar!("SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1", w_id)
-    }.fetch_optional(db)
-    .await?
-    .flatten()
-    .map(serde_json::from_value::<LargeFileStorage>)
-    .ok_or_else(|| Error::ExecutionErr("Ducklake storage not found".to_string()))??;
-
-    let s3_resource = transform_json_unchecked(
-        &serde_json::Value::String(lfs.get_s3_resource_path().to_string()),
-        w_id,
-        db,
-    )
-    .await?;
-    let object_store_resource = lfs_to_object_store_resource(&lfs, s3_resource)?;
-
     let catalog_resource =
         if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
             let pg_creds = parse_postgres_url(&get_database_url().await?)?;
@@ -227,7 +204,6 @@ pub async fn get_ducklake_from_db_unchecked(
         };
     let ducklake = DucklakeWithConnData {
         catalog_resource,
-        storage_settings: format_duckdb_connection_settings(object_store_resource)?,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
     };
