@@ -163,7 +163,7 @@
 			return
 		}
 		const data = await doc.saveDocument()
-		const url = URL.createObjectURL(new Blob([data.buffer]))
+		const url = URL.createObjectURL(new Blob([data.buffer as unknown as ArrayBuffer]))
 		const link = document.createElement('a')
 		link.href = url
 		link.download = 'document.pdf'
