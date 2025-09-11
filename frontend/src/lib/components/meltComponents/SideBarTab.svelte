@@ -16,7 +16,7 @@
 	let { dropdownItems = [], fullMenu = false, noTrigger = false, close_button }: Props = $props()
 
 	let open = $state(false)
-	let timeout: NodeJS.Timeout | null = null
+	let timeout: number | null = null
 
 	function handleMouseEnter() {
 		if (!fullMenu) return

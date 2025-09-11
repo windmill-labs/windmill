@@ -8,10 +8,10 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	let shouldRefresh = false
 	let firstLoad = false
-	let progressTimer: NodeJS.Timeout | undefined = undefined
+	let progressTimer: number | undefined = undefined
 
 	$: !firstLoad &&
 		canInitializeAll($initialized?.initializedComponents, $app) &&

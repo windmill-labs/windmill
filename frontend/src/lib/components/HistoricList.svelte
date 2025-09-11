@@ -40,7 +40,7 @@
 	}
 	let cachedArgs: Record<string, any> = {}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function refreshInterval() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(async () => {

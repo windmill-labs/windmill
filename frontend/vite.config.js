@@ -2,7 +2,6 @@ import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import mkcert from 'vite-plugin-mkcert'
-import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -66,9 +65,6 @@ const config = {
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages'
 		],
-		esbuildOptions: {
-			plugins: [importMetaUrlPlugin]
-		}
 	},
 	worker: {
 		format: 'es'

@@ -35,7 +35,7 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	let addressError: string = $state('')
 	async function validateEmailAddress(

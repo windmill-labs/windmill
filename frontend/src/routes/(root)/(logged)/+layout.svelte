@@ -265,7 +265,7 @@
 			$defaultScripts = await WorkspaceService.getDefaultScripts({ workspace })
 		}
 	}
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	async function onUserStore(u: UserExt | undefined) {
 		if (u && timeout) {
 			clearTimeout(timeout)

@@ -56,7 +56,7 @@
 
 	let files: Record<string, string> | undefined = $state(initFiles)
 
-	let draftTimeout: NodeJS.Timeout | undefined = undefined
+	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
 		draftTimeout && clearTimeout(draftTimeout)
 		draftTimeout = setTimeout(() => {

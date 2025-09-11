@@ -18,7 +18,7 @@
 
 	let startedAt: number | undefined = undefined
 	let busy: boolean = false
-	let interval: NodeJS.Timeout | undefined
+	let interval: number | undefined
 	// Detect when execution of job started
 	$: if (
 		!busy &&

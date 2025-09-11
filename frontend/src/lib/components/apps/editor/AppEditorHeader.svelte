@@ -946,7 +946,7 @@
 			customPath
 		})
 	}
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 	async function validateCustomPath(customPath: string): Promise<void> {
 		customPathError = ''
 		if (validateTimeout) {

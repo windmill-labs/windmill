@@ -6,6 +6,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
+	import { urlParamsToObject } from '$lib/utils'
 
 	let client_name = page.params.client_name
 	let error = page.url.searchParams.get('error')
@@ -29,7 +30,7 @@
 		} else if (code && state) {
 			try {
 				const extraParams = Object.fromEntries(
-					Array.from(page.url.searchParams.entries()).filter(
+					Array.from(Object.entries(urlParamsToObject(page.url.searchParams))).filter(
 						([key]) => key !== 'code' && key !== 'state' && key !== 'error'
 					)
 				)

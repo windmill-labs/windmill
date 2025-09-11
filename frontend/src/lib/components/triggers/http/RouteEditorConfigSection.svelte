@@ -41,7 +41,7 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	let routeError: string = $state('')
 	async function validateRoute(

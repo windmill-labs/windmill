@@ -30,7 +30,7 @@
 
 	let loading = $state(false)
 	let visible = $state(false)
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	let tagsToWorkerExists = $state<Record<string, boolean> | undefined>(undefined)
 
 	onMount(() => {

@@ -66,7 +66,7 @@
 	})
 
 	let urlError: string = $state('')
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 	function validateUrl(url: string | undefined) {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)

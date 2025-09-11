@@ -133,7 +133,7 @@
 
 	let args: Record<string, any> | undefined = $state(undefined)
 	let runnableInputValues: Record<string, any> = $state({})
-	let executeTimeout: NodeJS.Timeout | undefined = undefined
+	let executeTimeout: number | undefined = undefined
 
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)

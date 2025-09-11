@@ -123,7 +123,7 @@
 
 	let lastArgs = $state.snapshot(otherArgs)
 
-	let timeout: NodeJS.Timeout | undefined = $state()
+	let timeout: number | undefined = $state()
 	let nargs = $state($state.snapshot(otherArgs))
 	$effect(() => {
 		otherArgs

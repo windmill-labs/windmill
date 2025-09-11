@@ -53,7 +53,7 @@
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function debouncedUpdate() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(updateValue, 500)

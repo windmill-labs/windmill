@@ -92,7 +92,7 @@
 
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
-	let noPingTimeout: NodeJS.Timeout | undefined = undefined
+	let noPingTimeout: number | undefined = undefined
 	let lastNoLogs = $state(noLogs)
 	let lastCompletedJobId = $state<string | undefined>(undefined)
 
