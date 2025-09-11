@@ -738,7 +738,7 @@ pub async fn run_server(
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
