@@ -8,28 +8,24 @@ use windmill_common::{
     db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, Step},
-    get_latest_hash_for_path,
-    scripts::{get_full_hub_script_by_path, ScriptHash},
-    utils::{StripPath, HTTP_CLIENT},
+    flows::{FlowModuleValue, Step},
+    utils::HTTP_CLIENT,
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy,
-    JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
+    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, JobCompleted, MiniPulledJob,
+    PushArgs, PushIsolationLevel,
 };
 
 use crate::{
     ai::{
-        image_handler::{upload_image_to_s3},
+        image_handler::upload_image_to_s3,
         query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse},
         types::*,
         utils::is_anthropic_provider,
     },
     common::{error_to_value, OccupancyMetrics},
-    create_job_dir,
-    handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job,
+    create_job_dir, handle_queued_job,
     result_processor::handle_non_flow_job_error,
     worker_flow::{raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
@@ -212,8 +208,7 @@ pub async fn run_agent_unified(
         let schema = args.output_schema.as_ref().unwrap();
         if is_anthropic {
             // Anthropic uses a tool for structured output
-            let unique_tool_name =
-                find_unique_tool_name("structured_output", tool_defs.as_deref());
+            let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
             structured_output_tool_name = Some(unique_tool_name.clone());
 
             let output_tool = ToolDef {
@@ -264,7 +259,7 @@ pub async fn run_agent_unified(
                 .await?;
 
             let endpoint = query_builder.get_endpoint(&base_url, output_type);
-            
+
             let resp = HTTP_CLIENT
                 .post(&endpoint)
                 .timeout(std::time::Duration::from_secs(120))
@@ -278,7 +273,7 @@ pub async fn run_agent_unified(
             match resp.error_for_status_ref() {
                 Ok(_) => {
                     let parsed = query_builder.parse_response(resp).await?;
-                    
+
                     match parsed {
                         ParsedResponse::Image { base64_data } => {
                             // Upload to S3
@@ -298,10 +293,7 @@ pub async fn run_agent_unified(
                         .text()
                         .await
                         .unwrap_or_else(|_| "<failed to read body>".to_string());
-                    return Err(Error::internal_err(format!(
-                        "API error: {} - {}",
-                        e, text
-                    )));
+                    return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
                 }
             }
         }
@@ -327,7 +319,7 @@ pub async fn run_agent_unified(
             .await?;
 
         let endpoint = query_builder.get_endpoint(&base_url, output_type);
-        
+
         let resp = HTTP_CLIENT
             .post(&endpoint)
             .timeout(std::time::Duration::from_secs(120))
@@ -341,7 +333,7 @@ pub async fn run_agent_unified(
         match resp.error_for_status_ref() {
             Ok(_) => {
                 let parsed = query_builder.parse_response(resp).await?;
-                
+
                 match parsed {
                     ParsedResponse::Text { content: response_content, tool_calls } => {
                         if let Some(ref response_content) = response_content {
@@ -353,9 +345,11 @@ pub async fn run_agent_unified(
                                 ..Default::default()
                             });
 
-                            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-                            update_flow_status_module_with_actions_success(db, parent_job, true).await?;
-                            
+                            update_flow_status_module_with_actions(db, parent_job, &actions)
+                                .await?;
+                            update_flow_status_module_with_actions_success(db, parent_job, true)
+                                .await?;
+
                             content = Some(OpenAIContent::Text(response_content.clone()));
                         }
 
@@ -398,7 +392,8 @@ pub async fn run_agent_unified(
                                     agent_action: Some(AgentAction::Message {}),
                                     ..Default::default()
                                 });
-                                content = Some(OpenAIContent::Text(tool_call.function.arguments.clone()));
+                                content =
+                                    Some(OpenAIContent::Text(tool_call.function.arguments.clone()));
                                 break;
                             }
 
@@ -414,11 +409,13 @@ pub async fn run_agent_unified(
                                     module_id: tool.module.id.clone(),
                                 });
 
-                                update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                                update_flow_status_module_with_actions(db, parent_job, &actions)
+                                    .await?;
 
-                                let tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-                                    &tool_call.function.arguments,
-                                )?;
+                                let tool_call_args =
+                                    serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+                                        &tool_call.function.arguments,
+                                    )?;
 
                                 let job_payload = match tool.module.get_value()? {
                                     FlowModuleValue::Script {
@@ -451,7 +448,11 @@ pub async fn run_agent_unified(
                                         ..
                                     } => {
                                         let path = path.unwrap_or_else(|| {
-                                            format!("{}/tools/{}", job.runnable_path(), tool.module.id)
+                                            format!(
+                                                "{}/tools/{}",
+                                                job.runnable_path(),
+                                                tool.module.id
+                                            )
                                         });
 
                                         let payload = raw_script_to_payload(
@@ -478,9 +479,13 @@ pub async fn run_agent_unified(
 
                                 let mut tx = db.begin().await?;
 
-                                let job_perms = windmill_common::auth::get_job_perms(&mut *tx, &job.id, &job.workspace_id)
-                                    .await?
-                                    .map(|x| x.into());
+                                let job_perms = windmill_common::auth::get_job_perms(
+                                    &mut *tx,
+                                    &job.id,
+                                    &job.workspace_id,
+                                )
+                                .await?
+                                .map(|x| x.into());
 
                                 let (email, permissioned_as) =
                                     if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
@@ -526,7 +531,9 @@ pub async fn run_agent_unified(
                                 let tool_job = get_mini_pulled_job(db, &uuid).await?;
 
                                 let Some(tool_job) = tool_job else {
-                                    return Err(Error::internal_err("Tool job not found".to_string()));
+                                    return Err(Error::internal_err(
+                                        "Tool job not found".to_string(),
+                                    ));
                                 };
 
                                 let tool_job = Arc::new(tool_job);
@@ -567,7 +574,8 @@ pub async fn run_agent_unified(
                                 .await
                                 {
                                     Err(err) => {
-                                        let err_string = format!("{}: {}", err.name(), err.to_string());
+                                        let err_string =
+                                            format!("{}: {}", err.name(), err.to_string());
                                         let err_json = error_to_value(&err);
                                         let _ = handle_non_flow_job_error(
                                             db,
@@ -599,16 +607,23 @@ pub async fn run_agent_unified(
                                         .await?;
                                     }
                                     Ok(success) => {
-                                        let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
+                                        let send_result =
+                                            inner_job_completed_rx.bounded_rx.try_recv().ok();
 
                                         let result = if let Some(SendResult {
                                             result:
-                                                SendResultPayload::JobCompleted(JobCompleted { result, .. }),
+                                                SendResultPayload::JobCompleted(JobCompleted {
+                                                    result,
+                                                    ..
+                                                }),
                                             ..
                                         }) = send_result.as_ref()
                                         {
                                             job_completed_tx
-                                                .send(send_result.as_ref().unwrap().result.clone(), true)
+                                                .send(
+                                                    send_result.as_ref().unwrap().result.clone(),
+                                                    true,
+                                                )
                                                 .await
                                                 .map_err(to_anyhow)?;
                                             result
@@ -626,7 +641,9 @@ pub async fn run_agent_unified(
 
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(result.get().to_string())),
+                                            content: Some(OpenAIContent::Text(
+                                                result.get().to_string(),
+                                            )),
                                             tool_call_id: Some(tool_call.id.clone()),
                                             agent_action: Some(AgentAction::ToolCall {
                                                 job_id,
@@ -662,10 +679,7 @@ pub async fn run_agent_unified(
                     .text()
                     .await
                     .unwrap_or_else(|_| "<failed to read body>".to_string());
-                return Err(Error::internal_err(format!(
-                    "API error: {} - {}",
-                    e, text
-                )));
+                return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
             }
         }
     }
@@ -680,13 +694,11 @@ pub async fn run_agent_unified(
     let output_value = match content {
         Some(content_str) => match has_output_properties {
             true => match content_str {
-                OpenAIContent::Text(text) => serde_json::from_str::<Box<RawValue>>(&text)
-                    .map_err(|_e| {
-                        Error::internal_err(format!(
-                            "Failed to parse structured output: {}",
-                            text
-                        ))
-                    }),
+                OpenAIContent::Text(text) => {
+                    serde_json::from_str::<Box<RawValue>>(&text).map_err(|_e| {
+                        Error::internal_err(format!("Failed to parse structured output: {}", text))
+                    })
+                }
                 OpenAIContent::Parts(_parts) => Err(Error::internal_err(
                     "Failed to parse structured output".to_string(),
                 )),

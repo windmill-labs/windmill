@@ -2,16 +2,14 @@ use async_recursion::async_recursion;
 use base64::Engine;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
     ai_providers::AIProvider,
-    auth::get_job_perms,
     cache,
     client::AuthedClient,
     db::DB,
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_status::AgentAction,
     flows::{FlowModuleValue, Step},
     get_latest_hash_for_path,
@@ -21,127 +19,17 @@ use windmill_common::{
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{
-    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy, JobCompleted,
-    MiniPulledJob, PushArgs, PushIsolationLevel,
-};
+use windmill_queue::{flow_status::get_step_of_flow_status, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::types::*,
-    ai::utils::is_anthropic_provider,
-    common::{build_args_map, error_to_value, OccupancyMetrics},
-    create_job_dir,
+    common::{build_args_map, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job, parse_sig_of_lang,
-    result_processor::handle_non_flow_job_error,
-    worker_flow::{raw_script_to_payload, script_to_payload},
-    JobCompletedSender, SendResult, SendResultPayload,
+    parse_sig_of_lang, JobCompletedSender,
 };
-
-const MAX_AGENT_ITERATIONS: usize = 10;
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-}
-
-// All types are now imported from ai::types
-
-/// Find a unique tool name to avoid collisions with user-provided tools
-fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
-    let Some(tools) = existing_tools else {
-        return base_name.to_string();
-    };
-
-    if !tools.iter().any(|t| t.function.name == base_name) {
-        return base_name.to_string();
-    }
-
-    for i in 1..100 {
-        let candidate = format!("{}_{}", base_name, i);
-        if !tools.iter().any(|t| t.function.name == candidate) {
-            return candidate;
-        }
-    }
-
-    // Fallback with process id if somehow we can't find a unique name
-    format!("{}_{}_fallback", base_name, std::process::id())
-}
-
-/// Helper function to download an S3 image and convert it to a base64 data URL
-async fn download_and_encode_s3_image(
-    image: &S3Object,
-    client: &AuthedClient,
-    workspace_id: &str,
-) -> error::Result<String> {
-    // Download the image from S3
-    let image_bytes = client
-        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
-
-    // Encode as base64 data URL
-    let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
-
-    // Determine MIME type based on file extension or default to PNG
-    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if image.s3.ends_with(".gif") {
-        "image/gif"
-    } else if image.s3.ends_with(".webp") {
-        "image/webp"
-    } else {
-        "image/png" // default
-    };
-
-    Ok(format!("data:{};base64,{}", mime_type, base64_data))
-}
-
-/// Convert messages with S3Objects to messages with base64 image URLs for API calls
-async fn prepare_messages_for_api(
-    messages: &[OpenAIMessage],
-    client: &AuthedClient,
-    workspace_id: &str,
-) -> error::Result<Vec<OpenAIMessage>> {
-    let mut prepared_messages = Vec::new();
-
-    for message in messages {
-        let mut prepared_message = message.clone();
-
-        if let Some(content) = &message.content {
-            match content {
-                OpenAIContent::Text(text) => {
-                    prepared_message.content = Some(OpenAIContent::Text(text.clone()));
-                }
-                OpenAIContent::Parts(parts) => {
-                    let mut prepared_content = Vec::new();
-
-                    for part in parts {
-                        match part {
-                            ContentPart::S3Object { s3_object } => {
-                                // Convert S3Object to base64 image URL
-                                let image_data_url =
-                                    download_and_encode_s3_image(s3_object, client, workspace_id)
-                                        .await?;
-                                prepared_content.push(ContentPart::ImageUrl {
-                                    image_url: ImageUrlData { url: image_data_url },
-                                });
-                            }
-                            other => {
-                                // Keep Text and ImageUrl as-is
-                                prepared_content.push(other.clone());
-                            }
-                        }
-                    }
-
-                    prepared_message.content = Some(OpenAIContent::Parts(prepared_content));
-                }
-            }
-        }
-
-        prepared_messages.push(prepared_message);
-    }
-
-    Ok(prepared_messages)
 }
 
 /// Generate image from provider and extract base64 data

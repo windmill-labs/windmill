@@ -1,15 +1,8 @@
 use base64::Engine;
 use futures;
-use serde_json;
 use ulid;
-use windmill_common::{
-    client::AuthedClient,
-    error::Error,
-    s3_helpers::S3Object,
-};
+use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
 use windmill_queue::MiniPulledJob;
-
-use crate::ai::types::*;
 
 /// Upload image to S3 and return S3Object
 pub async fn upload_image_to_s3(
