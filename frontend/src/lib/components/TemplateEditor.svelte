@@ -1,20 +1,6 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
-
 	console.log('setDiagnosticsOptions 2', languages)
 </script>
 
@@ -41,6 +27,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
 
 	export const conf = {
 		wordPattern:
@@ -438,9 +425,8 @@
 	let jsLoader: NodeJS.Timeout | undefined = undefined
 	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
-		console.log('init template')
+		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
-		console.log('initialized')
 		initialized = true
 
 		languages.register({ id: 'template' })
