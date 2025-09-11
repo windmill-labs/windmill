@@ -826,15 +826,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         ))
                     })?;
 
-                    // TODO: Move to the end to prevent race conditions
-                    sqlx::query!(
-                        "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3",
-                        new_version,
-                        &s.importer_path,
-                        w_id
-                    )
-                    .execute(&mut *tx)
-                    .await?;
                     //     // Find out what would be the next version.
                     //     // Also clone current flow_version to get new_version (which is usually c_v + 1).
                     //     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
@@ -1645,7 +1636,6 @@ async fn insert_flow_node<'c>(
             hasher.update(
                 relative_imports_bytes(&mut *tx, code, &format!("{path}/flow"), language).await?,
             );
-            // TODO: Check if using relative relative and not absolute works
         }
         format!("{:x}", hasher.finalize())
     };
@@ -2208,6 +2198,12 @@ pub async fn handle_app_dependency_job(
         })
         .flatten();
 
+    let triggered_by_relative_import = job
+        .args
+        .as_ref()
+        .map(|x| x.get("triggered_by_relative_import").is_some())
+        .unwrap_or_default();
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -2221,6 +2217,7 @@ pub async fn handle_app_dependency_job(
         .await?
         .map(|record| (record.app_id, record.value));
 
+    // TODO: Use transaction for entire segment?
     if let Some((app_id, value)) = record {
         let value = lock_modules_app(
             value,
@@ -2274,6 +2271,20 @@ pub async fn handle_app_dependency_job(
             .execute(db)
             .await?;
 
+        // NOTE: Temporary solution.
+        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the app.
+        // NOTE: For now is not solving any problem but at some point we will introduce latest version caching
+        // and when we do this will be last operation that will make new version appear as the latest and will trigger cache invalidation for all worker.
+        if triggered_by_relative_import {
+            sqlx::query!(
+                "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3",
+                id,
+                &job_path,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await?;
+        }
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
