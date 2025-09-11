@@ -1,32 +1,40 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import type { GraphModuleState } from './graph'
+	import type { DurationStatus, GlobalIterationBounds, GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
+	import FlowTimelineCompute from './FlowTimelineCompute.svelte'
 	import { untrack } from 'svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import type { NavigationChain } from '$lib/keyboardChain'
+	import { getDbClockNow } from '$lib/forLater'
 
 	interface Props {
 		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
+		localDurationStatuses?: Record<string, DurationStatus>
+		globalIterationBounds?: Record<string, GlobalIterationBounds>
 		workspaceId: string | undefined
 		render: boolean
-		onSelectedIteration: (
+		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
 		mode?: 'flow' | 'aiagent'
+		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 
 	let {
 		job,
 		localModuleStates,
+		localDurationStatuses,
 		workspaceId,
 		render,
 		onSelectedIteration,
-		mode = 'flow'
+		mode = 'flow',
+		globalIterationBounds,
+		loadPreviousIterations
 	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
@@ -37,6 +45,20 @@
 	// Keyboard navigation state - incremental like expandedRows
 	let currentId = $state<string | null>('flow-root')
 	let navigationChain = $state<NavigationChain>({})
+
+	// Timeline state
+	let timelineCompute = $state<FlowTimelineCompute | undefined>(undefined)
+	let timelineMin = $state<number | undefined>(undefined)
+	let timelineMax = $state<number | undefined>(undefined)
+	let timelineTotal = $state<number | undefined>(undefined)
+	let timelineItems = $state<
+		| Record<
+				string,
+				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+		  >
+		| undefined
+	>(undefined)
+	let timelineNow = $state<number>(getDbClockNow().getTime())
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
@@ -97,6 +119,33 @@
 	function select(id: string) {
 		currentId = id
 	}
+
+	let timelineAvailableWidths = $state<Record<string, number>>({})
+	let lastJobId: string | undefined = $state(job.id)
+
+	const timelinelWidth = $derived(
+		Math.max(Math.min(...Object.values(timelineAvailableWidths)) - 12, 0)
+	)
+
+	function updateJobId() {
+		if (job.id !== lastJobId) {
+			lastJobId = job.id
+			navigationChain = {}
+			expandedRows = {}
+			timelineAvailableWidths = {}
+			currentId = 'flow-root'
+			allExpanded = false
+			showResultsInputs = true
+			timelineCompute?.reset()
+		}
+	}
+
+	$effect.pre(() => {
+		job.id
+		untrack(() => {
+			job.id && updateJobId()
+		})
+	})
 </script>
 
 <div
@@ -105,6 +154,19 @@
 	tabindex="0"
 	onkeydown={handleKeydown}
 >
+	{#if localDurationStatuses}
+		<FlowTimelineCompute
+			flowModules={modules.map((m) => m.id)}
+			durationStatuses={localDurationStatuses}
+			flowDone={job.type === 'CompletedJob'}
+			bind:min={timelineMin}
+			bind:max={timelineMax}
+			bind:total={timelineTotal}
+			bind:items={timelineItems}
+			bind:now={timelineNow}
+			bind:this={timelineCompute}
+		/>
+	{/if}
 	<FlowLogViewer
 		{modules}
 		{localModuleStates}
@@ -119,10 +181,17 @@
 		{render}
 		{getSelectedIteration}
 		flowId="root"
-		flowStatus={undefined}
 		{mode}
 		{currentId}
 		bind:navigationChain
 		{select}
+		{timelineMin}
+		{timelineTotal}
+		{timelineItems}
+		{timelineNow}
+		bind:timelineAvailableWidths
+		{timelinelWidth}
+		{globalIterationBounds}
+		{loadPreviousIterations}
 	/>
 </div>

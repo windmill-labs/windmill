@@ -9,9 +9,11 @@
 	export let path: string
 	export let selected: string | undefined = undefined
 	export let selectInitial: boolean = false
+	export let loading: boolean = false
 	const dispatch = createEventDispatcher()
 
 	async function loadInitial() {
+		loading = true
 		let jobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
@@ -26,6 +28,7 @@
 		} else {
 			dispatch('nohistory')
 		}
+		loading = false
 	}
 
 	$: $workspaceStore && loadInitial()
