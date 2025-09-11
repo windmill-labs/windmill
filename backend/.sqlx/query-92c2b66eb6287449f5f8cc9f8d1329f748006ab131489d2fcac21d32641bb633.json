@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \n                gcp_trigger \n            SET \n                server_id = $1, \n                last_server_ping = now(),\n                error = 'Connecting...'\n            WHERE \n                enabled IS TRUE \n                AND workspace_id = $2 \n                AND path = $3 \n                AND (last_server_ping IS NULL \n                    OR last_server_ping < now() - INTERVAL '15 seconds'\n                ) \n            RETURNING true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "92c2b66eb6287449f5f8cc9f8d1329f748006ab131489d2fcac21d32641bb633"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \n                        capture_config \n                    SET \n                        last_server_ping = NULL \n                    WHERE \n                        workspace_id = $1 AND \n                        path = $2 AND \n                        is_flow = $3 AND \n                        trigger_kind = 'sqs' AND \n                        server_id IS NULL\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20e01ecb5d4aa4c532a8f906365c776994ae2c990bb7bb307c52296b9543fbb8"
+}

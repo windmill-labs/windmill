@@ -674,6 +674,27 @@ paths:
               schema:
                 type: string
 
+  /workspaces/create_fork:
+    post:
+      summary: create forked workspace
+      operationId: createWorkspaceFork
+      tags:
+        - workspace
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -1561,6 +1582,9 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                parent_workspace_id:
+                  type: string
+                  nullable: true
               required:
                 - email
                 - is_admin
@@ -17531,6 +17555,12 @@ components:
                 type: string
               operator_settings:
                 $ref: "#/components/schemas/OperatorSettings"
+              parent_workspace_id:
+                type: string
+                nullable: true
+              created_by:
+                type: string
+                nullable: true
             required:
               - id
               - name
@@ -17555,6 +17585,24 @@ components:
         - id
         - name
 
+    CreateWorkspaceFork:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        color:
+          type: string
+        parent_workspace_id:
+          type: string
+      required:
+        - id
+        - name
+        - parent_workspace_id
+
     Workspace:
       type: object
       properties:
@@ -17568,10 +17616,14 @@ components:
           type: string
         color:
           type: string
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - id
         - name
         - owner
+        - created_at
 
     WorkspaceInvite:
       type: object
@@ -17584,6 +17636,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - workspace_id
         - email

@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username FROM password",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "password_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "login_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "company",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "first_time_user",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "598d4be56bb8c5174b279c183fffa96f763e48316fb7420f2aad733562cab582"
+}

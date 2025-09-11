@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \n                postgres_trigger\n            SET \n                last_server_ping = now(),\n                error = $1\n            WHERE\n                workspace_id = $2\n                AND path = $3\n                AND server_id = $4 \n                AND enabled IS TRUE\n            RETURNING 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9116102c6ccad5b0d752d5d690c233dfe48062aef23072b4f4ae4ab5ca269082"
+}
