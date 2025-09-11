@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AnsiUp } from 'ansi_up/ansi_up'
+	import { AnsiUp } from 'ansi_up'
 
 	export let content: string
 	export let highlighted: any[]
