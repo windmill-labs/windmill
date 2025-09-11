@@ -23,6 +23,5 @@ jobs:
           cache-dependency-path: "frontend/package-lock.json"
       - name: "npm check"
         timeout-minutes: 5
-        run:
-          cd frontend && npm ci && npm run generate-backend-client && ls && npm run
+        run: cd frontend && npm ci && npm run generate-backend-client && npm run
           check
