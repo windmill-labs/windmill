@@ -6,6 +6,7 @@
 	import DurationMs from './DurationMs.svelte'
 	import { Calendar, CheckCircle2, Circle, Clock, Hourglass, Play, XCircle } from 'lucide-svelte'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
+	import QueuePosition from './QueuePosition.svelte'
 
 	const SMALL_ICON_SIZE = 12
 
@@ -60,6 +61,7 @@
 	<div class="flex flex-row gap-1 items-center">
 		<Badge color="orange" icon={{ icon: Clock, position: 'left' }}>Queued</Badge>
 		<NoWorkerWithTagWarning tag={job.tag} />
+		<QueuePosition jobId={job.id} workspaceId={job.workspace_id} minimal />
 	</div>
 {:else}
 	<Circle size={SMALL_ICON_SIZE} class="text-gray-200" />

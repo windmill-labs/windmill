@@ -1,0 +1,88 @@
+<script lang="ts">
+	import { JobService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+
+	let {
+		jobId,
+		workspaceId,
+		minimal = false
+	}: { jobId: string; workspaceId?: string | undefined; minimal?: boolean } = $props()
+
+	let queuePositionInterval: NodeJS.Timeout | undefined
+	let queueState = $state(undefined) as undefined | { position?: number }
+
+	let fetchingQueuePosition = false
+
+	let workspace = $derived(workspaceId ?? $workspaceStore)
+
+	let scheduledFor = $state(undefined) as undefined | number
+
+	let scheduledForTimeout: NodeJS.Timeout | undefined
+	$effect(() => {
+		if (jobId && workspace) {
+			clearTimeout(scheduledForTimeout)
+			queueState = undefined
+			scheduledForTimeout = setTimeout(() => {
+				JobService.getScheduledFor({
+					workspace: workspace,
+					id: jobId
+				}).then((response) => {
+					scheduledFor = response
+				})
+			}, 2000)
+		}
+	})
+
+	$effect(() => {
+		// Fetch queue position when loading and we have jobId
+		if (scheduledFor) {
+			// Initial fetch
+			fetchQueuePosition()
+
+			// Set up interval to refresh every 2 seconds
+			queuePositionInterval = setInterval(() => {
+				fetchQueuePosition()
+			}, 5000)
+		} else {
+			// Clear interval when not loading
+			if (queuePositionInterval) {
+				clearInterval(queuePositionInterval)
+				queuePositionInterval = undefined
+			}
+			queueState = undefined
+		}
+
+		return () => {
+			if (queuePositionInterval) {
+				scheduledForTimeout && clearTimeout(scheduledForTimeout)
+				clearInterval(queuePositionInterval)
+			}
+		}
+	})
+
+	async function fetchQueuePosition() {
+		if (!workspace || !scheduledFor || fetchingQueuePosition) return
+
+		try {
+			fetchingQueuePosition = true
+			queueState = await JobService.getQueuePosition({
+				workspace: workspace,
+				scheduledFor: scheduledFor
+			})
+		} catch (error) {
+			console.error('Failed to fetch queue position:', error)
+			queueState = undefined
+		} finally {
+			fetchingQueuePosition = false
+		}
+	}
+</script>
+
+{#if queueState}
+	<div class="text-small ml-4">
+		<span class="text-orange-600">Queue position: <b>{queueState.position}</b></span>
+		{#if !minimal}
+			<span class="ml-2 text-tertiary">(Waiting for an available worker)</span>
+		{/if}
+	</div>
+{/if}
