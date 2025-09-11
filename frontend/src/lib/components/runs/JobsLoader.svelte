@@ -198,7 +198,7 @@
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
 				perPage,
-				allowWildcards
+				allowWildcards: allowWildcards ? true : undefined
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
