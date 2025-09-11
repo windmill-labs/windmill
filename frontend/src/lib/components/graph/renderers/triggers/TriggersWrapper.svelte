@@ -7,6 +7,9 @@
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import Portal from '$lib/components/Portal.svelte'
+	import { flip, offset } from 'svelte-floating-ui/dom'
+	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
 	interface Props {
 		path: string
@@ -41,9 +44,19 @@
 
 	let hover = $state(false)
 	let addTriggersButton = $state<AddTriggersButton | undefined>(undefined)
+
+	let floatingConfig: ComputeConfig = {
+		strategy: 'fixed',
+		// @ts-ignore
+		placement: 'bottom',
+		middleware: [offset(8), flip()],
+		autoUpdate: true
+	}
+
+	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 </script>
 
-<div style={`width: ${NODE.width}px;`}>
+<div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
 		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
 		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-sm {selected
@@ -83,10 +96,6 @@
 					showTriggerScriptPicker = true
 				}}
 				class="w-fit h-fit"
-				triggerScriptPicker={showTriggerScriptPicker ? triggerScriptPicker : undefined}
-				onClose={() => {
-					showTriggerScriptPicker = false
-				}}
 				isEditor
 				{onAddDraftTrigger}
 			>
@@ -100,20 +109,25 @@
 	</button>
 </div>
 
-{#snippet triggerScriptPicker()}
-	<div class="border rounded-lg shadow-lg bg-surface z5000">
-		<InsertModuleInner
-			{disableAi}
-			on:new
-			on:pickScript
-			on:select
-			on:open={() => {
-				dispatch('openScheduledPoll')
-			}}
-			on:close={() => {
-				addTriggersButton?.close()
-			}}
-			kind="trigger"
-		/>
-	</div>
-{/snippet}
+{#if showTriggerScriptPicker}
+	<Portal target="#flow-editor">
+		<div
+			class="border rounded-lg shadow-lg bg-surface z5000"
+			style="position:absolute"
+			use:floatingContent
+		>
+			<InsertModuleInner
+				{disableAi}
+				on:new={(e) => {
+					showTriggerScriptPicker = false
+					dispatch('new', e.detail)
+				}}
+				on:pickScript={(e) => {
+					showTriggerScriptPicker = false
+					dispatch('pickScript', e.detail)
+				}}
+				kind="trigger"
+			/>
+		</div>
+	</Portal>
+{/if}

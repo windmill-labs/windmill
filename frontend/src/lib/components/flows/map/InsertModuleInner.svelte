@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { createEventDispatcher, getContext } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
@@ -41,7 +39,7 @@
 
 	let displayPath = $derived(width > 650 || height > 400)
 
-	run(() => {
+	$effect(() => {
 		small = kind === 'preprocessor' || kind === 'failure'
 	})
 </script>
