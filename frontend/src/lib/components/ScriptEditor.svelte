@@ -48,6 +48,8 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import { editor as meditor } from 'monaco-editor'
+	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 
 	interface Props {
 		// Exported
@@ -80,6 +82,7 @@
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -110,7 +113,8 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right
+		editor_bar_right,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -403,7 +407,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -429,9 +433,9 @@
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
-			aiChatManager.scriptEditorApplyCode = (code: string, applyAll: boolean = false) => {
+			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
-				editor?.reviewAndApplyCode(code, applyAll)
+				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 		})
@@ -624,18 +628,32 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						{enablePreprocessorSnippet}
 					/>
 					<DiffEditor
-						class="h-full"
+						className="h-full"
 						bind:this={diffEditor}
+						modifiedModel={editor?.getModel() as meditor.ITextModel}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						showButtons={diffMode}
-						on:hideDiffMode={hideDiffMode}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
+						buttons={diffMode
+							? [
+									{
+										text: 'See changes history',
+										onClick: () => {
+											showHistoryDrawer = true
+										}
+									},
+									{
+										text: 'Quit diff mode',
+										onClick: () => {
+											hideDiffMode()
+										},
+										color: 'red'
+									}
+								]
+							: []}
 					/>
 				{/key}
 			</div>

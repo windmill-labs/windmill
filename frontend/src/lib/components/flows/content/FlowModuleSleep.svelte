@@ -11,6 +11,7 @@
 	import { SecondsInput } from '../../common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import { getStepPropPicker } from '../previousResults'
 
 	interface Props {
 		flowModule: FlowModule
@@ -19,14 +20,26 @@
 
 	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
+	const { selectedId, flowStore, flowStateStore, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	let schema = $state(emptySchema())
 	schema.properties['sleep'] = {
 		type: 'number'
 	}
 
 	let editor: SimpleEditor | undefined = $state(undefined)
+
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
+	)
 
 	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
 
@@ -62,6 +75,7 @@
 			<div class="border">
 				<PropPickerWrapper
 					noFlowPlugConnect={true}
+					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					{result}
 					displayContext={false}

@@ -41,7 +41,7 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	let routeError: string = $state('')
 	async function validateRoute(
@@ -166,7 +166,7 @@
 						<Toggle
 							size="sm"
 							checked={workspaced_route}
-							disabled={!can_write}
+							disabled={!can_write || !userCanEditConfig}
 							on:change={() => {
 								workspaced_route = !workspaced_route
 								dirtyRoutePath = true

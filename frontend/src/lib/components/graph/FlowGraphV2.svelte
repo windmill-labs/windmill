@@ -487,7 +487,7 @@
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),
-			untrack(() => preprocessorModule),
+			preprocessorModule,
 			eventHandler,
 			success,
 			$useDataflow,
@@ -514,7 +514,7 @@
 			$selectedId !== 'triggers'
 	)
 	let debouncedWidth: number | undefined = $state(undefined)
-	let timeout: NodeJS.Timeout | undefined = $state(undefined)
+	let timeout: number | undefined = $state(undefined)
 	$effect(() => {
 		if (!debouncedWidth) {
 			return

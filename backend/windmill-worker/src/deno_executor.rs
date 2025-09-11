@@ -412,6 +412,7 @@ try {{
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
             .args(args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
@@ -538,6 +539,8 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,

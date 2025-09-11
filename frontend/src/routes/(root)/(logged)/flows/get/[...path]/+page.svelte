@@ -8,13 +8,13 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { Alert, Badge as HeaderBadge } from '$lib/components/common'
+	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -75,7 +75,7 @@
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
 
-	let intervalId: NodeJS.Timeout | undefined = undefined
+	let intervalId: number | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -83,7 +83,7 @@
 	const triggersState = $state(
 		new Triggers([
 			{ type: 'webhook', path: '', isDraft: false },
-			{ type: 'email', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
 			{ type: 'cli', path: '', isDraft: false }
 		])
 	)
@@ -203,7 +203,10 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
@@ -501,6 +504,10 @@
 		{#if flow}
 			<div class="flex-col flex h-full justify-between">
 				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
+					{#if flow?.archived}
+						<Alert type="error" title="Archived">This flow was archived</Alert>
+					{/if}
+
 					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
 							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
@@ -582,11 +589,6 @@
 						<span class="text-sm text-tertiary">
 							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 						</span>
-
-						{#if flow.archived}
-							<div class=""></div>
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-						{/if}
 					</div>
 				</div>
 				<div class="mt-8">

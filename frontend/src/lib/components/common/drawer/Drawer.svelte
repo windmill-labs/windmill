@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
@@ -17,6 +17,7 @@
 		disableChatOffset?: boolean
 		class?: string | undefined
 		positionClass?: string | undefined
+		name?: string
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -32,7 +33,8 @@
 		disableChatOffset = false,
 		class: clazz = '',
 		positionClass = undefined,
-		children
+		name = undefined,
+		children: children_render
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -52,11 +54,12 @@
 	}
 
 	export function closeDrawer() {
+		if (open) {
+			setTimeout(() => {
+				dispatch('afterClose')
+			}, durationMs)
+		}
 		disposable?.closeDrawer()
-
-		setTimeout(() => {
-			dispatch('afterClose')
-		}, durationMs)
 	}
 
 	export function isOpen() {
@@ -83,7 +86,10 @@
 	})
 
 	$effect(() => {
-		open ? openDrawer() : closeDrawer()
+		open
+		untrack(() => {
+			open ? openDrawer() : closeDrawer()
+		})
 	})
 
 	let timeout = $state(true)
@@ -94,7 +100,6 @@
 		mounted = true
 	})
 
-	const children_render = $derived(children)
 	const aiChatOpen = $derived(chatState.size > 0)
 </script>
 
@@ -103,15 +108,14 @@
 		initialOffset={offset}
 		bind:open
 		bind:this={disposable}
-		on:open
-		on:close
+		onOpen={() => dispatch('open')}
+		onClose={() => dispatch('close')}
 		{preventEscape}
 	>
-		{#snippet children({ handleClickAway, zIndex })}
+		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
-				class="drawer windmill-app windmill-drawer {clazz ?? ''} {positionClass ?? ''} {aiChatOpen
-					? 'respect-global-chat'
-					: ''}"
+				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
+					''} {positionClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
 				class:open
 				class:close={!open && timeout}
 				class:global-chat-open={aiChatOpen}
@@ -122,7 +126,7 @@
 				<div class="overlay {positionClass ?? ''}" onclick={handleClickAway}></div>
 				<div class="panel {placement} {positionClass}" class:size>
 					{#if open || !timeout || alwaysOpen}
-						{@render children_render?.({ open })}
+						{@render children_render?.({ open, isTop })}
 					{/if}
 				</div>
 			</aside>

@@ -9,7 +9,7 @@
 		emptySchema,
 		emptyString,
 		getSchemaFromProperties,
-		type DynamicSelect
+		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -36,7 +36,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
-	import DynSelect from './DynSelect.svelte'
+	import DynamicInput from './DynamicInput.svelte'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import MultiSelect from './select/MultiSelect.svelte'
@@ -45,6 +45,7 @@
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
+	import AIProviderPicker from './AIProviderPicker.svelte'
 
 	interface Props {
 		label?: string
@@ -97,7 +98,7 @@
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
-		helperScript?: DynamicSelect.HelperScript
+		helperScript?: DynamicInputTypes.HelperScript
 		otherArgs?: Record<string, any>
 		lightHeader?: boolean
 		diffStatus?: SchemaDiff | undefined
@@ -339,7 +340,7 @@
 
 	let setCodeDisabled = false
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function setNewValueFromCode(nvalue: any) {
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue
@@ -375,7 +376,12 @@
 			el.style.height = el.scrollHeight + 50 + 'px'
 		}
 	}
-
+	const EMAIL_PATTERN = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
+	const IPV4_PATTERN =
+		'^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+	const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+	const IPV6_PATTERN =
+		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (nullable && emptyString(v)) {
 			error = ''
@@ -397,6 +403,14 @@
 					error = ''
 					!valid && (valid = true)
 				}
+			} else if (type == 'string' && format == 'email' && !testRegex(EMAIL_PATTERN, v)) {
+				error = 'invalid email address'
+			} else if (type == 'string' && format == 'ipv4' && !testRegex(IPV4_PATTERN, v)) {
+				error = 'invalid IPv4 address'
+			} else if (type == 'string' && format == 'ipv6' && !testRegex(IPV6_PATTERN, v)) {
+				error = 'invalid IPv6 address'
+			} else if (type == 'string' && format == 'uuid' && !testRegex(UUID_PATTERN, v)) {
+				error = 'invalid UUID'
 			} else if (pattern && !testRegex(pattern, v)) {
 				if (!emptyString(customErrorMessage)) {
 					error = customErrorMessage ?? ''
@@ -677,6 +691,19 @@
 					editTab="inputEditor"
 					noPreview
 					addPropertyInEditorTab
+					on:delete={(e) => {
+						// Handle property deletion
+						if (value && value.properties && value.properties[e.detail]) {
+							delete value.properties[e.detail]
+							// Also remove from order array if it exists
+							if (value.order) {
+								value.order = value.order.filter((key) => key !== e.detail)
+							}
+							// Update the value to trigger reactivity
+							value = { ...value }
+							dispatch('change')
+						}
+					}}
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
@@ -904,14 +931,8 @@
 					/>
 				</div>
 			</div>
-		{:else if inputCat == 'dynselect'}
-			<DynSelect
-				name={label}
-				{otherArgs}
-				{helperScript}
-				bind:value
-				entrypoint={format?.substring('dynselect_'.length) ?? ''}
-			/>
+		{:else if inputCat == 'dynamic'}
+			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-tertiary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
@@ -937,11 +958,21 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								const prevValueKeys = Object.keys(
+								const selectedObjProperties =
 									oneOf?.find((o) => o.title == detail)?.properties ?? {}
-								)
+								const newValueKeys = Object.keys(selectedObjProperties)
 								const toKeep = {}
-								for (const key of prevValueKeys) {
+								for (const key of newValueKeys) {
+									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
+									if (
+										!['kind', 'label'].includes(key) &&
+										selectedObjProperties[key]?.enum &&
+										value &&
+										value[key] !== undefined &&
+										!selectedObjProperties[key].enum.includes(value[key])
+									) {
+										continue
+									}
 									toKeep[key] = value[key]
 								}
 								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
@@ -982,8 +1013,11 @@
 													}
 												}
 												bind:args={value}
-												dndType={`nested-${title}`}
-												hiddenArgs={['label', 'kind']}
+												hiddenArgs={[
+													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+														? 'kind'
+														: 'label'
+												]}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -1076,20 +1110,14 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
-							bind:schema={
-								() => ({
-									properties,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object',
-									order
-								}),
-								(newSchema) => {
-									dispatch('nestedChange')
-								}
-							}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
 							bind:args={value}
-							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys
@@ -1248,6 +1276,8 @@
 					: undefined}
 				{showSchemaExplorer}
 			/>
+		{:else if inputCat == 'ai-provider'}
+			<AIProviderPicker bind:value {disabled} {actions} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

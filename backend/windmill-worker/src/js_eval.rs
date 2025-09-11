@@ -520,7 +520,7 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result.error"
+            "let error = previous_result.error;"
         } else {
             ""
         },
@@ -791,10 +791,28 @@ pub async fn eval_fetch_timeout(
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    use windmill_queue::append_logs;
-
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+    let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
+    let (result_stream_sender, mut result_stream_receiver) = mpsc::unbounded_channel::<String>();
 
+    let conn_ = conn.clone();
+    let w_id_ = w_id.to_string();
+    tokio::spawn(async move {
+        while let Some(log) = append_logs_receiver.recv().await {
+            windmill_queue::append_logs(&job_id, &w_id_, log, &conn_).await
+        }
+    });
+
+    let conn_ = conn.clone();
+    let w_id_ = w_id.to_string();
+    tokio::spawn(async move {
+        while let Some(stream) = result_stream_receiver.recv().await {
+            use crate::job_logger::append_result_stream;
+            if let Err(e) = append_result_stream(&conn_, &w_id_, &job_id, &stream).await {
+                tracing::error!("failed to append result stream: {e}");
+            }
+        }
+    });
     let parsed_args = windmill_parser_ts::parse_deno_signature(
         &ts_expr,
         true,
@@ -829,8 +847,6 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let conn_ = conn.clone();
-    let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
@@ -918,24 +934,24 @@ pub async fn eval_fetch_timeout(
             use crate::common::merge_result_stream;
 
             if !extra_logs.is_empty() {
-                append_logs(&job_id, w_id_.as_str(), format!("{extra_logs}"), &conn_).await;
+                if let Err(e) = append_logs_sender.send(extra_logs) {
+                    tracing::error!("failed to send extra logs: {e}");
+                }
             }
-            let w_id = w_id_.clone();
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
-                        use crate::job_logger::append_result_stream;
-
                         result_stream.push_str(&stream);
-                        if let Err(e) = append_result_stream(&conn_, &w_id, &job_id, &stream).await
-                        {
-                            tracing::error!("failed to append result stream for job {job_id}: {e}");
+                        if let Err(e) = result_stream_sender.send(stream) {
+                            tracing::error!("failed to send result stream: {e}");
                         }
                     } else {
-                        append_logs(&job_id, w_id_.as_str(), log, &conn_).await;
+                        if let Err(e) = append_logs_sender.send(log) {
+                            tracing::error!("failed to send log: {e}");
+                        }
                     }
                 }
                 if !result_stream.is_empty() {

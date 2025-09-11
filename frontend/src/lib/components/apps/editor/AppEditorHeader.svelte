@@ -10,6 +10,7 @@
 	import { AppService, DraftService, SettingService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import type { Item } from '$lib/utils'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -204,8 +205,6 @@
 
 	async function computeTriggerables() {
 		const items = allItems($app.grid, $app.subgrids)
-
-		console.debug('items', items)
 
 		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
 			items
@@ -947,7 +946,7 @@
 			customPath
 		})
 	}
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 	async function validateCustomPath(customPath: string): Promise<void> {
 		customPathError = ''
 		if (validateTimeout) {

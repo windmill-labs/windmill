@@ -1,11 +1,11 @@
 import type {
-	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
-	ChatCompletionTool
+	ChatCompletionFunctionTool,
+	ChatCompletionMessageFunctionToolCall,
+	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
-import { copilotSessionModel, workspaceStore } from '$lib/stores'
+import { workspaceStore, getCurrentModel } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -257,7 +257,7 @@ export async function processToolCall<T>({
 	toolCallbacks
 }: {
 	tools: Tool<T>[]
-	toolCall: ChatCompletionMessageToolCall
+	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
 	toolCallbacks: ToolCallbacks
 }): Promise<ChatCompletionMessageParam> {
@@ -345,7 +345,7 @@ export async function processToolCall<T>({
 }
 
 export interface Tool<T> {
-	def: ChatCompletionTool
+	def: ChatCompletionFunctionTool
 	fn: (p: {
 		args: any
 		workspace: string
@@ -369,7 +369,7 @@ export function createToolDef(
 	zodSchema: z.ZodSchema,
 	name: string,
 	description: string
-): ChatCompletionTool {
+): ChatCompletionFunctionTool {
 	const schema = zodToJsonSchema(zodSchema, {
 		name,
 		target: 'openAi'
@@ -438,7 +438,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 })
 
 export async function buildSchemaForTool(
-	toolDef: ChatCompletionTool,
+	toolDef: ChatCompletionFunctionTool,
 	schemaBuilder: () => Promise<FunctionParameters>
 ): Promise<boolean> {
 	try {
@@ -455,8 +455,8 @@ export async function buildSchemaForTool(
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
-		const model = get(copilotSessionModel)?.provider
-		if (model === 'openai' || model === 'azure_openai') {
+		const model = getCurrentModel()
+		if (model.provider === 'openai' || model.provider === 'azure_openai') {
 			toolDef.function.strict = false
 		}
 		return true
@@ -586,7 +586,10 @@ function getErrorMessage(result: unknown): string {
 }
 
 // Build test run args based on the tool definition, if it contains a fallback schema
-export async function buildTestRunArgs(args: any, toolDef: ChatCompletionTool): Promise<any> {
+export async function buildTestRunArgs(
+	args: any,
+	toolDef: ChatCompletionFunctionTool
+): Promise<any> {
 	let parsedArgs = args
 	// if the schema is the fallback schema, parse the args as a JSON string
 	if (

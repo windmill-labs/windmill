@@ -48,7 +48,7 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	function onSearch(search: string) {
 		filterActive = false
 		if (timeout) {
@@ -193,7 +193,7 @@
 		await updateCollapsable()
 	}
 
-	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
 
 	onDestroy(() => {
 		clearTimeout(timeout)

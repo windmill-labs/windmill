@@ -77,7 +77,7 @@
 	}
 
 	let {
-		runnable = $bindable(),
+		runnable,
 		runAction,
 		buttonText = 'Run',
 		schedulable = true,
@@ -101,7 +101,7 @@
 		}
 	})
 
-	let debounced: NodeJS.Timeout | undefined = undefined
+	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
 		try {
@@ -309,7 +309,7 @@
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
-								bind:runnable
+								{runnable}
 							/>
 						{/snippet}
 					</Popover>

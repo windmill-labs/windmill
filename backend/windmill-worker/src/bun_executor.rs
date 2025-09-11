@@ -1412,6 +1412,7 @@ try {{
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
                 .args(vec!["--preserve-symlinks", &script_path])
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -1442,6 +1443,7 @@ try {{
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
                 .args(args)
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -1583,6 +1585,8 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,

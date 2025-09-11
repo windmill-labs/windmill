@@ -5,6 +5,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -22,7 +23,6 @@
 		setDropdownWidthToButtonWidth = false,
 		children,
 		class: className,
-		triggerScriptPicker,
 		placement = 'bottom',
 		isEditor = false,
 		onAddDraftTrigger,
@@ -85,9 +85,14 @@
 			extra: cloudHosted ? extra : undefined
 		},
 		{
+			displayName: 'Email',
+			action: () => onAddDraftTrigger?.('email'),
+			icon: triggerIconMap.email,
+			extra: cloudHosted ? extra : undefined
+		},
+		{
 			displayName: 'Scheduled Poll',
 			action: (e) => {
-				e.preventDefault()
 				onAddDraftTrigger?.('poll')
 				onAddScheduledPoll?.()
 			},
@@ -119,15 +124,11 @@
 	class={className}
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside
-	customMenu={!!triggerScriptPicker}
 	on:close={() => onClose?.()}
 >
 	{#snippet buttonReplacement()}
 		<div class={className} bind:clientWidth={triggersButtonWidth}>
 			{@render children?.()}
 		</div>
-	{/snippet}
-	{#snippet menu()}
-		{@render triggerScriptPicker?.()}
 	{/snippet}
 </DropdownV2>

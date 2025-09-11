@@ -710,6 +710,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       kind: "email";
       parsed_email: any;
       raw_email: string;
+      email_extra_args?: Record<string, string>;
     }
     | { kind: "websocket"; msg: string; url: string }
     | {
@@ -863,6 +864,7 @@ class EmailEvent(TypedDict):
     kind: Literal["email"]
     parsed_email: dict
     raw_email: str
+    email_extra_args: Optional[dict[str, str]]
 
 
 class WebsocketEvent(TypedDict):

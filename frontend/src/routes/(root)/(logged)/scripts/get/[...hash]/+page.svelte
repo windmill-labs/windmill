@@ -13,7 +13,8 @@
 		emptyString,
 		canWrite,
 		truncateHash,
-		copyToClipboard
+		copyToClipboard,
+		urlParamsToObject
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -88,7 +89,7 @@
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
 	let deploymentInProgress = $state(false)
-	let intervalId: NodeJS.Timeout
+	let intervalId: number
 	let shareModal: ShareModal | undefined = $state()
 	let runForm: RunForm | undefined = $state()
 
@@ -106,7 +107,7 @@
 	const triggersState = $state(
 		new Triggers([
 			{ type: 'webhook', path: '', isDraft: false },
-			{ type: 'email', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
 			{ type: 'cli', path: '', isDraft: false }
 		])
 	)
@@ -260,7 +261,10 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)

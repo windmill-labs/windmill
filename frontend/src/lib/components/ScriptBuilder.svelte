@@ -251,7 +251,7 @@
 		new Triggers(
 			[
 				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'email', path: '', isDraft: false },
+				{ type: 'default_email', path: '', isDraft: false },
 				...(script.draft_triggers ?? [])
 			],
 			undefined,
@@ -320,7 +320,7 @@
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
 
-	let timeout2: NodeJS.Timeout | undefined = undefined
+	let timeout2: number | undefined = undefined
 	function encodeScriptState(script: NewScript) {
 		untrack(() => timeout2 && clearTimeout(timeout2))
 		timeout2 = setTimeout(() => {
@@ -334,7 +334,7 @@
 		}, 500)
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
@@ -1128,7 +1128,7 @@
 														>
 															<LanguageIcon {lang} />
 															<span class="ml-2 py-2 truncate">{label}</span>
-															{#if lang === 'nu' || lang === 'ruby'}
+															{#if lang === 'ruby'}
 																<span class="text-tertiary !text-xs"> BETA </span>
 															{/if}
 														</Button>
@@ -1791,6 +1791,7 @@
 			bind:hasPreprocessor
 			bind:captureTable
 			bind:assets={script.assets}
+			enablePreprocessorSnippet
 		/>
 	</div>
 {:else}

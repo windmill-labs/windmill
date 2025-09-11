@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.533.1"
+version = "1.542.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -31,9 +31,10 @@ members = [
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
 ]
+exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.533.1"
+version = "1.542.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -99,11 +100,10 @@ java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
-# NOTE: DuckDB is ignored because of compilation problems
-all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 [patch.crates-io]
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" } 
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
 
 [dependencies]
 anyhow.workspace = true
@@ -146,8 +146,11 @@ pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
 strum.workspace = true
+aws-sigv4.workspace = true
+aws-sdk-config.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
+libloading.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -236,8 +239,8 @@ cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
 url = { version = "^2" , features = ["serde"]}
-async-oauth2 = "^0"
-reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
+async-oauth2 = "0.5.1"
+reqwest = { version = "^0.12", features = ["json", "stream", "gzip", "multipart"] }
 time = "^0"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
@@ -247,7 +250,9 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
-duckdb = { version = "1.3.2", features = ["bundled"] }
+aws-sigv4 = "^1.3.4"
+aws-sdk-config = "=1.68.0"
+async-trait = "0.1.88"
 
 v8 = "=130.0.7"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
 deno_fetch = "0.214.0"
@@ -354,7 +359,7 @@ nu-parser = { version = "0.101.0", default-features = false }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 datafusion = "47.0.0"
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] } 
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "=1.77.0"
@@ -362,7 +367,7 @@ aws-sdk-sts = "=1.79.0"
 aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
 rustls = "=0.23.29"
-
+async-once-cell = "0.5.4"
 
 
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
@@ -399,6 +404,7 @@ size = "0.5.0"
 flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
 k8s-openapi = { version = "0.25.0", features = ["latest"] }
+libloading = "0.8.8"
 
 # Macro-related
 proc-macro2 = "1.0"

@@ -68,7 +68,9 @@ export {
 //   }
 // });
 
-export const VERSION = "1.533.1";
+export const VERSION = "1.542.2";
+
+export const WM_FORK_PREFIX = "wm-fork";
 
 const command = new Command()
   .name("wmill")

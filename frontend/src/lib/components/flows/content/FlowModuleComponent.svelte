@@ -36,7 +36,7 @@
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
-	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import DiffEditor, { type ButtonProp } from '$lib/components/DiffEditor.svelte'
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -47,13 +47,15 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import { type Job, JobService } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import { editor as meditor } from 'monaco-editor'
 
 	const {
 		selectedId,
@@ -102,6 +104,15 @@
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
+	let diffButtons = $state<ButtonProp[]>([
+		{
+			text: 'Quit diff mode',
+			color: 'red',
+			onClick: () => {
+				hideDiffMode()
+			}
+		}
+	])
 
 	let editor: Editor | undefined = $state()
 	let diffEditor: DiffEditor | undefined = $state()
@@ -120,12 +131,18 @@
 	let s3Kind = $state('s3_client')
 	let validCode = $state(true)
 	let width = $state(1200)
-	let lastJob: Job | undefined = $state(undefined)
 	let testJob: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+
+	// UI Intent handling for AI tool control
+	useUiIntent(`flow-${flowModule.id}`, {
+		openTab: (tab) => {
+			selectAdvanced(tab)
+		}
+	})
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -197,42 +214,9 @@
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
-	let lastJobId: string | undefined = undefined
-
 	function onSelectedIdChange() {
 		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
-		}
-		lastJobId = undefined
-	}
-
-	async function getLastJob() {
-		if (
-			!flowStateStore ||
-			!flowModule.id ||
-			flowStateStore.val[flowModule.id]?.previewResult === 'never tested this far' ||
-			!flowStateStore.val[flowModule.id]?.previewJobId
-		) {
-			return
-		}
-
-		if (
-			lastJobId == flowStateStore.val[flowModule.id]?.previewJobId ||
-			lastJob?.id == flowStateStore.val[flowModule.id]?.previewJobId ||
-			flowStateStore.val[flowModule.id]?.previewSuccess == undefined
-		) {
-			return
-		}
-		lastJobId = flowStateStore.val[flowModule.id]?.previewJobId
-
-		const job = await JobService.getJob({
-			workspace: $workspaceStore ?? '',
-			id: flowStateStore.val[flowModule.id]?.previewJobId ?? '',
-			noCode: true
-		})
-		if (job && job.type === 'CompletedJob') {
-			lastJobId = flowStateStore.val[flowModule.id]?.previewJobId
-			lastJob = job
 		}
 	}
 
@@ -241,7 +225,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -270,13 +254,6 @@
 	$effect.pre(() => {
 		$selectedId && untrack(() => onSelectedIdChange())
 	})
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if ($workspaceStore && $pathStore && flowModule?.id && flowStateStore) {
-			untrack(() => getLastJob())
-		}
-	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
@@ -297,7 +274,13 @@
 				showDiffMode,
 				hideDiffMode,
 				diffMode,
-				lastDeployedCode
+				lastDeployedCode,
+				setDiffOriginal: (code: string) => {
+					diffEditor?.setOriginal(code ?? '')
+				},
+				setDiffButtons: (buttons: ButtonProp[]) => {
+					diffButtons = buttons
+				}
 			})
 	})
 
@@ -322,6 +305,12 @@
 	let rawScriptLang = $derived(
 		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
 	)
+
+	let modulePreviewResultViewer: ModulePreviewResultViewer | undefined = $state(undefined)
+
+	function onJobDone() {
+		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -483,13 +472,12 @@
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
+												modifiedModel={editor?.getModel() as meditor.ITextModel}
 												automaticLayout
 												fixedOverflowWidgets
 												defaultLang={scriptLangToEditorLang(flowModule.value.language)}
-												class="h-full"
-												showButtons={diffMode}
-												showHistoryButton={false}
-												on:hideDiffMode={hideDiffMode}
+												className="h-full"
+												buttons={diffMode ? diffButtons : []}
 											/>
 										{/key}
 									{/if}
@@ -596,6 +584,7 @@
 												bind:testIsLoading
 												bind:scriptProgress
 												focusArg={highlightArg}
+												{onJobDone}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>
@@ -659,7 +648,7 @@
 															</Tooltip>
 														</div>
 														<div class="my-8"></div>
-														<FlowRetries bind:flowModuleRetry={flowModule.retry} />
+														<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 													<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
@@ -721,7 +710,10 @@
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
 													<div>
-														<FlowModuleTimeout bind:flowModule />
+														<FlowModuleTimeout
+															previousModuleId={previousModule?.id}
+															bind:flowModule
+														/>
 													</div>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
 													<Section label="Priority" class="flex flex-col gap-4">
@@ -900,15 +892,15 @@
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}
-											{lastJob}
-											{scriptProgress}
 											{testJob}
+											{scriptProgress}
 											mod={flowModule}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
 											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 											tagLabel={customUi?.tagLabel}
+											bind:this={modulePreviewResultViewer}
 										/>
 									</Pane>
 								{/if}

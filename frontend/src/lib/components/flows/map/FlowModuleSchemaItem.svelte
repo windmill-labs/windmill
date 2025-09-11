@@ -4,7 +4,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames, type StateStore } from '$lib/utils'
 	import {
-		AlertTriangle,
 		Bed,
 		Database,
 		Gauge,
@@ -16,7 +15,8 @@
 		Pin,
 		X,
 		Play,
-		Loader2
+		Loader2,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -144,9 +144,7 @@
 	let testIsLoading = $state(false)
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
-	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
-	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
 
@@ -170,30 +168,6 @@
 		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
 	})
 
-	function updateLastJob(flowStateStore: any | undefined) {
-		if (
-			!flowStateStore ||
-			!id ||
-			flowStateStore.val[id]?.previewResult === 'never tested this far'
-		) {
-			return
-		}
-		lastJob = {
-			id: flowStateStore.val[id]?.previewJobId ?? '',
-			result: flowStateStore.val[id]?.previewResult,
-			type: 'CompletedJob' as const,
-			success: flowStateStore.val[id]?.previewSuccess ?? undefined
-		}
-	}
-
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			lastJob = $state.snapshot(testJob)
-		} else if (id) {
-			updateLastJob(flowStateStore)
-		}
-	})
-
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
@@ -207,6 +181,9 @@
 	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
 </script>
 
 {#if deletable && id && editId}
@@ -271,7 +248,15 @@
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
-		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
+		<ModuleTest
+			bind:this={moduleTest}
+			{mod}
+			bind:testIsLoading
+			bind:testJob
+			onJobDone={() => {
+				outputPickerInner?.setJobPreview?.()
+			}}
+		/>
 	{/if}
 {/if}
 
@@ -455,7 +440,6 @@
 							prefix={'results'}
 							connectingData={isConnecting ? connectingData : undefined}
 							{mock}
-							{lastJob}
 							{testJob}
 							moduleId={id}
 							onSelect={selectConnection}
@@ -463,12 +447,12 @@
 							{path}
 							{loopStatus}
 							rightMargin
-							bind:derivedHistoryOpen={historyOpen}
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
 							isLoading={testIsLoading ||
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+							bind:this={outputPickerInner}
 						/>
 					{/snippet}
 				</OutputPicker>
@@ -476,60 +460,67 @@
 		</div>
 
 		{#if deletable && !action}
-			<button
-				class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
- {hover || selected ? '' : '!hidden'}"
-				title="Delete"
-				onclick={stopPropagation(
-					preventDefault((event) => dispatch('delete', { id, type: modType }))
-				)}
-				onpointerdown={stopPropagation(preventDefault(() => {}))}
+			<div
+				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
 			>
-				<X class="mx-[3px]" size={12} strokeWidth={2} />
-			</button>
-
-			{#if id !== 'preprocessor'}
+				{#if id !== 'preprocessor'}
+					<button
+						class={twMerge(
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
+							hover ? 'block' : '!hidden',
+							'shadow-md rounded-md',
+							'group-hover:block'
+						)}
+						onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
+						title="Move"
+					>
+						<Move size={12} />
+					</button>
+				{/if}
 				<button
-					class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-blue-400 hover:text-white
- {hover ? '' : '!hidden'}"
-					onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
-					title="Move"
+					class={twMerge(
+						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
+						selected || hover ? 'block' : '!hidden',
+						'group-hover:block',
+						'shadow-md rounded-md'
+					)}
+					title="Delete"
+					onclick={stopPropagation(
+						preventDefault((event) => dispatch('delete', { id, type: modType }))
+					)}
+					onpointerdown={stopPropagation(preventDefault(() => {}))}
 				>
-					<Move class="mx-[3px]" size={12} strokeWidth={2} />
+					<X size={12} />
 				</button>
-			{/if}
+			</div>
 
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
-				<div class="absolute -top-[10px] -left-[10px]">
-					<Popover>
-						{#snippet text()}
-							<ul class="list-disc px-2">
-								{#if id}
-									{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
-										<li>
-											{m.message}
-										</li>
-									{/each}
-								{/if}
-							</ul>
-						{/snippet}
-						<div
-							class={twMerge(
-								'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
-								id &&
-									Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
-										(x) => x.type === 'error'
-									)
-									? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
-									: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
-							)}
-						>
-							<AlertTriangle size={14} strokeWidth={2} />
-						</div>
-					</Popover>
-				</div>
+				<Popover
+					class={twMerge(
+						'absolute -translate-y-[100%] top-1 -left-1',
+						'flex items-center justify-center rounded-b-none rounded-md p-1 shadow-md  duration-0 ',
+						id &&
+							Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
+								(x) => x.type === 'error'
+							)
+							? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
+							: ' text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
+					)}
+				>
+					{#snippet text()}
+						<ul class="list-disc px-2">
+							{#if id}
+								{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
+									<li>
+										{m.message}
+									</li>
+								{/each}
+							{/if}
+						</ul>
+					{/snippet}
+
+					<TriangleAlert size={12} strokeWidth={2} />
+				</Popover>
 			{/if}
 		{/if}
 	</div>
@@ -537,7 +528,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
@@ -545,11 +536,11 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 				<div transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button
-							size="sm"
+							size="xs"
 							color="light"
 							title="Run"
 							variant="border"
-							btnClasses="p-1.5"
+							btnClasses="px-1 py-1.5"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()
@@ -564,7 +555,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 									}
 								}
 							]}
-							dropdownBtnClasses="!w-4 px-1"
+							dropdownBtnClasses="!w-3 px-0.5"
 							bind:dropdownOpen={testRunDropdownOpen}
 						>
 							{#if testIsLoading}
@@ -578,7 +569,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 							size="xs"
 							color="red"
 							variant="contained"
-							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+							btnClasses="!h-[25.5px] !w-[36px] !p-1.5 gap-0.5"
 							on:click={async () => {
 								moduleTest?.cancelJob()
 							}}

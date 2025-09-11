@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO raw_app (path, version, workspace_id, summary, edited_at, data, extra_perms)\n         SELECT path, version, $2, summary, edited_at, data, extra_perms\n         FROM raw_app \n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a202f4a0a3c2d56162a13e3593fe950d0e8ae30d7873dd4a55da6a5aa58c2aba"
+}

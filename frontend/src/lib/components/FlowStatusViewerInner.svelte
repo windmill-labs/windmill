@@ -50,6 +50,7 @@
 		AI_TOOL_MESSAGE_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
+	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 
 	let {
 		flowStateStore,
@@ -226,7 +227,7 @@
 	)
 
 	let retry_selected = $state('')
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
@@ -1048,7 +1049,11 @@
 			}
 		}
 	})
-	let selected = $derived(isListJob ? 'sequence' : 'graph') as 'sequence' | 'graph' | 'logs'
+	let selected = $derived(isListJob ? 'sequence' : 'graph') as
+		| 'sequence'
+		| 'graph'
+		| 'logs'
+		| 'assets'
 
 	let animateLogsTab = $state(false)
 
@@ -1076,6 +1081,23 @@
 
 		return ''
 	}
+
+	// Set all tabs content to the same height to prevent layout jumps
+	let tabsHeight = $state({
+		sequenceHeight: 0,
+		logsHeight: 0,
+		assetsHeight: 0,
+		graphHeight: 0
+	})
+
+	let minTabHeight = $derived(
+		Math.max(
+			tabsHeight.sequenceHeight,
+			tabsHeight.logsHeight,
+			tabsHeight.assetsHeight,
+			tabsHeight.graphHeight
+		)
+	)
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1154,12 +1176,17 @@
 							: ''}><span class="font-semibold">Logs</span></Tab
 					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
+					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
 			{/if}
 		{/if}
-		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
+		<div
+			class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto"
+			bind:clientHeight={tabsHeight.sequenceHeight}
+			style="min-height: {minTabHeight}px"
+		>
 			{#if isListJob}
 				{@const sliceFrom =
 					globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
@@ -1508,7 +1535,11 @@
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
-		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
+		<div
+			class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
+			bind:clientHeight={tabsHeight.logsHeight}
+			style="min-height: {minTabHeight}px"
+		>
 			<FlowLogViewerWrapper
 				{job}
 				{localModuleStates}
@@ -1517,10 +1548,23 @@
 				{onSelectedIteration}
 			/>
 		</div>
+		{#if selected == 'assets' && render}
+			<div
+				class="p-2"
+				bind:clientHeight={tabsHeight.assetsHeight}
+				style="min-height: {minTabHeight}px"
+			>
+				<JobAssetsViewer {job} />
+			</div>
+		{/if}
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}
-			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
+			<div
+				class="{selected != 'graph' ? 'hidden' : ''} grow mt-4"
+				bind:clientHeight={tabsHeight.graphHeight}
+				style="min-height: {minTabHeight}px"
+			>
 				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">

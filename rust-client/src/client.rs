@@ -178,7 +178,7 @@ impl Windmill {
 
     async fn get_variable_raw_inner<'a>(&'a self, path: &'a str) -> Result<String, SdkError> {
         let v =
-            variable_api::get_variable_value(&self.client_config, &self.workspace, path).await?;
+            variable_api::get_variable_value(&self.client_config, &self.workspace, path, None).await?;
 
         v.get(1..v.len() - 1)
             .ok_or(SdkError::InternalError(
@@ -342,7 +342,7 @@ impl Windmill {
 
     async fn get_resource_any_inner<'a>(&'a self, path: &'a str) -> Result<Value, SdkError> {
         Ok(
-            get_resource_value_interpolated(&self.client_config, &self.workspace, path, None)
+            get_resource_value_interpolated(&self.client_config, &self.workspace, path, None, None)
                 .await?,
         )
     }

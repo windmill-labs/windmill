@@ -1,5 +1,5 @@
 import { BROWSER } from 'esm-env'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, get, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
@@ -33,8 +33,9 @@ export interface UserWorkspace {
 	id: string
 	name: string
 	username: string
-	color: string | null
+	color?: string
 	operator_settings?: OperatorSettings
+	parent_workspace_id?: string | null
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()
@@ -86,8 +87,8 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					id: 'admins',
 					name: 'Admins',
 					username: 'superadmin',
-					color: null,
-					operator_settings: null
+					color: undefined,
+					operator_settings: undefined
 				}
 			]
 		} else {
@@ -100,11 +101,13 @@ export const copilotInfo = writable<{
 	codeCompletionModel?: AIProviderModel
 	defaultModel?: AIProviderModel
 	aiModels: AIProviderModel[]
+	customPrompts?: Record<string, string>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
-	aiModels: []
+	aiModels: [],
+	customPrompts: {}
 })
 
 export async function loadCopilot(workspace: string) {
@@ -139,7 +142,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: true,
 			codeCompletionModel: aiConfig.code_completion_model,
 			defaultModel: aiConfig.default_model,
-			aiModels: aiModels
+			aiModels: aiModels,
+			customPrompts: aiConfig.custom_prompts ?? {}
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -148,9 +152,19 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: false,
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
-			aiModels: []
+			aiModels: [],
+			customPrompts: {}
 		})
 	}
+}
+
+export function getCurrentModel() {
+	const model =
+		get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
+	if (!model) {
+		throw new Error('No model selected')
+	}
+	return model
 }
 
 export const codeCompletionLoading = writable<boolean>(false)
@@ -166,7 +180,9 @@ export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
-export const relativeLineNumbers = writable<boolean>(getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true')
+export const relativeLineNumbers = writable<boolean>(
+	getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true'
+)
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
@@ -176,9 +192,9 @@ const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
 	sessionModel && sessionProvider
 		? {
-			model: sessionModel,
-			provider: sessionProvider as AIProvider
-		}
+				model: sessionModel,
+				provider: sessionProvider as AIProvider
+			}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])

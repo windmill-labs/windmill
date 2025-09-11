@@ -1,19 +1,5 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
 </script>
 
 <script lang="ts">
@@ -39,6 +25,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
 
 	export const conf = {
 		wordPattern:
@@ -433,12 +420,11 @@
 
 	let initialized = false
 
-	let jsLoader: NodeJS.Timeout | undefined = undefined
-	let timeoutModel: NodeJS.Timeout | undefined = undefined
+	let jsLoader: number | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
-		console.log('init template')
+		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
-		console.log('initialized')
 		initialized = true
 
 		languages.register({ id: 'template' })
@@ -612,7 +598,7 @@
 	}
 
 	let mounted = false
-	let loadTimeout: NodeJS.Timeout | undefined = undefined
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		try {
 			if (BROWSER) {

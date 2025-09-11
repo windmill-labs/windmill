@@ -845,6 +845,7 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -2145,6 +2146,8 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .to_vec();
@@ -2258,6 +2261,8 @@ for line in sys.stdin:
         Uuid::nil().to_string().as_str(),
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,

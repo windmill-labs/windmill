@@ -115,6 +115,11 @@
 				href: `${base}/mqtt_triggers`
 			},
 			{
+				label: 'Email triggers',
+				id: 'triggers',
+				href: `${base}/email_triggers`
+			},
+			{
 				label: 'Audit logs',
 				id: 'audit_logs',
 				href: `${base}/audit_logs`
@@ -143,7 +148,7 @@
 	)
 
 	let moreOpen = $state(false)
-	let moreOpenTimeout: NodeJS.Timeout | undefined = $state()
+	let moreOpenTimeout: number | undefined = $state()
 
 	function debouncedSetMoreOpen(value: boolean) {
 		if (moreOpenTimeout) {

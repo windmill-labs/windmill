@@ -5,7 +5,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::types::Json;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.d
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,
+    db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -27,6 +28,42 @@ use crate::{
     worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, TMP_DIR},
     FlowVersionInfo, ScriptHashInfo,
 };
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Mqtt,
+    Sqs,
+    Postgres,
+    Schedule,
+    Gcp,
+}
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            JobTriggerKind::Webhook => "webhook",
+            JobTriggerKind::Http => "http",
+            JobTriggerKind::Websocket => "websocket",
+            JobTriggerKind::Kafka => "kafka",
+            JobTriggerKind::Email => "email",
+            JobTriggerKind::Nats => "nats",
+            JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Sqs => "sqs",
+            JobTriggerKind::Postgres => "postgres",
+            JobTriggerKind::Schedule => "schedule",
+            JobTriggerKind::Gcp => "gcp",
+        };
+        write!(f, "{}", kind)
+    }
+}
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
@@ -397,8 +434,6 @@ pub struct RawCode {
 
 type Tag = String;
 
-pub type DB = Pool<Postgres>;
-
 #[derive(Clone, Debug)]
 pub struct OnBehalfOf {
     pub email: String,
@@ -424,9 +459,10 @@ pub fn get_has_preprocessor_from_content_and_lang(
     Ok(has_preprocessor)
 }
 
-pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres> + Send>(
+pub async fn script_path_to_payload<'e>(
     script_path: &str,
-    db: A,
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db: DB,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
@@ -473,7 +509,7 @@ pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres
             on_behalf_of_email,
             created_by,
             ..
-        } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
@@ -519,11 +555,18 @@ pub async fn get_payload_tag_from_prefixed_path(
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
+        script_path_to_payload(
+            path.strip_prefix("script/").unwrap(),
+            None,
+            db.clone(),
+            w_id,
+            Some(true),
+        )
+        .await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let FlowVersionInfo { dedicated_worker, tag, version, .. } =
-            get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
+            get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
         (
             JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
             tag,
@@ -654,6 +697,12 @@ pub async fn get_logs_from_store(
     return None;
 }
 
+lazy_static::lazy_static! {
+    static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+}
+
 pub async fn check_tag_available_for_workspace_internal(
     db: &DB,
     w_id: &str,
@@ -691,10 +740,14 @@ pub async fn check_tag_available_for_workspace_internal(
             )));
         }
 
-        return Err(error::Error::BadRequest(format!(
+        if *TAGS_ARE_SENSITIVE {
+            return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else {
+            return Err(error::Error::BadRequest(format!(
             "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
             custom_tags_per_w
         )));
+        }
     }
 
     return Ok(());

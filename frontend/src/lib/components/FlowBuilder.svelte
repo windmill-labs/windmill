@@ -77,7 +77,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { TestSteps } from './flows/testSteps.svelte'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
 	import {
@@ -526,7 +526,7 @@
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
@@ -571,7 +571,7 @@
 		payloadData: undefined
 	})
 
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -592,7 +592,7 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
@@ -615,7 +615,7 @@
 		new Triggers(
 			[
 				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'email', path: '', isDraft: false },
+				{ type: 'default_email', path: '', isDraft: false },
 				...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
 			selectedTriggerIndexFromUrl,
@@ -682,7 +682,7 @@
 				}
 				break
 			case 'ArrowDown': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
 					let idx = ids.indexOf($selectedIdStore)
 					if (idx > -1 && idx < ids.length - 1) {
@@ -693,7 +693,7 @@
 				break
 			}
 			case 'ArrowUp': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
 					let idx = ids.indexOf($selectedIdStore)
 					if (idx > 0 && idx < ids.length) {
@@ -1129,6 +1129,8 @@
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {
+							// Reset manually edited args inputs when running a preview
+							stepsInputArgs.resetManuallyEditedArgs()
 							modulesTestStates.hideJobsInGraph()
 							localModuleStates = {}
 							showJobStatus = true
@@ -1170,7 +1172,7 @@
 					{newFlow}
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
-							testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 							$selectedIdStore = 'preprocessor'
 						}
 					}}
@@ -1218,6 +1220,7 @@
 						delete modulesTestStates.states[id]
 					}}
 					{flowHasChanged}
+					previewOpen={flowPreviewButtons?.getPreviewOpen()}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

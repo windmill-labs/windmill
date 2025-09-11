@@ -5,7 +5,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow, type DynamicSelect } from '$lib/utils'
+	import { allTrue, computeShow, type DynamicInput } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -44,7 +44,7 @@
 		onlyMaskPassword?: boolean
 		dndConfig?: DndOptions | undefined
 		items?: { id: string; value: string }[] | undefined
-		helperScript?: DynamicSelect.HelperScript
+		helperScript?: DynamicInput.HelperScript
 		lightHeader?: boolean
 		diff?: Record<string, SchemaDiff>
 		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
@@ -108,7 +108,7 @@
 		className = '',
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions: actions_render = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -249,8 +249,6 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
-
-	const actions_render = $derived(actions)
 </script>
 
 {#if showReset}

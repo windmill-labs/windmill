@@ -60,41 +60,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			properties: {
 				provider: {
 					type: 'object',
-					oneOf: [
-						{
-							type: 'object',
-							title: 'OpenAI',
-							properties: {
-								kind: { type: 'string', enum: ['OpenAI'] },
-								resource: {
-									type: 'object',
-									format: 'resource-openai'
-								},
-
-								model: {
-									type: 'string',
-									enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
-								}
-							},
-							required: ['kind', 'resource', 'model']
-						},
-						{
-							type: 'object',
-							title: 'Anthropic',
-							properties: {
-								kind: { type: 'string', enum: ['Anthropic'] },
-								resource: {
-									type: 'object',
-									format: 'resource-anthropic'
-								},
-								model: {
-									type: 'string',
-									enum: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest']
-								}
-							},
-							required: ['kind', 'resource', 'model']
-						}
-					]
+					format: 'ai-provider'
 				},
 				user_message: {
 					type: 'string'
@@ -106,7 +72,14 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'number'
 				},
 				temperature: {
-					type: 'number'
+					type: 'number',
+					description:
+						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
+				},
+				output_schema: {
+					type: 'object',
+					description: 'JSON schema that the AI agent will follow for its response format',
+					format: 'json-schema'
 				}
 			},
 			required: ['provider', 'model', 'user_message'],
@@ -117,7 +90,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'user_message',
 				'system_prompt',
 				'max_completion_tokens',
-				'temperature'
+				'temperature',
+				'output_schema'
 			]
 		}
 		let input_transforms = mod.input_transforms ?? {}
