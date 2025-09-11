@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
 use async_recursion::async_recursion;
+use itertools::Itertools;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
@@ -1571,24 +1572,24 @@ async fn relative_imports_bytes<'a>(
     code: Option<&String>,
     path: &str,
     language: Option<ScriptLang>,
-) -> Result<String> {
+) -> Result<Vec<u8>> {
     Ok(
         if let Some(imports) = extract_relative_imports(
             code.map(|s| s.as_str()).unwrap_or_default(),
             path,
             &language,
         ) {
-            format!(
-                "{:?}",
-                &sqlx::query_scalar::<_, i64>(
-                    "SELECT hash FROM script WHERE path = ANY($1) AND archived = false",
-                )
-                .bind(imports)
-                .fetch_all(e)
-                .await?,
+            sqlx::query_scalar::<_, i64>(
+                "SELECT hash FROM script WHERE path = ANY($1) AND archived = false",
             )
+            .bind(imports)
+            .fetch_all(e)
+            .await?
+            .iter()
+            .flat_map(|h| h.to_le_bytes())
+            .collect_vec()
         } else {
-            "".into()
+            vec![]
         },
     )
 }
