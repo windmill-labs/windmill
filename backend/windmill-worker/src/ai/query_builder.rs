@@ -1,7 +1,15 @@
 use async_trait::async_trait;
 use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
 
-use crate::ai::types::*;
+use crate::ai::{
+    types::*,
+    providers::{
+        anthropic::AnthropicQueryBuilder,
+        google_ai::GoogleAIQueryBuilder,
+        openai::OpenAIQueryBuilder,
+        openrouter::OpenRouterQueryBuilder,
+    },
+};
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
@@ -119,108 +127,3 @@ impl QueryBuilder for DefaultQueryBuilder {
     }
 }
 
-// Import the actual OpenAI implementation
-use crate::ai::providers::openai::OpenAIQueryBuilder;
-
-pub struct AnthropicQueryBuilder;
-impl AnthropicQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-// For now, use default implementation
-#[async_trait]
-impl QueryBuilder for AnthropicQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
-        matches!(output_type, OutputType::Text)
-    }
-    
-    async fn build_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<String, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.build_request(args, client, workspace_id).await
-    }
-    
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.parse_response(response).await
-    }
-    
-    fn get_endpoint(&self, base_url: &str, _output_type: &OutputType) -> String {
-        format!("{}/messages", base_url)
-    }
-}
-
-pub struct GoogleAIQueryBuilder;
-impl GoogleAIQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-// For now, use default implementation
-#[async_trait]
-impl QueryBuilder for GoogleAIQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
-        matches!(output_type, OutputType::Text)
-    }
-    
-    async fn build_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<String, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.build_request(args, client, workspace_id).await
-    }
-    
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.parse_response(response).await
-    }
-    
-    fn get_endpoint(&self, base_url: &str, _output_type: &OutputType) -> String {
-        format!("{}/chat/completions", base_url)
-    }
-}
-
-pub struct OpenRouterQueryBuilder;
-impl OpenRouterQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-// For now, use default implementation
-#[async_trait]
-impl QueryBuilder for OpenRouterQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
-        // OpenRouter supports tools for both text and image output
-        true
-    }
-    
-    async fn build_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<String, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.build_request(args, client, workspace_id).await
-    }
-    
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.parse_response(response).await
-    }
-    
-    fn get_endpoint(&self, base_url: &str, _output_type: &OutputType) -> String {
-        format!("{}/chat/completions", base_url)
-    }
-}

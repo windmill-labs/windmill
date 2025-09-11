@@ -137,11 +137,25 @@ pub struct GeminiInlineData {
     pub data: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum GeminiPart {
     Text { text: String },
     InlineData { inline_data: GeminiInlineData },
+    FunctionCall { function_call: GeminiFunctionCall },
+    FunctionResponse { function_response: GeminiFunctionResponse },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GeminiFunctionCall {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GeminiFunctionResponse {
+    pub name: String,
+    pub response: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -188,8 +202,12 @@ pub struct GeminiResponseContent {
 
 #[derive(Deserialize)]
 pub struct GeminiResponsePart {
-    #[serde(rename = "inlineData")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<GeminiInlineData>,
+    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<GeminiFunctionCall>,
 }
 
 // OpenRouter image generation structures
@@ -550,4 +568,71 @@ impl OpenAPISchema {
         }
         self
     }
+}
+
+// Anthropic API structures
+
+#[derive(Serialize, Deserialize)]
+pub struct AnthropicRequest {
+    pub model: String,
+    pub messages: Vec<AnthropicMessage>,
+    pub max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<AnthropicTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<AnthropicToolChoice>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AnthropicMessage {
+    pub role: String,
+    pub content: Vec<AnthropicContent>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum AnthropicContent {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: AnthropicImageSource },
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String, input: serde_json::Value },
+    #[serde(rename = "tool_result")]
+    ToolResult { tool_use_id: String, content: String },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AnthropicImageSource {
+    pub r#type: String, // "base64"
+    pub media_type: String,
+    pub data: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AnthropicTool {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub input_schema: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnthropicToolChoice {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "any")]
+    Any,
+    #[serde(rename = "tool")]
+    Tool { name: String },
+}
+
+#[derive(Deserialize)]
+pub struct AnthropicResponse {
+    pub content: Vec<AnthropicContent>,
 }
