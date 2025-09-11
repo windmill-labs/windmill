@@ -15739,6 +15739,7 @@ dependencies = [
  "async-once-cell",
  "async-recursion",
  "async-stream",
+ "async-trait",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",

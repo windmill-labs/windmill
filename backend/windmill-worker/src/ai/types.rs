@@ -235,9 +235,9 @@ pub struct OpenRouterImageUrl {
 #[derive(Serialize)]
 pub struct OpenAIRequest<'a> {
     pub model: &'a str,
-    pub messages: &'a Vec<OpenAIMessage>,
+    pub messages: &'a [OpenAIMessage],
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<&'a Vec<ToolDef>>,
+    pub tools: Option<&'a [ToolDef]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]

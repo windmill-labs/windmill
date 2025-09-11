@@ -29,6 +29,7 @@ use windmill_queue::{
 
 use crate::{
     ai::types::*,
+    ai::utils::is_anthropic_provider,
     common::{build_args_map, error_to_value, OccupancyMetrics},
     create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
@@ -724,10 +725,7 @@ async fn run_agent(
                 .and_then(|schema| schema.properties.as_ref())
                 .map(|props| !props.is_empty())
                 .unwrap_or(false);
-            let provider_is_anthropic = args.provider.kind.is_anthropic();
-            let is_openrouter_anthropic = args.provider.kind == AIProvider::OpenRouter
-                && args.provider.model.starts_with("anthropic/");
-            let is_anthropic = provider_is_anthropic || is_openrouter_anthropic;
+            let is_anthropic = is_anthropic_provider(&args.provider);
             let mut response_format: Option<ResponseFormat> = None;
             let mut used_structured_output_tool = false;
             let mut structured_output_tool_name: Option<String> = None;
@@ -787,7 +785,7 @@ async fn run_agent(
                         .json(&OpenAIRequest {
                             model: args.provider.get_model(),
                             messages: &prepared_messages,
-                            tools: tool_defs.as_ref(),
+                            tools: tool_defs.as_ref().map(|v| &**v),
                             temperature: args.temperature,
                             max_completion_tokens: args.max_completion_tokens,
                             response_format: if has_output_properties && !is_anthropic {
