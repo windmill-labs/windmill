@@ -1011,7 +1011,10 @@ async fn run_agent(
     let output_value = match content {
         Some(content_str) => match has_output_properties {
             true => serde_json::from_str::<Box<RawValue>>(&content_str).map_err(|_e| {
-                Error::internal_err(format!("Failed to parse structured output: {}", content_str))
+                Error::internal_err(format!(
+                    "Failed to parse structured output: {}",
+                    content_str
+                ))
             })?,
             false => to_raw_value(&content_str),
         },

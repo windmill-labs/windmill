@@ -43,6 +43,12 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+      - name: Cargo build dynamic libraries windows
+        timeout-minutes: 90
+        run: |
+          cd backend/windmill-duckdb-ffi-internal
+          cargo build --release -p windmill_duckdb_ffi_internal
+
       - name: Cargo build windows
         timeout-minutes: 90
         run: |
@@ -63,3 +69,9 @@ jobs:
         with:
           files: |
             ./backend/target/release/windmill-ee.exe
+
+      - name: Attach dynamic libraries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_ffi_internal.dll

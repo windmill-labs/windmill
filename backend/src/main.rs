@@ -441,7 +441,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         (Connection::Sql(db), None)
     };
 
-    let environment = load_base_url(&conn)
+    let environment = if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
+        environment
+    } else {
+        load_base_url(&conn)
         .await
         .unwrap_or_else(|_| "local".to_string())
         .trim_start_matches("https://")
@@ -449,7 +452,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         .split(".")
         .next()
         .unwrap_or_else(|| "local")
-        .to_string();
+        .to_string()
+    };
+
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 

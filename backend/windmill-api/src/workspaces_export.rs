@@ -29,6 +29,7 @@ use crate::{
             feature = "sqs_trigger",
             feature = "gcp_trigger",
             feature = "nats",
+            feature = "smtp",
         ),
         feature = "private"
     )
@@ -685,6 +686,23 @@ pub(crate) async fn tarball_workspace(
                     .write_to_archive(
                         &trigger_str,
                         &format!("{}.mqtt_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+        {
+            use crate::triggers::email::EmailTrigger;
+            let handler = EmailTrigger;
+            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+
+            for trigger in email_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.email_trigger.json", trigger.base.path),
                     )
                     .await?;
             }

@@ -17,6 +17,7 @@
 		disableChatOffset?: boolean
 		class?: string | undefined
 		positionClass?: string | undefined
+		name?: string
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -32,6 +33,7 @@
 		disableChatOffset = false,
 		class: clazz = '',
 		positionClass = undefined,
+		name = undefined,
 		children: children_render
 	}: Props = $props()
 
@@ -112,9 +114,8 @@
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
-				class="drawer windmill-app windmill-drawer {clazz ?? ''} {positionClass ?? ''} {aiChatOpen
-					? 'respect-global-chat'
-					: ''}"
+				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
+					''} {positionClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
 				class:open
 				class:close={!open && timeout}
 				class:global-chat-open={aiChatOpen}
