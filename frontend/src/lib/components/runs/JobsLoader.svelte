@@ -388,9 +388,7 @@
 						if (isQueuedJob) {
 							if (cursor > 0) {
 								let inc = invCursor == 0 && jobs[invCursor].type == 'CompletedJob' ? 0 : 1
-								const date = new Date(
-									jobs[invCursor + inc]?.started_at ?? jobs[invCursor + inc]?.created_at!
-								)
+								const date = new Date(jobs[invCursor + inc]?.created_at!)
 								date.setMilliseconds(date.getMilliseconds() + 1)
 								ts = date.toISOString()
 							}
