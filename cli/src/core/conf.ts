@@ -397,7 +397,7 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean, suppressLogs?: boolean): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
-  let effective = { ...topLevelSettings };
+  const effective = { ...topLevelSettings };
 
   if (isGitRepository()) {
     const branch = getCurrentGitBranch();
