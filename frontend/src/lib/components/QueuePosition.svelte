@@ -29,7 +29,7 @@
 				}).then((response) => {
 					scheduledFor = response
 				})
-			})
+			}, 2000)
 		}
 	})
 
