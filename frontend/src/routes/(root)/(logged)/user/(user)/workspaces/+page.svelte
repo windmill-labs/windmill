@@ -85,7 +85,6 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-
 	// Complete workspace hierarchy with all forks
 	$: forkedWorkspacesHierarchy = (() => {
 		if (!workspaces) return []
@@ -95,7 +94,6 @@
 
 		return buildWorkspaceHierarchy(nonAdminWorkspaces)
 	})()
-
 
 	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
 	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
@@ -206,7 +204,7 @@
 		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked, parentName } (workspace.id)}
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border
+					class="w-full mx-auto py-1 px-2 rounded-md border
 					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
 					on:click={async () => {
 						speakFriendAndEnterWorkspace(workspace.id)
@@ -215,7 +213,7 @@
 					{#if isForked}
 						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
 					{/if}
-					<div class="flex-1 text-left">
+					<span class="flex-1">
 						{#if workspace.color}
 							<span
 								class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
@@ -230,11 +228,12 @@
 							<span class="text-red-500"> (archived)</span>
 						{/if}
 						{#if isForked && parentName}
-							<div class="text-tertiary text-xs mt-1">
+							<span class="text-tertiary text-xs mt-1">
+								<br />
 								Fork of {parentName}
-							</div>
+							</span>
 						{/if}
-					</div>
+					</span>
 				</button>
 				{#if $superadmin && workspace['deleted']}
 					<Button
@@ -376,10 +375,7 @@
 	{/if}
 	{#if workspaces}
 		<div class="flex flex-row-reverse pt-4 pb-2">
-			<Toggle
-				bind:checked={showAllForks}
-				options={{ right: 'Show workspace forks' }}
-			/>
+			<Toggle bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
 		</div>
 	{/if}
 
