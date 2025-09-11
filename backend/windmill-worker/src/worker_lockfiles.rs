@@ -1571,14 +1571,15 @@ async fn relative_imports_bytes<'a>(
     code: Option<&String>,
     path: &str,
     language: Option<ScriptLang>,
-) -> Result<Vec<u8>> {
+) -> Result<String> {
     Ok(
         if let Some(imports) = extract_relative_imports(
             code.map(|s| s.as_str()).unwrap_or_default(),
             path,
             &language,
         ) {
-            bytemuck::cast_slice(
+            format!(
+                "{:?}",
                 &sqlx::query_scalar::<_, i64>(
                     "SELECT hash FROM script WHERE path = ANY($1) AND archived = false",
                 )
@@ -1586,9 +1587,8 @@ async fn relative_imports_bytes<'a>(
                 .fetch_all(e)
                 .await?,
             )
-            .to_vec()
         } else {
-            vec![]
+            "".into()
         },
     )
 }
