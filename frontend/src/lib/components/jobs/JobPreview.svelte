@@ -27,7 +27,7 @@
 	let { id, children }: Props = $props()
 	let job: Job | undefined = $state(undefined)
 	let hovered = $state(false)
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	let result: any = $state()
 	let jobLoader: JobLoader | undefined = $state()
 	let loaded = false

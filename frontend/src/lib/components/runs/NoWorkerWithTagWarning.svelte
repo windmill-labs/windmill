@@ -12,7 +12,7 @@
 
 	let noWorkerWithTag = $state(false)
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let visible = true
 	async function lookForTag(): Promise<void> {

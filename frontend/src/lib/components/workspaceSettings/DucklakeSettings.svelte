@@ -62,7 +62,9 @@
 	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
+	import { SettingService, WorkspaceService } from '$lib/gen'
+	import { type GetSettingsResponse } from '$lib/gen'
+
 	import { superadmin, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
