@@ -206,8 +206,6 @@
 	async function computeTriggerables() {
 		const items = allItems($app.grid, $app.subgrids)
 
-		console.debug('items', items)
-
 		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
 			items
 				.flatMap((x) => {

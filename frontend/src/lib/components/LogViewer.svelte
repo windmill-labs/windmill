@@ -12,11 +12,12 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import QueuePosition from './QueuePosition.svelte'
 
 	interface Props {
 		content: string | undefined
@@ -262,6 +263,9 @@
 							>
 							<NoWorkerWithTagWarning {tagLabel} {tag} />
 						</div>
+					{/if}
+					{#if jobId}
+						<QueuePosition {jobId} />
 					{/if}
 				</div>
 			{:else if duration}

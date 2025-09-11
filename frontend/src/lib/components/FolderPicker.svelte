@@ -65,7 +65,7 @@
 	loadFolders()
 </script>
 
-<Drawer bind:this={newFolder}>
+<Drawer bind:this={newFolder} name="newFolder">
 	<DrawerContent
 		title="New Folder"
 		on:close={() => {

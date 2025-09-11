@@ -1400,6 +1400,9 @@ async fn raw_script_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<String> {
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {}", path.to_path());
+    }
     raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await
 }
 
@@ -1441,8 +1444,15 @@ async fn raw_script_by_path_internal(
     if let Some(cache_path) = cache_path.clone() {
         let cached_content = RAW_SCRIPT_CACHE.get(&cache_path);
         if let Some(cached_content) = cached_content {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                tracing::warn!("Raw script by path request: {} (cached)", path);
+            }
             return Ok(cached_content);
         }
+    }
+
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {} (not cached)", path);
     }
 
     if !path.ends_with(".py")
@@ -1478,7 +1488,14 @@ async fn raw_script_by_path_internal(
         if let Some(cached_ts) = cached_content {
             if cached_ts >= chrono::Utc::now().timestamp() - 300 {
                 // 5 minutes
+                if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                    tracing::warn!("Raw script by path request: {} (cached folders)", path);
+                }
                 return Ok("WINDMILL_IS_FOLDER".to_string());
+            } else {
+                if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                    tracing::warn!("Raw script by path request: {} (cached folders expired)", path);
+                }
             }
         }
     }
@@ -1494,6 +1511,9 @@ async fn raw_script_by_path_internal(
     .warn_after_seconds(5)
     .await?;
     tx.commit().await?;
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {} (content: {:?})", path, content_o);
+    }
 
     if content_o.is_none() {
         let exists = sqlx::query_scalar!(
@@ -1552,6 +1572,9 @@ async fn raw_script_by_path_internal(
 
     if let Some(cache_path) = cache_path {
         RAW_SCRIPT_CACHE.insert(cache_path, content.clone());
+    }
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {} (content response)", path);
     }
     Ok(content)
 }

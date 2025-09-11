@@ -33,6 +33,7 @@
 		| 'sqs_trigger'
 		| 'postgres_trigger'
 		| 'gcp_trigger'
+		| 'email_trigger'
 	let kind: Kind
 
 	let path: string = $state('')

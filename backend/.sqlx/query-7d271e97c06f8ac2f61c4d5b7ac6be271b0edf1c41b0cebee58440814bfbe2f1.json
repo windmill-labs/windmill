@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_env (workspace_id, name, value)\n         SELECT $2, name, value\n         FROM workspace_env\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d271e97c06f8ac2f61c4d5b7ac6be271b0edf1c41b0cebee58440814bfbe2f1"
+}
