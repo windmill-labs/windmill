@@ -21,6 +21,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { page } from '$app/state'
+	import { urlParamsToObject } from '$lib/utils'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -151,7 +152,7 @@
 					name: $userStore?.name,
 					groups: $userStore?.groups,
 					username: $userStore?.username,
-					query: Object.fromEntries(page.url.searchParams.entries()),
+					query: urlParamsToObject(page.url.searchParams),
 					hash: page.url.hash.substring(1)
 				}}
 				workspace={page.params.workspace}

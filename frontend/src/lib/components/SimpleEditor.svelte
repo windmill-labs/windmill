@@ -251,8 +251,6 @@
 	}
 
 	function updateModelAndOptions() {
-		setDiagnosticsOptions()
-
 		const model = editor?.getModel()
 		if (model) {
 			// Switch language if it changed
@@ -361,7 +359,7 @@
 		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)

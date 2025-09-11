@@ -174,7 +174,7 @@
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
-	let websocketInterval: NodeJS.Timeout | undefined
+	let websocketInterval: number | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
@@ -1065,7 +1065,7 @@
 		}
 	}
 
-	let pathTimeout: NodeJS.Timeout | undefined = undefined
+	let pathTimeout: number | undefined = undefined
 
 	function getHostname() {
 		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -1192,7 +1192,7 @@
 		}
 	}
 
-	let timeoutModel: NodeJS.Timeout | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
 		setMonacoTypescriptOptions()
 		console.log('path', uri)
@@ -1266,7 +1266,7 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
-		let ataModel: NodeJS.Timeout | undefined = undefined
+		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
@@ -1543,7 +1543,7 @@
 
 	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
 
-	let loadTimeout: NodeJS.Timeout | undefined = undefined
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
 			if (loadAsync) {
