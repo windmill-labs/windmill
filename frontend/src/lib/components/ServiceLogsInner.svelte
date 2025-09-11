@@ -15,7 +15,7 @@
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
 	import Select from './select/Select.svelte'
 	import { goto } from '$lib/navigation'
