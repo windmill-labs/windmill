@@ -70,7 +70,7 @@ pub async fn flush_stats_to_db(
     };
 
     for ((hour, _worker_group, script_lang, _workspace_id), accumulator) in current_stats {
-        let script_lang_str = script_lang.as_ref().map(|l| l.as_str());
+        let script_lang_str = script_lang.as_ref().map(|l| l.as_str()).unwrap_or("other");
 
         // Use ON CONFLICT to sum existing values
         sqlx::query(

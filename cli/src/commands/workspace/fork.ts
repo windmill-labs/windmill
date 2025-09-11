@@ -13,33 +13,10 @@ import { tryResolveBranchWorkspace } from "../../core/context.ts";
 // Run ./gen_wm_client.sh to regenerate after backend changes
 // import * as wmill from "../../../gen/services.gen.ts";
 
-async function runGitCommand(
-  args: string[],
-): Promise<{ success: boolean; output: string }> {
-  try {
-    const command = new Deno.Command("git", {
-      args,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stdout, stderr } = await command.output();
-    const output = new TextDecoder().decode(code === 0 ? stdout : stderr);
-
-    return {
-      success: code === 0,
-      output: output.trim(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      output: `Failed to execute git command: ${error.message}`,
-    };
-  }
-}
-
 async function createWorkspaceFork(
-  opts: GlobalOptions,
+  opts: GlobalOptions & {
+    createWorkspaceName: string | undefined;
+  },
   workspaceName: string | undefined,
   workspaceId: string | undefined = undefined,
 ) {
@@ -56,6 +33,9 @@ async function createWorkspaceFork(
   log.info(`You are forking workspace (${workspace.workspaceId})`)
 
   const currentBranch = getCurrentGitBranch()
+  if (!currentBranch) {
+    throw new Error("Could not get git branch name");
+  }
   const originalBranchIfForked = getOriginalBranchForWorkspaceForks(currentBranch);
 
   let clonedBranchName: string | null;
@@ -129,7 +109,7 @@ async function createWorkspaceFork(
     const result = await wmill.createWorkspaceFork({
       requestBody: {
         id: trueWorkspaceId,
-        name: workspaceName,
+        name: opts.createWorkspaceName ?? trueWorkspaceId,
         username: undefined, // Let the server handle username
         color: undefined,
         parent_workspace_id: workspace.workspaceId,
@@ -165,20 +145,16 @@ async function deleteWorkspaceFork(
   opts: GlobalOptions & {
     yes?: boolean;
   },
-  silent: boolean,
   name: string,
 ) {
-
   const orgWorkspaces = await allWorkspaces(opts.configDir);
   const idxOf = orgWorkspaces.findIndex((x) => x.name === name) ;
   if (idxOf === -1) {
-    if (!silent) {
       log.info(
         colors.red.bold(`! Workspace profile ${name} does not exist locally`)
       );
       log.info("available workspace profiles:");
       await list(opts);
-    }
     return;
   }
 
@@ -218,26 +194,7 @@ async function deleteWorkspaceFork(
   log.info(
     colors.green(`✅ Forked workspace '${workspace.workspaceId}' deleted successfully!\n${result}`),
   );
-  await removeWorkspace(name, silent, opts);
+  await removeWorkspace(name, false, opts);
 }
 
-const forkCommand = new Command()
-  .description("Create a forked workspace and git branch")
-  .arguments("[workspace_id:string]")
-  .option(
-    "--create-workspace-name <workspace_name:string>",
-    "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id."
-  )
-  .action(async (opts: GlobalOptions, workspace_id: string) => {
-    await requireLogin(opts);
-    await createWorkspaceFork(opts, workspace_id, undefined);
-  });
-
-const deleteForkCommand = new Command()
-  .description("Delete a forked workspace and git branch")
-  .arguments("<fork_name:string>")
-  .action(async (opts: GlobalOptions, name: string, silent: boolean) => {
-    await deleteWorkspaceFork(opts, silent, name);
-  });
-
-export { forkCommand, deleteForkCommand };
+export { createWorkspaceFork, deleteWorkspaceFork };

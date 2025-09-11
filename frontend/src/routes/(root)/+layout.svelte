@@ -73,7 +73,7 @@
 		}
 	}
 
-	let interval: NodeJS.Timeout | undefined = undefined
+	let interval: number | undefined = undefined
 	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
