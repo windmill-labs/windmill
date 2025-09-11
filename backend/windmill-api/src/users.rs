@@ -2124,7 +2124,6 @@ struct Runnable {
     workspace: String,
     endpoint_async: String,
     endpoint_sync: String,
-    endpoint_openai_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
@@ -2176,10 +2175,6 @@ async fn get_all_runnables(
                         "/w/{}/jobs/run_wait_result/f/{}",
                         &f.workspace, &f.path
                     ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/f/{}",
-                        &f.workspace, &f.path
-                    ),
                     summary: f.summary,
                     description: f.description,
                     schema: f.schema,
@@ -2203,10 +2198,6 @@ async fn get_all_runnables(
                     endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
                     endpoint_sync: format!(
                         "/w/{}/jobs/run_wait_result/p/{}",
-                        &s.workspace, &s.path
-                    ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/p/{}",
                         &s.workspace, &s.path
                     ),
                     summary: s.summary,

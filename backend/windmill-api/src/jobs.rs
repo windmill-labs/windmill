@@ -295,7 +295,6 @@ pub fn workspace_unauthed_service() -> Router {
         )
         .route("/getupdate/:id", get(get_job_update))
         .route("/getupdate_sse/:id", get(get_job_update_sse))
-        .route("/get_flow_stream/:id", get(get_flow_stream))
         .route("/get_log_file/*file_path", get(get_log_file))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route(
@@ -1654,7 +1653,7 @@ pub struct RunJobQuery {
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
-    pub stream: Option<bool>,
+    pub jobs_stream: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -5166,14 +5165,15 @@ pub async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    if run_query.stream.unwrap_or(false) {
+    if run_query.jobs_stream.unwrap_or(false) {
         get_flow_stream_inner(
-            Some(authed), 
-            OptTokened { token: None }, // unused if opt_authed is some, 
-            db, 
-            w_id, 
-            uuid
-        ).await
+            Some(authed),
+            OptTokened { token: None }, // unused if opt_authed is some,
+            db,
+            w_id,
+            uuid,
+        )
+        .await
     } else {
         run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
     }
@@ -6101,6 +6101,7 @@ pub struct JobUpdateQuery {
     pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
     pub fast: Option<bool>,
+    pub only_jobs_stream: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -6257,9 +6258,14 @@ async fn get_job_update_sse(
         running,
         no_logs,
         only_result,
+        only_jobs_stream,
         fast,
     }): Query<JobUpdateQuery>,
-) -> Response {
+) -> error::Result<Response> {
+    if only_jobs_stream.unwrap_or(false) {
+        return get_flow_stream_inner(opt_authed, opt_tokened, db, w_id, job_id).await;
+    }
+
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
     start_job_update_sse_stream(
@@ -6288,30 +6294,19 @@ async fn get_job_update_sse(
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
-    Response::builder()
+    Ok(Response::builder()
         .status(200)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .body(body)
-        .unwrap()
-}
-
-
-async fn get_flow_stream(
-    OptAuthed(opt_authed): OptAuthed,
-    opt_tokened: OptTokened,
-    Extension(db): Extension<DB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
-) -> error::Result<Response> {
-    get_flow_stream_inner(opt_authed, opt_tokened, db, w_id, job_id).await
+        .unwrap())
 }
 
 struct FlowStreamStatus {
     running: Option<bool>,
     stream_jobs: Option<sqlx::types::Json<HashMap<String, Vec<Uuid>>>>,
 }
-
 
 async fn get_flow_stream_inner(
     opt_authed: Option<ApiAuthed>,
@@ -6320,7 +6315,6 @@ async fn get_flow_stream_inner(
     w_id: String,
     job_id: Uuid,
 ) -> error::Result<Response> {
-
     let (tx, rx) = tokio::sync::mpsc::channel(64);
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
@@ -6331,7 +6325,6 @@ async fn get_flow_stream_inner(
     });
 
     tokio::spawn(async move {
-
         let mut tracked_stream_jobs = vec![];
         loop {
             let flow_stream_status = match sqlx::query_as!(
@@ -6349,20 +6342,24 @@ async fn get_flow_stream_inner(
             ).fetch_optional(&db).await {
                 Ok(Some(fs)) => fs,
                 Ok(None) => {
-                    tx.send(JobUpdateSSEStream::NotFound).await.unwrap();
                     tracing::error!("Job not found: {}", job_id);
+                    if let Err(e) = tx.send(JobUpdateSSEStream::NotFound).await {
+                        tracing::error!("Failed to send not found for job {job_id}: {e}");
+                    }
                     break;
                 }
                 Err(e) => {
-                    tx.send(JobUpdateSSEStream::Error { error: format!("Error getting flow stream status: {}", e) }).await.unwrap();
                     tracing::error!("Error getting flow stream status: {}", e);
+                    if let Err(e) = tx.send(JobUpdateSSEStream::Error { error: format!("Error getting flow stream status: {}", e) }).await {
+                        tracing::error!("Failed to send error for job {job_id}: {e}");
+                    }
                     break;
                 }
             };
 
             if let Some(sqlx::types::Json(stream_jobs)) = flow_stream_status.stream_jobs {
                 for (step_id, stream_job_ids) in stream_jobs {
-                    for (index, job_id) in stream_job_ids.into_iter().enumerate() {
+                    for job_id in stream_job_ids {
                         if !tracked_stream_jobs.contains(&job_id) {
                             tracked_stream_jobs.push(job_id);
                             start_job_update_sse_stream(
@@ -6378,7 +6375,7 @@ async fn get_flow_stream_inner(
                                 Some(true),
                                 Some(true),
                                 None,
-                                Some(if index == 0 { step_id.clone() } else { format!("{}:{}", step_id, index) }),
+                                Some(format!("{}:{}", step_id, job_id)),
                                 tx.clone(),
                             );
                         }
@@ -6403,13 +6400,30 @@ async fn get_flow_stream_inner(
                     Some(true),
                     None,
                     None,
-                ).await {
+                )
+                .await
+                {
                     Ok(result) => {
-                        tx.send(JobUpdateSSEStream::Update(result)).await.unwrap();
+                        if let Err(e) = tx.send(JobUpdateSSEStream::Update(result)).await {
+                            tracing::error!(
+                                "Failed to send completed flow job update for job {job_id}: {e}"
+                            );
+                            break;
+                        }
                     }
                     Err(e) => {
-                        tx.send(JobUpdateSSEStream::Error { error: format!("Error getting completed flow job update: {}", e) }).await.unwrap();
                         tracing::error!("Error getting completed flow job update: {}", e);
+                        if let Err(e) = tx
+                            .send(JobUpdateSSEStream::Error {
+                                error: format!("Error getting completed flow job update: {}", e),
+                            })
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to send completed flow job error for job {job_id}: {e}"
+                            );
+                            break;
+                        }
                     }
                 }
                 break;
@@ -6434,14 +6448,11 @@ async fn get_flow_stream_inner(
 #[serde(tag = "type", rename_all = "lowercase")]
 enum JobUpdateSSEStream {
     Update(JobUpdate),
-    Error {
-        error: String,
-    },
+    Error { error: String },
     NotFound,
     Timeout,
     Ping,
 }
-
 
 fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
