@@ -181,6 +181,7 @@ where
     R: Send + 'static,
 {
     let rt = tokio::runtime::Builder::new_multi_thread()
+        .thread_stack_size(4096 * 1024)
         .enable_all()
         .worker_threads(32)
         .build()
@@ -435,16 +436,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         environment
     } else {
         load_base_url(&conn)
-        .await
-        .unwrap_or_else(|_| "local".to_string())
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split(".")
-        .next()
-        .unwrap_or_else(|| "local")
-        .to_string()
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
     };
-
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
