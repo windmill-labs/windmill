@@ -159,7 +159,8 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route("/operator_settings", post(update_operator_settings));
+        .route("/operator_settings", post(update_operator_settings))
+        .route("/compare/:target_workspace_id", get(compare_workspaces_mock));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -3872,3 +3873,669 @@ async fn update_operator_settings(
 
     Ok("Operator settings updated successfully".to_string())
 }
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceItemDiff {
+    pub kind: String,
+    pub path: String,
+    pub versions_ahead: i32,
+    pub versions_behind: i32,
+    pub has_changes: bool,
+    pub source_hash: Option<String>,
+    pub target_hash: Option<String>,
+    pub source_version: Option<i64>,
+    pub target_version: Option<i64>,
+    pub metadata_changes: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceComparison {
+    pub source_workspace_id: String,
+    pub target_workspace_id: String,
+    pub is_fork: bool,
+    pub diffs: Vec<WorkspaceItemDiff>,
+    pub summary: CompareSummary,
+}
+
+#[derive(Serialize)]
+pub struct CompareSummary {
+    pub total_diffs: usize,
+    pub scripts_changed: usize,
+    pub flows_changed: usize,
+    pub apps_changed: usize,
+    pub resources_changed: usize,
+    pub variables_changed: usize,
+    pub conflicts: usize, // Items that are both ahead and behind
+}
+
+// Mock implementation until sqlx prepare can be run
+async fn compare_workspaces_mock(
+    authed: ApiAuthed,
+    Path((w_id, target_workspace_id)): Path<(String, String)>,
+    Extension(_db): Extension<DB>,
+) -> JsonResult<WorkspaceComparison> {
+    // Check permissions for source workspace
+    require_admin(authed.is_admin, &authed.username)?;
+    
+    // Return empty comparison for now
+    // TODO: Replace with actual implementation once sqlx prepare is run
+    Ok(Json(WorkspaceComparison {
+        source_workspace_id: w_id,
+        target_workspace_id,
+        is_fork: false,
+        diffs: Vec::new(),
+        summary: CompareSummary {
+            total_diffs: 0,
+            scripts_changed: 0,
+            flows_changed: 0,
+            apps_changed: 0,
+            resources_changed: 0,
+            variables_changed: 0,
+            conflicts: 0,
+        },
+    }))
+}
+
+// TODO: Enable once sqlx prepare is run - full implementation with database queries
+// The functions below contain the complete implementation but are commented out
+// because they use sqlx compile-time checked queries that require `cargo sqlx prepare`
+// to be run with a database connection.
+
+/*
+async fn compare_workspaces(
+    authed: ApiAuthed,
+    Path((w_id, target_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<WorkspaceComparison> {
+    // Check permissions for source workspace
+    require_admin(authed.is_admin, &authed.username)?;
+
+    // Check if workspaces have parent-child relationship
+    let is_fork: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM workspace 
+            WHERE (id = $1 AND parent_workspace_id = $2) 
+               OR (id = $2 AND parent_workspace_id = $1)
+        )"
+    )
+    .bind(&w_id)
+    .bind(&target_workspace_id)
+    .fetch_one(&db)
+    .await?;
+
+    let mut diffs = Vec::new();
+
+    // Compare scripts
+    let script_diffs = compare_scripts(&db, &w_id, &target_workspace_id).await?;
+    diffs.extend(script_diffs);
+
+    // Compare flows
+    let flow_diffs = compare_flows(&db, &w_id, &target_workspace_id).await?;
+    diffs.extend(flow_diffs);
+
+    // Compare apps
+    let app_diffs = compare_apps(&db, &w_id, &target_workspace_id).await?;
+    diffs.extend(app_diffs);
+
+    // Compare resources
+    let resource_diffs = compare_resources(&db, &w_id, &target_workspace_id).await?;
+    diffs.extend(resource_diffs);
+
+    // Compare variables
+    let variable_diffs = compare_variables(&db, &w_id, &target_workspace_id).await?;
+    diffs.extend(variable_diffs);
+
+    // Calculate summary
+    let summary = CompareSummary {
+        total_diffs: diffs.len(),
+        scripts_changed: diffs.iter().filter(|d| d.kind == "script").count(),
+        flows_changed: diffs.iter().filter(|d| d.kind == "flow").count(),
+        apps_changed: diffs.iter().filter(|d| d.kind == "app").count(),
+        resources_changed: diffs.iter().filter(|d| d.kind == "resource").count(),
+        variables_changed: diffs.iter().filter(|d| d.kind == "variable").count(),
+        conflicts: diffs.iter().filter(|d| d.versions_ahead > 0 && d.versions_behind > 0).count(),
+    };
+
+    Ok(Json(WorkspaceComparison {
+        source_workspace_id: w_id,
+        target_workspace_id,
+        is_fork,
+        diffs,
+        summary,
+    }))
+}
+
+#[allow(dead_code)]
+async fn compare_scripts(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<Vec<WorkspaceItemDiff>> {
+    let mut diffs = Vec::new();
+
+    // Get all unique script paths from both workspaces
+    let all_paths = sqlx::query!(
+        "SELECT DISTINCT path FROM (
+            SELECT path FROM script WHERE workspace_id = $1 AND deleted = false
+            UNION
+            SELECT path FROM script WHERE workspace_id = $2 AND deleted = false
+        ) AS paths",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    for (path,) in all_paths {
+
+        // Get latest script from each workspace
+        let source_script = sqlx::query!(
+            "SELECT hash, created_at, content, summary, description, lock, schema
+             FROM script 
+             WHERE workspace_id = $1 AND path = $2 AND deleted = false
+             ORDER BY created_at DESC
+             LIMIT 1",
+            source_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let target_script = sqlx::query!(
+            "SELECT hash, created_at, content, summary, description, lock, schema
+             FROM script 
+             WHERE workspace_id = $1 AND path = $2 AND deleted = false
+             ORDER BY created_at DESC
+             LIMIT 1",
+            target_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        // Count versions in each workspace
+        let source_version_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM script 
+             WHERE workspace_id = $1 AND path = $2 AND deleted = false",
+            source_workspace_id,
+            &path
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(0);
+
+        let target_version_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM script 
+             WHERE workspace_id = $1 AND path = $2 AND deleted = false",
+            target_workspace_id,
+            &path
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(0);
+
+        let mut metadata_changes = Vec::new();
+        let mut has_changes = false;
+
+        if let (Some(source), Some(target)) = (&source_script, &target_script) {
+            if source.content != target.content {
+                metadata_changes.push("content".to_string());
+                has_changes = true;
+            }
+            if source.summary != target.summary {
+                metadata_changes.push("summary".to_string());
+                has_changes = true;
+            }
+            if source.description != target.description {
+                metadata_changes.push("description".to_string());
+                has_changes = true;
+            }
+            if source.lock != target.lock {
+                metadata_changes.push("lockfile".to_string());
+                has_changes = true;
+            }
+            if source.schema != target.schema {
+                metadata_changes.push("schema".to_string());
+                has_changes = true;
+            }
+        } else if source_script.is_some() || target_script.is_some() {
+            has_changes = true;
+            if source_script.is_none() {
+                metadata_changes.push("only_in_target".to_string());
+            } else {
+                metadata_changes.push("only_in_source".to_string());
+            }
+        }
+
+        if has_changes {
+            diffs.push(WorkspaceItemDiff {
+                kind: "script".to_string(),
+                path: path.clone(),
+                versions_ahead: (source_version_count - target_version_count).max(0) as i32,
+                versions_behind: (target_version_count - source_version_count).max(0) as i32,
+                has_changes,
+                source_hash: source_script.as_ref().map(|s| s.hash.to_string()),
+                target_hash: target_script.as_ref().map(|s| s.hash.to_string()),
+                source_version: None,
+                target_version: None,
+                metadata_changes,
+            });
+        }
+    }
+
+    Ok(diffs)
+}
+
+#[allow(dead_code)]
+async fn compare_flows(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<Vec<WorkspaceItemDiff>> {
+    let mut diffs = Vec::new();
+
+    // Get all unique flow paths from both workspaces
+    let all_paths = sqlx::query!(
+        "SELECT DISTINCT path FROM (
+            SELECT path FROM flow WHERE workspace_id = $1 AND archived = false
+            UNION
+            SELECT path FROM flow WHERE workspace_id = $2 AND archived = false
+        ) AS paths",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    for (path,) in all_paths {
+
+        // Get latest flow version from each workspace
+        let source_flow = sqlx::query!(
+            "SELECT f.versions[array_length(f.versions, 1)] as latest_version,
+                    f.value, f.summary, f.description, f.schema
+             FROM flow f
+             WHERE f.workspace_id = $1 AND f.path = $2 AND f.archived = false",
+            source_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let target_flow = sqlx::query!(
+            "SELECT f.versions[array_length(f.versions, 1)] as latest_version,
+                    f.value, f.summary, f.description, f.schema
+             FROM flow f
+             WHERE f.workspace_id = $1 AND f.path = $2 AND f.archived = false",
+            target_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let mut metadata_changes = Vec::new();
+        let mut has_changes = false;
+
+        if let (Some(source), Some(target)) = (&source_flow, &target_flow) {
+            if source.value != target.value {
+                metadata_changes.push("content".to_string());
+                has_changes = true;
+            }
+            if source.summary != target.summary {
+                metadata_changes.push("summary".to_string());
+                has_changes = true;
+            }
+            if source.description != target.description {
+                metadata_changes.push("description".to_string());
+                has_changes = true;
+            }
+            if source.schema != target.schema {
+                metadata_changes.push("schema".to_string());
+                has_changes = true;
+            }
+        } else if source_flow.is_some() || target_flow.is_some() {
+            has_changes = true;
+            if source_flow.is_none() {
+                metadata_changes.push("only_in_target".to_string());
+            } else {
+                metadata_changes.push("only_in_source".to_string());
+            }
+        }
+
+        if has_changes {
+            // Count versions
+            let source_version_count = source_flow.as_ref()
+                .and_then(|f| f.latest_version)
+                .unwrap_or(0);
+            let target_version_count = target_flow.as_ref()
+                .and_then(|f| f.latest_version)
+                .unwrap_or(0);
+
+            diffs.push(WorkspaceItemDiff {
+                kind: "flow".to_string(),
+                path: path.clone(),
+                versions_ahead: (source_version_count - target_version_count).max(0) as i32,
+                versions_behind: (target_version_count - source_version_count).max(0) as i32,
+                has_changes,
+                source_hash: None,
+                target_hash: None,
+                source_version: source_flow.as_ref().and_then(|f| f.latest_version),
+                target_version: target_flow.as_ref().and_then(|f| f.latest_version),
+                metadata_changes,
+            });
+        }
+    }
+
+    Ok(diffs)
+}
+
+#[allow(dead_code)]
+async fn compare_apps(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<Vec<WorkspaceItemDiff>> {
+    let mut diffs = Vec::new();
+
+    // Get all unique app paths from both workspaces
+    let all_paths = sqlx::query!(
+        "SELECT DISTINCT path FROM (
+            SELECT path FROM app WHERE workspace_id = $1 AND draft_only = false
+            UNION
+            SELECT path FROM app WHERE workspace_id = $2 AND draft_only = false
+        ) AS paths",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    for (path,) in all_paths {
+
+        // Get latest app version from each workspace
+        let source_app = sqlx::query!(
+            "SELECT a.versions[array_length(a.versions, 1)] as latest_version,
+                    a.summary, a.policy
+             FROM app a
+             WHERE a.workspace_id = $1 AND a.path = $2 AND a.draft_only = false",
+            source_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let target_app = sqlx::query!(
+            "SELECT a.versions[array_length(a.versions, 1)] as latest_version,
+                    a.summary, a.policy
+             FROM app a
+             WHERE a.workspace_id = $1 AND a.path = $2 AND a.draft_only = false",
+            target_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        // Get actual app version content for comparison
+        let source_version_data = if let Some(app) = &source_app {
+            if let Some(version_id) = app.latest_version {
+                sqlx::query!(
+                    "SELECT value FROM app_version WHERE id = $1",
+                    version_id
+                )
+                .fetch_optional(db)
+                .await?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let target_version_data = if let Some(app) = &target_app {
+            if let Some(version_id) = app.latest_version {
+                sqlx::query!(
+                    "SELECT value FROM app_version WHERE id = $1",
+                    version_id
+                )
+                .fetch_optional(db)
+                .await?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut metadata_changes = Vec::new();
+        let mut has_changes = false;
+
+        if let (Some(source), Some(target)) = (&source_app, &target_app) {
+            if source.summary != target.summary {
+                metadata_changes.push("summary".to_string());
+                has_changes = true;
+            }
+            if source.policy != target.policy {
+                metadata_changes.push("policy".to_string());
+                has_changes = true;
+            }
+
+            // Compare actual app content
+            if let (Some(source_data), Some(target_data)) = (&source_version_data, &target_version_data) {
+                if source_data.value != target_data.value {
+                    metadata_changes.push("content".to_string());
+                    has_changes = true;
+                }
+            }
+        } else if source_app.is_some() || target_app.is_some() {
+            has_changes = true;
+            if source_app.is_none() {
+                metadata_changes.push("only_in_target".to_string());
+            } else {
+                metadata_changes.push("only_in_source".to_string());
+            }
+        }
+
+        if has_changes {
+            let source_version_count = source_app.as_ref()
+                .and_then(|a| a.latest_version)
+                .unwrap_or(0);
+            let target_version_count = target_app.as_ref()
+                .and_then(|a| a.latest_version)
+                .unwrap_or(0);
+
+            diffs.push(WorkspaceItemDiff {
+                kind: "app".to_string(),
+                path: path.clone(),
+                versions_ahead: (source_version_count - target_version_count).max(0) as i32,
+                versions_behind: (target_version_count - source_version_count).max(0) as i32,
+                has_changes,
+                source_hash: None,
+                target_hash: None,
+                source_version: source_app.as_ref().and_then(|a| a.latest_version),
+                target_version: target_app.as_ref().and_then(|a| a.latest_version),
+                metadata_changes,
+            });
+        }
+    }
+
+    Ok(diffs)
+}
+
+#[allow(dead_code)]
+async fn compare_resources(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<Vec<WorkspaceItemDiff>> {
+    let mut diffs = Vec::new();
+
+    // Get all unique resource paths from both workspaces
+    let all_paths = sqlx::query!(
+        "SELECT DISTINCT path FROM (
+            SELECT path FROM resource WHERE workspace_id = $1
+            UNION
+            SELECT path FROM resource WHERE workspace_id = $2
+        ) AS paths",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    for (path,) in all_paths {
+
+        let source_resource = sqlx::query!(
+            "SELECT value, description, resource_type, edited_at
+             FROM resource 
+             WHERE workspace_id = $1 AND path = $2",
+            source_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let target_resource = sqlx::query!(
+            "SELECT value, description, resource_type, edited_at
+             FROM resource 
+             WHERE workspace_id = $1 AND path = $2",
+            target_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let mut metadata_changes = Vec::new();
+        let mut has_changes = false;
+
+        if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
+            if source.value != target.value {
+                metadata_changes.push("value".to_string());
+                has_changes = true;
+            }
+            if source.description != target.description {
+                metadata_changes.push("description".to_string());
+                has_changes = true;
+            }
+            if source.resource_type != target.resource_type {
+                metadata_changes.push("resource_type".to_string());
+                has_changes = true;
+            }
+        } else if source_resource.is_some() || target_resource.is_some() {
+            has_changes = true;
+            if source_resource.is_none() {
+                metadata_changes.push("only_in_target".to_string());
+            } else {
+                metadata_changes.push("only_in_source".to_string());
+            }
+        }
+
+        if has_changes {
+            diffs.push(WorkspaceItemDiff {
+                kind: "resource".to_string(),
+                path: path.clone(),
+                versions_ahead: if source_resource.is_some() && target_resource.is_none() { 1 } else { 0 },
+                versions_behind: if target_resource.is_some() && source_resource.is_none() { 1 } else { 0 },
+                has_changes,
+                source_hash: None,
+                target_hash: None,
+                source_version: None,
+                target_version: None,
+                metadata_changes,
+            });
+        }
+    }
+
+    Ok(diffs)
+}
+
+#[allow(dead_code)]
+async fn compare_variables(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<Vec<WorkspaceItemDiff>> {
+    let mut diffs = Vec::new();
+
+    // Get all unique variable paths from both workspaces
+    let all_paths = sqlx::query!(
+        "SELECT DISTINCT path FROM (
+            SELECT path FROM variable WHERE workspace_id = $1
+            UNION
+            SELECT path FROM variable WHERE workspace_id = $2
+        ) AS paths",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    for (path,) in all_paths {
+
+        let source_variable = sqlx::query!(
+            "SELECT value, is_secret, description
+             FROM variable 
+             WHERE workspace_id = $1 AND path = $2",
+            source_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let target_variable = sqlx::query!(
+            "SELECT value, is_secret, description
+             FROM variable 
+             WHERE workspace_id = $1 AND path = $2",
+            target_workspace_id,
+            &path
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let mut metadata_changes = Vec::new();
+        let mut has_changes = false;
+
+        if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
+            // For secrets, we can't compare values directly, only check if both exist
+            if source.is_secret != target.is_secret {
+                metadata_changes.push("is_secret".to_string());
+                has_changes = true;
+            } else if !source.is_secret && source.value != target.value {
+                metadata_changes.push("value".to_string());
+                has_changes = true;
+            } else if source.is_secret {
+                // For secrets, we mark as potentially changed
+                metadata_changes.push("secret_value".to_string());
+                has_changes = true;
+            }
+            
+            if source.description != target.description {
+                metadata_changes.push("description".to_string());
+                has_changes = true;
+            }
+        } else if source_variable.is_some() || target_variable.is_some() {
+            has_changes = true;
+            if source_variable.is_none() {
+                metadata_changes.push("only_in_target".to_string());
+            } else {
+                metadata_changes.push("only_in_source".to_string());
+            }
+        }
+
+        if has_changes {
+            diffs.push(WorkspaceItemDiff {
+                kind: "variable".to_string(),
+                path: path.clone(),
+                versions_ahead: if source_variable.is_some() && target_variable.is_none() { 1 } else { 0 },
+                versions_behind: if target_variable.is_some() && source_variable.is_none() { 1 } else { 0 },
+                has_changes,
+                source_hash: None,
+                target_hash: None,
+                source_version: None,
+                target_version: None,
+                metadata_changes,
+            });
+        }
+    }
+
+    Ok(diffs)
+}
+*/
