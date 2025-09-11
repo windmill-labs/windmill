@@ -1,16 +1,17 @@
-import type { GetSettingsResponse, LargeFileStorage } from './gen'
+import type { GetSettingsResponse, LargeFileStorage, S3PermissionRule } from './gen'
 import { emptyString } from './utils'
 
 // Extended type to include GCS support until backend types are regenerated
 
-type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
-type s3ResourceSettingsItem = {
-	resourceType: s3type
+type S3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
+export type S3ResourceSettingsItem = {
+	resourceType: S3type
 	resourcePath: string | undefined
 	publicResource: boolean | undefined
+	advancedPermissions?: S3PermissionRule[]
 }
-export type S3ResourceSettings = s3ResourceSettingsItem & {
-	secondaryStorage: [string, s3ResourceSettingsItem][] | undefined
+export type S3ResourceSettings = S3ResourceSettingsItem & {
+	secondaryStorage: [string, S3ResourceSettingsItem][] | undefined
 }
 export function convertBackendSettingsToFrontendSettings(
 	large_file_storage: GetSettingsResponse['large_file_storage']
@@ -26,42 +27,48 @@ export function convertBackendSettingsToFrontendSettings(
 
 export function convertBackendSettingsToFrontendSettingsItem(
 	large_file_storage: GetSettingsResponse['large_file_storage']
-): s3ResourceSettingsItem {
+): S3ResourceSettingsItem {
 	if (large_file_storage?.type === 'S3Storage') {
 		return {
 			resourceType: 's3',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions: large_file_storage.advanced_permissions
 		}
 	} else if (large_file_storage?.type === 'AzureBlobStorage') {
 		return {
 			resourceType: 'azure_blob',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions: large_file_storage.advanced_permissions
 		}
 	} else if (large_file_storage?.type === 'AzureWorkloadIdentity') {
 		return {
 			resourceType: 'azure_workload_identity',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions: large_file_storage.advanced_permissions
 		}
 	} else if (large_file_storage?.type === 'S3AwsOidc') {
 		return {
 			resourceType: 's3_aws_oidc',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions: large_file_storage.advanced_permissions
 		}
 	} else if (large_file_storage?.type === 'GoogleCloudStorage') {
 		return {
 			resourceType: 'gcloud_storage',
 			resourcePath: large_file_storage?.gcs_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions: large_file_storage.advanced_permissions
 		}
 	} else {
 		return {
 			resourceType: 's3',
 			resourcePath: undefined,
-			publicResource: undefined
+			publicResource: undefined,
+			advancedPermissions: defaultS3AdvancedPermissions
 		}
 	}
 }
@@ -80,7 +87,7 @@ export function convertFrontendToBackendSetting(
 	return settings
 }
 export function convertFrontendToBackendettingsItem(
-	s3ResourceSettings: s3ResourceSettingsItem
+	s3ResourceSettings: S3ResourceSettingsItem
 ): LargeFileStorage | undefined {
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
@@ -111,3 +118,11 @@ export function convertFrontendToBackendettingsItem(
 		return params
 	}
 }
+
+export const defaultS3AdvancedPermissions: S3PermissionRule[] = [
+	{ pattern: 'u/{user}/**', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'g/{group}/**', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'f/{folder_read}/**', allow: ['read', 'list'] },
+	{ pattern: 'f/{folder_write}/**', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: '**/*', allow: [] }
+]
