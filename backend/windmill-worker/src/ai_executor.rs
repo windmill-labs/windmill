@@ -158,7 +158,8 @@ struct OpenAIImageResponse {
 #[derive(Deserialize)]
 struct OpenAIImageOutput {
     r#type: String, // Expected to be "image_generation_call"
-    result: String, // Base64 encoded image
+    #[serde(default)]
+    result: Option<String>, // Base64 encoded image
 }
 
 // Gemini API structures
@@ -749,10 +750,10 @@ async fn generate_image_from_provider(
                         .output
                         .iter()
                         .find(|output| output.r#type == "image_generation_call")
-                        .map(|output| &output.result);
+                        .and_then(|output| output.result.as_ref());
 
                     if let Some(base64_image) = image_generation_call {
-                        Ok(base64_image.clone())
+                        Ok(base64_image.to_string())
                     } else {
                         Err(Error::internal_err(
                             "No image output received from OpenAI".to_string(),
