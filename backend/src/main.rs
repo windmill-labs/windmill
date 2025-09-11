@@ -181,7 +181,6 @@ where
     R: Send + 'static,
 {
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .thread_stack_size(4096 * 1024)
         .enable_all()
         .worker_threads(32)
         .build()
