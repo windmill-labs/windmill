@@ -1796,9 +1796,10 @@ async fn archive_script_by_hash(
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET archived = true WHERE hash = $1 RETURNING *",
+        "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
