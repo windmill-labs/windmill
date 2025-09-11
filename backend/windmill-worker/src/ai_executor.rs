@@ -39,6 +39,7 @@ use crate::{
 };
 
 const MAX_AGENT_ITERATIONS: usize = 10;
+const REQUEST_TIMEOUT: u64 = 120;
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
@@ -730,7 +731,7 @@ async fn generate_image_from_provider(
 
             let resp = HTTP_CLIENT
                 .post(format!("{}/responses", base_url))
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT))
                 .bearer_auth(api_key)
                 .json(&image_request)
                 .send()
@@ -837,7 +838,7 @@ async fn generate_image_from_provider(
 
             let resp = HTTP_CLIENT
                 .post(&gemini_url)
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT))
                 .header("x-goog-api-key", api_key)
                 .header("Content-Type", "application/json")
                 .json(&gemini_request)
@@ -926,7 +927,7 @@ async fn generate_image_from_provider(
 
             let resp = HTTP_CLIENT
                 .post(format!("{}/chat/completions", base_url))
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT))
                 .bearer_auth(api_key)
                 .json(&openrouter_request)
                 .send()
@@ -1319,7 +1320,7 @@ async fn run_agent(
 
                     let resp = HTTP_CLIENT
                         .post(format!("{}/chat/completions", base_url))
-                        .timeout(std::time::Duration::from_secs(120))
+                        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT))
                         .bearer_auth(api_key)
                         .json(&OpenAIRequest {
                             model: args.provider.get_model(),

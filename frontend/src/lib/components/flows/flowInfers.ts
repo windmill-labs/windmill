@@ -65,15 +65,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				user_message: {
 					type: 'string'
 				},
+				image: {
+					type: 'object',
+					format: 'resource-s3_object'
+				},
 				system_prompt: {
 					type: 'string'
 				},
 				max_completion_tokens: {
 					type: 'number'
-				},
-				image: {
-					type: 'object',
-					format: 'resource-s3_object'
 				},
 				temperature: {
 					type: 'number',
@@ -99,9 +99,11 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'provider',
 				'model',
 				'user_message',
+				'image',
 				'system_prompt',
 				'max_completion_tokens',
 				'temperature',
+				'output_type',
 				'output_schema'
 			]
 		}
