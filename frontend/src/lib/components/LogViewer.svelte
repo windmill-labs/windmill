@@ -17,6 +17,7 @@
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import QueuePosition from './QueuePosition.svelte'
 
 	interface Props {
 		content: string | undefined
@@ -262,6 +263,9 @@
 							>
 							<NoWorkerWithTagWarning {tagLabel} {tag} />
 						</div>
+					{/if}
+					{#if jobId}
+						<QueuePosition {jobId} />
 					{/if}
 				</div>
 			{:else if duration}
