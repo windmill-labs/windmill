@@ -119,44 +119,8 @@ impl QueryBuilder for DefaultQueryBuilder {
     }
 }
 
-// Placeholder implementations for specific providers
-pub struct OpenAIQueryBuilder;
-impl OpenAIQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-// For now, use default implementation
-#[async_trait]
-impl QueryBuilder for OpenAIQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
-        // OpenAI supports tools for both text and image output
-        true
-    }
-    
-    async fn build_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<String, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.build_request(args, client, workspace_id).await
-    }
-    
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // For now, delegate to default implementation
-        DefaultQueryBuilder.parse_response(response).await
-    }
-    
-    fn get_endpoint(&self, base_url: &str, output_type: &OutputType) -> String {
-        match output_type {
-            OutputType::Text => format!("{}/chat/completions", base_url),
-            OutputType::Image => format!("{}/responses", base_url),
-        }
-    }
-}
+// Import the actual OpenAI implementation
+use crate::ai::providers::openai::OpenAIQueryBuilder;
 
 pub struct AnthropicQueryBuilder;
 impl AnthropicQueryBuilder {
