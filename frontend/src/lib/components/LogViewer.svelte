@@ -12,7 +12,7 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
