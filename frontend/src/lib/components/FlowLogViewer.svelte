@@ -41,7 +41,7 @@
 		render: boolean
 		level?: number
 		flowId: string
-		onSelectedIteration: (
+		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
@@ -62,7 +62,7 @@
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
-		globalIterationBounds: Record<string, GlobalIterationBounds>
+		globalIterationBounds?: Record<string, GlobalIterationBounds>
 		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 

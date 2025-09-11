@@ -12,17 +12,17 @@
 	interface Props {
 		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
-		localDurationStatuses: Record<string, DurationStatus>
-		globalIterationBounds: Record<string, GlobalIterationBounds>
+		localDurationStatuses?: Record<string, DurationStatus>
+		globalIterationBounds?: Record<string, GlobalIterationBounds>
 		workspaceId: string | undefined
 		render: boolean
-		onSelectedIteration: (
+		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
 		mode?: 'flow' | 'aiagent'
-		loadPreviousIterations: (key: string, amount: number) => void
+		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 
 	let {
