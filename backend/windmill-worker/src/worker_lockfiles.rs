@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
@@ -132,6 +132,92 @@ async fn add_relative_imports_to_dependency_map<'c>(
     Ok(tx)
 }
 
+async fn maybe_early_add_relative_imports_to_dependency_map<'c>(
+    importer_path: &str,
+    w_id: &str,
+    // TODO: Are they unique and never have collisions?
+    // e.g. ../../f/t/s and just f/t/s
+    relative_imports: Option<Vec<String>>,
+    importer_kind: &str,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    node_id: &str,
+) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    lazy_static::lazy_static! {
+        // Dependency Map (dependency_map)
+        //
+        // Invalidation is periodically triggered by pg.
+        static ref DMAP: cache::Cache<String, HashSet<String>>  = cache::Cache::new(50);
+        // <{w_id}:{importer_path}:{importer_kind}:{node_id}, <imported_path>>
+    }
+
+    let Some(mut relative_imports) = relative_imports else {
+        return Ok(tx);
+    };
+
+    let key = format!("{w_id}:{importer_path}:{importer_kind}:{node_id}");
+    // Try on cached values first.
+    if DMAP
+        .get(&key)
+        .map(|cached_imported_paths_hs| {
+            // Check if there is at least one relative import not tracked by the dependency_map
+            // (associated with w_id:importer_path:importer_kind:node_id)
+            relative_imports
+                .iter()
+                .any(|v| !cached_imported_paths_hs.contains(v))
+        })
+        // If we don't have cached imports (it is None) we want to fetch from DB
+        .unwrap_or(true)
+    {
+        // Fetch from DB fresh dependency_map
+        let fresh_imported_paths = sqlx::query_scalar::<_, String>(
+            "SELECT imported_path FROM dependency_map WHERE workspace_id = $1 AND importer_path = $2 AND importer_node_id = $3 AND importer_kind = $4::text::IMPORTER_KIND",
+                )
+                .bind(w_id)
+                .bind(dbg!(importer_path))
+                .bind(dbg!(node_id))
+                .bind(dbg!(importer_kind))
+                .fetch_all(&mut *tx)
+                .await?;
+
+        // Convert to HashSet since the Cache operates using this type.
+        let fresh_imported_paths_hs: HashSet<String> =
+            HashSet::from_iter(fresh_imported_paths.into_iter());
+
+        // We will do the same check for cached imported paths
+        // however this time we will remove all paths from relative_imports that are not missing
+        // It may result in several outcomes:
+        // 1. cached imports were outdated so it will resolve to empty vector
+        // 2. cached imports were up-to-date and by doing this we filtering to actually missing imports. By doing that we minimize overhead.
+        relative_imports.retain(|v| !fresh_imported_paths_hs.contains(v));
+
+        // Zero-cost Cache update
+        DMAP.insert(key, fresh_imported_paths_hs);
+    }
+
+    // TODO: Add warning if triggered.
+    // Say: Windmill selfhealed that but is is the bug!
+
+    if !relative_imports.is_empty() {
+        let mut logs = "".to_string();
+        logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", node_id).as_str());
+
+        tx = add_relative_imports_to_dependency_map(
+            importer_path,
+            w_id,
+            relative_imports,
+            importer_kind,
+            tx,
+            &mut logs,
+            Some(node_id.to_owned()),
+        )
+        .await?;
+        // TODO:
+        // append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
+    }
+
+    Ok(tx)
+}
+
 async fn clear_dependency_map_for_item<'c>(
     item_path: &str,
     w_id: &str,
@@ -174,6 +260,54 @@ async fn clear_dependency_parent_path<'c>(
         )
         .execute(&mut *tx)
         .await?;
+    }
+    Ok(tx)
+}
+
+// TODO: What if flow is moved and steps are renamed in single pass?
+async fn maybe_rearrange_dependency_map<'c>(
+    parent_path: &Option<String>,
+    item_path: &str,
+    w_id: &str,
+    importer_kind: &str,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    if parent_path
+        .as_ref()
+        .is_some_and(|x| !x.is_empty() && x != item_path)
+    {
+        sqlx::query(
+            "
+UPDATE dependency_map
+    SET importer_path = $1
+    WHERE importer_path = $2
+        AND importer_kind = $3::text::IMPORTER_KIND
+        AND workspace_id = $4
+        ",
+        )
+        .bind(item_path)
+        .bind(parent_path.clone().unwrap())
+        .bind(importer_kind)
+        .bind(w_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // let nodes_to_relock: Vec<String> = sqlx::query_scalar(
+        //     "UPDATE dependency_map
+        //         SET importer_path = $1
+        //         WHERE importer_path = $2
+        //             AND importer_kind = $3::text::IMPORTER_KIND
+        //             AND workspace_id = $4
+        //         RETURNING importer_node_id",
+        // )
+        // .bind(item_path)
+        // .bind(parent_path.clone().unwrap())
+        // .bind(importer_kind)
+        // .bind(w_id)
+        // .fetch_all(&mut *tx)
+        // .await?;
+
+        // dbg!(nodes_to_relock);
     }
     Ok(tx)
 }
@@ -849,6 +983,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     continue;
                 }
                 Err(err) => {
+                    // TODO: Clean malformed dependency_map row
+                    // TODO: If flow or app also take into account nodes.
                     tracing::error!(
                         "error getting latest deployed app version for path {path}: {err}",
                         path = s.importer_path,
@@ -991,8 +1127,14 @@ pub async fn handle_flow_dependency_job(
     .clone();
 
     let mut tx = db.begin().await?;
-    tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
+
+    // TODO: is parent_path only used for this edge-case?
+    tx = maybe_rearrange_dependency_map(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+
+    let new_path = parent_path
+        .as_ref()
+        .is_some_and(|x| !x.is_empty() && x != &job_path);
 
     if !skip_flow_update {
         sqlx::query!(
@@ -1024,6 +1166,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
+        new_path,
         raw_deps,
     )
     .await?;
@@ -1212,6 +1355,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
+    new_path: bool,
     raw_deps: Option<HashMap<String, String>>,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
@@ -1225,6 +1369,7 @@ async fn lock_modules<'c>(
     let mut errors = Vec::new();
     for mut e in modules.into_iter() {
         let id = e.id.clone();
+        dbg!(&id);
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -1266,6 +1411,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        new_path,
                         raw_deps.clone(),
                     ))
                     .await?;
@@ -1302,6 +1448,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            new_path,
                             raw_deps.clone(),
                         ))
                         .await?;
@@ -1330,6 +1477,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        new_path,
                         raw_deps.clone(),
                     ))
                     .await?;
@@ -1363,6 +1511,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            new_path,
                             raw_deps.clone(),
                         ))
                         .await?;
@@ -1389,6 +1538,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        new_path,
                         raw_deps.clone(),
                     ))
                     .await?;
@@ -1441,8 +1591,26 @@ async fn lock_modules<'c>(
             .await?;
         }
 
+        let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
+        let relative_imports = extract_relative_imports(
+            &content,
+            &format!("{dep_path}/flow"),
+            &Some(language.clone()),
+        );
+
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
+                // TODO: Is it safe to override semi-global tx here?
+                tx = maybe_early_add_relative_imports_to_dependency_map(
+                    &dep_path,
+                    &job.workspace_id,
+                    relative_imports,
+                    "flow",
+                    tx,
+                    &e.id,
+                )
+                .await?;
+
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1450,6 +1618,17 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
+                    // TODO: Is it safe to override semi-global tx here?
+                    tx = maybe_early_add_relative_imports_to_dependency_map(
+                        &dep_path,
+                        &job.workspace_id,
+                        relative_imports,
+                        "flow",
+                        tx,
+                        &e.id,
+                    )
+                    .await?;
+
                     new_flow_modules.push(e);
                     continue;
                 }
@@ -1497,7 +1676,6 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
                 tx = clear_dependency_map_for_item(
                     &job_path,
                     &job.workspace_id,
@@ -1506,11 +1684,6 @@ async fn lock_modules<'c>(
                     &Some(e.id.clone()),
                 )
                 .await?;
-                let relative_imports = extract_relative_imports(
-                    &content,
-                    &format!("{dep_path}/flow"),
-                    &Some(language.clone()),
-                );
                 if let Some(relative_imports) = relative_imports {
                     let mut logs = "".to_string();
                     logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", e.id).as_str());
