@@ -42,7 +42,6 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel}
 lazy_static::lazy_static! {
     static ref WMDEBUG_NO_HASH_CHANGE_ON_DJ: bool = std::env::var("WMDEBUG_NO_HASH_CHANGE_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
-    // TODO: Use
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
 }
@@ -791,7 +790,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
             args.insert(
                 "components_to_relock".to_string(),
-                dbg!(to_raw_value(&s.importer_node_ids)),
+                to_raw_value(&s.importer_node_ids),
             );
 
             let r = sqlx::query_scalar!(
@@ -2007,10 +2006,10 @@ async fn lock_modules_app(
                                 if !l.contains(id) {
                                     return Ok(Value::Object(m.clone()));
                                 }
-                            } else if dbg!(v.get("lock"))
+                            } else if v
+                                .get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                dbg!("SKIP");
                                 // TODO: Make sure this is not triggered for jobs unexpectedly
                                 if skip_creating_new_lock(&language, &content) {
                                     logs.push_str(
@@ -2209,8 +2208,6 @@ pub async fn handle_app_dependency_job(
         })
         .flatten();
 
-    dbg!(&components_to_relock);
-
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -2245,7 +2242,7 @@ pub async fn handle_app_dependency_job(
 
         // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
         let mut value_lite = value.clone();
-        reduce_app(db, dbg!(&job_path), &mut value_lite, app_id).await?;
+        reduce_app(db, &job_path, &mut value_lite, app_id).await?;
         if let Value::Object(object) = &mut value_lite {
             object.insert("version".to_string(), json!(id));
         }
