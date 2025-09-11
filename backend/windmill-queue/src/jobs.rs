@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -22,7 +20,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::prelude::FromRow;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
@@ -37,12 +34,10 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::db::shard_db_or_main_db;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::db::{job_id_to_shard_db, shard_db_or_main_db};
+use windmill_common::jobs::{JobStatus, JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
-use windmill_common::worker::{
-    Connection, SCRIPT_TOKEN_EXPIRY, SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_URLS,
-};
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
@@ -830,15 +825,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     Ok(queued_job.id)
 }
 
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "job_status", rename_all = "lowercase")]
-enum JobStatus {
-    Success,
-    Failure,
-    Skipped,
-    Canceled,
-}
-
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
@@ -1029,7 +1015,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).await?;
+    shard_db_tx = delete_job(shard_db_tx, &job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
     if queued_job.is_flow_step() {
@@ -4720,25 +4706,12 @@ pub async fn push<'c, 'd>(
         })
     };
 
-    let shard_id_to_shard_url = &SHARD_ID_TO_SHARD_URLS.read().await.clone().unwrap();
-
-    let mut hasher = DefaultHasher::new();
-
-    job_id.hash(&mut hasher);
-
-    //todo: proper converison
-    let shard_id = (hasher.finish() as usize) % shard_id_to_shard_url.len();
-
-    let opt = PgConnectOptions::from_str(shard_id_to_shard_url.get(&shard_id).unwrap())?;
-
-    let push_db = PgPoolOptions::new().connect_with(opt).await?;
-
     let mut tx: Transaction<'c, Postgres> = tx.into_tx().await?;
-    let mut push_db_tx = push_db.begin().await?;
     let job_id: Uuid = if let Some(job_id) = job_id {
-        let conflicting_id = sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", job_id)
-            .fetch_optional(&mut *push_db_tx)
-            .await?;
+        let conflicting_id =
+            sqlx::query_scalar!("SELECT 1 FROM v2_job_completed WHERE id = $1", job_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if conflicting_id.is_some() {
             return Err(Error::BadRequest(format!(
@@ -4750,6 +4723,10 @@ pub async fn push<'c, 'd>(
     } else {
         Ulid::new().into()
     };
+
+    let push_db = job_id_to_shard_db(&job_id).await.unwrap();
+
+    let mut push_db_tx = push_db.begin().await?;
 
     if concurrent_limit.is_some() {
         insert_concurrency_key(

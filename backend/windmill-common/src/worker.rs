@@ -186,9 +186,6 @@ lazy_static::lazy_static! {
 
     pub static ref SHARD_DB_URL: Option<String> = std::env::var("SHARD_DB_URL").ok();
 
-    pub static ref SHARD_ID: Option<i64> = std::env::var("SHARD_ID").ok()
-        .and_then(|x| x.parse::<i64>().ok());
-
     pub static ref SHARD_URLS: Option<Vec<String>> = std::env::var("SHARD_URLS").ok().map(|shard_url| {
         let shard_url = shard_url.split(',').map(|s| s.to_owned()).collect_vec();
         shard_url
@@ -196,7 +193,7 @@ lazy_static::lazy_static! {
 
     pub static ref SHARD_DB_INSTANCE: Arc<RwLock<Option<Pool<Postgres>>>> = Arc::new(RwLock::new(None));
 
-    pub static ref SHARD_ID_TO_SHARD_URLS: Arc<RwLock<Option<HashMap<usize, String>>>> = Arc::new(RwLock::new(None));
+    pub static ref SHARD_ID_TO_SHARD_URLS: Arc<RwLock<Option<HashMap<usize, Pool<Postgres>>>>> = Arc::new(RwLock::new(None));
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()

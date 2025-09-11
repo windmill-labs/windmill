@@ -1,6 +1,8 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use sqlx::{Acquire, Pool, Postgres, Transaction};
 
-use crate::worker::{SHARD_DB_INSTANCE, SHARD_DB_URL};
+use crate::worker::{SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_URLS};
 
 pub type DB = Pool<Postgres>;
 
@@ -224,4 +226,21 @@ impl UserDB {
 
         Ok(tx)
     }
+}
+
+pub async fn job_id_to_shard_db(job_id: &uuid::Uuid) -> Option<Pool<Postgres>> {
+    let shard_id_to_shard_url = &SHARD_ID_TO_SHARD_URLS.read().await;
+
+    let shard_db = shard_id_to_shard_url.as_ref().and_then(|db_store| {
+        let mut hasher = DefaultHasher::new();
+
+        job_id.hash(&mut hasher);
+
+        //todo: proper converison
+        let shard_id = (hasher.finish() as usize) % db_store.len();
+
+        db_store.get(&shard_id).cloned()
+    });
+
+    shard_db
 }

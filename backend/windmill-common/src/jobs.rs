@@ -313,6 +313,15 @@ impl CompletedJob {
     }
 }
 
+#[derive(Debug, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "job_status", rename_all = "lowercase")]
+pub enum JobStatus {
+    Success,
+    Failure,
+    Skipped,
+    Canceled,
+}
+
 #[derive(Debug, Clone)]
 pub enum JobPayload {
     ScriptHub {

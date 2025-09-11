@@ -15,12 +15,9 @@ use monitor::{
     send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::postgres::PgListener;
+use sqlx::postgres::{PgListener, PgPoolOptions, PgConnectOptions};
 use std::{
-    collections::HashMap,
-    fs::{create_dir_all, DirBuilder},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::{Duration, Instant},
+    collections::HashMap, fs::{create_dir_all, DirBuilder}, net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{Duration, Instant}
 };
 use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
@@ -58,7 +55,8 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_URLS, SHARD_URLS, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, SHARD_DB_INSTANCE, SHARD_DB_URL,
+        SHARD_ID_TO_SHARD_URLS, SHARD_URLS, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, METRICS_ENABLED,
 };
@@ -314,9 +312,11 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if let Some(shard_urls) = &*SHARD_URLS {
         let mut hash = HashMap::new();
-        for (i, shard_url) in shard_urls.iter().enumerate() {
-            tracing::info!("Shard url: {}", shard_url);
-            hash.insert(i, shard_url.to_string());
+        for (i, shard_db_url) in shard_urls.iter().enumerate() {
+            tracing::info!("Shard url: {}", shard_db_url);
+            let opt = PgConnectOptions::from_str(&shard_db_url)?;
+            let shard_db = PgPoolOptions::new().connect_with(opt).await?;
+            hash.insert(i, shard_db);
         }
         let mut shard_url_to_db = SHARD_ID_TO_SHARD_URLS.write().await;
         *shard_url_to_db = Some(hash);
@@ -445,16 +445,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         environment
     } else {
         load_base_url(&conn)
-        .await
-        .unwrap_or_else(|_| "local".to_string())
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split(".")
-        .next()
-        .unwrap_or_else(|| "local")
-        .to_string()
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
     };
-
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -786,7 +785,8 @@ Windmill Community Edition {GIT_VERSION}
 
                     match &*SHARD_DB_URL {
                         Some(shard_db_url) => {
-                            let db = windmill_common::connect(shard_db_url.as_str(), 5, true).await?;
+                            let db =
+                                windmill_common::connect(shard_db_url.as_str(), 5, true).await?;
                             *SHARD_DB_INSTANCE.write().await = Some(db);
                         }
                         _ => {}
