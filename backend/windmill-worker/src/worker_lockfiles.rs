@@ -1929,13 +1929,11 @@ async fn lock_modules_app(
                 m.get("path").and_then(|s| s.as_str()),
                 m.get("type").and_then(|s| s.as_str()),
             ) {
-                // TODO: ???
                 // No script_hash because apps don't supports script version locks yet
                 sqlx::query!(
                     "INSERT INTO workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
                     job_path,
                     path,
-                    // TODO: Should this be flow? We are doing Apps here
                     run_type == "flow",
                     job.workspace_id
                 )
