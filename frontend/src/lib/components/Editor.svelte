@@ -1,8 +1,6 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
-	console.log('setDiagnosticsOptions 3', languages)
 </script>
 
 <script lang="ts">
