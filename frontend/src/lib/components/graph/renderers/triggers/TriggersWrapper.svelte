@@ -43,7 +43,6 @@
 	const dispatch = createEventDispatcher()
 
 	let hover = $state(false)
-	let addTriggersButton = $state<AddTriggersButton | undefined>(undefined)
 
 	let floatingConfig: ComputeConfig = {
 		strategy: 'fixed',
@@ -91,7 +90,6 @@
 
 		{#if isEditor}
 			<AddTriggersButton
-				bind:this={addTriggersButton}
 				onAddScheduledPoll={() => {
 					showTriggerScriptPicker = true
 				}}
