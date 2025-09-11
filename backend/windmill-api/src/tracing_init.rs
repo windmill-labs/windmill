@@ -47,7 +47,7 @@ pub struct MyOnFailure {}
 
 impl<B> OnFailure<B> for MyOnFailure {
     fn on_failure(&mut self, _b: B, latency: std::time::Duration, _span: &tracing::Span) {
-        tracing::warn!(latency = latency.as_millis(), "response failure")
+        tracing::error!(latency = latency.as_millis(), "response failure")
     }
 }
 
