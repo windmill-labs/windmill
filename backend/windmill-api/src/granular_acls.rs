@@ -23,7 +23,7 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 14] = [
+const KINDS: [&str; 18] = [
     "script",
     "group_",
     "resource",
@@ -37,7 +37,11 @@ const KINDS: [&str; 14] = [
     "websocket_trigger",
     "kafka_trigger",
     "nats_trigger",
-    "mqtt_trigger"
+    "postgres_trigger",
+    "mqtt_trigger",
+    "gcp_trigger",
+    "sqs_trigger",
+    "email_trigger",
 ];
 
 pub fn workspaced_service() -> Router {
@@ -131,7 +135,7 @@ async fn add_granular_acl(
                 &w_id,
                 DeployedObject::Folder { path: format!("f/{}", path) },
                 Some(format!("Folder '{}' changed permissions", path)),
-                        true,
+                true,
             )
             .await?
         }
@@ -243,7 +247,7 @@ async fn remove_granular_acl(
                 &w_id,
                 DeployedObject::Folder { path: format!("f/{}", path) },
                 Some(format!("Folder '{}' changed permissions", path)),
-                        true,
+                true,
             )
             .await?
         }
