@@ -22,5 +22,6 @@ jobs:
           cache: "npm"
       - name: "npm check"
         timeout-minutes: 5
-        run: cd frontend && npm ci && npm run generate-backend-client && npm run
+        run:
+          cd frontend && npm ci && npm run generate-backend-client && ls && npm run
           check
