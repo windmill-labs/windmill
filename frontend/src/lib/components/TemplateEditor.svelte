@@ -14,6 +14,8 @@
 		noSuggestionDiagnostics: false,
 		diagnosticCodesToIgnore: [1108]
 	})
+
+	console.log('setDiagnosticsOptions 2', languages)
 </script>
 
 <script lang="ts">

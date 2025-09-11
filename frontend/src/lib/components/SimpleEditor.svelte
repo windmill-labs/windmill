@@ -2,14 +2,68 @@
 	let cssClassesLoaded = $state(false)
 	let tailwindClassesLoaded = $state(false)
 
+	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	// languages.typescript.javascriptDefaults.setCompilerOptions({
+	// 	target: languages.typescript.ScriptTarget.Latest,
+	// 	allowNonTsExtensions: true,
+	// 	noSemanticValidation: false,
+	// 	noLib: true,
+	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	// })
+	// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	noSuggestionDiagnostics: false,
+	// 	diagnosticCodesToIgnore: [1108]
+	// })
+
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
-	import { editor as meditor, KeyCode, KeyMod, Uri as mUri, languages } from 'monaco-editor'
 
-	import type { IRange, IDisposable, IPosition } from 'monaco-editor'
+	function setDiagnosticsOptions() {
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
+		languages.json.jsonDefaults.setDiagnosticsOptions({
+			validate: true,
+			allowComments: false,
+			schemas: [],
+			enableSchemaRequest: true
+		})
+	}
+	console.log(
+		'setDiagnosticsOptions',
+		languages,
+		JSON.stringify(languages.typescript.javascriptDefaults)
+	)
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noLib: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+	// setDiagnosticsOptions()
+
+	// languages.json.jsonDefaults.setModeConfiguration({
+	// 	documentRangeFormattingEdits: false,
+	// 	documentFormattingEdits: true,
+	// 	hovers: true,
+	// 	completionItems: true,
+	// 	documentSymbols: true,
+	// 	tokens: true,
+	// 	colors: true,
+	// 	foldingRanges: true,
+	// 	selectionRanges: true,
+	// 	diagnostics: true
+	// })
 </script>
 
 <script lang="ts">
@@ -41,6 +95,16 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { langToExt } from '$lib/editorLangUtils'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages,
+		type IRange,
+		type IDisposable,
+		type IPosition
+	} from 'monaco-editor'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -243,6 +307,8 @@
 	}
 
 	function updateModelAndOptions() {
+		setDiagnosticsOptions()
+
 		const model = editor?.getModel()
 		if (model) {
 			// Switch language if it changed

@@ -67,6 +67,8 @@
 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
 		jsx: languages.typescript.JsxEmit.React
 	})
+
+	console.log('setDiagnosticsOptions 3', languages)
 </script>
 
 <script lang="ts">
