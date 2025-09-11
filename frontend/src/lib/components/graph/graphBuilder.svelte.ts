@@ -41,9 +41,10 @@ export type GraphEventHandlers = {
 		targetId?: string
 		branch?: { rootId: string; branch: number }
 		index: number
-		kind: string
+		kind?: string
 		inlineScript?: InlineScript
 		script?: PathScript
+		flow?: { path: string; summary: string }
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void

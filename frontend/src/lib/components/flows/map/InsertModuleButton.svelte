@@ -104,6 +104,7 @@ shouldUsePortal={true} -->
 			on:new
 			on:pickFlow
 			on:pickScript
+			allowTrigger={index == 0}
 			{kind}
 		/>
 	{/snippet}

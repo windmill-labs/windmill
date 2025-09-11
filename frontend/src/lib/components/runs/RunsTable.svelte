@@ -267,7 +267,7 @@
 			scrollToAlignment="center"
 		>
 			{#snippet header()}{/snippet}
-			{#snippet children({ index, style })}
+			{#snippet item({ index, style })}
 				<div {style} class="w-full">
 					{#if flatJobs}
 						{@const jobOrDate = flatJobs[index]}

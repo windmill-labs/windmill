@@ -136,7 +136,7 @@
 				</MeltButton>
 			{/snippet}
 
-			{#snippet children({ item })}
+			{#snippet children({ item: childrenItem })}
 				<div class="flex flex-col px-1">
 					<input type="number" bind:value={filter} onkeydown={onKeydown} />
 
@@ -145,7 +145,7 @@
 							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
 								{#snippet header()}{/snippet}
 								{#snippet footer()}{/snippet}
-								{#snippet children({ index: idx, style })}
+								{#snippet item({ index: idx, style })}
 									<div {style}>
 										<MenuItem
 											class={twMerge(
@@ -163,7 +163,7 @@
 												})
 												menu?.close()
 											}}
-											{item}
+											item={childrenItem}
 										>
 											#{items[idx].index + 1}
 										</MenuItem>

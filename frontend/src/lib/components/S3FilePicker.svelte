@@ -591,7 +591,7 @@
 								>
 									{#snippet header()}{/snippet}
 									{#snippet footer()}{/snippet}
-									{#snippet children({ index, style })}
+									{#snippet item({ index, style })}
 										{@const file_info = allFilesByKey[displayedFileKeys[index]]}
 
 										<div

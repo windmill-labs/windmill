@@ -122,11 +122,7 @@
 
 <svelte:window onresize={() => computeHeight()} />
 
-<div
-	class="divide-y min-w-[640px] h-full"
-	id="audit-logs-table-wrapper"
->
-
+<div class="divide-y min-w-[640px] h-full" id="audit-logs-table-wrapper">
 	<div bind:clientHeight={headerHeight}>
 		<div
 			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold"
@@ -151,7 +147,7 @@
 			scrollToAlignment="center"
 		>
 			{#snippet header()}{/snippet}
-			{#snippet children({ index, style })}
+			{#snippet item({ index, style })}
 				<div {style} class="w-full">
 					{#if flatLogs}
 						{@const logOrDate = flatLogs[index]}

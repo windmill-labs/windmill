@@ -32,7 +32,7 @@
 		data: {
 			insertable: boolean
 			sourceId: string
-			branch: number | undefined
+			branch: { rootId: string; branch: number } | undefined
 			targetId: string
 			moving: string | undefined
 			eventHandlers: GraphEventHandlers
@@ -192,7 +192,15 @@
 	{/if}
 </EdgeLabel>
 
-<BaseEdge path={completeEdge} {markerEnd} class={$useDataflow ? 'hidden' : ''} />
+<BaseEdge
+	path={completeEdge}
+	{markerEnd}
+	class={$useDataflow ? 'hidden' : ''}
+	interactionWidth={0}
+	style={undefined}
+	label={undefined}
+	labelStyle={undefined}
+/>
 
 <style>
 	.edgeButtonContainer {
