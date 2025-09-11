@@ -784,7 +784,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     continue;
                 }
             }
-        } else if kind == "app" {
+        } else if kind == "app" && !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
             // Create transaction to make operation atomic.
             let mut tx = db.begin().await?;
 
@@ -826,33 +826,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         ))
                     })?;
 
-                    //     // Find out what would be the next version.
-                    //     // Also clone current flow_version to get new_version (which is usually c_v + 1).
-                    //     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
-                    //     // This version will just remain in db and cause no trouble.
-                    //     let new_version = sqlx::query_scalar!(
-                    //         "INSERT INTO flow_version
-                    // (workspace_id, path, value, schema, created_by)
-
-                    // SELECT workspace_id, path, value, schema, created_by
-                    // FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
-
-                    // RETURNING id",
-                    //         &s.importer_path,
-                    //         w_id,
-                    //         cur_version
-                    //     )
-                    //     .fetch_one(&mut *flow_tx)
-                    //     .await
-                    //     .map_err(|e| {
-                    //         error::Error::internal_err(format!(
-                    //             "Error updating flow due to flow history insert: {e:#}"
-                    //         ))
-                    //     })?;
-
                     // Commit the transaction.
                     // NOTE:
-                    // We do not append flow.versions with new version.
+                    // We do not append app.versions with new version.
                     // We will do this in the end of the dependency job handler.
                     // Otherwise it might become a source of race-conditions.
                     tx.commit().await?;
