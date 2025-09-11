@@ -10,41 +10,6 @@
 	import { editor as meditor, KeyCode, KeyMod, Uri as mUri, languages } from 'monaco-editor'
 
 	import type { IRange, IDisposable, IPosition } from 'monaco-editor'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	function setDiagnosticsOptions() {
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-	}
-	setDiagnosticsOptions()
-	languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
-	languages.json.jsonDefaults.setModeConfiguration({
-		documentRangeFormattingEdits: false,
-		documentFormattingEdits: true,
-		hovers: true,
-		completionItems: true,
-		documentSymbols: true,
-		tokens: true,
-		colors: true,
-		foldingRanges: true,
-		selectionRanges: true,
-		diagnostics: true
-	})
 </script>
 
 <script lang="ts">
