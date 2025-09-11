@@ -18227,10 +18227,7 @@ components:
         pattern:
           type: string
         allow:
-          type: array
-          items:
-            type: string
-            enum: ["read", "write", "delete", "list"]
+          type: string # comma separated permissions : "read,write,delete,list"
       required: ["pattern", "allow"]
     
     GitRepositorySettings:

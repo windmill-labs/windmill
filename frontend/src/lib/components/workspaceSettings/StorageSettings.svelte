@@ -13,9 +13,10 @@
 	import {
 		convertFrontendToBackendSetting,
 		defaultS3AdvancedPermissions,
-		type S3ResourceSettings
+		type S3ResourceSettings,
+		type S3ResourceSettingsItem
 	} from '$lib/workspace_settings'
-	import { WorkspaceService, type S3PermissionRule } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import { fade } from 'svelte/transition'
@@ -308,7 +309,7 @@
 	</Popover>
 {/snippet}
 
-{#snippet advancedPermissionsEditor(rules: S3PermissionRule[])}
+{#snippet advancedPermissionsEditor(rules: S3ResourceSettingsItem['advancedPermissions'])}
 	<Alert title="You can use the following variables :">
 		<ul class="list-disc pl-5">
 			<li><code>user</code> : Nickname of the user doing the request</li>
@@ -317,7 +318,7 @@
 			<li><code>folder_write</code> : Any folder that the user has write access to</li>
 		</ul>
 	</Alert>
-	{#each rules as item, idx}
+	{#each rules ?? [] as item, idx}
 		<div class="flex gap-2">
 			<ClearableInput bind:value={item.pattern} placeholder="Pattern" wrapperClass="w-[28rem]" />
 			<MultiSelect
@@ -328,10 +329,10 @@
 				placeholder="Deny all accesss"
 				hideMainClearBtn
 			/>
-			<CloseButton onClick={() => rules.splice(idx, 1)} />
+			<CloseButton onClick={() => rules?.splice(idx, 1)} />
 		</div>
 	{/each}
-	<Button size="xs" variant="border" on:click={() => rules.push({ pattern: '', allow: [] })}>
+	<Button size="xs" variant="border" on:click={() => rules?.push({ pattern: '', allow: [] })}>
 		<Plus size={14} />
 		Add permission rule
 	</Button>

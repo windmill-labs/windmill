@@ -17,7 +17,9 @@ use object_store::ObjectStore;
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 #[cfg(feature = "parquet")]
 use std::sync::{Arc, Mutex};
 
@@ -247,6 +249,15 @@ impl LargeFileStorage {
         }
         .unwrap_or(false)
     }
+    pub fn get_advanced_permissions(&self) -> Option<&Vec<S3PermissionRule>> {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.advanced_permissions.as_ref(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -254,6 +265,7 @@ pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -261,6 +273,7 @@ pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -268,6 +281,74 @@ pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<S3PermissionRule>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct S3PermissionRule {
+    pattern: String,
+    allow: Vec<S3Permission>, // read, write, delete, list
+}
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct S3Permission: u8 {
+        const READ   = 0b0001;
+        const WRITE  = 0b0010;
+        const DELETE = 0b0100;
+        const LIST   = 0b1000;
+    }
+}
+
+impl Serialize for S3Permission {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut perms = Vec::new();
+        if self.contains(S3Permission::READ) {
+            perms.push("read");
+        }
+        if self.contains(S3Permission::WRITE) {
+            perms.push("write");
+        }
+        if self.contains(S3Permission::DELETE) {
+            perms.push("delete");
+        }
+        if self.contains(S3Permission::LIST) {
+            perms.push("list");
+        }
+        let perms = perms.join(",");
+        perms.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for S3Permission {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PermVisitor;
+        impl<'de> Visitor<'de> for PermVisitor {
+            type Value = S3Permission;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a list of permission strings")
+            }
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+                let mut perms = S3Permission::empty();
+                for value in v.split(',') {
+                    perms |= match value {
+                        "read" => S3Permission::READ,
+                        "write" => S3Permission::WRITE,
+                        "delete" => S3Permission::DELETE,
+                        "list" => S3Permission::LIST,
+                        _ => S3Permission::empty(), // ignore unknown permissions
+                    };
+                }
+                Ok(perms)
+            }
+        }
+
+        deserializer.deserialize_seq(PermVisitor)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1134,9 +1215,7 @@ pub fn check_lfs_object_path_permissions(
     }
     let _username = authed.username.as_str();
 
-    // TODO : Extend permission possibilities
-
-    // if lfs.restrict_to_user_paths() {
+    // if lfs.get_advanced_permissions() {
     //     if !object_path.starts_with(&format!("u/{username}/")) {
     //         return Err(error::Error::NotAuthorized(format!(
     //             "Can only access paths u/{username}/**"
