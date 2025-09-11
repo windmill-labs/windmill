@@ -1687,9 +1687,11 @@ async fn insert_app_script(
         hasher.update(&code_sha256);
         hasher.update(lock.as_ref().unwrap_or(&Default::default()));
         // We also want to take into account hashes of relative imports.
-        hasher.update(
-            relative_imports_bytes(db, Some(&code), &format!("{path}/app"), language).await?,
-        );
+        if !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
+            hasher.update(
+                relative_imports_bytes(db, Some(&code), &format!("{path}/app"), language).await?,
+            );
+        }
         format!("{:x}", hasher.finalize())
     };
 
