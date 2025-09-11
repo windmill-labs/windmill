@@ -41,7 +41,6 @@
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import QueuePosition from './QueuePosition.svelte'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -126,8 +125,6 @@
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
-
-	let queuePositionInterval: NodeJS.Timeout | undefined
 
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
@@ -478,9 +475,6 @@
 
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)
-		if (queuePositionInterval) {
-			clearInterval(queuePositionInterval)
-		}
 	})
 
 	$effect(() => {
@@ -502,9 +496,7 @@
 </script>
 
 <HighlightTheme />
-{#if loading && result == undefined && jobId && workspaceId}
-	<QueuePosition {jobId} {workspaceId} />
-{/if}
+
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
 		<div class="flex items-center gap-2 text-tertiary">

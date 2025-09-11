@@ -203,7 +203,8 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
-        .route("/queue/position/:id", get(get_queue_position))
+        .route("/queue/position/:timestamp", get(get_queue_position))
+        .route("/queue/scheduled_for/:id", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -544,44 +545,43 @@ struct QueuePosition {
 }
 
 async fn get_queue_position(
-    OptAuthed(_opt_authed): OptAuthed,
+    _authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, timestamp)): Path<(String, i64)>,
+    Path((_w_id, scheduled_for)): Path<(String, i64)>,
 ) -> error::Result<Json<QueuePosition>> {
     // First check if the job exists and is in queue
 
-    if let Some((scheduled_for, _suspend, _suspend_until, running)) = job_info {
-        if running {
-            // Job is already running, not in queue
-            return Ok(Json(QueuePosition {
-                position: None,
-            }));
-        }
-
-        // Count jobs that are scheduled before this job and are not suspended
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) as count
+    // Count jobs that are scheduled before this job and are not suspended
+    let count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) as count
              FROM v2_job_queue
-             WHERE workspace_id = $1
-             AND scheduled_for < $2
+             WHERE scheduled_for < to_timestamp($1::bigint / 1000.0)
              AND running = false
-             AND (suspend IS NULL OR suspend = 0)
-             AND (suspend_until IS NULL OR suspend_until < now())"
-        )
-        .bind(&w_id)
-        .bind(scheduled_for)
-        .fetch_one(&db)
-        .await?;
+             AND suspend_until IS NULL",
+        scheduled_for,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
 
-        Ok(Json(QueuePosition {
-            position: Some(count + 1),
-        }))
-    } else {
-        // Job not found in queue, might be completed or doesn't exist
-        Ok(Json(QueuePosition {
-            position: None,
-        }))
-    }
+    Ok(Json(QueuePosition { position: Some(count + 1) }))
+}
+
+async fn get_scheduled_for(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Json<i64>> {
+    let scheduled_for = sqlx::query_scalar!(
+        "SELECT scheduled_for FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let scheduled_for = not_found_if_none(scheduled_for, "QueuedJob", &id.to_string())?;
+    Ok(Json(scheduled_for.timestamp_millis()))
 }
 
 async fn get_flow_job_debug_info(

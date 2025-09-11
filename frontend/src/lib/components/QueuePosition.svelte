@@ -2,7 +2,11 @@
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
-	let { jobId, workspaceId }: { jobId: string; workspaceId?: string | undefined } = $props()
+	let {
+		jobId,
+		workspaceId,
+		minimal = false
+	}: { jobId: string; workspaceId?: string | undefined; minimal?: boolean } = $props()
 
 	let queuePositionInterval: NodeJS.Timeout | undefined
 	let queueState = $state(undefined) as undefined | { position?: number }
@@ -11,16 +15,34 @@
 
 	let workspace = $derived(workspaceId ?? $workspaceStore)
 
+	let scheduledFor = $state(undefined) as undefined | number
+
+	let scheduledForTimeout: NodeJS.Timeout | undefined
+	$effect(() => {
+		if (jobId && workspace) {
+			clearTimeout(scheduledForTimeout)
+			queueState = undefined
+			scheduledForTimeout = setTimeout(() => {
+				JobService.getScheduledFor({
+					workspace: workspace,
+					id: jobId
+				}).then((response) => {
+					scheduledFor = response
+				})
+			})
+		}
+	})
+
 	$effect(() => {
 		// Fetch queue position when loading and we have jobId
-		if (jobId && workspace) {
+		if (scheduledFor) {
 			// Initial fetch
 			fetchQueuePosition()
 
 			// Set up interval to refresh every 2 seconds
 			queuePositionInterval = setInterval(() => {
 				fetchQueuePosition()
-			}, 2000)
+			}, 5000)
 		} else {
 			// Clear interval when not loading
 			if (queuePositionInterval) {
@@ -32,22 +54,21 @@
 
 		return () => {
 			if (queuePositionInterval) {
+				scheduledForTimeout && clearTimeout(scheduledForTimeout)
 				clearInterval(queuePositionInterval)
 			}
 		}
 	})
 
 	async function fetchQueuePosition() {
-		if (!jobId || !workspace || fetchingQueuePosition) return
+		if (!workspace || !scheduledFor || fetchingQueuePosition) return
 
 		try {
 			fetchingQueuePosition = true
-			const response = await JobService.getQueuePosition({
+			queueState = await JobService.getQueuePosition({
 				workspace: workspace,
-				id: jobId
+				scheduledFor: scheduledFor
 			})
-
-			queueState = response
 		} catch (error) {
 			console.error('Failed to fetch queue position:', error)
 			queueState = undefined
@@ -58,9 +79,10 @@
 </script>
 
 {#if queueState}
-	<span class="text-small text-secondary"
-		>Waiting for an available worker. Queue position: <span class="font-bold"
-			>{queueState.position}</span
-		></span
-	>
+	<div class="text-small ml-4">
+		<span class="text-orange-600">Queue position: <b>{queueState.position}</b></span>
+		{#if !minimal}
+			<span class="ml-2 text-tertiary">(Waiting for an available worker)</span>
+		{/if}
+	</div>
 {/if}
