@@ -7,16 +7,9 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
-	import {
-		editor as meditor,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		languages,
-		type IRange,
-		type IDisposable,
-		type IPosition
-	} from 'monaco-editor'
+	import { editor as meditor, KeyCode, KeyMod, Uri as mUri, languages } from 'monaco-editor'
+
+	import type { IRange, IDisposable, IPosition } from 'monaco-editor'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
