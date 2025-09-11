@@ -18,7 +18,7 @@ impl OpenAIQueryBuilder {
         Self
     }
 
-    async fn prepare_messages_for_api(
+    pub async fn prepare_messages_for_api(
         &self,
         messages: &[OpenAIMessage],
         client: &AuthedClient,
@@ -219,17 +219,18 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let url = response.url().path();
         if url.contains("/responses") {
             // Parse image generation response
-            let image_response: OpenAIImageResponse = response
-                .json()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to parse image response: {}", e)))?;
+            let response_text = response.text().await
+                .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+            
+            let image_response: OpenAIImageResponse = serde_json::from_str(&response_text)
+                .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI image response: {}. Raw response: {}", e, response_text)))?;
 
-            // Find the first image generation output
+            // Find the first completed image generation output
             let image_generation_call = image_response
                 .output
                 .iter()
-                .find(|output| output.r#type == "image_generation_call")
-                .map(|output| &output.result);
+                .find(|output| output.r#type == "image_generation_call" && output.status == "completed")
+                .and_then(|output| output.result.as_ref());
 
             if let Some(base64_image) = image_generation_call {
                 Ok(ParsedResponse::Image {
@@ -237,7 +238,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 })
             } else {
                 Err(Error::internal_err(
-                    "No image output received from OpenAI".to_string(),
+                    "No completed image output received from OpenAI".to_string(),
                 ))
             }
         } else {
@@ -273,10 +274,14 @@ impl QueryBuilder for OpenAIQueryBuilder {
         }
     }
 
-    fn get_endpoint(&self, base_url: &str, output_type: &OutputType) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, output_type: &OutputType) -> String {
         match output_type {
             OutputType::Text => format!("{}/chat/completions", base_url),
             OutputType::Image => format!("{}/responses", base_url),
         }
+    }
+    
+    fn get_auth_headers(&self, api_key: &str, _output_type: &OutputType) -> Vec<(&'static str, String)> {
+        vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }

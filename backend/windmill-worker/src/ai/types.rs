@@ -126,7 +126,9 @@ pub struct OpenAIImageResponse {
 #[derive(Deserialize)]
 pub struct OpenAIImageOutput {
     pub r#type: String, // Expected to be "image_generation_call"
-    pub result: String, // Base64 encoded image
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>, // Base64 encoded image, None if not completed
 }
 
 // Gemini API structures
@@ -210,7 +212,24 @@ pub struct GeminiResponsePart {
     pub function_call: Option<GeminiFunctionCall>,
 }
 
-// OpenRouter image generation structures
+// OpenRouter structures
+#[derive(Serialize)]
+pub struct OpenRouterChatRequest<'a> {
+    pub model: &'a str,
+    pub messages: &'a [OpenAIMessage],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<&'a [ToolDef]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<Vec<&'a str>>,
+}
+
+// Legacy OpenRouter image structures (kept for compatibility)
 #[derive(Serialize)]
 pub struct OpenRouterImageRequest<'a> {
     pub model: &'a str,

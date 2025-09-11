@@ -1,10 +1,7 @@
 use async_trait::async_trait;
 use base64::Engine;
 use serde_json;
-use windmill_common::{
-    client::AuthedClient,
-    error::Error,
-};
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
@@ -17,7 +14,6 @@ impl GoogleAIQueryBuilder {
     pub fn new() -> Self {
         Self
     }
-
 
     async fn build_image_request(
         &self,
@@ -37,16 +33,12 @@ impl GoogleAIQueryBuilder {
             }
         } else {
             // For Gemini models with image generation, build parts
-            let mut parts = vec![GeminiPart::Text {
-                text: args.user_message.trim().to_string(),
-            }];
+            let mut parts = vec![GeminiPart::Text { text: args.user_message.trim().to_string() }];
 
             if let Some(system_prompt) = args.system_prompt {
                 parts.insert(
                     0,
-                    GeminiPart::Text {
-                        text: format!("SYSTEM PROMPT: {}", system_prompt.trim()),
-                    },
+                    GeminiPart::Text { text: format!("SYSTEM PROMPT: {}", system_prompt.trim()) },
                 );
             }
 
@@ -72,12 +64,7 @@ impl GoogleAIQueryBuilder {
                 }
             }
 
-            GeminiImageRequest {
-                instances: None,
-                contents: Some(vec![GeminiContent {
-                    parts,
-                }]),
-            }
+            GeminiImageRequest { instances: None, contents: Some(vec![GeminiContent { parts }]) }
         };
 
         serde_json::to_string(&request)
@@ -102,26 +89,29 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             OutputType::Text => {
                 // For text output, use OpenAI-compatible format
                 let openai_builder = super::openai::OpenAIQueryBuilder::new();
-                openai_builder.build_request(args, client, workspace_id).await
-            },
+                openai_builder
+                    .build_request(args, client, workspace_id)
+                    .await
+            }
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
         }
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
         let url = response.url().path();
-        
+
         // For chat completions (text), use OpenAI parser
         if url.contains("/chat/completions") {
             let openai_builder = super::openai::OpenAIQueryBuilder::new();
             return openai_builder.parse_response(response).await;
         }
-        
+
         // Check if this is an image generation response
-        if url.contains(":predict") || url.contains("imagen") {
-            let response_text = response.text().await.map_err(|e| {
-                Error::internal_err(format!("Failed to read response text: {}", e))
-            })?;
+        if url.contains(":predict") || url.contains(":generateContent") {
+            let response_text = response
+                .text()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
 
             let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
                 .map_err(|e| {
@@ -137,23 +127,26 @@ impl QueryBuilder for GoogleAIQueryBuilder {
                 .as_ref()
                 .and_then(|candidates| {
                     candidates.iter().find_map(|candidate| {
-                        candidate.content.parts.iter().find_map(|part| {
-                            part.inline_data.as_ref().map(|data| &data.data)
-                        })
+                        candidate
+                            .content
+                            .parts
+                            .iter()
+                            .find_map(|part| part.inline_data.as_ref().map(|data| &data.data))
                     })
                 })
                 .or_else(|| {
-                    gemini_response.predictions.as_ref().and_then(|predictions| {
-                        predictions
-                            .iter()
-                            .find_map(|prediction| Some(&prediction.bytes_base64_encoded))
-                    })
+                    gemini_response
+                        .predictions
+                        .as_ref()
+                        .and_then(|predictions| {
+                            predictions
+                                .iter()
+                                .find_map(|prediction| Some(&prediction.bytes_base64_encoded))
+                        })
                 });
 
             if let Some(base64_image) = image_data {
-                Ok(ParsedResponse::Image {
-                    base64_data: base64_image.clone(),
-                })
+                Ok(ParsedResponse::Image { base64_data: base64_image.clone() })
             } else {
                 Err(Error::internal_err(
                     "No image data received from Gemini".to_string(),
@@ -167,12 +160,37 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         }
     }
 
-    fn get_endpoint(&self, base_url: &str, output_type: &OutputType) -> String {
+    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
         match output_type {
             OutputType::Text => format!("{}/chat/completions", base_url), // Use OpenAI-compatible endpoint
             OutputType::Image => {
-                // For image generation, the model name determines the endpoint
-                base_url.to_string()
+                // For image generation, build the full URL with model name
+                let url_suffix = if model.contains("imagen") {
+                    "predict"
+                } else {
+                    "generateContent"
+                };
+                format!(
+                    "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
+                    model, url_suffix
+                )
+            }
+        }
+    }
+
+    fn get_auth_headers(
+        &self,
+        api_key: &str,
+        output_type: &OutputType,
+    ) -> Vec<(&'static str, String)> {
+        match output_type {
+            OutputType::Text => {
+                // For text output, use Bearer token (OpenAI-compatible)
+                vec![("Authorization", format!("Bearer {}", api_key))]
+            }
+            OutputType::Image => {
+                // For image generation, use Google API key header
+                vec![("x-goog-api-key", api_key.to_string())]
             }
         }
     }

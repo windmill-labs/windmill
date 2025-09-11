@@ -56,7 +56,10 @@ pub trait QueryBuilder: Send + Sync {
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error>;
     
     /// Get the API endpoint for this provider
-    fn get_endpoint(&self, base_url: &str, output_type: &OutputType) -> String;
+    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;
+    
+    /// Get the authentication headers for this provider
+    fn get_auth_headers(&self, api_key: &str, output_type: &OutputType) -> Vec<(&'static str, String)>;
 }
 
 /// Factory function to create the appropriate query builder for a provider
@@ -122,8 +125,12 @@ impl QueryBuilder for DefaultQueryBuilder {
         })
     }
     
-    fn get_endpoint(&self, base_url: &str, _output_type: &OutputType) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
         format!("{}/chat/completions", base_url)
+    }
+    
+    fn get_auth_headers(&self, api_key: &str, _output_type: &OutputType) -> Vec<(&'static str, String)> {
+        vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }
 

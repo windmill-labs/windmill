@@ -258,13 +258,20 @@ pub async fn run_agent_unified(
                 .build_request(&build_args, client, &job.workspace_id)
                 .await?;
 
-            let endpoint = query_builder.get_endpoint(&base_url, output_type);
+            let endpoint = query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
+            let auth_headers = query_builder.get_auth_headers(api_key, output_type);
 
-            let resp = HTTP_CLIENT
+            let mut request = HTTP_CLIENT
                 .post(&endpoint)
                 .timeout(std::time::Duration::from_secs(120))
-                .bearer_auth(api_key)
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json");
+            
+            // Apply authentication headers
+            for (header_name, header_value) in auth_headers {
+                request = request.header(header_name, header_value);
+            }
+            
+            let resp = request
                 .body(request_body)
                 .send()
                 .await
@@ -288,7 +295,7 @@ pub async fn run_agent_unified(
                     }
                 }
                 Err(e) => {
-                    let status = resp.status();
+                    let _status = resp.status();
                     let text = resp
                         .text()
                         .await
@@ -318,13 +325,20 @@ pub async fn run_agent_unified(
             .build_request(&build_args, client, &job.workspace_id)
             .await?;
 
-        let endpoint = query_builder.get_endpoint(&base_url, output_type);
+        let endpoint = query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
+        let auth_headers = query_builder.get_auth_headers(api_key, output_type);
 
-        let resp = HTTP_CLIENT
+        let mut request = HTTP_CLIENT
             .post(&endpoint)
             .timeout(std::time::Duration::from_secs(120))
-            .bearer_auth(api_key)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        
+        // Apply authentication headers
+        for (header_name, header_value) in auth_headers {
+            request = request.header(header_name, header_value);
+        }
+        
+        let resp = request
             .body(request_body)
             .send()
             .await
@@ -674,7 +688,7 @@ pub async fn run_agent_unified(
                 }
             }
             Err(e) => {
-                let status = resp.status();
+                let _status = resp.status();
                 let text = resp
                     .text()
                     .await

@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use serde_json;
 use windmill_common::{
     client::AuthedClient,
     error::Error,
@@ -52,10 +51,14 @@ impl QueryBuilder for AnthropicQueryBuilder {
         openai_builder.parse_response(response).await
     }
 
-    fn get_endpoint(&self, base_url: &str, output_type: &OutputType) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, output_type: &OutputType) -> String {
         match output_type {
             OutputType::Text => format!("{}/chat/completions", base_url), // Use OpenAI-compatible endpoint
             OutputType::Image => format!("{}/messages", base_url), // Not used, but keep for consistency
         }
+    }
+    
+    fn get_auth_headers(&self, api_key: &str, _output_type: &OutputType) -> Vec<(&'static str, String)> {
+        vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }

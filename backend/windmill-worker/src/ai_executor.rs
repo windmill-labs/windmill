@@ -98,14 +98,14 @@ async fn generate_image_from_provider(
                     let image_generation_call = image_response
                         .output
                         .iter()
-                        .find(|output| output.r#type == "image_generation_call")
-                        .map(|output| &output.result);
+                        .find(|output| output.r#type == "image_generation_call" && output.status == "completed")
+                        .and_then(|output| output.result.as_ref());
 
                     if let Some(base64_image) = image_generation_call {
                         Ok(base64_image.clone())
                     } else {
                         Err(Error::internal_err(
-                            "No image output received from OpenAI".to_string(),
+                            "No completed image output received from OpenAI".to_string(),
                         ))
                     }
                 }
