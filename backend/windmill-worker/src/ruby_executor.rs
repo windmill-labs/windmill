@@ -843,6 +843,7 @@ mount {{
             .envs(envs);
 
         cmd.args(&["main.rb"])
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

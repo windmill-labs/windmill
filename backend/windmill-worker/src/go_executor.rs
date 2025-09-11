@@ -406,7 +406,7 @@ func Run(req Req) (interface{{}}, error){{
         #[cfg(windows)]
         set_windows_env_vars(&mut run_go);
 
-        run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
+        run_go.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         start_child_process(run_go, &compiled_executable_name, false).await?
     };
     let handle_result = handle_child(

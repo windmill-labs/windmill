@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.541.0
+  version: 1.542.0
   title: Windmill API
 
   contact:
@@ -669,6 +669,27 @@ paths:
       responses:
         "201":
           description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/create_fork:
+    post:
+      summary: create forked workspace
+      operationId: createWorkspaceFork
+      tags:
+        - workspace
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace created
           content:
             text/plain:
               schema:
@@ -1558,6 +1579,9 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                parent_workspace_id:
+                  type: string
+                  nullable: true
               required:
                 - email
                 - is_admin
@@ -3183,7 +3207,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/variables/delete_bulk:
     delete:
       summary: delete variables in bulk
@@ -8298,6 +8322,49 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/queue/position/{scheduled_for}:
+    get:
+      summary: get queue position for a job
+      operationId: getQueuePosition
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: scheduled_for
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: The scheduled for timestamp in milliseconds
+      responses:
+        "200":
+          description: queue position information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  position:
+                    type: integer
+                    description: The position in queue (1-based), null if not in queue or already running
+
+  /w/{workspace}/jobs/queue/scheduled_for/{id}:
+    get:
+      summary: get scheduled for timestamp for a job
+      operationId: getScheduledFor
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: scheduled for timestamp
+          content:
+            application/json:
+              schema:
+                type: integer
 
   /w/{workspace}/jobs/job_signature/{id}/{resume_id}:
     get:
@@ -17440,6 +17507,12 @@ components:
                 type: string
               operator_settings:
                 $ref: "#/components/schemas/OperatorSettings"
+              parent_workspace_id:
+                type: string
+                nullable: true
+              created_by:
+                type: string
+                nullable: true
             required:
               - id
               - name
@@ -17464,6 +17537,24 @@ components:
         - id
         - name
 
+    CreateWorkspaceFork:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        color:
+          type: string
+        parent_workspace_id:
+          type: string
+      required:
+        - id
+        - name
+        - parent_workspace_id
+
     Workspace:
       type: object
       properties:
@@ -17477,10 +17568,14 @@ components:
           type: string
         color:
           type: string
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - id
         - name
         - owner
+        - created_at
 
     WorkspaceInvite:
       type: object
@@ -17493,6 +17588,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        parent_workspace_id:
+          type: string
+          nullable: true
       required:
         - workspace_id
         - email
@@ -18335,7 +18433,19 @@ components:
     CaptureTriggerKind:
       type: string
       enum:
-        [webhook, http, websocket, kafka, default_email, nats, postgres, sqs, mqtt, gcp, email]
+        [
+          webhook,
+          http,
+          websocket,
+          kafka,
+          default_email,
+          nats,
+          postgres,
+          sqs,
+          mqtt,
+          gcp,
+          email,
+        ]
 
     Capture:
       type: object

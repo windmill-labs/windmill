@@ -322,6 +322,7 @@ try {{
                 .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .args(args)
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             php_cmd

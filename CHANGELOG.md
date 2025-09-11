@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.542.0](https://github.com/windmill-labs/windmill/compare/v1.541.1...v1.542.0) (2025-09-11)
+
+
+### Features
+
+* forkables workspaces v0 ([#6479](https://github.com/windmill-labs/windmill/issues/6479)) ([3dadcbe](https://github.com/windmill-labs/windmill/commit/3dadcbe8658e6ca5924ea827d00f5ea01598913a))
+* show position of job in queue when waiting for executor ([#6554](https://github.com/windmill-labs/windmill/issues/6554)) ([5b630ed](https://github.com/windmill-labs/windmill/commit/5b630ed8d35426704eacad7e3a495dd77af5a868))
+
+
+### Bug Fixes
+
+* force stdin to Stdio::null for all user code execution ([#6575](https://github.com/windmill-labs/windmill/issues/6575)) ([fcd5819](https://github.com/windmill-labs/windmill/commit/fcd58191d437b3558811985aa32f233eb5493759))
+* improve runs page auto-refresh loading for out-of-order started at ([17424aa](https://github.com/windmill-labs/windmill/commit/17424aada8491a4dc59ccb83d7f6b59cc68b645a))
+
+## [1.541.1](https://github.com/windmill-labs/windmill/compare/v1.541.0...v1.541.1) (2025-09-10)
+
+
+### Bug Fixes
+
+* revoke tokens on demotions of superadmins ([1c6af66](https://github.com/windmill-labs/windmill/commit/1c6af66a84da5cbeeb76bd8833da528ea74f021b))
+
 ## [1.541.0](https://github.com/windmill-labs/windmill/compare/v1.540.2...v1.541.0) (2025-09-09)
 
 

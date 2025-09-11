@@ -212,6 +212,7 @@ exit $exit_status
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(bash_cmd, BIN_BASH.as_str(), false).await?
@@ -809,6 +810,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(&cmd_args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
