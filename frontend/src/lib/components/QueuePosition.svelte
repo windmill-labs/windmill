@@ -23,12 +23,16 @@
 			clearTimeout(scheduledForTimeout)
 			queueState = undefined
 			scheduledForTimeout = setTimeout(() => {
-				JobService.getScheduledFor({
-					workspace: workspace,
-					id: jobId
-				}).then((response) => {
-					scheduledFor = response
-				})
+				try {
+					JobService.getScheduledFor({
+						workspace: workspace,
+						id: jobId
+					}).then((response) => {
+						scheduledFor = response
+					})
+				} catch (error) {
+					console.error('Failed to fetch scheduled for:', error)
+				}
 			}, 2000)
 		}
 	})
