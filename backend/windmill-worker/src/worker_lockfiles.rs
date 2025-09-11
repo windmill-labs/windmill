@@ -1974,7 +1974,6 @@ async fn lock_modules_app(
                                 .get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                // TODO: Make sure this is not triggered for jobs unexpectedly
                                 if skip_creating_new_lock(&language, &content) {
                                     logs.push_str(
                                         "Found already locked inline script. Skipping lock...\n",
