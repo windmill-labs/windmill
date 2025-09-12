@@ -40,7 +40,7 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
-	import { cellRendererFactory, transformColumnDefs } from './utils'
+	import { cellRendererFactory, transformColumnDefs, type ExtendedColumnDef } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -251,12 +251,11 @@
 			['AppEditorContext', editorContext]
 		])
 
-		const availableActions = lastActions ?? actions
 		const sortedActions: TableAction[] | undefined = computedOrder
 			? (computedOrder
-					.map((key) => availableActions?.find((a) => a.id === key))
+					.map((key) => actions?.find((a) => a.id === key))
 					.filter(Boolean) as TableAction[])
-			: availableActions
+			: actions
 
 		const taComponent = withProps(AppAggridTableActions, {
 			p,
@@ -304,12 +303,11 @@
 				taComponent.props.rowIndex = params.node.rowIndex ?? 0
 				taComponent.props.row = params.data
 				taComponent.props.p = params
-				const available = lastActions ?? actions
 				const nextActions: TableAction[] | undefined = computedOrder
 					? (computedOrder
-							.map((key) => available?.find((a) => a.id === key))
+							.map((key) => actions?.find((a) => a.id === key))
 							.filter(Boolean) as TableAction[])
-					: available
+					: actions
 				taComponent.props.actions = nextActions
 			}
 		}
@@ -328,9 +326,9 @@
 				const agColumnDefs = transformColumnDefs({
 					columnDefs:
 						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-							? [...resolvedConfig?.columnDefs]
+							? [...resolvedConfig?.columnDefs] as ExtendedColumnDef[]
 							: [],
-					actions: lastActions ?? actions,
+					actions,
 					customActionsHeader: resolvedConfig?.customActionsHeader,
 					wrapActions: resolvedConfig?.wrapActions,
 					tableActionsFactory,
@@ -476,9 +474,9 @@
 			const agColumnDefs = transformColumnDefs({
 				columnDefs:
 					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? [...resolvedConfig?.columnDefs]
+						? [...resolvedConfig?.columnDefs] as ExtendedColumnDef[]
 						: [],
-				actions: lastActions ?? actions,
+				actions,
 				customActionsHeader: resolvedConfig?.customActionsHeader,
 				wrapActions: resolvedConfig?.wrapActions,
 				tableActionsFactory,

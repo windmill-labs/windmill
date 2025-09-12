@@ -7,11 +7,33 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { isObject } from '$lib/utils'
+	import type { ColDef } from 'ag-grid-community'
+
+	// Types for column definitions and configuration
+	// AG Grid column definition with our custom extensions
+	type AgGridColumnDef = ColDef & {
+		type?: string
+		cellRendererType?: string
+		[key: string]: any // Allow additional custom properties
+	}
+
+	type ActionsColumnDef = AgGridColumnDef & {
+		field: '__actions__'
+		_isActionsColumn: true
+		headerName: string
+		flex: number
+	}
+
+	type ColumnDefWithActions = AgGridColumnDef | ActionsColumnDef
+
+	type ColumnDefsConfiguration =
+		| { type: 'static'; value: ColumnDefWithActions[] }
+		| { type: 'evalv2'; expr: string }
 
 	interface Props {
 		id: string
-		columnDefs?: Array<any>
-		result?: Array<any> | undefined
+		columnDefs?: AgGridColumnDef[]
+		result?: Array<Record<string, any>> | undefined
 		allowColumnDefsActions?: boolean
 		children?: import('svelte').Snippet
 		actionsPresent?: boolean
@@ -30,27 +52,26 @@
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	function hasActionsPlaceholder(cols: any[] | undefined) {
+	function hasActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): boolean {
 		if (!Array.isArray(cols)) return false
-		return (
-			cols.findIndex(
-				(c) => c?.field === '__actions__' || c?.type === 'actions' || c?.actions === true || c?.isActions === true
-			) > -1
-		)
+		return cols.findIndex((c) => c?._isActionsColumn === true) > -1
 	}
 
-	function addActionsPlaceholder(cols: any[] | undefined): any[] {
+	function addActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): ColumnDefWithActions[] {
 		const hdr = customActionsHeader ?? 'Actions'
-		const placeholder = { field: '__actions__', type: 'actions', headerName: hdr }
+		const placeholder: ActionsColumnDef = {
+			field: '__actions__',
+			_isActionsColumn: true,
+			headerName: hdr,
+			flex: 1
+		}
 		if (!Array.isArray(cols)) return [placeholder]
 		return [...cols, placeholder]
 	}
 
-	function removeActionsPlaceholder(cols: any[] | undefined): any[] {
+	function removeActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): ColumnDefWithActions[] {
 		if (!Array.isArray(cols)) return []
-		return cols.filter(
-			(c) => !(c?.field === '__actions__' || c?.type === 'actions' || c?.actions === true || c?.isActions === true)
-		)
+		return cols.filter((c) => c?._isActionsColumn !== true)
 	}
 
 	async function ensureActionsColumn() {
@@ -59,34 +80,44 @@
 		const gridItem = findGridItem($app, id)
 		if (!gridItem) return
 
-		const conf: any = (gridItem.data.configuration as any)?.columnDefs
-		if (!conf) return
+		// Type the configuration more safely
+		const rawConf = gridItem.data.configuration?.columnDefs
+		if (!rawConf) return
 
-		let currentColumns: any[] | undefined
+		// Type guard for configuration structure
+		const conf = rawConf as ColumnDefsConfiguration
+		if (!conf.type || (conf.type !== 'static' && conf.type !== 'evalv2')) return
+
+		let currentColumns: ColumnDefWithActions[] | undefined
 		if (conf.type === 'static') {
 			currentColumns = Array.isArray(conf.value) ? conf.value : []
 		} else if (conf.type === 'evalv2') {
 			try {
-				currentColumns = JSON.parse(conf.expr ?? '[]')
+				const parsed = JSON.parse(conf.expr ?? '[]')
+				currentColumns = Array.isArray(parsed) ? parsed : []
 			} catch (e) {
+				console.warn('Failed to parse columnDefs expression:', e)
 				currentColumns = []
 			}
 		}
 
 		const hasPlaceholder = hasActionsPlaceholder(currentColumns)
+
+		// Auto-sync logic: add missing actions column, remove when actions gone
 		const needsAdd = actionsPresent && !hasPlaceholder
 		const needsRemove = !actionsPresent && hasPlaceholder
 
 		if (!needsAdd && !needsRemove) return
 
-		let nextColumns = currentColumns
-		if (needsAdd) nextColumns = addActionsPlaceholder(currentColumns)
-		if (needsRemove) nextColumns = removeActionsPlaceholder(currentColumns)
+		let nextColumns = currentColumns || []
+		if (needsAdd) nextColumns = addActionsPlaceholder(nextColumns)
+		if (needsRemove) nextColumns = removeActionsPlaceholder(nextColumns)
 
+		// Update configuration with proper typing
 		if (conf.type === 'static') {
-			(gridItem.data.configuration as any).columnDefs.value = nextColumns
+			conf.value = nextColumns
 		} else if (conf.type === 'evalv2') {
-			(gridItem.data.configuration as any).columnDefs.expr = JSON.stringify(nextColumns)
+			conf.expr = JSON.stringify(nextColumns)
 		}
 
 		await updateConfiguration()
@@ -100,25 +131,22 @@
 	})
 
 	async function syncColumns() {
-		let gridItem = findGridItem($app, id)
+		const gridItem = findGridItem($app, id)
 
 		if (gridItem && result) {
 			const keys = Object.keys(result[0] ?? {}) ?? []
+			const conf = gridItem.data.configuration.columnDefs as ColumnDefsConfiguration
 
-			if (gridItem.data.configuration.columnDefs.type === 'static') {
-				gridItem.data.configuration.columnDefs.value = keys.map((key) => ({
-					field: key,
-					headerName: key,
-					flex: 1
-				}))
-			} else if (gridItem.data.configuration.columnDefs.type === 'evalv2') {
-				gridItem.data.configuration.columnDefs.expr = JSON.stringify(
-					keys.map((key, index) => ({
-						field: key,
-						headerName: key,
-						flex: 1
-					}))
-				)
+			const newColumns: AgGridColumnDef[] = keys.map((key) => ({
+				field: key,
+				headerName: key,
+				flex: 1
+			}))
+
+			if (conf.type === 'static') {
+				conf.value = newColumns
+			} else if (conf.type === 'evalv2') {
+				conf.expr = JSON.stringify(newColumns)
 			}
 
 			await updateConfiguration()
@@ -126,12 +154,16 @@
 	}
 
 	async function setEmptyColumns() {
-		let gridItem = findGridItem($app, id)
-		if (gridItem && gridItem.data.configuration.columnDefs.type === 'static') {
-			gridItem.data.configuration.columnDefs.value = []
+		const gridItem = findGridItem($app, id)
+		if (!gridItem) return
+
+		const conf = gridItem.data.configuration.columnDefs as ColumnDefsConfiguration
+
+		if (conf.type === 'static') {
+			conf.value = []
 			await updateConfiguration()
-		} else if (gridItem && gridItem.data.configuration.columnDefs.type === 'evalv2') {
-			gridItem.data.configuration.columnDefs.expr = '[]'
+		} else if (conf.type === 'evalv2') {
+			conf.expr = '[]'
 			await updateConfiguration()
 		}
 	}
