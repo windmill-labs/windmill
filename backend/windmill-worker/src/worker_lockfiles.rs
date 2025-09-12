@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
@@ -45,6 +45,7 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
+    static ref WMDEBUG_NO_DMAP_DISSOLVE: bool = std::env::var("WMDEBUG_NO_DMAP_DISSOLVE").is_ok();
 }
 
 use crate::common::OccupancyMetrics;
@@ -69,6 +70,7 @@ use crate::{
     go_executor::install_go_dependencies,
 };
 
+// TODO: make sure these are ok
 pub async fn update_script_dependency_map(
     job_id: &Uuid,
     db: &DB,
@@ -82,7 +84,7 @@ pub async fn update_script_dependency_map(
     let mut tx = db.begin().await?;
     tx = clear_dependency_parent_path(parent_path, script_path, w_id, importer_kind, tx).await?;
 
-    tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None).await?;
+    tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None, false).await?;
 
     if !relative_imports.is_empty() {
         let mut logs = "".to_string();
@@ -138,15 +140,18 @@ async fn clear_dependency_map_for_item<'c>(
     importer_kind: &str,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     importer_node_id: &Option<String>,
+    // If true, function will remove all rows regardless of node_id
+    ignore_node_id: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     sqlx::query!(
         "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
-                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text)",
+                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text OR $5)",
         item_path,
         w_id,
         importer_kind,
-        importer_node_id.clone()
+        importer_node_id.clone(),
+        ignore_node_id
     )
     .execute(&mut *tx)
     .await?;
@@ -237,6 +242,7 @@ pub fn extract_relative_imports(
         _ => None,
     }
 }
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
     job: &MiniPulledJob,
@@ -251,6 +257,11 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
+    dbg!("DEPENDENCY_JOB!");
+    dbg!("DEPENDENCY_JOB!");
+    dbg!("DEPENDENCY_JOB!");
+    dbg!("DEPENDENCY_JOB!");
+    dbg!("DEPENDENCY_JOB!");
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
@@ -369,6 +380,7 @@ pub async fn handle_dependency_job(
             // where Second will **always** do with lock being not null
             let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
                 let path = script_info.path.clone();
+
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -439,7 +451,12 @@ pub async fn handle_dependency_job(
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ",
                 new_hash, current_hash.0, w_id, &content).execute(db).await?;
-                tracing::info!("Updated script at path {} with hash {} to new hash {}", path, current_hash.0, new_hash);
+                tracing::info!(
+                    "Updated script at path {} with hash {} to new hash {}",
+                    path,
+                    current_hash.0,
+                    new_hash
+                );
                 // Archive current
                 sqlx::query!(
                     "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
@@ -448,11 +465,20 @@ pub async fn handle_dependency_job(
                 )
                 .execute(&mut *tx)
                 .await?;
-                tracing::info!("Archived script at path {} from dependency job {}", path, current_hash.0);
+                tracing::info!(
+                    "Archived script at path {} from dependency job {}",
+                    path,
+                    current_hash.0
+                );
                 tx.commit().await?;
 
                 ScriptHash(new_hash)
             } else {
+                dbg!("OUT");
+                dbg!("OUT");
+                dbg!("OUT");
+                dbg!("OUT");
+                dbg!("OUT");
                 // We do not create new row for this update
                 // That means we can keep current hash and just update lock
                 sqlx::query!(
@@ -774,7 +800,23 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no flow version found for path {path}",
                         path = s.importer_path
                     );
-                    // Do not commit the transaction. It will be dropped and rollbacked
+                    if *WMDEBUG_NO_DMAP_DISSOLVE {
+                        tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
+                    } else {
+                        // Remember the path we used to query the flow was fetched just now from dependency_map
+                        // if dependency_map advertise unexistent path, as part of self-healing it should be removed
+                        clear_dependency_map_for_item(
+                            &s.importer_path,
+                            w_id,
+                            "flow",
+                            flow_tx,
+                            &None,
+                            true,
+                        )
+                        .await?
+                        .commit()
+                        .await?;
+                    }
                     continue;
                 }
                 Err(err) => {
@@ -846,10 +888,28 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no app version found for path {path}",
                         path = s.importer_path
                     );
-                    // Do not commit the transaction. It will be dropped and rollbacked
+                    if *WMDEBUG_NO_DMAP_DISSOLVE {
+                        tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
+                    } else {
+                        // Remember the path we used to query the flow was fetched just now from dependency_map
+                        // if dependency_map advertise unexistent path, as part of self-healing it should be removed
+                        clear_dependency_map_for_item(
+                            &s.importer_path,
+                            w_id,
+                            "app",
+                            tx,
+                            &None,
+                            true,
+                        )
+                        .await?
+                        .commit()
+                        .await?;
+                    }
                     continue;
                 }
                 Err(err) => {
+                    // TODO: Clean malformed dependency_map row
+                    // TODO: If flow or app also take into account nodes.
                     tracing::error!(
                         "error getting latest deployed app version for path {path}: {err}",
                         path = s.importer_path,
@@ -917,6 +977,7 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
+    dbg!("HANDLE_FLOW_DEPENDENCY_JOB");
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
@@ -992,7 +1053,13 @@ pub async fn handle_flow_dependency_job(
     .clone();
 
     let mut tx = db.begin().await?;
-    tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
+
+    let mut dependency_map =
+        ScopedDependencyMap::new(&job.workspace_id, &job_path, "flow", &mut *tx).await?;
+
+    // TODO: is parent_path only used for this edge-case?
+    dependency_map
+        .rearrange_top_level(&parent_path, &mut *tx)
         .await?;
 
     if !skip_flow_update {
@@ -1026,8 +1093,11 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
         skip_flow_update,
         raw_deps,
+        &mut dependency_map,
     )
     .await?;
+
+    tx = dependency_map.dissolve(tx).await;
 
     if !errors.is_empty() {
         let error_message = errors
@@ -1110,10 +1180,12 @@ pub async fn handle_flow_dependency_job(
         .await?;
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
-        let mut value_lite = flow.clone();
+        let (mut value_lite, mut step_to_id_hm) = (flow.clone(), HashMap::new());
+
         tx = reduce_flow(
             tx,
             &mut value_lite.modules,
+            &mut step_to_id_hm,
             &job_path,
             &job.workspace_id,
             flow.failure_module.as_ref(),
@@ -1167,6 +1239,194 @@ pub async fn handle_flow_dependency_job(
     })))
 }
 
+// TODO: Clean dependency_map table
+// TODO: Completely messup the thing
+// - Change referenced node.
+/// self-heals even if dependency_map is deleted
+struct ScopedDependencyMap {
+    dm: HashSet<(String, String)>,
+    w_id: String,
+    importer_path: String,
+    importer_kind: String,
+}
+
+impl ScopedDependencyMap {
+    /// Calls DB, however is assumed to be called once per dependency job
+    /// AND is scoped to smaller subset of data
+    /// So it is not too expensive
+    async fn new<'a>(
+        w_id: &str,
+        importer_path: &str,
+        importer_kind: &str,
+        executor: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+    ) -> Result<Self> {
+        let dm = sqlx::query_as::<_, (String, String)>(
+"SELECT importer_node_id, imported_path FROM dependency_map WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = $3::text::IMPORTER_KIND",
+        )
+        .bind(w_id)
+        .bind(importer_path)
+        .bind(importer_kind)
+        .fetch_all(executor)
+        .await?;
+
+        Ok(Self {
+            dm: HashSet::from_iter(dm.into_iter()),
+            w_id: w_id.to_owned(),
+            importer_path: importer_path.to_owned(),
+            importer_kind: importer_kind.to_owned(),
+        })
+    }
+
+    /// Add missing entries to `dependency_map`
+    /// Remove matching entries
+    async fn reduce<'c>(
+        &mut self,
+        relative_imports: Option<Vec<String>>,
+        node_id: &str, // Flow Step/Node ID
+        mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    ) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+        let Some(mut relative_imports) = relative_imports else {
+            return Ok(tx);
+        };
+
+        if node_id.trim().is_empty() {
+            tracing::error!("internal: node_id passed to ScopedDependencyMap::reduce is not supposed to be empty");
+            return Ok(tx);
+        }
+
+        dbg!(&relative_imports);
+        dbg!(node_id);
+        dbg!(&self.importer_path);
+
+        // This does:
+        // 1. remove all relative imports from relative_imports that ARE tracked in dependency_map
+        // 2. remove corresponding trackers from dependency_map
+        //
+        // After this operation `relative_imports` variable has only untracked imports.
+        // We will handle those in the next expression.
+        //
+        // After all `reduce`'s called ScopedDependencyMap has only extra/orphan imports
+        // these are going to be clean up by calling [dissolve]
+        relative_imports.retain(|imported_path| {
+            !self
+                .dm
+                // As dm is HashSet, removing is O(1) operation
+                // thus making entire process very efficient
+                .remove(&(node_id.to_owned(), imported_path.to_owned()))
+        });
+
+        // As mentioned above, usually this will always be empty.
+        if !relative_imports.is_empty() {
+            let mut logs = "".to_string();
+            logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", node_id).as_str());
+
+            tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
+                &node_id,
+                &self.importer_kind,
+                &relative_imports,
+            );
+
+            tx = add_relative_imports_to_dependency_map(
+                &self.importer_path,
+                &self.w_id,
+                relative_imports,
+                &self.importer_kind,
+                tx,
+                &mut logs,
+                Some(node_id.to_owned()),
+            )
+            .await?;
+            // TODO:
+            // append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
+        }
+        Ok(tx)
+    }
+
+    /// clean orphan entries from `dependency_map`
+    async fn dissolve<'a>(
+        self,
+        mut tx: sqlx::Transaction<'a, sqlx::Postgres>,
+    ) -> sqlx::Transaction<'a, sqlx::Postgres> {
+        if *WMDEBUG_NO_DMAP_DISSOLVE {
+            tracing::warn!(
+                "WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable."
+            );
+            return tx;
+        }
+
+        // We _could_ shove it into single query, but this query is rarely called AND let's keep it simple for redability.
+        for (importer_node_id, imported_path) in self.dm.into_iter() {
+            tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}",
+                &self.importer_kind,
+                &imported_path,
+                &importer_node_id,
+            );
+
+            // Dissolve MUST succeed. Error in dissolve MUST not block the execution.
+            if let Err(err) = sqlx::query!(
+                "
+        DELETE FROM dependency_map
+        WHERE workspace_id = $1
+            AND importer_path = $2
+            AND importer_kind = $3::text::IMPORTER_KIND
+            AND importer_node_id = $4
+            AND imported_path = $5
+            ",
+                &self.w_id,
+                &self.importer_path,
+                &self.importer_kind,
+                &importer_node_id,
+                &imported_path,
+            )
+            .execute(&mut *tx)
+            .await
+            {
+                tracing::error!(
+                    "error while cleaning dependency_map for: importer_node_id - {}, imported_path - {}, importer_path - {}: {err}",
+                    importer_node_id,
+                    imported_path,
+                    self.importer_path,
+                );
+            }
+        }
+        tx
+    }
+
+    /// Used to move top level apps/flows if they were renamed/moved
+    async fn rearrange_top_level<'a>(
+        &mut self,
+        parent_path: &Option<String>,
+        executor: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+    ) -> error::Result<()> {
+        if parent_path
+            .as_ref()
+            .is_some_and(|x| !x.is_empty() && x != &self.importer_path)
+        {
+            sqlx::query(
+                "
+UPDATE dependency_map
+    SET importer_path = $1
+    WHERE importer_path = $2
+        AND importer_kind = $3::text::IMPORTER_KIND
+        AND workspace_id = $4
+        ",
+            )
+            .bind(&self.importer_path)
+            .bind(parent_path.clone().unwrap())
+            .bind(&self.importer_kind)
+            .bind(&self.w_id)
+            .execute(executor)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Remove invalid entry
+    fn remove_by_importer_path(importer_path: &str, importer_kind: &str, w_id: &str) {
+        tracing::warn!("self-healed, but is the bug");
+    }
+}
+
 fn get_deployment_msg_and_parent_path_from_args(
     args: Option<Json<HashMap<String, Box<RawValue>>>>,
 ) -> (Option<String>, Option<String>) {
@@ -1214,7 +1474,7 @@ async fn lock_modules<'c>(
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
     raw_deps: Option<HashMap<String, String>>,
-    // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
+    dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -1226,6 +1486,7 @@ async fn lock_modules<'c>(
     let mut errors = Vec::new();
     for mut e in modules.into_iter() {
         let id = e.id.clone();
+        dbg!(&id);
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -1268,6 +1529,7 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                         skip_flow_update,
                         raw_deps.clone(),
+                        dependency_map,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -1304,6 +1566,7 @@ async fn lock_modules<'c>(
                             occupancy_metrics,
                             skip_flow_update,
                             raw_deps.clone(),
+                            dependency_map,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1332,6 +1595,7 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                         skip_flow_update,
                         raw_deps.clone(),
+                        dependency_map,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1365,6 +1629,7 @@ async fn lock_modules<'c>(
                             occupancy_metrics,
                             skip_flow_update,
                             raw_deps.clone(),
+                            dependency_map,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1391,6 +1656,7 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                         skip_flow_update,
                         raw_deps.clone(),
+                        dependency_map,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1442,8 +1708,20 @@ async fn lock_modules<'c>(
             .await?;
         }
 
+        let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
+        let relative_imports = extract_relative_imports(
+            &content,
+            &format!("{dep_path}/flow"),
+            &Some(language.clone()),
+        );
+
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
+                // TODO: Is it safe to override semi-global tx here?
+                tx = dependency_map
+                    .reduce(relative_imports.clone(), &e.id, tx)
+                    .await?;
+
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1451,6 +1729,11 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
+                    // TODO: Is it safe to override semi-global tx here?
+                    tx = dependency_map
+                        .reduce(relative_imports.clone(), &e.id, tx)
+                        .await?;
+
                     new_flow_modules.push(e);
                     continue;
                 }
@@ -1498,36 +1781,9 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
-                tx = clear_dependency_map_for_item(
-                    &job_path,
-                    &job.workspace_id,
-                    "flow",
-                    tx,
-                    &Some(e.id.clone()),
-                )
-                .await?;
-                let relative_imports = extract_relative_imports(
-                    &content,
-                    &format!("{dep_path}/flow"),
-                    &Some(language.clone()),
-                );
-                if let Some(relative_imports) = relative_imports {
-                    let mut logs = "".to_string();
-                    logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", e.id).as_str());
-
-                    tx = add_relative_imports_to_dependency_map(
-                        &dep_path,
-                        &job.workspace_id,
-                        relative_imports,
-                        "flow",
-                        tx,
-                        &mut logs,
-                        Some(e.id.clone()),
-                    )
+                tx = dependency_map
+                    .reduce(relative_imports.clone(), &e.id, tx)
                     .await?;
-                    append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
-                }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
                     let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
@@ -1595,6 +1851,7 @@ async fn relative_imports_bytes<'a>(
     )
 }
 
+// TODO: Clean up dependency map when moved/renamed?
 async fn insert_flow_node<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     path: &str,
@@ -1690,10 +1947,12 @@ async fn insert_flow_modules<'c>(
     same_worker: bool,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
+    step_to_id_hm: &mut HashMap<String, FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     tx = Box::pin(reduce_flow(
         tx,
         modules,
+        step_to_id_hm,
         path,
         workspace_id,
         failure_module,
@@ -1726,6 +1985,7 @@ async fn insert_flow_modules<'c>(
 async fn reduce_flow<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     modules: &mut Vec<FlowModule>,
+    step_to_id_hm: &mut HashMap<String, FlowNodeId>,
     path: &str,
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
@@ -1733,6 +1993,7 @@ async fn reduce_flow<'c>(
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
+        let step = module.id.clone();
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
                 Error::internal_err(format!(
@@ -1771,6 +2032,9 @@ async fn reduce_flow<'c>(
                     Some(language),
                 )
                 .await?;
+
+                step_to_id_hm.insert(step, id);
+
                 val = FlowScript {
                     input_transforms,
                     id,
@@ -1793,6 +2057,7 @@ async fn reduce_flow<'c>(
                     same_worker,
                     modules,
                     modules_node,
+                    step_to_id_hm,
                 )
                 .await?;
             }
@@ -1806,6 +2071,7 @@ async fn reduce_flow<'c>(
                         same_worker,
                         &mut branch.modules,
                         &mut branch.modules_node,
+                        step_to_id_hm,
                     )
                     .await?;
                 }
@@ -1817,6 +2083,7 @@ async fn reduce_flow<'c>(
                     same_worker,
                     default,
                     default_node,
+                    step_to_id_hm,
                 )
                 .await?;
             }
@@ -1830,6 +2097,7 @@ async fn reduce_flow<'c>(
                         same_worker,
                         &mut branch.modules,
                         &mut branch.modules_node,
+                        step_to_id_hm,
                     )
                     .await?;
                 }
@@ -1906,6 +2174,7 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
     true
 }
 
+// TODO: Use transaction?
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
@@ -1923,6 +2192,7 @@ async fn lock_modules_app(
     locks_to_reload: &Option<Vec<String>>,
     // Represents the closest container id
     container_id: Option<String>,
+    dependency_map: &mut ScopedDependencyMap,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1957,6 +2227,12 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
 
+                            let relative_imports = extract_relative_imports(
+                                &content,
+                                &format!("{job_path}/app"),
+                                &Some(language.clone()),
+                            );
+
                             if let Some((l, id)) = locks_to_reload
                                 .as_ref()
                                 .zip(container_id.as_ref())
@@ -1970,6 +2246,15 @@ async fn lock_modules_app(
                                 })
                             {
                                 if !l.contains(id) {
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
+                                        )
+                                        .await?
+                                        .commit()
+                                        .await?;
                                     return Ok(Value::Object(m.clone()));
                                 }
                             } else if v
@@ -1977,6 +2262,16 @@ async fn lock_modules_app(
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
                                 if skip_creating_new_lock(&language, &content) {
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
+                                        )
+                                        .await?
+                                        .commit()
+                                        .await?;
+
                                     logs.push_str(
                                         "Found already locked inline script. Skipping lock...\n",
                                     );
@@ -2007,44 +2302,15 @@ async fn lock_modules_app(
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
 
-                                    let mut tx = db.begin().await?;
-
-                                    tx = clear_dependency_map_for_item(
-                                        &job_path,
-                                        &job.workspace_id,
-                                        "app",
-                                        tx,
-                                        &container_id,
-                                    )
-                                    .await?;
-
-                                    let relative_imports = extract_relative_imports(
-                                        &content,
-                                        &format!("{job_path}/app"),
-                                        &Some(language.clone()),
-                                    );
-
-                                    if let Some(relative_imports) = relative_imports {
-                                        let mut logs = "".to_string();
-                                        logs.push_str(
-                                            format!("\n\n--- RELATIVE IMPORTS ---\n\n").as_str(),
-                                        );
-
-                                        tx = add_relative_imports_to_dependency_map(
-                                            &job_path,
-                                            &job.workspace_id,
-                                            relative_imports,
-                                            "app",
-                                            tx,
-                                            &mut logs,
-                                            container_id,
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
                                         )
+                                        .await?
+                                        .commit()
                                         .await?;
-                                        append_logs(&job.id, &job.workspace_id, logs, &db.into())
-                                            .await;
-                                    }
-
-                                    tx.commit().await?;
 
                                     let anns =
                                         windmill_common::worker::TypeScriptAnnotations::parse(
@@ -2104,6 +2370,7 @@ async fn lock_modules_app(
                             .and_then(Value::as_str)
                             .map(str::to_owned)
                             .or(container_id.clone()),
+                        dependency_map,
                     )
                     .await?,
                 );
@@ -2129,6 +2396,7 @@ async fn lock_modules_app(
                         occupancy_metrics,
                         locks_to_reload,
                         container_id.clone(),
+                        dependency_map,
                     )
                     .await?,
                 );
@@ -2192,6 +2460,14 @@ pub async fn handle_app_dependency_job(
         .await?
         .map(|record| (record.app_id, record.value));
 
+    let mut dependency_map =
+        ScopedDependencyMap::new(&job.workspace_id, &job_path, "flow", db).await?;
+
+    // // TODO: is parent_path only used for this edge-case?
+    // dependency_map
+    //     .rearrange_top_level(&parent_path, &mut *tx)
+    //     .await?;
+
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value)) = record {
         let value = lock_modules_app(
@@ -2209,8 +2485,16 @@ pub async fn handle_app_dependency_job(
             occupancy_metrics,
             &components_to_relock,
             None,
+            &mut dependency_map,
         )
         .await?;
+
+        // TODO: Dissolve in the end?
+        dependency_map
+            .dissolve(db.begin().await?)
+            .await
+            .commit()
+            .await?;
 
         // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
         let mut value_lite = value.clone();
