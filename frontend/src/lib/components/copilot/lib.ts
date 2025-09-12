@@ -162,8 +162,12 @@ function getModelMaxTokens(provider: AIProvider, model: string) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
 		return 100000
+	} else if (model.startsWith('claude-sonnet') || model.startsWith('gemini-2.5')) {
+		return 64000
 	} else if (model.startsWith('gpt-4.1')) {
 		return 32768
+	} else if (model.startsWith('claude-opus')) {
+		return 32000
 	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
 	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
@@ -192,6 +196,7 @@ function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
+	const maxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -199,7 +204,7 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
+			max_completion_tokens: maxTokens
 		}
 	} else {
 		return {
@@ -216,7 +221,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
+			max_tokens: maxTokens
 		}
 	}
 }
