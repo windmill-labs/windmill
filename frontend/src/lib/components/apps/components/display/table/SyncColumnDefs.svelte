@@ -35,6 +35,8 @@
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
+	let syncInProgress = false
+
 	function hasActionsPlaceholder(cols: WindmillColumnDef[] | undefined): boolean {
 		if (!Array.isArray(cols)) return false
 		return cols.findIndex((c) => c?._isActionsColumn === true) > -1
@@ -108,8 +110,11 @@
 
 	$effect(() => {
 		const shouldSync = actionsPresent !== undefined || columnDefs?.length !== undefined
-		if (shouldSync) {
-			ensureActionsColumn()
+		if (shouldSync && !syncInProgress) {
+			syncInProgress = true
+			ensureActionsColumn().finally(() => {
+				syncInProgress = false
+			})
 		}
 	})
 
