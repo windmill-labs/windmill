@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick, untrack } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -107,10 +107,10 @@
 	}
 
 	$effect(() => {
-		// Re-run when inputs change; guarded by equality checks to avoid loops
-		actionsPresent
-		columnDefs
-		untrack(() => ensureActionsColumn())
+		const shouldSync = actionsPresent !== undefined || columnDefs?.length !== undefined
+		if (shouldSync) {
+			ensureActionsColumn()
+		}
 	})
 
 	async function syncColumns() {
