@@ -47,7 +47,7 @@ export async function getFirstStepSchema(flowState: FlowState, flow: OpenFlow) {
 		throw new Error('no first step found')
 	}
 
-	const schema = structuredClone(flowState[firstModuleId].schema)
+	const schema = $state.snapshot(flowState[firstModuleId].schema)
 	const v = flow.value.modules[0].value
 
 	if (v.type !== 'rawscript' && v.type !== 'script') {
