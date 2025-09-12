@@ -1,12 +1,9 @@
 use async_trait::async_trait;
-use base64::Engine;
 use serde_json;
-use windmill_common::{
-    client::AuthedClient,
-    error::Error,
-};
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
+    image_handler::download_and_encode_s3_image,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
 };
@@ -41,39 +38,18 @@ impl OpenAIQueryBuilder {
                             match part {
                                 ContentPart::S3Object { s3_object } => {
                                     // Convert S3Object to base64 image URL
-                                    let image_bytes = client
-                                        .download_s3_file(
-                                            workspace_id,
-                                            &s3_object.s3,
-                                            s3_object.storage.clone(),
-                                        )
-                                        .await
-                                        .map_err(|e| {
-                                            Error::internal_err(format!(
-                                                "Failed to download S3 image: {}",
-                                                e
-                                            ))
-                                        })?;
-
-                                    let base64_data = base64::engine::general_purpose::STANDARD
-                                        .encode(&image_bytes);
-
-                                    // Determine MIME type based on file extension
-                                    let mime_type = if s3_object.s3.ends_with(".jpg")
-                                        || s3_object.s3.ends_with(".jpeg")
-                                    {
-                                        "image/jpeg"
-                                    } else if s3_object.s3.ends_with(".gif") {
-                                        "image/gif"
-                                    } else if s3_object.s3.ends_with(".webp") {
-                                        "image/webp"
-                                    } else {
-                                        "image/png"
-                                    };
-
+                                    let (mime_type, image_bytes) = download_and_encode_s3_image(
+                                        s3_object,
+                                        client,
+                                        workspace_id,
+                                    )
+                                    .await?;
                                     prepared_content.push(ContentPart::ImageUrl {
                                         image_url: ImageUrlData {
-                                            url: format!("data:{};base64,{}", mime_type, base64_data),
+                                            url: format!(
+                                                "data:{};base64,{}",
+                                                mime_type, image_bytes
+                                            ),
                                         },
                                     });
                                 }
@@ -101,7 +77,9 @@ impl OpenAIQueryBuilder {
         client: &AuthedClient,
         workspace_id: &str,
     ) -> Result<String, Error> {
-        let prepared_messages = self.prepare_messages_for_api(args.messages, client, workspace_id).await?;
+        let prepared_messages = self
+            .prepare_messages_for_api(args.messages, client, workspace_id)
+            .await?;
 
         // Check if we need to add response_format for structured output
         let has_output_properties = args
@@ -145,26 +123,16 @@ impl OpenAIQueryBuilder {
         workspace_id: &str,
     ) -> Result<String, Error> {
         // Build content array with text and optional image
-        let mut content = vec![ImageGenerationContent::InputText {
-            text: args.user_message.to_string(),
-        }];
+        let mut content =
+            vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }];
 
         // Add image if provided
         if let Some(image) = args.image {
             if !image.s3.is_empty() {
-                let image_bytes = client
-                    .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("Failed to download S3 image: {}", e))
-                    })?;
-
-                let base64_image =
-                    base64::engine::general_purpose::STANDARD.encode(&image_bytes);
-                let image_data_url = format!("data:image/jpeg;base64,{}", base64_image);
-
+                let (mime_type, image_bytes) =
+                    download_and_encode_s3_image(image, client, workspace_id).await?;
                 content.push(ImageGenerationContent::InputImage {
-                    image_url: image_data_url,
+                    image_url: format!("data:{};base64,{}", mime_type, image_bytes),
                 });
             }
         }
@@ -182,10 +150,7 @@ impl OpenAIQueryBuilder {
 
         let image_request = ImageGenerationRequest {
             model: args.model,
-            input: vec![ImageGenerationMessage {
-                role: "user".to_string(),
-                content,
-            }],
+            input: vec![ImageGenerationMessage { role: "user".to_string(), content }],
             instructions: args.system_prompt,
             tools,
         };
@@ -197,7 +162,7 @@ impl OpenAIQueryBuilder {
 
 #[async_trait]
 impl QueryBuilder for OpenAIQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
+    fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
         // OpenAI supports tools for both text and image output
         true
     }
@@ -219,23 +184,30 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let url = response.url().path();
         if url.contains("/responses") {
             // Parse image generation response
-            let response_text = response.text().await
+            let response_text = response
+                .text()
+                .await
                 .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
-            
+
             let image_response: OpenAIImageResponse = serde_json::from_str(&response_text)
-                .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI image response: {}. Raw response: {}", e, response_text)))?;
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to parse OpenAI image response: {}. Raw response: {}",
+                        e, response_text
+                    ))
+                })?;
 
             // Find the first completed image generation output
             let image_generation_call = image_response
                 .output
                 .iter()
-                .find(|output| output.r#type == "image_generation_call" && output.status == "completed")
+                .find(|output| {
+                    output.r#type == "image_generation_call" && output.status == "completed"
+                })
                 .and_then(|output| output.result.as_ref());
 
             if let Some(base64_image) = image_generation_call {
-                Ok(ParsedResponse::Image {
-                    base64_data: base64_image.clone(),
-                })
+                Ok(ParsedResponse::Image { base64_data: base64_image.clone() })
             } else {
                 Err(Error::internal_err(
                     "No completed image output received from OpenAI".to_string(),
@@ -280,8 +252,12 @@ impl QueryBuilder for OpenAIQueryBuilder {
             OutputType::Image => format!("{}/responses", base_url),
         }
     }
-    
-    fn get_auth_headers(&self, api_key: &str, _output_type: &OutputType) -> Vec<(&'static str, String)> {
+
+    fn get_auth_headers(
+        &self,
+        api_key: &str,
+        _output_type: &OutputType,
+    ) -> Vec<(&'static str, String)> {
         vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }

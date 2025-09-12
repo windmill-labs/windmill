@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use ulid;
 use uuid::Uuid;
 use windmill_common::{
+    ai_providers::AIProvider,
     client::AuthedClient,
     db::DB,
     error::{self, to_anyhow, Error},
@@ -22,7 +23,6 @@ use crate::{
         image_handler::upload_image_to_s3,
         query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse},
         types::*,
-        utils::is_anthropic_provider,
     },
     common::{error_to_value, OccupancyMetrics},
     create_job_dir, handle_queued_job,
@@ -116,6 +116,14 @@ async fn update_flow_status_module_with_actions_success(
         _ => {}
     }
     Ok(())
+}
+
+/// Check if the provider is Anthropic (either direct or through OpenRouter)
+fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
+    let provider_is_anthropic = provider.kind.is_anthropic();
+    let is_openrouter_anthropic =
+        provider.kind == AIProvider::OpenRouter && provider.model.starts_with("anthropic/");
+    provider_is_anthropic || is_openrouter_anthropic
 }
 
 #[async_recursion]
@@ -258,19 +266,20 @@ pub async fn run_agent_unified(
                 .build_request(&build_args, client, &job.workspace_id)
                 .await?;
 
-            let endpoint = query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
+            let endpoint =
+                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
             let auth_headers = query_builder.get_auth_headers(api_key, output_type);
 
             let mut request = HTTP_CLIENT
                 .post(&endpoint)
                 .timeout(std::time::Duration::from_secs(120))
                 .header("Content-Type", "application/json");
-            
+
             // Apply authentication headers
             for (header_name, header_value) in auth_headers {
                 request = request.header(header_name, header_value);
             }
-            
+
             let resp = request
                 .body(request_body)
                 .send()
@@ -325,19 +334,20 @@ pub async fn run_agent_unified(
             .build_request(&build_args, client, &job.workspace_id)
             .await?;
 
-        let endpoint = query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
+        let endpoint =
+            query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
         let auth_headers = query_builder.get_auth_headers(api_key, output_type);
 
         let mut request = HTTP_CLIENT
             .post(&endpoint)
             .timeout(std::time::Duration::from_secs(120))
             .header("Content-Type", "application/json");
-        
+
         // Apply authentication headers
         for (header_name, header_value) in auth_headers {
             request = request.header(header_name, header_value);
         }
-        
+
         let resp = request
             .body(request_body)
             .send()

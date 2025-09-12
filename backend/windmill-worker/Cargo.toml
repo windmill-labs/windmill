@@ -113,6 +113,7 @@ nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
+mime_guess.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }

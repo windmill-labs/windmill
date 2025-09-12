@@ -47,7 +47,7 @@ pub async fn download_and_encode_s3_image(
     image: &S3Object,
     client: &AuthedClient,
     workspace_id: &str,
-) -> Result<String, Error> {
+) -> Result<(String, String), Error> {
     // Download the image from S3
     let image_bytes = client
         .download_s3_file(workspace_id, &image.s3, image.storage.clone())
@@ -57,16 +57,12 @@ pub async fn download_and_encode_s3_image(
     // Encode as base64 data URL
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
 
-    // Determine MIME type based on file extension or default to PNG
-    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if image.s3.ends_with(".gif") {
-        "image/gif"
-    } else if image.s3.ends_with(".webp") {
-        "image/webp"
-    } else {
-        "image/png" // default
-    };
+    // Determine MIME type using mime_guess from file extension, with PNG as fallback
+    let mime_type = mime_guess::from_path(&image.s3).first();
+    let mime_type = mime_type
+        .as_ref()
+        .map(|mime| mime.essence_str())
+        .unwrap_or("image/png");
 
-    Ok(format!("data:{};base64,{}", mime_type, base64_data))
+    Ok((mime_type.to_string(), base64_data))
 }

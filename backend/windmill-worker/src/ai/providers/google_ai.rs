@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use base64::Engine;
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
+    image_handler::download_and_encode_s3_image,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
 };
@@ -45,21 +45,10 @@ impl GoogleAIQueryBuilder {
             // Add input image if provided
             if let Some(image) = args.image {
                 if !image.s3.is_empty() {
-                    let image_bytes = client
-                        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("Failed to download S3 image: {}", e))
-                        })?;
-
-                    let base64_image =
-                        base64::engine::general_purpose::STANDARD.encode(&image_bytes);
-
+                    let (mime_type, image_bytes) =
+                        download_and_encode_s3_image(image, client, workspace_id).await?;
                     parts.push(GeminiPart::InlineData {
-                        inline_data: GeminiInlineData {
-                            mime_type: "image/jpeg".to_string(),
-                            data: base64_image,
-                        },
+                        inline_data: GeminiInlineData { mime_type: mime_type, data: image_bytes },
                     });
                 }
             }

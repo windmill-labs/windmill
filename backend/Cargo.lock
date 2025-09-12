@@ -15774,6 +15774,7 @@ dependencies = [
  "lazy_static",
  "libloading 0.8.8",
  "mappable-rc",
+ "mime_guess",
  "mysql_async",
  "native-tls",
  "nix 0.27.1",

@@ -1,14 +1,11 @@
 use async_trait::async_trait;
 use serde_json;
-use windmill_common::{
-    client::AuthedClient,
-    error::Error,
-};
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
+    providers::openai::OpenAIQueryBuilder,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
-    providers::openai::OpenAIQueryBuilder,
 };
 
 pub struct OpenRouterQueryBuilder {
@@ -18,15 +15,13 @@ pub struct OpenRouterQueryBuilder {
 
 impl OpenRouterQueryBuilder {
     pub fn new() -> Self {
-        Self {
-            openai_builder: OpenAIQueryBuilder::new(),
-        }
+        Self { openai_builder: OpenAIQueryBuilder::new() }
     }
 }
 
 #[async_trait]
 impl QueryBuilder for OpenRouterQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
+    fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
         // OpenRouter supports tools for both text and image output (via OpenAI-compatible API)
         true
     }
@@ -40,14 +35,18 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         match args.output_type {
             OutputType::Text => {
                 // For text, use standard OpenAI format without modalities
-                self.openai_builder.build_request(args, client, workspace_id).await
+                self.openai_builder
+                    .build_request(args, client, workspace_id)
+                    .await
             }
             OutputType::Image => {
                 // For image generation, we need to add modalities field
                 // First, prepare the messages using the OpenAI builder's logic
                 let openai_builder = &self.openai_builder;
-                let prepared_messages = openai_builder.prepare_messages_for_api(args.messages, client, workspace_id).await?;
-                
+                let prepared_messages = openai_builder
+                    .prepare_messages_for_api(args.messages, client, workspace_id)
+                    .await?;
+
                 // Check if we need to add response_format for structured output
                 let has_output_properties = args
                     .output_schema
@@ -69,7 +68,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
                 } else {
                     None
                 };
-                
+
                 // Build OpenRouter-specific request with modalities
                 let request = OpenRouterChatRequest {
                     model: args.model,
@@ -80,7 +79,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
                     response_format,
                     modalities: Some(vec!["image", "text"]),
                 };
-                
+
                 serde_json::to_string(&request)
                     .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
             }
@@ -88,11 +87,14 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
-        
+
         // First try to parse as OpenRouter image response
-        if let Ok(image_response) = serde_json::from_str::<OpenRouterImageResponse>(&response_text) {
+        if let Ok(image_response) = serde_json::from_str::<OpenRouterImageResponse>(&response_text)
+        {
             // Extract base64 image from the first choice
             let image_url = image_response
                 .choices
@@ -105,36 +107,37 @@ impl QueryBuilder for OpenRouterQueryBuilder {
                 // Extract base64 data from data URL format: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
                 if let Some(base64_start) = data_url.find("base64,") {
                     let base64_data = &data_url[base64_start + 7..]; // Skip "base64," prefix
-                    return Ok(ParsedResponse::Image {
-                        base64_data: base64_data.to_string(),
-                    });
+                    return Ok(ParsedResponse::Image { base64_data: base64_data.to_string() });
                 }
             }
         }
-        
+
         // If not an image response or parsing failed, try as regular OpenAI response
-        let openai_response: OpenAIResponse = serde_json::from_str(&response_text)
-            .map_err(|e| Error::internal_err(format!("Failed to parse response: {}. Raw response: {}", e, response_text)))?;
-        
+        let openai_response: OpenAIResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to parse response: {}. Raw response: {}",
+                    e, response_text
+                ))
+            })?;
+
         let first_choice = openai_response
             .choices
             .into_iter()
             .next()
             .ok_or_else(|| Error::internal_err("No response from API"))?;
-        
+
         Ok(ParsedResponse::Text {
             content: first_choice.message.content.map(|c| match c {
                 OpenAIContent::Text(text) => text,
-                OpenAIContent::Parts(parts) => {
-                    parts
-                        .into_iter()
-                        .filter_map(|part| match part {
-                            ContentPart::Text { text } => Some(text),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                }
+                OpenAIContent::Parts(parts) => parts
+                    .into_iter()
+                    .filter_map(|part| match part {
+                        ContentPart::Text { text } => Some(text),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
             }),
             tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
         })
@@ -144,8 +147,12 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         // OpenRouter uses the same endpoint for both text and image generation
         format!("{}/chat/completions", base_url)
     }
-    
-    fn get_auth_headers(&self, api_key: &str, _output_type: &OutputType) -> Vec<(&'static str, String)> {
+
+    fn get_auth_headers(
+        &self,
+        api_key: &str,
+        _output_type: &OutputType,
+    ) -> Vec<(&'static str, String)> {
         vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }
