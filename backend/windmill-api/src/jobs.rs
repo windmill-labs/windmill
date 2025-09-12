@@ -36,12 +36,9 @@ use windmill_common::jobs::{
     JobStatus, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::utils::WarnAfterExt;
+use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
-use windmill_common::{
-    triggers::TriggerKind,
-    worker::{Connection, CLOUD_HOSTED, TMP_DIR},
-};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
@@ -6030,16 +6027,43 @@ async fn add_batch_jobs(
     let mut tx = user_db.begin(&authed).await?;
 
     let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $16)
+        r#"
+        WITH uuid_table AS (
+            SELECT gen_random_uuid() AS uuid
+            FROM generate_series(1, $16)
+        ),
+        inserted_job AS (
+            INSERT INTO v2_job (
+                id, workspace_id, raw_code, raw_lock, raw_flow, tag,
+                runnable_id, runnable_path, kind, script_lang,
+                created_by, permissioned_as, permissioned_as_email,
+                concurrent_limit, concurrency_time_window_s, timeout, args
+            )
+            SELECT
+                uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14, $15,
+                ('{ "uuid": "' || uuid || '" }')::jsonb
+            FROM uuid_table
+            RETURNING id AS "id!"
+        ),
+        inserted_runtime AS (
+            INSERT INTO v2_job_runtime (id, ping) SELECT uuid, null FROM uuid_table
+        ),
+        inserted_job_perms AS (
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
+            SELECT uuid, $17, $18, $19, $20, $21, $22, $1 FROM uuid_table
+        ),
+        inserted_job_status AS (
+            INSERT INTO v2_job_status (id, flow_status)
+            SELECT uuid, $23
+            FROM uuid_table
+            WHERE $23::jsonb IS NOT NULL
         )
-        INSERT INTO v2_job
-            (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
-             script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-             concurrency_time_window_s, timeout, args)
-            (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
-        RETURNING id AS "id!""#,
+        INSERT INTO v2_job_queue
+            (id, workspace_id, scheduled_for, tag)
+            (SELECT uuid, $1, $24, $25 FROM uuid_table)
+        RETURNING id
+        "#,
         w_id,
         raw_code,
         raw_lock,
@@ -6056,58 +6080,18 @@ async fn add_batch_jobs(
         concurrent_time_window_s,
         timeout,
         n,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select unnest($4::uuid[]) as uuid
-        )
-        INSERT INTO v2_job_queue
-            (id, workspace_id, scheduled_for, tag)
-            (SELECT uuid, $1, $2, $3 FROM uuid_table)
-        RETURNING id"#,
-        w_id,
-        Utc::now(),
-        tag,
-        &uuids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
-        &uuids,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
-        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
-        &uuids,
         authed.email,
         authed.username,
         authed.is_admin,
         authed.is_operator,
         &[],
         &[],
-        w_id,
+        flow_status.map(|status| sqlx::types::Json(status)) as Option<sqlx::types::Json<FlowStatus>>,
+        Utc::now(),
+        tag,
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
-
-    if let Some(flow_status) = flow_status {
-        sqlx::query!(
-            "INSERT INTO v2_job_status (id, flow_status)
-            SELECT unnest($1::uuid[]), $2",
-            &uuids,
-            sqlx::types::Json(flow_status) as sqlx::types::Json<FlowStatus>
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
