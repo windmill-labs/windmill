@@ -258,12 +258,21 @@
 		focused = true
 		if (isStaticTemplate(inputCat)) {
 			focusProp?.(argName, 'append', (path) => {
-				const toAppend = `\$\{${path}}`
-				arg.value = `${arg.value ?? ''}${toAppend}`
-				monacoTemplate?.setCode(arg.value)
-				setPropertyType(arg.value)
-				argInput?.focus()
-				return false
+				// Empty field + variable = use $var:/$res: syntax instead of ${...}
+				const isEmpty = !arg.value || arg.value.trim() === ''
+				const varMatch = path.match(/^variable\('([^']+)'\)$/)
+
+				if (isEmpty && varMatch) {
+					connectProperty(path)
+					return true
+				} else {
+					const toAppend = `\$\{${path}}`
+					arg.value = `${arg.value ?? ''}${toAppend}`
+					monacoTemplate?.setCode(arg.value)
+					setPropertyType(arg.value)
+					argInput?.focus()
+					return false
+				}
 			})
 		} else {
 			focusProp?.(argName, 'insert', (path) => {
