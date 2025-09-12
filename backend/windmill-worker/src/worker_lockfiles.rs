@@ -1354,7 +1354,7 @@ impl ScopedDependencyMap {
         // We _could_ shove it into single query, but this query is rarely called AND let's keep it simple for redability.
         for (importer_node_id, imported_path) in self.dm.into_iter() {
             tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}",
-                "flow",
+                &self.importer_kind,
                 &imported_path,
                 &importer_node_id,
             );
@@ -2485,6 +2485,13 @@ pub async fn handle_app_dependency_job(
             &mut dependency_map,
         )
         .await?;
+
+        // TODO: Dissolve in the end?
+        dependency_map
+            .dissolve(db.begin().await?)
+            .await
+            .commit()
+            .await?;
 
         // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
         let mut value_lite = value.clone();
