@@ -379,10 +379,8 @@ pub async fn handle_dependency_job(
             // First will **always** produce script with null in `lock`
             // where Second will **always** do with lock being not null
             let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
-                dbg!("IN");
-                dbg!("IN");
-                dbg!("IN");
-                dbg!("IN");
+                let path = script_info.path.clone();
+
                 let mut tx = db.begin().await?;
                 // This entire section exists to solve following problem:
                 //
@@ -453,7 +451,7 @@ pub async fn handle_dependency_job(
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ",
                 new_hash, current_hash.0, w_id, &content).execute(db).await?;
-
+                tracing::info!("Updated script at path {} with hash {} to new hash {}", path, current_hash.0, new_hash);
                 // Archive current
                 sqlx::query!(
                     "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
@@ -462,7 +460,7 @@ pub async fn handle_dependency_job(
                 )
                 .execute(&mut *tx)
                 .await?;
-
+                tracing::info!("Archived script at path {} from dependency job {}", path, current_hash.0);
                 tx.commit().await?;
 
                 ScriptHash(new_hash)

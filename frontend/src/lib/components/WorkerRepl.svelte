@@ -45,7 +45,7 @@
 	let loadingPendingJobs = $state(false)
 	let isCancelingJob = $state(false)
 	let prompt = $derived(
-		`$-${working_directory === '/' ? '/' : working_directory.split('/').at(-1)} `
+		`$-${working_directory === '/' ? '/' : working_directory.split('/').pop()} `
 	)
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 	function getNewWorkingDirectoryPath(currentDir: string, newPath: string): string {

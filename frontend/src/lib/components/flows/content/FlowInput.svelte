@@ -89,7 +89,7 @@
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	$effect(() => {
 		if (timeout) {
 			clearTimeout(timeout)
