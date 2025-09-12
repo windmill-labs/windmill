@@ -84,7 +84,7 @@ pub async fn update_script_dependency_map(
     let mut tx = db.begin().await?;
     tx = clear_dependency_parent_path(parent_path, script_path, w_id, importer_kind, tx).await?;
 
-    tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None).await?;
+    tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None, false).await?;
 
     if !relative_imports.is_empty() {
         let mut logs = "".to_string();
@@ -140,15 +140,18 @@ async fn clear_dependency_map_for_item<'c>(
     importer_kind: &str,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     importer_node_id: &Option<String>,
+    // If true, function will remove all rows regardless of node_id
+    ignore_node_id: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     sqlx::query!(
         "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
-                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text)",
+                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text OR $5)",
         item_path,
         w_id,
         importer_kind,
-        importer_node_id.clone()
+        importer_node_id.clone(),
+        ignore_node_id
     )
     .execute(&mut *tx)
     .await?;
@@ -790,7 +793,17 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no flow version found for path {path}",
                         path = s.importer_path
                     );
-                    // Do not commit the transaction. It will be dropped and rollbacked
+                    clear_dependency_map_for_item(
+                        &s.importer_path,
+                        w_id,
+                        "flow",
+                        flow_tx,
+                        &None,
+                        true,
+                    )
+                    .await?
+                    .commit()
+                    .await?;
                     continue;
                 }
                 Err(err) => {
@@ -862,7 +875,10 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no app version found for path {path}",
                         path = s.importer_path
                     );
-                    // Do not commit the transaction. It will be dropped and rollbacked
+                    clear_dependency_map_for_item(&s.importer_path, w_id, "app", tx, &None, true)
+                        .await?
+                        .commit()
+                        .await?;
                     continue;
                 }
                 Err(err) => {
@@ -1198,6 +1214,8 @@ pub async fn handle_flow_dependency_job(
 }
 
 // TODO: Clean dependency_map table
+// TODO: Completely messup the thing
+// - Change referenced node.
 /// self-heals even if dependency_map is deleted
 struct ScopedDependencyMap {
     dm: HashSet<(String, String)>,
@@ -1234,10 +1252,6 @@ impl ScopedDependencyMap {
     /// Remove matching entries
     async fn reduce<'c>(
         &mut self,
-        // TODO: Are they unique and never have collisions?
-        // e.g. ../../f/t/s and just f/t/s
-        // and is it possible to have double?
-        // check for ts and python
         relative_imports: Option<Vec<String>>,
         node_id: &str, // Flow Step/Node ID
         mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
@@ -1245,6 +1259,11 @@ impl ScopedDependencyMap {
         let Some(mut relative_imports) = relative_imports else {
             return Ok(tx);
         };
+
+        if node_id.trim().is_empty() {
+            tracing::error!("internal: node_id passed to ScopedDependencyMap::reduce is not supposed to be empty");
+            return Ok(tx);
+        }
 
         dbg!(&relative_imports);
         dbg!(node_id);
@@ -1374,7 +1393,7 @@ UPDATE dependency_map
     }
 
     /// Remove invalid entry
-    fn remove_by_importer_path() {
+    fn remove_by_importer_path(importer_path: &str, importer_kind: &str, w_id: &str) {
         tracing::warn!("self-healed, but is the bug");
     }
 }
@@ -1733,31 +1752,6 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                // tx = clear_dependency_map_for_item(
-                //     &job_path,
-                //     &job.workspace_id,
-                //     "flow",
-                //     tx,
-                //     &Some(e.id.clone()),
-                // )
-                // .await?;
-                // if let Some(relative_imports) = relative_imports {
-                //     let mut logs = "".to_string();
-                //     logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", e.id).as_str());
-
-                //     tx = add_relative_imports_to_dependency_map(
-                //         &dep_path,
-                //         &job.workspace_id,
-                //         relative_imports,
-                //         "flow",
-                //         tx,
-                //         &mut logs,
-                //         Some(e.id.clone()),
-                //     )
-                //     .await?;
-                //     append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
-                // }
-
                 tx = dependency_map
                     .reduce(relative_imports.clone(), &e.id, tx)
                     .await?;
@@ -2151,6 +2145,7 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
     true
 }
 
+// TODO: Use transaction?
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
@@ -2168,6 +2163,7 @@ async fn lock_modules_app(
     locks_to_reload: &Option<Vec<String>>,
     // Represents the closest container id
     container_id: Option<String>,
+    dependency_map: &mut ScopedDependencyMap,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -2202,6 +2198,12 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
 
+                            let relative_imports = extract_relative_imports(
+                                &content,
+                                &format!("{job_path}/app"),
+                                &Some(language.clone()),
+                            );
+
                             if let Some((l, id)) = locks_to_reload
                                 .as_ref()
                                 .zip(container_id.as_ref())
@@ -2215,6 +2217,15 @@ async fn lock_modules_app(
                                 })
                             {
                                 if !l.contains(id) {
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
+                                        )
+                                        .await?
+                                        .commit()
+                                        .await?;
                                     return Ok(Value::Object(m.clone()));
                                 }
                             } else if v
@@ -2222,6 +2233,16 @@ async fn lock_modules_app(
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
                                 if skip_creating_new_lock(&language, &content) {
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
+                                        )
+                                        .await?
+                                        .commit()
+                                        .await?;
+
                                     logs.push_str(
                                         "Found already locked inline script. Skipping lock...\n",
                                     );
@@ -2252,44 +2273,15 @@ async fn lock_modules_app(
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
 
-                                    let mut tx = db.begin().await?;
-
-                                    tx = clear_dependency_map_for_item(
-                                        &job_path,
-                                        &job.workspace_id,
-                                        "app",
-                                        tx,
-                                        &container_id,
-                                    )
-                                    .await?;
-
-                                    let relative_imports = extract_relative_imports(
-                                        &content,
-                                        &format!("{job_path}/app"),
-                                        &Some(language.clone()),
-                                    );
-
-                                    if let Some(relative_imports) = relative_imports {
-                                        let mut logs = "".to_string();
-                                        logs.push_str(
-                                            format!("\n\n--- RELATIVE IMPORTS ---\n\n").as_str(),
-                                        );
-
-                                        tx = add_relative_imports_to_dependency_map(
-                                            &job_path,
-                                            &job.workspace_id,
-                                            relative_imports,
-                                            "app",
-                                            tx,
-                                            &mut logs,
-                                            container_id,
+                                    dependency_map
+                                        .reduce(
+                                            relative_imports.clone(),
+                                            &container_id.unwrap_or_default(),
+                                            db.begin().await?,
                                         )
+                                        .await?
+                                        .commit()
                                         .await?;
-                                        append_logs(&job.id, &job.workspace_id, logs, &db.into())
-                                            .await;
-                                    }
-
-                                    tx.commit().await?;
 
                                     let anns =
                                         windmill_common::worker::TypeScriptAnnotations::parse(
@@ -2349,6 +2341,7 @@ async fn lock_modules_app(
                             .and_then(Value::as_str)
                             .map(str::to_owned)
                             .or(container_id.clone()),
+                        dependency_map,
                     )
                     .await?,
                 );
@@ -2374,6 +2367,7 @@ async fn lock_modules_app(
                         occupancy_metrics,
                         locks_to_reload,
                         container_id.clone(),
+                        dependency_map,
                     )
                     .await?,
                 );
@@ -2437,6 +2431,14 @@ pub async fn handle_app_dependency_job(
         .await?
         .map(|record| (record.app_id, record.value));
 
+    let mut dependency_map =
+        ScopedDependencyMap::new(&job.workspace_id, &job_path, "flow", db).await?;
+
+    // // TODO: is parent_path only used for this edge-case?
+    // dependency_map
+    //     .rearrange_top_level(&parent_path, &mut *tx)
+    //     .await?;
+
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value)) = record {
         let value = lock_modules_app(
@@ -2454,6 +2456,7 @@ pub async fn handle_app_dependency_job(
             occupancy_metrics,
             &components_to_relock,
             None,
+            &mut dependency_map,
         )
         .await?;
 
