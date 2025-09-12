@@ -6352,7 +6352,7 @@ async fn get_job_update_sse(
 
 struct FlowStreamStatus {
     running: Option<bool>,
-    stream_jobs: Option<sqlx::types::Json<HashMap<String, Vec<Uuid>>>>,
+    stream_jobs: Option<sqlx::types::Json<Vec<String>>>,
 }
 
 async fn get_flow_stream_inner(
@@ -6405,27 +6405,36 @@ async fn get_flow_stream_inner(
             };
 
             if let Some(sqlx::types::Json(stream_jobs)) = flow_stream_status.stream_jobs {
-                for (step_id, stream_job_ids) in stream_jobs {
-                    for job_id in stream_job_ids {
-                        if !tracked_stream_jobs.contains(&job_id) {
-                            tracked_stream_jobs.push(job_id);
-                            start_job_update_sse_stream(
-                                opt_authed.clone(),
-                                opt_tokened.clone(),
-                                db.clone(),
-                                w_id.clone(),
-                                job_id,
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(true),
-                                Some(true),
-                                None,
-                                Some(format!("{}:{}", step_id, job_id)),
-                                tx.clone(),
-                            );
-                        }
+                for flow_step_id in stream_jobs {
+                    if !tracked_stream_jobs.contains(&flow_step_id) {
+                        tracked_stream_jobs.push(flow_step_id.clone());
+                        let Ok(job_id) = flow_step_id
+                            .clone()
+                            .split(':')
+                            .nth(1)
+                            .unwrap_or_default()
+                            .parse::<Uuid>()
+                        else {
+                            tracing::error!("Invalid uuid in flow step id: {}", flow_step_id);
+                            continue;
+                        };
+                        tracing::info!("flow_step_id: {}", flow_step_id);
+                        start_job_update_sse_stream(
+                            opt_authed.clone(),
+                            opt_tokened.clone(),
+                            db.clone(),
+                            w_id.clone(),
+                            job_id,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(true),
+                            Some(true),
+                            None,
+                            Some(flow_step_id),
+                            tx.clone(),
+                        );
                     }
                 }
             }

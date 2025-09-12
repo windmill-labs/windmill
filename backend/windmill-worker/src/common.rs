@@ -1070,30 +1070,25 @@ async fn update_root_job_status_with_stream_job(
     tokio::spawn(async move {
         tracing::info!("updating root job status with stream job: {job_id} {root_id} {step_id}");
 
+        let flow_step_id = format!("{}:{}", step_id, job_id);
+
         // Update the stream_jobs to append job_id to the array for this step_id
         // If the array doesn't exist, create it with the job_id
         // If the job_id is already in the array, do nothing
         if let Err(e) = sqlx::query!(
             r#"UPDATE v2_job_status
                 SET flow_status = jsonb_set(
-                    jsonb_set(
-                        flow_status,
-                        ARRAY['stream_jobs'],
-                        COALESCE(flow_status->'stream_jobs', '{}'::jsonb)
-                    ),
-                    ARRAY['stream_jobs', $1::TEXT],
+                    flow_status,
+                    ARRAY['stream_jobs'],
                     CASE 
-                        WHEN flow_status->'stream_jobs'->$1::TEXT IS NULL THEN 
-                            jsonb_build_array($2::UUID::TEXT)
-                        WHEN NOT (flow_status->'stream_jobs'->$1::TEXT @> jsonb_build_array($2::UUID::TEXT)) THEN
-                            flow_status->'stream_jobs'->$1::TEXT || jsonb_build_array($2::UUID::TEXT)
+                        WHEN NOT (COALESCE(flow_status->'stream_jobs', '[]'::jsonb) @> jsonb_build_array($1::TEXT)) THEN
+                            COALESCE(flow_status->'stream_jobs', '[]'::jsonb) || jsonb_build_array($1::TEXT)
                         ELSE 
-                            flow_status->'stream_jobs'->$1::TEXT
+                            COALESCE(flow_status->'stream_jobs', '[]'::jsonb)
                     END
                 )
-                WHERE id = $3"#,
-            step_id,
-            job_id,
+                WHERE id = $2"#,
+            flow_step_id,
             root_id
         )
         .execute(&db)
@@ -1194,4 +1189,3 @@ pub fn s3_mode_args_to_worker_data(
         workspace_id: job.workspace_id.clone(),
     }
 }
-
