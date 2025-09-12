@@ -7,7 +7,7 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, urlParamsToObject } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
@@ -53,7 +53,7 @@
 					name: $userStore?.name,
 					username: $userStore?.username,
 					groups: $userStore?.groups,
-					query: Object.fromEntries(page.url.searchParams.entries()),
+					query: urlParamsToObject(page.url.searchParams),
 					hash: page.url.hash.substring(1)
 				}}
 				workspace={$workspaceStore ?? ''}

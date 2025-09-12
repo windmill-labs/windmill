@@ -23,6 +23,7 @@ use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_
 use crate::triggers::start_all_listeners;
 #[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
@@ -671,10 +672,18 @@ pub async fn run_server(
         )
     };
 
+    let app = app.layer(CatchPanicLayer::custom(|err| {
+        tracing::error!("panic in handler, returning 500: {:?}", err);
+        Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Internal Server Error"))
+            .unwrap()
+    }));
+
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
 
     tracing::info!(
         instance = %*INSTANCE_NAME,

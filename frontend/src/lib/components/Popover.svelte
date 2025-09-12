@@ -56,8 +56,8 @@
 	}
 
 	let showTooltip = $state(false)
-	let timeout: NodeJS.Timeout | undefined = undefined
-	let inTimeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
+	let inTimeout: number | undefined = undefined
 
 	function open() {
 		clearTimeout(timeout)

@@ -38,21 +38,18 @@
 	}
 
 	export function openDrawer() {
-		if (!open) {
-			open = true
-			if (openedDrawers.val.includes(id)) {
-				return
-			}
-			openedDrawers.val.push(id)
-			offset = initialOffset + openedDrawers.val.length
+		open = true
+		if (openedDrawers.val.includes(id)) {
+			return
 		}
+		openedDrawers.val.push(id)
+		offset = initialOffset + openedDrawers.val.length
 	}
 
 	export function closeDrawer() {
-		if (open) {
-			open = false
-			offset = initialOffset
-			// remove the last opened drawer
+		open = false
+		offset = initialOffset
+		if (openedDrawers.val.includes(id)) {
 			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
 		}
 	}
@@ -63,7 +60,6 @@
 
 	function handleClickAway(e) {
 		const last = openedDrawers.val[openedDrawers.val.length - 1]
-
 		if (last === id) {
 			e.stopPropagation()
 			closeDrawer()

@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	let outTimeout: NodeJS.Timeout | undefined = undefined
+	let outTimeout: number | undefined = undefined
 </script>
 
 <script lang="ts">
