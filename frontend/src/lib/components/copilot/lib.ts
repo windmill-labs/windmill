@@ -24,6 +24,7 @@ import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import type { Stream } from 'openai/core/streaming.mjs'
+import { generateRandomString } from '$lib/utils'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -706,6 +707,16 @@ export async function getCompletion(
 	return completion
 }
 
+function extractFirstJSON(str: string) {
+	let depth = 0,
+		i = 0
+	for (; i < str.length; i++) {
+		if (str[i] === '{') depth++
+		else if (str[i] === '}' && --depth === 0) break
+	}
+	return str.slice(0, i + 1)
+}
+
 export async function parseOpenAICompletion(
 	completion: Stream<ChatCompletionChunk>,
 	callbacks: ToolCallbacks & {
@@ -736,7 +747,16 @@ export async function parseOpenAICompletion(
 			callbacks.onMessageEnd()
 			answer = ''
 		}
-		for (const toolCall of toolCalls) {
+		for (let i = 0; i < toolCalls.length; i++) {
+			const toolCall = toolCalls[i]
+			// Gemini models are missing the index field
+			if (!toolCall.index) {
+				toolCall.index = i
+			}
+			// Gemini models are missing the id field
+			if (!toolCall.id) {
+				toolCall.id = generateRandomString()
+			}
 			const { index } = toolCall
 			let finalToolCall = finalToolCalls[index]
 			if (!finalToolCall) {
@@ -748,6 +768,10 @@ export async function parseOpenAICompletion(
 					} else {
 						finalToolCall.function.arguments =
 							(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+						// Make sure we only have one JSON object, else for Gemini models it sometimes results in two JSON objects
+						finalToolCall.function.arguments = extractFirstJSON(
+							finalToolCall.function.arguments || '{}'
+						)
 					}
 				}
 			}
