@@ -1,5 +1,6 @@
 use async_recursion::async_recursion;
 use base64::Engine;
+use mime_guess;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -611,7 +612,7 @@ async fn download_and_encode_s3_image(
     image: &S3Object,
     client: &AuthedClient,
     workspace_id: &str,
-) -> error::Result<String> {
+) -> error::Result<(String, String)> {
     // Download the image from S3
     let image_bytes = client
         .download_s3_file(workspace_id, &image.s3, image.storage.clone())
@@ -621,18 +622,14 @@ async fn download_and_encode_s3_image(
     // Encode as base64 data URL
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
 
-    // Determine MIME type based on file extension or default to PNG
-    let mime_type = if image.s3.ends_with(".jpg") || image.s3.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if image.s3.ends_with(".gif") {
-        "image/gif"
-    } else if image.s3.ends_with(".webp") {
-        "image/webp"
-    } else {
-        "image/png" // default
-    };
+    // Determine MIME type using mime_guess from file extension, with PNG as fallback
+    let mime_type = mime_guess::from_path(&image.s3).first();
+    let mime_type = mime_type
+        .as_ref()
+        .map(|mime| mime.essence_str())
+        .unwrap_or("image/png");
 
-    Ok(format!("data:{};base64,{}", mime_type, base64_data))
+    Ok((mime_type.to_string(), base64_data))
 }
 
 /// Convert messages with S3Objects to messages with base64 image URLs for API calls
@@ -658,11 +655,16 @@ async fn prepare_messages_for_api(
                         match part {
                             ContentPart::S3Object { s3_object } => {
                                 // Convert S3Object to base64 image URL
-                                let image_data_url =
+                                let (mime_type, image_data_url) =
                                     download_and_encode_s3_image(s3_object, client, workspace_id)
                                         .await?;
                                 prepared_content.push(ContentPart::ImageUrl {
-                                    image_url: ImageUrlData { url: image_data_url },
+                                    image_url: ImageUrlData {
+                                        url: format!(
+                                            "data:{};base64,{}",
+                                            mime_type, image_data_url
+                                        ),
+                                    },
                                 });
                             }
                             other => {
@@ -704,18 +706,11 @@ async fn generate_image_from_provider(
             if let Some(image) = image {
                 if !image.s3.is_empty() {
                     // Download and encode S3 image to base64
-                    let image_bytes = client
-                        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("Failed to download S3 image: {}", e))
-                        })?;
-
-                    let base64_image =
-                        base64::engine::general_purpose::STANDARD.encode(&image_bytes);
-                    let image_data_url = format!("data:image/jpeg;base64,{}", base64_image);
-
-                    content.push(ImageGenerationContent::InputImage { image_url: image_data_url });
+                    let (mime_type, bytes64) =
+                        download_and_encode_s3_image(image, client, workspace_id).await?;
+                    content.push(ImageGenerationContent::InputImage {
+                        image_url: format!("data:{};base64,{}", mime_type, bytes64),
+                    });
                 }
             }
 
@@ -801,21 +796,11 @@ async fn generate_image_from_provider(
                 if let Some(image) = image {
                     if !image.s3.is_empty() {
                         // Download and encode S3 image to base64
-                        let image_bytes = client
-                            .download_s3_file(workspace_id, &image.s3, image.storage.clone())
-                            .await
-                            .map_err(|e| {
-                                Error::internal_err(format!("Failed to download S3 image: {}", e))
-                            })?;
-
-                        let base64_image =
-                            base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+                        let (mime_type, bytes64) =
+                            download_and_encode_s3_image(image, client, workspace_id).await?;
 
                         parts.push(GeminiPart::InlineData {
-                            inline_data: GeminiInlineData {
-                                mime_type: "image/jpeg".to_string(),
-                                data: base64_image,
-                            },
+                            inline_data: GeminiInlineData { mime_type, data: bytes64 },
                         });
                     }
                 }
