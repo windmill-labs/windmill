@@ -10,7 +10,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'preprocessor' = 'script'
 	export let isTemplate: boolean | undefined = undefined
 	export let displayLock = false
 
