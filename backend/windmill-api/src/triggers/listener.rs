@@ -500,6 +500,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_path.as_deref(),
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
+            None,
         )
         .await?;
 
