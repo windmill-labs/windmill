@@ -451,7 +451,12 @@ pub async fn handle_dependency_job(
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ",
                 new_hash, current_hash.0, w_id, &content).execute(db).await?;
-                tracing::info!("Updated script at path {} with hash {} to new hash {}", path, current_hash.0, new_hash);
+                tracing::info!(
+                    "Updated script at path {} with hash {} to new hash {}",
+                    path,
+                    current_hash.0,
+                    new_hash
+                );
                 // Archive current
                 sqlx::query!(
                     "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
@@ -460,7 +465,11 @@ pub async fn handle_dependency_job(
                 )
                 .execute(&mut *tx)
                 .await?;
-                tracing::info!("Archived script at path {} from dependency job {}", path, current_hash.0);
+                tracing::info!(
+                    "Archived script at path {} from dependency job {}",
+                    path,
+                    current_hash.0
+                );
                 tx.commit().await?;
 
                 ScriptHash(new_hash)
@@ -791,17 +800,23 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no flow version found for path {path}",
                         path = s.importer_path
                     );
-                    clear_dependency_map_for_item(
-                        &s.importer_path,
-                        w_id,
-                        "flow",
-                        flow_tx,
-                        &None,
-                        true,
-                    )
-                    .await?
-                    .commit()
-                    .await?;
+                    if *WMDEBUG_NO_DMAP_DISSOLVE {
+                        tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
+                    } else {
+                        // Remember the path we used to query the flow was fetched just now from dependency_map
+                        // if dependency_map advertise unexistent path, as part of self-healing it should be removed
+                        clear_dependency_map_for_item(
+                            &s.importer_path,
+                            w_id,
+                            "flow",
+                            flow_tx,
+                            &None,
+                            true,
+                        )
+                        .await?
+                        .commit()
+                        .await?;
+                    }
                     continue;
                 }
                 Err(err) => {
@@ -873,10 +888,23 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "no app version found for path {path}",
                         path = s.importer_path
                     );
-                    clear_dependency_map_for_item(&s.importer_path, w_id, "app", tx, &None, true)
+                    if *WMDEBUG_NO_DMAP_DISSOLVE {
+                        tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
+                    } else {
+                        // Remember the path we used to query the flow was fetched just now from dependency_map
+                        // if dependency_map advertise unexistent path, as part of self-healing it should be removed
+                        clear_dependency_map_for_item(
+                            &s.importer_path,
+                            w_id,
+                            "app",
+                            tx,
+                            &None,
+                            true,
+                        )
                         .await?
                         .commit()
                         .await?;
+                    }
                     continue;
                 }
                 Err(err) => {
