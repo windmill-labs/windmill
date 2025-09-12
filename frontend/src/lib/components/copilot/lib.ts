@@ -750,11 +750,14 @@ export async function parseOpenAICompletion(
 		for (let i = 0; i < toolCalls.length; i++) {
 			const toolCall = toolCalls[i]
 			// Gemini models are missing the index field
-			if (!toolCall.index) {
+			if (
+				toolCall.index === undefined ||
+				(typeof toolCall.index === 'string' && toolCall.index === '')
+			) {
 				toolCall.index = i
 			}
 			// Gemini models are missing the id field
-			if (!toolCall.id) {
+			if (toolCall.id === undefined || (typeof toolCall.id === 'string' && toolCall.id === '')) {
 				toolCall.id = generateRandomString()
 			}
 			const { index } = toolCall
