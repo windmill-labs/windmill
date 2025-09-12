@@ -484,6 +484,7 @@ async fn list_paths_from_workspace_runnable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<String>> {
     let mut tx = user_db.begin(&authed).await?;
+    // TODO: Are we fine?
     let runnables = sqlx::query_scalar!(
         r#"SELECT importer_path FROM dependency_map 
             WHERE workspace_id = $1 AND imported_path = $2"#,
@@ -1494,7 +1495,10 @@ async fn raw_script_by_path_internal(
                 return Ok("WINDMILL_IS_FOLDER".to_string());
             } else {
                 if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-                    tracing::warn!("Raw script by path request: {} (cached folders expired)", path);
+                    tracing::warn!(
+                        "Raw script by path request: {} (cached folders expired)",
+                        path
+                    );
                 }
             }
         }
@@ -1512,7 +1516,11 @@ async fn raw_script_by_path_internal(
     .await?;
     tx.commit().await?;
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-        tracing::warn!("Raw script by path request: {} (content: {:?})", path, content_o);
+        tracing::warn!(
+            "Raw script by path request: {} (content: {:?})",
+            path,
+            content_o
+        );
     }
 
     if content_o.is_none() {
