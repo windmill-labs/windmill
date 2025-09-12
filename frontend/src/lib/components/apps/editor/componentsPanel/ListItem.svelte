@@ -29,7 +29,7 @@
 		wrapperClasses = '',
 		toggleClasses = '',
 		contentWrapperClasses = '',
-		isOpen = $bindable(false),
+		isOpen = $bindable(),
 		tooltip = undefined,
 		documentationLink = undefined,
 		subtitle = undefined,
@@ -45,7 +45,7 @@
 	})
 
 	$effect(() => {
-		dispatch('open', isOpen)
+		dispatch('open', isOpen ?? false)
 	})
 
 	onMount(() => {

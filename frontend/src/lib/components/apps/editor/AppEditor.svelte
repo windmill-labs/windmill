@@ -27,7 +27,13 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		encodeState,
+		getModifierKey,
+		sendUserToast,
+		urlParamsToObject
+	} from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -115,7 +121,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
+		query: urlParamsToObject(new URL(window.location.href).searchParams),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
@@ -212,7 +218,7 @@
 		stylePanel: () => StylePanel
 	})
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function saveFrontendDraft() {
 		timeout && clearTimeout(timeout)
@@ -475,7 +481,7 @@
 		}
 	}
 
-	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let runnableJobEnterTimeout: number | undefined = $state(undefined)
 	let stillInJobEnter = $state(false)
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
@@ -796,7 +802,7 @@
 		untrack(() => setGridPanelSize($componentActive))
 	})
 	$effect(() => {
-		$connectingInput.opened, untrack(() => updatePannelInConnecting())
+		;($connectingInput.opened, untrack(() => updatePannelInConnecting()))
 	})
 	$effect(() => {
 		forceDeactivatePanzoom = isModifierKeyPressed && handMode

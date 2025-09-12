@@ -124,7 +124,7 @@
 
 	let filter = $state('')
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	let firstLoad = true
 
 	let secondaryStorageNames = usePromise(

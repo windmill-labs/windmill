@@ -8,7 +8,7 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -75,7 +75,7 @@
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
 
-	let intervalId: NodeJS.Timeout | undefined = undefined
+	let intervalId: number | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -203,7 +203,10 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
