@@ -29,7 +29,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use std::os::unix::process::ExitStatusExt;
 
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::{io, panic, time::Duration};
 
@@ -114,6 +114,7 @@ pub async fn handle_child(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Do not print logs to output, but instead save to string.
     pipe_stdout: Option<&mut String>,
+    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
 ) -> error::Result<HandleChildResult> {
     let start = Instant::now();
 
@@ -315,6 +316,7 @@ pub async fn handle_child(
         &mut rx2,
         child_name,
         &mut stream_result,
+        is_stream_tx,
     )
     .instrument(trace_span!("child_lines"));
 
@@ -354,6 +356,7 @@ pub async fn write_lines(
     rx2: &mut broadcast::Receiver<()>,
     child_name: &str,
     stream_result: &mut Vec<String>,
+    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -384,6 +387,7 @@ pub async fn write_lines(
 
     let mut pipe_stdout = pipe_stdout;
 
+    let is_stream = Arc::new(AtomicBool::new(false));
     while let Some(line) = output.by_ref().next().await {
         let do_write_ = do_write.shared();
 
@@ -410,6 +414,7 @@ pub async fn write_lines(
 
         let job_id = job_id.clone();
         let mut nstream = String::new();
+
         while let Some(line) = read_lines.next().await {
             match line {
                 Ok(line) => {
@@ -479,8 +484,21 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
+            let is_stream_tx = is_stream_tx.clone();
+            let is_stream = is_stream.clone();
             (do_write, write_result) = tokio::spawn(async move {
                 if !nstream.is_empty() {
+                    if let Some(tx) = is_stream_tx {
+                        if !is_stream.load(Ordering::SeqCst) {
+                            if let Err(err) = tx.send(()).await {
+                                tracing::error!(
+                                    "Could not notify about stream job {job_id}: {err:#?}"
+                                );
+                            };
+                            is_stream.store(true, Ordering::SeqCst);
+                        }
+                    }
+
                     if let Err(err) = append_result_stream(&conn, &w_id, &job_id, &nstream).await {
                         tracing::error!(
                             "Unable to send result stream for job {job_id}. Error was: {:?}",

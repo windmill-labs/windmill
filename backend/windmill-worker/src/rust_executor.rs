@@ -175,7 +175,8 @@ pub async fn generate_cargo_lockfile(
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
     }
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str(), false).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -189,6 +190,7 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -297,6 +299,7 @@ async fn get_build_dir(
                         None,
                         false,
                         &mut None,
+                        None,
                         None,
                     )
                     .await
@@ -409,6 +412,7 @@ pub async fn build_rust_crate(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -598,6 +602,7 @@ pub async fn handle_rust_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

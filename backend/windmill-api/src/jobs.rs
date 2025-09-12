@@ -1700,6 +1700,7 @@ pub struct RunJobQuery {
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
+    pub jobs_stream: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -5211,7 +5212,18 @@ pub async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    if run_query.jobs_stream.unwrap_or(false) {
+        get_flow_stream_inner(
+            Some(authed),
+            OptTokened { token: None }, // unused if opt_authed is some,
+            db,
+            w_id,
+            uuid,
+        )
+        .await
+    } else {
+        run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    }
 }
 
 async fn run_preview_script(
@@ -6136,6 +6148,7 @@ pub struct JobUpdateQuery {
     pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
     pub fast: Option<bool>,
+    pub only_jobs_stream: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -6146,6 +6159,8 @@ pub struct JobUpdate {
     pub completed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_step_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_result_stream: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -6272,6 +6287,7 @@ async fn get_job_update(
             false,
             only_result,
             no_logs,
+            None,
         )
         .await?,
     ))
@@ -6289,10 +6305,17 @@ async fn get_job_update_sse(
         running,
         no_logs,
         only_result,
+        only_jobs_stream,
         fast,
     }): Query<JobUpdateQuery>,
-) -> Response {
-    let stream = get_job_update_sse_stream(
+) -> error::Result<Response> {
+    if only_jobs_stream.unwrap_or(false) {
+        return get_flow_stream_inner(opt_authed, opt_tokened, db, w_id, job_id).await;
+    }
+
+    let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+    start_job_update_sse_stream(
         opt_authed,
         opt_tokened,
         db,
@@ -6305,8 +6328,11 @@ async fn get_job_update_sse(
         only_result,
         fast,
         no_logs,
-    )
-    .map(|x| {
+        None,
+        tx,
+    );
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
         format!(
             "data: {}\n\n",
             serde_json::to_string(&x).unwrap_or_default()
@@ -6315,26 +6341,176 @@ async fn get_job_update_sse(
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
-    Response::builder()
+    Ok(Response::builder()
         .status(200)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .body(body)
-        .unwrap()
+        .unwrap())
+}
+
+struct FlowStreamStatus {
+    running: Option<bool>,
+    stream_jobs: Option<sqlx::types::Json<Vec<String>>>,
+}
+
+async fn get_flow_stream_inner(
+    opt_authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
+    db: DB,
+    w_id: String,
+    job_id: Uuid,
+) -> error::Result<Response> {
+    let (tx, rx) = tokio::sync::mpsc::channel(64);
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&x).unwrap_or_default()
+        )
+    });
+
+    tokio::spawn(async move {
+        let mut tracked_stream_jobs = vec![];
+        loop {
+            let flow_stream_status = match sqlx::query_as!(
+                FlowStreamStatus,
+                r#"SELECT 
+                        jq.running as "running: _",
+                        COALESCE(js.flow_status, jc.flow_status, '{}'::JSONB)->'stream_jobs' as "stream_jobs: _"
+                    FROM v2_job j
+                    LEFT JOIN v2_job_completed jc ON jc.id = j.id AND jc.workspace_id = j.workspace_id
+                    LEFT JOIN v2_job_queue jq ON jq.id = j.id AND jq.workspace_id = j.workspace_id
+                    LEFT JOIN v2_job_status js ON js.id = j.id
+                    WHERE j.id = $1 AND j.workspace_id = $2"#,
+                job_id,
+                w_id,
+            ).fetch_optional(&db).await {
+                Ok(Some(fs)) => fs,
+                Ok(None) => {
+                    tracing::error!("Job not found: {}", job_id);
+                    if let Err(e) = tx.send(JobUpdateSSEStream::NotFound).await {
+                        tracing::error!("Failed to send not found for job {job_id}: {e}");
+                    }
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Error getting flow stream status: {}", e);
+                    if let Err(e) = tx.send(JobUpdateSSEStream::Error { error: format!("Error getting flow stream status: {}", e) }).await {
+                        tracing::error!("Failed to send error for job {job_id}: {e}");
+                    }
+                    break;
+                }
+            };
+
+            if let Some(sqlx::types::Json(stream_jobs)) = flow_stream_status.stream_jobs {
+                for flow_step_id in stream_jobs {
+                    if !tracked_stream_jobs.contains(&flow_step_id) {
+                        tracked_stream_jobs.push(flow_step_id.clone());
+                        let Ok(job_id) = flow_step_id
+                            .clone()
+                            .split(':')
+                            .nth(1)
+                            .unwrap_or_default()
+                            .parse::<Uuid>()
+                        else {
+                            tracing::error!("Invalid uuid in flow step id: {}", flow_step_id);
+                            continue;
+                        };
+                        tracing::info!("flow_step_id: {}", flow_step_id);
+                        start_job_update_sse_stream(
+                            opt_authed.clone(),
+                            opt_tokened.clone(),
+                            db.clone(),
+                            w_id.clone(),
+                            job_id,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(true),
+                            Some(true),
+                            None,
+                            Some(flow_step_id),
+                            tx.clone(),
+                        );
+                    }
+                }
+            }
+
+            if flow_stream_status.running.is_none() {
+                // job completed
+                match get_job_update_data(
+                    &opt_authed,
+                    &opt_tokened,
+                    &db,
+                    &w_id,
+                    &job_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    true,
+                    false, // ignored when only_result is true
+                    Some(true),
+                    None,
+                    None,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        if let Err(e) = tx.send(JobUpdateSSEStream::Update(result)).await {
+                            tracing::error!(
+                                "Failed to send completed flow job update for job {job_id}: {e}"
+                            );
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Error getting completed flow job update: {}", e);
+                        if let Err(e) = tx
+                            .send(JobUpdateSSEStream::Error {
+                                error: format!("Error getting completed flow job update: {}", e),
+                            })
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to send completed flow job error for job {job_id}: {e}"
+                            );
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+
+    let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
+
+    Ok(Response::builder()
+        .status(200)
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap())
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum JobUpdateSSEStream {
     Update(JobUpdate),
-    Error(String),
+    Error { error: String },
     NotFound,
     Timeout,
     Ping,
 }
 
-fn get_job_update_sse_stream(
+fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -6347,9 +6523,9 @@ fn get_job_update_sse_stream(
     only_result: Option<bool>,
     fast: Option<bool>,
     no_logs: Option<bool>,
-) -> impl futures::Stream<Item = JobUpdateSSEStream> {
-    let (tx, rx) = tokio::sync::mpsc::channel(32);
-
+    flow_step_id: Option<String>,
+    tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
+) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
         let mut stream_offset = initial_stream_offset;
@@ -6373,6 +6549,7 @@ fn get_job_update_sse_stream(
             true,
             only_result,
             no_logs,
+            flow_step_id.clone(),
         )
         .await
         {
@@ -6409,7 +6586,7 @@ fn get_job_update_sse_stream(
             }
             Err(e) => {
                 if tx
-                    .send(JobUpdateSSEStream::Error(e.to_string()))
+                    .send(JobUpdateSSEStream::Error { error: e.to_string() })
                     .await
                     .is_err()
                 {
@@ -6463,6 +6640,7 @@ fn get_job_update_sse_stream(
                 true,
                 only_result,
                 no_logs,
+                flow_step_id.clone(),
             )
             .await
             {
@@ -6526,8 +6704,6 @@ fn get_job_update_sse_stream(
             }
         }
     });
-
-    tokio_stream::wrappers::ReceiverStream::new(rx)
 }
 
 async fn get_job_update_data(
@@ -6544,6 +6720,7 @@ async fn get_job_update_data(
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
     no_logs: Option<bool>,
+    flow_step_id: Option<String>,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -6668,6 +6845,7 @@ async fn get_job_update_data(
             flow_status: None,
             workflow_as_code_status: None,
             only_result: result.0,
+            flow_step_id,
         })
     } else {
         let record = sqlx::query!(
@@ -6741,6 +6919,7 @@ async fn get_job_update_data(
                 .flow_status
                 .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             only_result: None,
+            flow_step_id,
         })
     }
 }
