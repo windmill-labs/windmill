@@ -3,22 +3,19 @@
  * See: https://stackoverflow.com/a/72608215
  */
 import type { ColDef, ColGroupDef, ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
-import { ColumnIdentity, type ColumnDef as BaseColumnDef } from '../dbtable/utils'
+import { ColumnIdentity } from '../dbtable/utils'
 import type { TableAction } from '$lib/components/apps/editor/component'
 import { mount, unmount } from 'svelte'
 import { Button } from '$lib/components/common'
 import { Trash2 } from 'lucide-svelte'
 
-export type ExtendedColumnDef = BaseColumnDef & {
-	type?: string
-	actions?: boolean
-	isActions?: boolean
+export type WindmillColumnDef = ColDef & {
+	_isActionsColumn?: boolean
 	cellRendererType?: string
-	width?: number
-	maxWidth?: number
-	cellStyle?: any
-	cellClass?: string
-	autoHeight?: boolean
+	ignored?: boolean
+	hideInsert?: boolean
+	isidentity?: ColumnIdentity
+	children?: WindmillColumnDef[]
 }
 
 /**
@@ -137,7 +134,7 @@ export function transformColumnDefs({
 	onDelete,
 	onInvalidColumnDefs
 }: {
-	columnDefs: ExtendedColumnDef[]
+	columnDefs: WindmillColumnDef[]
 	actions?: TableAction[]
 	customActionsHeader?: string
 	wrapActions?: boolean
@@ -254,7 +251,7 @@ export function transformColumnDefs({
 	})
 }
 
-export function validateColumnDefs(columnDefs: ExtendedColumnDef[]): {
+export function validateColumnDefs(columnDefs: WindmillColumnDef[]): {
 	isValid: boolean
 	errors: string[]
 } {

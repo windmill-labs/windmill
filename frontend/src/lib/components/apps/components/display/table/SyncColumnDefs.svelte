@@ -7,32 +7,15 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { isObject } from '$lib/utils'
-	import type { ColDef } from 'ag-grid-community'
-
-	// Types for column definitions and configuration
-	// AG Grid column definition with our custom extensions
-	type AgGridColumnDef = ColDef & {
-		type?: string
-		cellRendererType?: string
-		[key: string]: any // Allow additional custom properties
-	}
-
-	type ActionsColumnDef = AgGridColumnDef & {
-		field: '__actions__'
-		_isActionsColumn: true
-		headerName: string
-		flex: number
-	}
-
-	type ColumnDefWithActions = AgGridColumnDef | ActionsColumnDef
+	import type { WindmillColumnDef } from './utils'
 
 	type ColumnDefsConfiguration =
-		| { type: 'static'; value: ColumnDefWithActions[] }
+		| { type: 'static'; value: WindmillColumnDef[] }
 		| { type: 'evalv2'; expr: string }
 
 	interface Props {
 		id: string
-		columnDefs?: AgGridColumnDef[]
+		columnDefs?: WindmillColumnDef[]
 		result?: Array<Record<string, any>> | undefined
 		allowColumnDefsActions?: boolean
 		children?: import('svelte').Snippet
@@ -52,14 +35,14 @@
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	function hasActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): boolean {
+	function hasActionsPlaceholder(cols: WindmillColumnDef[] | undefined): boolean {
 		if (!Array.isArray(cols)) return false
 		return cols.findIndex((c) => c?._isActionsColumn === true) > -1
 	}
 
-	function addActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): ColumnDefWithActions[] {
+	function addActionsPlaceholder(cols: WindmillColumnDef[] | undefined): WindmillColumnDef[] {
 		const hdr = customActionsHeader ?? 'Actions'
-		const placeholder: ActionsColumnDef = {
+		const placeholder: WindmillColumnDef = {
 			field: '__actions__',
 			_isActionsColumn: true,
 			headerName: hdr,
@@ -69,7 +52,7 @@
 		return [...cols, placeholder]
 	}
 
-	function removeActionsPlaceholder(cols: ColumnDefWithActions[] | undefined): ColumnDefWithActions[] {
+	function removeActionsPlaceholder(cols: WindmillColumnDef[] | undefined): WindmillColumnDef[] {
 		if (!Array.isArray(cols)) return []
 		return cols.filter((c) => c?._isActionsColumn !== true)
 	}
@@ -88,7 +71,7 @@
 		const conf = rawConf as ColumnDefsConfiguration
 		if (!conf.type || (conf.type !== 'static' && conf.type !== 'evalv2')) return
 
-		let currentColumns: ColumnDefWithActions[] | undefined
+		let currentColumns: WindmillColumnDef[] | undefined
 		if (conf.type === 'static') {
 			currentColumns = Array.isArray(conf.value) ? conf.value : []
 		} else if (conf.type === 'evalv2') {
@@ -137,7 +120,7 @@
 			const keys = Object.keys(result[0] ?? {}) ?? []
 			const conf = gridItem.data.configuration.columnDefs as ColumnDefsConfiguration
 
-			const newColumns: AgGridColumnDef[] = keys.map((key) => ({
+			const newColumns: WindmillColumnDef[] = keys.map((key) => ({
 				field: key,
 				headerName: key,
 				flex: 1

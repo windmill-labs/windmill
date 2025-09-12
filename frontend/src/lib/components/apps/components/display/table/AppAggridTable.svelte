@@ -40,7 +40,7 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
-	import { cellRendererFactory, transformColumnDefs, type ExtendedColumnDef } from './utils'
+	import { cellRendererFactory, transformColumnDefs, type WindmillColumnDef } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -326,7 +326,7 @@
 				const agColumnDefs = transformColumnDefs({
 					columnDefs:
 						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-							? [...resolvedConfig?.columnDefs] as ExtendedColumnDef[]
+							? [...resolvedConfig?.columnDefs] as WindmillColumnDef[]
 							: [],
 					actions,
 					customActionsHeader: resolvedConfig?.customActionsHeader,
@@ -474,7 +474,7 @@
 			const agColumnDefs = transformColumnDefs({
 				columnDefs:
 					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? [...resolvedConfig?.columnDefs] as ExtendedColumnDef[]
+						? [...resolvedConfig?.columnDefs] as WindmillColumnDef[]
 						: [],
 				actions,
 				customActionsHeader: resolvedConfig?.customActionsHeader,
