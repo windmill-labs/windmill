@@ -211,7 +211,7 @@ export function transformColumnDefs({
 		const computedActionsCol = {
 			field: '__actions__',
 			_isActionsColumn: true,
-			headerName: customActionsHeader ?? 'Actions',
+			headerName: 'Actions',
 			cellRenderer: tableActionsFactory,
 			autoHeight: true,
 			cellStyle: { textAlign: 'center' },
@@ -232,7 +232,8 @@ export function transformColumnDefs({
 							}, {} as any))
 					}
 					: {}
-			)
+			),
+			...(customActionsHeader?.trim() ? { headerName: customActionsHeader } : {})
 		}
 
 		if (actionsIndex > -1) {
