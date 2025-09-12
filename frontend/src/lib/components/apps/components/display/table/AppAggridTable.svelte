@@ -509,6 +509,8 @@
 			})
 			// Force refresh to re-render cell renderers after actions change
 			api?.refreshCells({ force: true })
+			// Force complete redraw to clear stale inline styles
+			api?.redrawRows()
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
