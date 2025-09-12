@@ -1251,6 +1251,9 @@ struct ScopedDependencyMap {
 }
 
 impl ScopedDependencyMap {
+    /// Calls DB, however is assumed to be called once per dependency job
+    /// AND is scoped to smaller subset of data
+    /// So it is not too expensive
     async fn new<'a>(
         w_id: &str,
         importer_path: &str,
