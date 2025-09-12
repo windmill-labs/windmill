@@ -22,7 +22,8 @@
                 "postgres",
                 "sqs",
                 "mqtt",
-                "gcp"
+                "gcp",
+                "default_email"
               ]
             }
           }
