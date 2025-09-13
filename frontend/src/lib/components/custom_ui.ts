@@ -64,6 +64,7 @@ export type EditorBarUi = {
 	assistants?: boolean
 	multiplayer?: boolean
 	autoformatting?: boolean
+	editorSettings?: boolean
 	vimMode?: boolean
 	relativeLineNumbers?: boolean
 	aiGen?: boolean
