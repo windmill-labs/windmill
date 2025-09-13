@@ -197,7 +197,7 @@
 								componentInput['value'] != undefined &&
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
-								componentInput['expr'] = JSON.stringify(componentInput['value'])
+								componentInput['expr'] = JSON.stringify(componentInput['value'], null, 2)
 							} else if (fileUploadS3 && fieldType === 'text' && e.detail != 'uploadS3') {
 								componentInput['value'] = ''
 							} else if (e.detail == 'uploadS3') {
