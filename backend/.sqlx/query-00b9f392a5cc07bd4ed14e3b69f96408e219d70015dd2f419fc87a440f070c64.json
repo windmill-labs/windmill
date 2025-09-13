@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)\n         SELECT $1, importer_path, importer_kind, imported_path, importer_node_id\n         FROM dependency_map\n         WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00b9f392a5cc07bd4ed14e3b69f96408e219d70015dd2f419fc87a440f070c64"
+}
