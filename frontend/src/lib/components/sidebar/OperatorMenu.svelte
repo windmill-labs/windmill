@@ -148,7 +148,7 @@
 	)
 
 	let moreOpen = $state(false)
-	let moreOpenTimeout: NodeJS.Timeout | undefined = $state()
+	let moreOpenTimeout: number | undefined = $state()
 
 	function debouncedSetMoreOpen(value: boolean) {
 		if (moreOpenTimeout) {

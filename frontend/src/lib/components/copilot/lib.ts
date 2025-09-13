@@ -24,6 +24,7 @@ import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import type { Stream } from 'openai/core/streaming.mjs'
+import { generateRandomString } from '$lib/utils'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -161,8 +162,12 @@ function getModelMaxTokens(provider: AIProvider, model: string) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
 		return 100000
+	} else if (model.startsWith('claude-sonnet') || model.startsWith('gemini-2.5')) {
+		return 64000
 	} else if (model.startsWith('gpt-4.1')) {
 		return 32768
+	} else if (model.startsWith('claude-opus')) {
+		return 32000
 	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
 	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
@@ -191,6 +196,7 @@ function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
+	const maxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -198,7 +204,7 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
+			max_completion_tokens: maxTokens
 		}
 	} else {
 		return {
@@ -215,7 +221,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_tokens: getModelMaxTokens(modelProvider.provider, modelProvider.model)
+			max_tokens: maxTokens
 		}
 	}
 }
@@ -706,6 +712,16 @@ export async function getCompletion(
 	return completion
 }
 
+function extractFirstJSON(str: string) {
+	let depth = 0,
+		i = 0
+	for (; i < str.length; i++) {
+		if (str[i] === '{') depth++
+		else if (str[i] === '}' && --depth === 0) break
+	}
+	return str.slice(0, i + 1)
+}
+
 export async function parseOpenAICompletion(
 	completion: Stream<ChatCompletionChunk>,
 	callbacks: ToolCallbacks & {
@@ -736,7 +752,19 @@ export async function parseOpenAICompletion(
 			callbacks.onMessageEnd()
 			answer = ''
 		}
-		for (const toolCall of toolCalls) {
+		for (let i = 0; i < toolCalls.length; i++) {
+			const toolCall = toolCalls[i]
+			// Gemini models are missing the index field
+			if (
+				toolCall.index === undefined ||
+				(typeof toolCall.index === 'string' && toolCall.index === '')
+			) {
+				toolCall.index = i
+			}
+			// Gemini models are missing the id field
+			if (toolCall.id === undefined || (typeof toolCall.id === 'string' && toolCall.id === '')) {
+				toolCall.id = generateRandomString()
+			}
 			const { index } = toolCall
 			let finalToolCall = finalToolCalls[index]
 			if (!finalToolCall) {
@@ -748,6 +776,10 @@ export async function parseOpenAICompletion(
 					} else {
 						finalToolCall.function.arguments =
 							(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+						// Make sure we only have one JSON object, else for Gemini models it sometimes results in two JSON objects
+						finalToolCall.function.arguments = extractFirstJSON(
+							finalToolCall.function.arguments || '{}'
+						)
 					}
 				}
 			}

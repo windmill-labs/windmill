@@ -16,8 +16,8 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
-export function getOriginalBranchForWorkspaceForks(branchName: string): string | null {
-  if (!branchName.startsWith(WM_FORK_PREFIX)) {
+export function getOriginalBranchForWorkspaceForks(branchName: string | null): string | null {
+  if (!branchName || !branchName.startsWith(WM_FORK_PREFIX)) {
     return null
   }
 

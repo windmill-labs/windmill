@@ -16,11 +16,12 @@ jobs:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
       - name: "npm check"
         timeout-minutes: 5
-        run:
-          cd frontend && npm ci && npm run generate-backend-client && npm run
+        run: cd frontend && npm ci && npm run generate-backend-client && npm run
           check

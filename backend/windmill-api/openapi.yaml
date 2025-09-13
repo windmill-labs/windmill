@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.541.1
+  version: 1.542.3
   title: Windmill API
 
   contact:
@@ -3210,7 +3210,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/variables/delete_bulk:
     delete:
       summary: delete variables in bulk
@@ -8382,6 +8382,49 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/queue/position/{scheduled_for}:
+    get:
+      summary: get queue position for a job
+      operationId: getQueuePosition
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: scheduled_for
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: The scheduled for timestamp in milliseconds
+      responses:
+        "200":
+          description: queue position information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  position:
+                    type: integer
+                    description: The position in queue (1-based), null if not in queue or already running
+
+  /w/{workspace}/jobs/queue/scheduled_for/{id}:
+    get:
+      summary: get scheduled for timestamp for a job
+      operationId: getScheduledFor
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: scheduled for timestamp
+          content:
+            application/json:
+              schema:
+                type: integer
 
   /w/{workspace}/jobs/job_signature/{id}/{resume_id}:
     get:
@@ -18438,7 +18481,19 @@ components:
     CaptureTriggerKind:
       type: string
       enum:
-        [webhook, http, websocket, kafka, default_email, nats, postgres, sqs, mqtt, gcp, email]
+        [
+          webhook,
+          http,
+          websocket,
+          kafka,
+          default_email,
+          nats,
+          postgres,
+          sqs,
+          mqtt,
+          gcp,
+          email,
+        ]
 
     Capture:
       type: object

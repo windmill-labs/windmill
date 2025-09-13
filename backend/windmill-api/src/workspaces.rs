@@ -45,7 +45,6 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
-#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{

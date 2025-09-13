@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.542.3](https://github.com/windmill-labs/windmill/compare/v1.542.2...v1.542.3) (2025-09-11)
+
+
+### Bug Fixes
+
+* catchPanicLayer to handle axum panics more gracefully + onFailure tracing ([a8f67f4](https://github.com/windmill-labs/windmill/commit/a8f67f483c4a14cc80e529ae0add0e6678d4dd30))
+* **perf:** improve perf and reliablity using tcp_nodelay and content-length for intra worker requests ([6c34cd8](https://github.com/windmill-labs/windmill/commit/6c34cd8ad672058d7793b8727247d80e6afe7531))
+* scim members optional (jumpcloud) ([#6579](https://github.com/windmill-labs/windmill/issues/6579)) ([cb54437](https://github.com/windmill-labs/windmill/commit/cb54437e739570c7de6428348a5a3859543c5f3b))
+
+## [1.542.2](https://github.com/windmill-labs/windmill/compare/v1.542.1...v1.542.2) (2025-09-11)
+
+
+### Bug Fixes
+
+* archive by hash workspace specificity ([0518c46](https://github.com/windmill-labs/windmill/commit/0518c46059e934fe14e1dddac7d0bab3c5907c90))
+
+## [1.542.1](https://github.com/windmill-labs/windmill/compare/v1.542.0...v1.542.1) (2025-09-11)
+
+
+### Bug Fixes
+
+* **apps:** fix relative imports cache invalidation ([#6564](https://github.com/windmill-labs/windmill/issues/6564)) ([c4ccc4b](https://github.com/windmill-labs/windmill/commit/c4ccc4ba141bddb00d54c269119f57add0d5875a))
+
+## [1.542.0](https://github.com/windmill-labs/windmill/compare/v1.541.1...v1.542.0) (2025-09-11)
+
+
+### Features
+
+* forkables workspaces v0 ([#6479](https://github.com/windmill-labs/windmill/issues/6479)) ([3dadcbe](https://github.com/windmill-labs/windmill/commit/3dadcbe8658e6ca5924ea827d00f5ea01598913a))
+* show position of job in queue when waiting for executor ([#6554](https://github.com/windmill-labs/windmill/issues/6554)) ([5b630ed](https://github.com/windmill-labs/windmill/commit/5b630ed8d35426704eacad7e3a495dd77af5a868))
+
+
+### Bug Fixes
+
+* force stdin to Stdio::null for all user code execution ([#6575](https://github.com/windmill-labs/windmill/issues/6575)) ([fcd5819](https://github.com/windmill-labs/windmill/commit/fcd58191d437b3558811985aa32f233eb5493759))
+* improve runs page auto-refresh loading for out-of-order started at ([17424aa](https://github.com/windmill-labs/windmill/commit/17424aada8491a4dc59ccb83d7f6b59cc68b645a))
+
 ## [1.541.1](https://github.com/windmill-labs/windmill/compare/v1.541.0...v1.541.1) (2025-09-10)
 
 

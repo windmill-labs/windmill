@@ -210,7 +210,7 @@
 		validateName(meta) && validatePath(path, kind)
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
 		if (validateTimeout) {

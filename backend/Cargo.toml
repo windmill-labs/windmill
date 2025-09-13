@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.541.1"
+version = "1.542.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.541.1"
+version = "1.542.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -204,7 +204,7 @@ hyper = { version = "^1", features = ["full"] }
 tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
-tower-http = { version = "^0.6", features = ["trace", "cors"] }
+tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }

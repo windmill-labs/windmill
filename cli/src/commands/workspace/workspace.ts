@@ -4,7 +4,7 @@ import { getActiveWorkspaceConfigFilePath, getWorkspaceConfigFilePath } from "..
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { forkCommand, deleteForkCommand } from "./fork.ts";
+import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -466,7 +466,17 @@ const command = new Command()
   .description("Remove workspace binding from the current Git branch")
   .option("--branch <branch:string>", "Specify branch (defaults to current)")
   .action((opts) => bind(opts as any, false))
-  .command("fork", forkCommand)
-  .command("delete-fork", deleteForkCommand);
+  .command("fork")
+  .description("Create a forked workspace")
+  .arguments("[workspace_name:string] [workspace_id:string]")
+  .option(
+    "--create-workspace-name <workspace_name:string>",
+    "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id."
+  )
+  .action(createWorkspaceFork as any)
+  .command("delete-fork")
+  .description("Delete a forked workspace and git branch")
+  .arguments("<fork_name:string>")
+  .action(deleteWorkspaceFork as any);
 
 export default command;

@@ -124,7 +124,7 @@
 
 	let filter = $state('')
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	let firstLoad = true
 
 	let secondaryStorageNames = usePromise(
@@ -591,7 +591,7 @@
 								>
 									{#snippet header()}{/snippet}
 									{#snippet footer()}{/snippet}
-									{#snippet children({ index, style })}
+									{#snippet item({ index, style })}
 										{@const file_info = allFilesByKey[displayedFileKeys[index]]}
 
 										<div
