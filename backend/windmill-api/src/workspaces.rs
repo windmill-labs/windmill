@@ -2350,7 +2350,6 @@ async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
     db: &DB,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
@@ -2358,7 +2357,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2370,7 +2368,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2382,7 +2379,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2391,7 +2387,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2403,7 +2398,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2412,7 +2406,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2424,7 +2417,6 @@ async fn clone_workspace_data(
         tx,
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .await?;
 
@@ -2446,7 +2438,6 @@ async fn update_workspace_settings(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    _target_username: &str,
 ) -> Result<()> {
     sqlx::query!(
         r#"
@@ -2525,16 +2516,14 @@ async fn clone_folders(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by)
-         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, $3
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by
          FROM folder
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .execute(&mut **tx)
     .await?;
@@ -2565,16 +2554,14 @@ async fn clone_resource_types(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension)
-         SELECT $2, name, schema, description, edited_at, $3, format_extension
-         FROM resource_type 
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension
+         FROM resource_type
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .execute(&mut **tx)
     .await?;
@@ -2586,16 +2573,14 @@ async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, $3
-         FROM resource 
+         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .execute(&mut **tx)
     .await?;
@@ -2689,7 +2674,6 @@ async fn clone_scripts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    _target_username: &str,
 ) -> Result<()> {
     // Clone all scripts directly with a single query
     sqlx::query!(
@@ -2727,7 +2711,6 @@ async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
 ) -> Result<()> {
     // First, clone flows without versions
     sqlx::query!(
@@ -2737,15 +2720,14 @@ async fn clone_flows(
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of_email, lock_error_logs
         )
-        SELECT $2, path, summary, description, value, $3, edited_at,
+        SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, draft_only, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
-        FROM flow 
+        FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
-        target_username,
     )
     .execute(&mut **tx)
     .await?;
@@ -2770,7 +2752,7 @@ async fn clone_flows(
             version.path,
             version.value,
             version.schema,
-            target_username,
+            version.created_by,
             version.created_at,
         )
         .fetch_one(&mut **tx)
@@ -2817,7 +2799,6 @@ async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    target_username: &str,
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
@@ -2870,7 +2851,7 @@ async fn clone_apps(
                  VALUES ($1, $2, $3, $4, $5)",
                 new_app_id,
                 version.value,
-                target_username,
+                version.created_by,
                 version.created_at,
                 version.raw_app,
             )
@@ -3075,7 +3056,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &username, &db).await?;
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &db).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
