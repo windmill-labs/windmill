@@ -36,7 +36,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
-use windmill_common::scripts::{NewScript, ScriptKind, ScriptLang};
+use windmill_common::scripts::NewScript;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::ExportableListableVariable;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
@@ -2340,12 +2340,6 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
-fn hash_script(ns: &NewScript) -> i64 {
-    let mut dh = DefaultHasher::new();
-    ns.hash(&mut dh);
-    dh.finish() as i64
-}
-
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -2353,83 +2347,43 @@ async fn clone_workspace_data(
     db: &DB,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
-    update_workspace_settings(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone folders
-    clone_folders(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_folders(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resource types
-    clone_resource_types(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone variables with re-encryption
     clone_variables(tx, source_workspace_id, target_workspace_id, db).await?;
 
     // Clone scripts with new hashes
-    clone_scripts(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
-    clone_flows(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flow nodes
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone workspace runnable dependencies and dependency map
-    clone_workspace_dependencies(
-        tx,
-        source_workspace_id,
-        target_workspace_id,
-    )
-    .await?;
+    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
     Ok(())
 }
