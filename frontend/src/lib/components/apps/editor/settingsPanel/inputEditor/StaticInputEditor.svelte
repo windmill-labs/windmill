@@ -299,11 +299,19 @@
 		{:else if fieldType === 'ag-grid'}
 			<div class="flex flex-row rounded-md bg-surface items-center h-full">
 				<div class="relative w-full">
-					<input
-						class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
-						bind:value={componentInput.value.field}
-						placeholder="Field"
-					/>
+					{#if componentInput.value._isActionsColumn === true}
+						<div
+							class="text-xs px-2 border w-full flex flex-row items-center rounded-r-md h-8 text-primary"
+						>
+							Actions Column
+						</div>
+					{:else}
+						<input
+							class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+							bind:value={componentInput.value.field}
+							placeholder="Field"
+						/>
+					{/if}
 					<div class="absolute top-1 right-1">
 						<AgGridWizard bind:value={componentInput.value}>
 							{#snippet trigger()}

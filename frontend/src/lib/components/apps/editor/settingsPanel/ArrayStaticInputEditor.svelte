@@ -3,7 +3,7 @@
 
 	import { Button } from '$lib/components/common'
 	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
@@ -11,6 +11,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
+	import { findGridItem } from '$lib/components/apps/editor/appUtils'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 
 	interface Props {
 		componentInput: StaticInput<any[]> & { loading?: boolean }
@@ -25,6 +27,9 @@
 		selectOptions = undefined,
 		id
 	}: Props = $props()
+
+	const appContext = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent } = appContext || {}
 
 	let items: ReturnType<typeof getItems> = $state([])
 	items = getItems(componentInput)
@@ -185,10 +190,34 @@
 		items = getItems(componentInput)
 	}
 
-	function deleteElementByType(index: number) {
+	async function updateConfiguration() {
+		if (selectedComponent && id) {
+			$selectedComponent = undefined
+			await tick()
+			$selectedComponent = [id]
+		}
+	}
+
+	async function deleteElementByType(index: number) {
 		if (componentInput.value) {
+			const item = componentInput.value[index]
+			// If deleting actions column, clear all table actions
+			if (subFieldType === 'ag-grid' && item && item._isActionsColumn === true) {
+				const gridItem = id ? findGridItem($app, id) : null
+				if (gridItem && (
+					gridItem.data.type === 'aggridcomponent' ||
+					gridItem.data.type === 'aggridcomponentee' ||
+					gridItem.data.type === 'aggridinfinitecomponent' ||
+					gridItem.data.type === 'aggridinfinitecomponentee'
+				) && Array.isArray(gridItem.data.actions)) {
+					gridItem.data.actions.length = 0
+				}
+				await updateConfiguration()
+				return
+			}
+
 			componentInput.value.splice(index, 1)
-			items.splice(index, 1) // Add this
+			items.splice(index, 1)
 			items = items
 			componentInput.value = componentInput.value
 			dispatch('deleteArrayItem', { index })
