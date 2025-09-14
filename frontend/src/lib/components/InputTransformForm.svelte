@@ -87,6 +87,11 @@
 	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
 
+	const variableMatch = (value: string): RegExpMatchArray | null =>
+		value.match(/^variable\('([^']+)'\)$/)
+	const resourceMatch = (value: string): RegExpMatchArray | null =>
+		value.match(/^resource\('([^']+)'\)$/)
+
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -233,18 +238,18 @@
 
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
-		const varMatch = rawValue.match(/^variable\('([^']+)'\)$/)
-		const resourceMatch = rawValue.match(/^resource\('([^']+)'\)$/)
+		const varMatch = variableMatch(rawValue)
+		const resMatch = resourceMatch(rawValue)
 
 		if (varMatch) {
 			arg.type = 'static'
 			propertyType = 'static'
 			arg.value = '$var:' + varMatch[1]
 			monacoTemplate?.setCode(arg.value)
-		} else if (resourceMatch) {
+		} else if (resMatch) {
 			arg.type = 'static'
 			propertyType = 'static'
-			arg.value = '$res:' + resourceMatch[1]
+			arg.value = '$res:' + resMatch[1]
 			monacoTemplate?.setCode(arg.value)
 		} else {
 			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
@@ -258,12 +263,20 @@
 		focused = true
 		if (isStaticTemplate(inputCat)) {
 			focusProp?.(argName, 'append', (path) => {
-				const toAppend = `\$\{${path}}`
-				arg.value = `${arg.value ?? ''}${toAppend}`
-				monacoTemplate?.setCode(arg.value)
-				setPropertyType(arg.value)
-				argInput?.focus()
-				return false
+				// Empty field + variable = use $var:/$res: syntax instead of ${...}
+				const isEmpty = !arg.value || arg.value.trim() === ''
+
+				if (isEmpty && variableMatch(path)) {
+					connectProperty(path)
+					return true
+				} else {
+					const toAppend = `\$\{${path}}`
+					arg.value = `${arg.value ?? ''}${toAppend}`
+					monacoTemplate?.setCode(arg.value)
+					setPropertyType(arg.value)
+					argInput?.focus()
+					return false
+				}
 			})
 		} else {
 			focusProp?.(argName, 'insert', (path) => {

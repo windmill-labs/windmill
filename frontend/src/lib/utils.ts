@@ -1036,6 +1036,14 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return dynamicTemplateRegex.test(expr)
 }
 
+export function urlParamsToObject(params: URLSearchParams): Record<string, string> {
+	const result: Record<string, string> = {}
+	params.forEach((value, key) => {
+		result[key] = value
+	})
+	return result
+}
+
 export async function tryEvery({
 	tryCode,
 	timeoutCode,

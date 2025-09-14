@@ -22,7 +22,7 @@ interface JobEntry {
 
 export class JobManager {
 	private activeJobs = new Map<string, JobEntry>()
-	private cleanupInterval: NodeJS.Timeout | null = null
+	private cleanupInterval: number | null = null
 	private readonly STALE_TIMEOUT = 300000 // 5 minutes
 	private readonly CLEANUP_INTERVAL = 60000 // 1 minute
 
@@ -49,7 +49,7 @@ export class JobManager {
 			}
 		}
 
-		staleJobs.forEach(jobId => {
+		staleJobs.forEach((jobId) => {
 			this.activeJobs.delete(jobId)
 		})
 
@@ -58,10 +58,7 @@ export class JobManager {
 		}
 	}
 
-	async runWithProgress<T>(
-		jobRunner: () => Promise<string>,
-		options: JobOptions
-	): Promise<T> {
+	async runWithProgress<T>(jobRunner: () => Promise<string>, options: JobOptions): Promise<T> {
 		const {
 			onProgress,
 			timeout = 60000,
@@ -140,7 +137,7 @@ export class JobManager {
 	}
 
 	cancelAll() {
-		this.activeJobs.forEach(entry => entry.controller.abort())
+		this.activeJobs.forEach((entry) => entry.controller.abort())
 		this.activeJobs.clear()
 	}
 

@@ -174,7 +174,7 @@
 	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
 	let argError = $state('')
 	let resultError = $state('')
-	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	let filterTimeout: number | undefined = undefined
 	let selectedManualDate = $state(0)
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
@@ -470,7 +470,7 @@
 		allowWildcards = false
 	}
 
-	let calendarChangeTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let calendarChangeTimeout: number | undefined = $state(undefined)
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {

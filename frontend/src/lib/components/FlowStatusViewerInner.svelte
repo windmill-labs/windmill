@@ -227,7 +227,7 @@
 	)
 
 	let retry_selected = $state('')
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 

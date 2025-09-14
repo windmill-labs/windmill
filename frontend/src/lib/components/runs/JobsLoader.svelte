@@ -90,7 +90,7 @@
 		perPage = undefined,
 		allowWildcards = false
 	}: Props = $props()
-	let intervalId: NodeJS.Timeout | undefined = $state()
+	let intervalId: number | undefined = $state()
 	let sync = true
 
 	function onParamChanges() {
