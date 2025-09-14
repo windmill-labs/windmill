@@ -794,7 +794,7 @@
 																})
 															}
 														}}
-														showInterations={localModuleStates[module.id]?.flow_jobs}
+														showIterations={localModuleStates[module.id]?.flow_jobs}
 														selectedIndex={getSelectedIndex(module.id, moduleItems)}
 														idToIterationIndex={(id) => {
 															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)

@@ -25,7 +25,7 @@
 		loadPreviousIterations?: () => void
 		onSelectIteration?: (id: string) => void
 		idToIterationIndex?: (id: string) => number | undefined
-		showInterations?: string[]
+		showIterations?: string[]
 		isJobFailure?: (id: string) => boolean
 	}
 
@@ -43,7 +43,7 @@
 		loadPreviousIterations,
 		onSelectIteration,
 		idToIterationIndex,
-		showInterations,
+		showIterations,
 		isJobFailure
 	}: Props = $props()
 
@@ -57,13 +57,13 @@
 	}
 
 	const filteredItems = $derived(
-		showInterations ? items.filter((item) => showInterations.includes(item.id)) : items
+		showIterations ? items.filter((item) => showIterations.includes(item.id)) : items
 	)
 
 	let selectedItem = $derived(
 		selectedIndex && selectedIndex >= 0 ? filteredItems[selectedIndex] : filteredItems[0]
 	)
-	let startItem = $derived(showInterations ? filteredItems[0] : selectedItem)
+	let startItem = $derived(showIterations ? filteredItems[0] : selectedItem)
 
 	// Calculate total execution time for multiple filteredItems
 	function calculateTotalExecutionTime(): number {
@@ -88,7 +88,7 @@
 
 	let selectedLen = $derived(
 		// If selectedIteration is set, it means we are in a loop and we are selecting an iteration
-		showInterations ? calculateTotalExecutionTime() : getLength(selectedItem)
+		showIterations ? calculateTotalExecutionTime() : getLength(selectedItem)
 	)
 
 	const waitingLen = $derived(
@@ -200,7 +200,7 @@
 				></div>
 			{/if}
 
-			{#if showInterations}
+			{#if showIterations}
 				<!-- All iterations with absolute positioning -->
 				{#each filteredItems as item, i}
 					{#if item.started_at}
