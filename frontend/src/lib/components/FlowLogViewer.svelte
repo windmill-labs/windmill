@@ -468,12 +468,13 @@
 		return index
 	}
 
-	function isJobFailure(id: string, moduleId?: string) {
+	function isJobFailure(jobId?: string, moduleId?: string) {
 		if (!moduleId) {
-			return rootJob?.['success'] === false
+			return rootJob?.type === 'CompletedJob' && rootJob?.['success'] === false
 		}
-		if (localModuleStates[moduleId]?.flow_jobs_success) {
-			const index = localModuleStates[moduleId]?.flow_jobs?.indexOf(id)
+		// if a jobId is provided, check the flow_jobs_success array for a specific job
+		if (localModuleStates[moduleId]?.flow_jobs_success && !!jobId) {
+			const index = localModuleStates[moduleId]?.flow_jobs?.indexOf(jobId)
 			if (index !== undefined && index >= 0) {
 				return localModuleStates[moduleId]?.flow_jobs_success?.[index] === false
 			}
@@ -798,7 +799,7 @@
 														idToIterationIndex={(id) => {
 															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)
 														}}
-														isJobFailure={(id) => isJobFailure(id, module.id)}
+														isJobFailure={() => isJobFailure(undefined, module.id)}
 													/>
 												</div>
 											{/if}
