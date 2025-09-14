@@ -687,7 +687,7 @@
 													: ''
 											)}
 										>
-											<div class="flex items-center gap-2 grow min-w-0">
+											<div class="flex items-center gap-2">
 												<!-- Step icon -->
 												{@render stepIcon(
 													module.value.type,
@@ -734,7 +734,7 @@
 													</span>
 													{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
 														<span
-															class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
+															class="text-xs font-mono font-medium inline-flex items-center -my-2"
 														>
 															<button onclick={(e) => e.stopPropagation()}>
 																<FlowJobsMenu
@@ -757,14 +757,14 @@
 												</div>
 											</div>
 
-											{#if timelineMin != undefined && timelineTotal && moduleItems && showTimeline}
-												<div
-													class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} "
-													bind:clientWidth={
-														() => timelineAvailableWidths[module.id] ?? 0,
-														(v) => (timelineAvailableWidths[module.id] = v)
-													}
-												>
+											<div
+												class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} min-h-2"
+												bind:clientWidth={
+													() => timelineAvailableWidths[module.id] ?? 0,
+													(v) => (timelineAvailableWidths[module.id] = v)
+												}
+											>
+												{#if timelineMin != undefined && timelineTotal && moduleItems && showTimeline}
 													<FlowTimelineBar
 														total={timelineTotal}
 														min={timelineMin}
@@ -801,8 +801,9 @@
 														}}
 														isJobFailure={() => isJobFailure(undefined, module.id)}
 													/>
-												</div>
-											{/if}
+												{/if}
+											</div>
+
 											{#if isLeafStep && jobId}
 												<a
 													href={getJobLink(jobId ?? '')}

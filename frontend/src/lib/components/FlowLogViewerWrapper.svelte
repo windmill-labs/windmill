@@ -131,10 +131,8 @@
 		if (job.id !== lastJobId) {
 			lastJobId = job.id
 			navigationChain = {}
-			expandedRows = {}
 			timelineAvailableWidths = {}
 			currentId = 'flow-root'
-			allExpanded = false
 			showResultsInputs = true
 			timelineCompute?.reset()
 		}

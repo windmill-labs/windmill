@@ -136,7 +136,7 @@
 
 {#if min && filteredItems.length > 0 && startItem?.started_at}
 	<div
-		class="flex items-center gap-2 ml-auto min-w-32 max-w-[1000px] h-4 group"
+		class="flex items-center gap-2 ml-auto min-w-96 max-w-[1000px] h-4 group"
 		style="width: {timelinelWidth}px"
 	>
 		{#if showZoomButtons}
