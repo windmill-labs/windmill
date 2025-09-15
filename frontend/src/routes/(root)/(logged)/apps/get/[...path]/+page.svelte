@@ -12,8 +12,9 @@
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
-	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
-	let can_write = false
+
+	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let can_write = $state(false)
 
 	async function loadApp() {
 		app = await AppService.getAppLiteByPath({
@@ -23,13 +24,15 @@
 		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
 	}
 
-	$: if ($workspaceStore && page.params.path) {
-		if (app && page.params.path === app.path) {
-			console.log('App already loaded')
-		} else {
-			loadApp()
+	$effect(() => {
+		if ($workspaceStore && page.params.path) {
+			if (app && page.params.path === app.path) {
+				console.log('App already loaded')
+			} else {
+				loadApp()
+			}
 		}
-	}
+	})
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
