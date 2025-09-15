@@ -189,7 +189,7 @@
 		}
 	})
 
-	let dndTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let dndTimeout: number | undefined = $state(undefined)
 
 	let ccDrawer: Drawer | undefined = $state()
 </script>

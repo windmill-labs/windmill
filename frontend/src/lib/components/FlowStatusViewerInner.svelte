@@ -227,7 +227,7 @@
 	)
 
 	let retry_selected = $state('')
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
@@ -1292,14 +1292,17 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules && innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
+			{:else if innerModules && innerModules.length > 0 && ((job.raw_flow?.modules.length ?? 0) > 0 || innerModules[0]?.id == 'preprocessor')}
 				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
+				{@const isPreprocessorOnly = hasPreprocessor && (job.raw_flow?.modules.length ?? 0) === 0}
+				<!-- if the flow is preprocessor only, we should only display the first innerModule: the second one is a placeholder added when running empty flows -->
+				{@const modules = isPreprocessorOnly ? [innerModules[0]] : (innerModules ?? [])}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
 					</h3>
 
-					{#each innerModules ?? [] as mod, i}
+					{#each modules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">

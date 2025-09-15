@@ -20,8 +20,10 @@ use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::triggers::start_all_listeners;
 #[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
@@ -98,14 +100,9 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
-
-mod trigger_helpers;
-
 pub mod openapi;
 
 mod approvals;
@@ -113,10 +110,6 @@ mod approvals;
 pub mod apps_ee;
 #[cfg(feature = "enterprise")]
 mod apps_oss;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
-pub mod gcp_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-mod gcp_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod git_sync_ee;
 #[cfg(feature = "enterprise")]
@@ -127,16 +120,6 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-pub mod kafka_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-mod kafka_triggers_oss;
-#[cfg(feature = "mqtt_trigger")]
-mod mqtt_triggers;
-#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
-pub mod nats_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-mod nats_triggers_oss;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -162,10 +145,6 @@ mod slack_approvals;
 pub mod smtp_server_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_oss;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
-pub mod sqs_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
@@ -189,8 +168,6 @@ mod utils;
 pub mod var_resource_cache;
 mod variables;
 pub mod webhook_util;
-#[cfg(feature = "websocket")]
-mod websocket_triggers;
 mod workers;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -389,47 +366,7 @@ pub async fn run_server(
     let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
-        #[cfg(feature = "websocket")]
-        {
-            let ws_killpill_rx = killpill_rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            let kafka_killpill_rx = killpill_rx.resubscribe();
-            kafka_triggers_oss::start_kafka_consumers(db.clone(), kafka_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            let nats_killpill_rx = killpill_rx.resubscribe();
-            nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(feature = "postgres_trigger")]
-        {
-            let db_killpill_rx = killpill_rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx);
-        }
-
-        #[cfg(feature = "mqtt_trigger")]
-        {
-            let mqtt_killpill_rx = killpill_rx.resubscribe();
-            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            let sqs_killpill_rx = killpill_rx.resubscribe();
-            sqs_triggers_oss::start_sqs(db.clone(), sqs_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            let gcp_killpill_rx = killpill_rx.resubscribe();
-            gcp_triggers_oss::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
-        }
+        start_all_listeners(db.clone(), &killpill_rx);
     }
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -735,10 +672,18 @@ pub async fn run_server(
         )
     };
 
+    let app = app.layer(CatchPanicLayer::custom(|err| {
+        tracing::error!("panic in handler, returning 500: {:?}", err);
+        Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Internal Server Error"))
+            .unwrap()
+    }));
+
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
 
     tracing::info!(
         instance = %*INSTANCE_NAME,

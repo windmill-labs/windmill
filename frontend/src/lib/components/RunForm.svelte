@@ -101,7 +101,7 @@
 		}
 	})
 
-	let debounced: NodeJS.Timeout | undefined = undefined
+	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
 		try {

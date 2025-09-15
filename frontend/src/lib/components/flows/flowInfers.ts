@@ -68,9 +68,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				system_prompt: {
 					type: 'string'
 				},
-				max_completion_tokens: {
-					type: 'number'
-				},
 				images: {
 					type: 'array',
 					items: {
@@ -83,6 +80,9 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 						}
 					}
 				},
+				max_completion_tokens: {
+					type: 'number'
+				},
 				temperature: {
 					type: 'number',
 					description:
@@ -90,7 +90,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				},
 				output_type: {
 					type: 'string',
-					description: 'The type of output the AI agent will generate (text or image)',
+					description:
+						'The type of output the AI agent will generate (text or image). Image output will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
 					enum: ['text', 'image'],
 					default: 'text'
 				},
@@ -108,9 +109,10 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'model',
 				'user_message',
 				'system_prompt',
-				'max_completion_tokens',
 				'images',
+				'max_completion_tokens',
 				'temperature',
+				'output_type',
 				'output_schema'
 			]
 		}
