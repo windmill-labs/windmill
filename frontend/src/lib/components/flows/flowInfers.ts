@@ -99,7 +99,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'object',
 					description:
 						'JSON schema that the AI agent will follow for its response format (only used if output_type is text)',
-					format: 'json-schema'
+					format: 'json-schema',
+					showExpr: "fields.output_type === 'text'"
 				}
 			},
 			required: ['provider', 'model', 'user_message'],
