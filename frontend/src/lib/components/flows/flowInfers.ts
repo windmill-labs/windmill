@@ -71,7 +71,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				images: {
 					type: 'array',
 					items: {
-						type: 'object',
+						type: 'object' as const,
 						properties: {
 							s3_object: {
 								type: 'object',

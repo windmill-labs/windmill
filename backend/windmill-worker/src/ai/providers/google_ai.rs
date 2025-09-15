@@ -83,10 +83,12 @@ pub struct GeminiResponseContent {
 #[derive(Deserialize)]
 pub struct GeminiResponsePart {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     pub text: Option<String>,
     #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<GeminiInlineData>,
     #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     pub function_call: Option<GeminiFunctionCall>,
 }
 

@@ -1,6 +1,4 @@
 use async_recursion::async_recursion;
-use base64::Engine;
-use mime_guess;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
@@ -49,6 +47,7 @@ lazy_static::lazy_static! {
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
+const REQUEST_TIMEOUT_SECONDS: u64 = 120;
 
 fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<RawValue>, Error> {
     let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
@@ -437,22 +436,16 @@ pub async fn run_agent(
         };
 
     // Create user message with optional images
-    let user_content = if let Some(images) = &args.images {
-        let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
+    let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
+    if let Some(images) = &args.images {
         for image_wrapper in images.iter() {
             let image = &image_wrapper.s3_object;
             if !image.s3.is_empty() {
                 parts.push(ContentPart::S3Object { s3_object: image.clone() });
             }
         }
-        if parts.len() == 1 {
-            OpenAIContent::Text(args.user_message.clone())
-        } else {
-            OpenAIContent::Parts(parts)
-        }
-    } else {
-        OpenAIContent::Text(args.user_message.clone())
-    };
+    }
+    let user_content = OpenAIContent::Parts(parts);
 
     messages.push(OpenAIMessage {
         role: "user".to_string(),
@@ -547,8 +540,6 @@ pub async fn run_agent(
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: &args.user_message,
                 images: images_slice,
-                api_key,
-                base_url: &base_url,
             };
 
             let request_body = query_builder
@@ -561,7 +552,7 @@ pub async fn run_agent(
 
             let mut request = HTTP_CLIENT
                 .post(&endpoint)
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
                 .header("Content-Type", "application/json");
 
             // Apply authentication headers
@@ -631,8 +622,6 @@ pub async fn run_agent(
             system_prompt: args.system_prompt.as_deref(),
             user_message: &args.user_message,
             images: images_slice,
-            api_key,
-            base_url: &base_url,
         };
 
         let request_body = query_builder
@@ -645,7 +634,7 @@ pub async fn run_agent(
 
         let mut request = HTTP_CLIENT
             .post(&endpoint)
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
             .header("Content-Type", "application/json");
 
         // Apply authentication headers

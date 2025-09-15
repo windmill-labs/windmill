@@ -4,7 +4,7 @@ use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
 use crate::ai::{
     providers::{
         google_ai::GoogleAIQueryBuilder,
-        openai::{OpenAIQueryBuilder, OpenAIRequest, OpenAIResponse, OpenAIToolCall}, 
+        openai::{OpenAIQueryBuilder, OpenAIToolCall},
         openrouter::OpenRouterQueryBuilder,
     },
     types::*,
@@ -22,8 +22,6 @@ pub struct BuildRequestArgs<'a> {
     pub system_prompt: Option<&'a str>,
     pub user_message: &'a str,
     pub images: Option<&'a [S3Object]>,
-    pub api_key: &'a str,
-    pub base_url: &'a str,
 }
 
 /// Response from AI provider
@@ -70,4 +68,3 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         _ => Box::new(OpenAIQueryBuilder::new()), // Use OpenAI as default for all other providers
     }
 }
-

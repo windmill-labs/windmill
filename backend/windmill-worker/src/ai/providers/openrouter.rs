@@ -26,20 +26,6 @@ pub struct OpenRouterChatRequest<'a> {
     pub modalities: Option<Vec<&'a str>>,
 }
 
-// Legacy OpenRouter image structures (kept for compatibility)
-#[derive(Serialize)]
-pub struct OpenRouterImageRequest<'a> {
-    pub model: &'a str,
-    pub messages: Vec<OpenRouterImageMessage>,
-    pub modalities: Vec<&'a str>,
-}
-
-#[derive(Serialize)]
-pub struct OpenRouterImageMessage {
-    pub role: String,
-    pub content: String,
-}
-
 #[derive(Deserialize)]
 pub struct OpenRouterImageResponse {
     pub choices: Vec<OpenRouterImageChoice>,
