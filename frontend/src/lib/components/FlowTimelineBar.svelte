@@ -215,7 +215,7 @@
 							<div class="relative w-full h-full">
 								<button
 									class={twMerge(
-										'w-full h-full hover:outline outline-1 outline-white -outline-offset-1 rounded-sm block transition-opacity duration-200',
+										'w-full h-full hover:outline outline-1 outline-blue-800 dark:outline-blue-300 -outline-offset-1 rounded-sm block transition-opacity duration-200',
 										isRunning(item)
 											? 'bg-blue-400'
 											: isJobFailure?.(item.id)
