@@ -10,6 +10,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
     flows::{FlowModuleValue, Step},
+    s3_helpers::S3Object,
     utils::HTTP_CLIENT,
     worker::{to_raw_value, Connection},
 };
@@ -170,7 +171,8 @@ pub async fn run_agent_unified(
     // Create user message with optional images
     let user_content = if let Some(images) = &args.images {
         let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
-        for image in images.iter() {
+        for image_wrapper in images.iter() {
+            let image = &image_wrapper.s3_object;
             if !image.s3.is_empty() {
                 parts.push(ContentPart::S3Object { s3_object: image.clone() });
             }
@@ -250,6 +252,22 @@ pub async fn run_agent_unified(
 
         // For image output without tools, just generate the image
         if output_type == &OutputType::Image && tool_defs.is_none() {
+            // Extract S3Objects from ImageWrappers
+            let images_vec: Vec<S3Object> = args
+                .images
+                .as_ref()
+                .map(|imgs| {
+                    imgs.iter()
+                        .map(|wrapper| wrapper.s3_object.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let images_slice = if images_vec.is_empty() {
+                None
+            } else {
+                Some(images_vec.as_slice())
+            };
+
             let build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: None,
@@ -260,7 +278,7 @@ pub async fn run_agent_unified(
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: &args.user_message,
-                images: args.images.as_deref(),
+                images: images_slice,
                 api_key,
                 base_url: &base_url,
             };
@@ -318,6 +336,22 @@ pub async fn run_agent_unified(
         }
 
         // For text output or image output with tools
+        // Extract S3Objects from ImageWrappers
+        let images_vec: Vec<S3Object> = args
+            .images
+            .as_ref()
+            .map(|imgs| {
+                imgs.iter()
+                    .map(|wrapper| wrapper.s3_object.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let images_slice = if images_vec.is_empty() {
+            None
+        } else {
+            Some(images_vec.as_slice())
+        };
+
         let build_args = BuildRequestArgs {
             messages: &messages,
             tools: tool_defs.as_deref(),
@@ -328,7 +362,7 @@ pub async fn run_agent_unified(
             output_type,
             system_prompt: args.system_prompt.as_deref(),
             user_message: &args.user_message,
-            images: args.images.as_deref(),
+            images: images_slice,
             api_key,
             base_url: &base_url,
         };

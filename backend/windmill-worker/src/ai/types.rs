@@ -325,6 +325,11 @@ impl Default for OutputType {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct ImageWrapper {
+    pub s3_object: S3Object,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct AIAgentArgs {
     pub provider: ProviderWithResource,
     pub system_prompt: Option<String>,
@@ -333,7 +338,7 @@ pub struct AIAgentArgs {
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
-    pub images: Option<Vec<S3Object>>,
+    pub images: Option<Vec<ImageWrapper>>,
 }
 
 #[derive(Deserialize, Debug)]
