@@ -90,6 +90,9 @@
 			suspendStatus.val = {}
 			globalRefreshes = {}
 			globalIterationBounds = {}
+			flowStateStore.val = {}
+			localDurationStatuses = {}
+			localModuleStates = {}
 		}
 	}
 
