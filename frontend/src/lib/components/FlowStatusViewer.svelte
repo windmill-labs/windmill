@@ -85,6 +85,7 @@
 
 	async function updateJobId() {
 		if (jobId !== lastJobId) {
+			console.log('updateJobId 3', jobId)
 			lastJobId = jobId
 			retryStatus.val = {}
 			suspendStatus.val = {}
@@ -118,59 +119,61 @@
 	let toolCallIndicesToLoad: string[] = $state([])
 </script>
 
-<FlowStatusViewerInner
-	{hideFlowResult}
-	onJobsLoaded={({ job, force }) => {
-		if (job.script_path != lastScriptPath && job.script_path) {
-			lastScriptPath = job.script_path
-			loadOwner(lastScriptPath ?? '')
-		}
-		onJobsLoaded?.({ job, force })
-	}}
-	globalModuleStates={[]}
-	{globalIterationBounds}
-	bind:localModuleStates
-	bind:selectedNode={selectedJobStep}
-	bind:localDurationStatuses
-	{onStart}
-	{onDone}
-	bind:job
-	{initialJob}
-	{jobId}
-	{workspaceId}
-	{isOwner}
-	{wideResults}
-	bind:rightColumnSelect
-	{render}
-	{customUi}
-	graphTabOpen={true}
-	isNodeSelected={true}
-	{refreshGlobal}
-	{updateGlobalRefresh}
-	toolCallStore={{
-		getStoredToolCallJob: (storeKey: string) => storedToolCallJobs[storeKey],
-		setStoredToolCallJob: (storeKey: string, job: Job) => {
-			storedToolCallJobs[storeKey] = job
-		},
-		getLocalToolCallJobs: (prefix: string) => {
-			// we return a map from tool call index to job
-			// to do so, we filter the storedToolCallJobs object by the prefix and we make sure what's left in the key is a tool call index: 2 part of format agentModuleId-toolCallIndex
-			// and not a further nested tool call index
-			return Object.fromEntries(
-				Object.entries(storedToolCallJobs)
-					.filter(
-						([key]) => key.startsWith(prefix) && key.replace(prefix, '').split('-').length === 2
-					)
-					.map(([key, job]) => [Number(key.replace(prefix, '').split('-').pop()), job])
-			)
-		},
-		isToolCallToBeLoaded: (storeKey: string) => {
-			return toolCallIndicesToLoad.includes(storeKey)
-		},
-		addToolCallToLoad: (storeKey: string) => {
-			if (!toolCallIndicesToLoad.includes(storeKey)) {
-				toolCallIndicesToLoad.push(storeKey)
+{#key jobId}
+	<FlowStatusViewerInner
+		{hideFlowResult}
+		onJobsLoaded={({ job, force }) => {
+			if (job.script_path != lastScriptPath && job.script_path) {
+				lastScriptPath = job.script_path
+				loadOwner(lastScriptPath ?? '')
 			}
-		}
-	}}
-/>
+			onJobsLoaded?.({ job, force })
+		}}
+		globalModuleStates={[]}
+		{globalIterationBounds}
+		bind:localModuleStates
+		bind:selectedNode={selectedJobStep}
+		bind:localDurationStatuses
+		{onStart}
+		{onDone}
+		bind:job
+		{initialJob}
+		{jobId}
+		{workspaceId}
+		{isOwner}
+		{wideResults}
+		bind:rightColumnSelect
+		{render}
+		{customUi}
+		graphTabOpen={true}
+		isNodeSelected={true}
+		{refreshGlobal}
+		{updateGlobalRefresh}
+		toolCallStore={{
+			getStoredToolCallJob: (storeKey: string) => storedToolCallJobs[storeKey],
+			setStoredToolCallJob: (storeKey: string, job: Job) => {
+				storedToolCallJobs[storeKey] = job
+			},
+			getLocalToolCallJobs: (prefix: string) => {
+				// we return a map from tool call index to job
+				// to do so, we filter the storedToolCallJobs object by the prefix and we make sure what's left in the key is a tool call index: 2 part of format agentModuleId-toolCallIndex
+				// and not a further nested tool call index
+				return Object.fromEntries(
+					Object.entries(storedToolCallJobs)
+						.filter(
+							([key]) => key.startsWith(prefix) && key.replace(prefix, '').split('-').length === 2
+						)
+						.map(([key, job]) => [Number(key.replace(prefix, '').split('-').pop()), job])
+				)
+			},
+			isToolCallToBeLoaded: (storeKey: string) => {
+				return toolCallIndicesToLoad.includes(storeKey)
+			},
+			addToolCallToLoad: (storeKey: string) => {
+				if (!toolCallIndicesToLoad.includes(storeKey)) {
+					toolCallIndicesToLoad.push(storeKey)
+				}
+			}
+		}}
+	/>
+{/key}
