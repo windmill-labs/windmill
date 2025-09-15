@@ -145,20 +145,16 @@ async function deleteWorkspaceFork(
   opts: GlobalOptions & {
     yes?: boolean;
   },
-  silent: boolean,
   name: string,
 ) {
-
   const orgWorkspaces = await allWorkspaces(opts.configDir);
   const idxOf = orgWorkspaces.findIndex((x) => x.name === name) ;
   if (idxOf === -1) {
-    if (!silent) {
       log.info(
         colors.red.bold(`! Workspace profile ${name} does not exist locally`)
       );
       log.info("available workspace profiles:");
       await list(opts);
-    }
     return;
   }
 
@@ -198,7 +194,7 @@ async function deleteWorkspaceFork(
   log.info(
     colors.green(`✅ Forked workspace '${workspace.workspaceId}' deleted successfully!\n${result}`),
   );
-  await removeWorkspace(name, silent, opts);
+  await removeWorkspace(name, false, opts);
 }
 
 export { createWorkspaceFork, deleteWorkspaceFork };

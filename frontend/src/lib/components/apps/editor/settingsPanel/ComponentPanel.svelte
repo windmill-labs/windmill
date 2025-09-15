@@ -177,7 +177,7 @@
 		}
 	}
 
-	let templateChangeTimeout: NodeJS.Timeout | undefined = undefined
+	let templateChangeTimeout: number | undefined = undefined
 	function onTemplateChange(e: CustomEvent<{ code: string }>) {
 		const currentItem = item
 		if (currentItem.data.componentInput?.type === 'templatev2') {

@@ -58,7 +58,7 @@
 		return searchOpen && search ? keepByKeyOrValue(json, search) : json
 	}
 
-	let searchTimeout: NodeJS.Timeout | undefined = undefined
+	let searchTimeout: number | undefined = undefined
 	function onSearch() {
 		if (searchTimeout) {
 			clearTimeout(searchTimeout)
