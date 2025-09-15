@@ -31,7 +31,7 @@
 	})
 </script>
 
-<span class={$$props.class} use:melt={$trigger}>
+<span class={$$props.class} style={$$props.style} use:melt={$trigger}>
 	<slot />
 </span>
 {#if !$$slots.default}

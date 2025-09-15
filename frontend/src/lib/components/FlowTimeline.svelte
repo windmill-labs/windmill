@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { debounce, displayDate, msToSec, readFieldsRecursively } from '$lib/utils'
-	import { onDestroy, untrack } from 'svelte'
-	import { getDbClockNow } from '$lib/forLater'
+	import { displayDate, msToSec } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { GlobalIterationBounds } from './graph'
+	import { TimelineCompute } from '$lib/timelineCompute.svelte'
+	import { onMount } from 'svelte'
+	import OnChange from './common/OnChange.svelte'
 
 	interface Props {
 		selfWaitTime?: number | undefined
@@ -34,107 +35,34 @@
 		globalIterationBounds
 	}: Props = $props()
 
-	let min: undefined | number = $state(undefined)
-	let max: undefined | number = $state(undefined)
-	let total: number | undefined = $state(undefined)
+	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
 
-	let items:
-		| Record<
-				string,
-				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
-		  >
-		| undefined = $state(undefined)
-
-	let { debounced, clearDebounce } = debounce(() => computeItems(durationStatuses), 30)
-	$effect(() => {
-		readFieldsRecursively(durationStatuses)
-		flowDone != undefined && durationStatuses && untrack(() => debounced())
+	// Initialize timeline compute when we have duration statuses
+	onMount(() => {
+		timelineCompute = new TimelineCompute(flowModules, durationStatuses, flowDone)
+		return () => {
+			timelineCompute?.destroy()
+		}
 	})
+
+	// Derived timeline values
+	const min = $derived(timelineCompute?.min ?? undefined)
+	const max = $derived(timelineCompute?.max ?? undefined)
+	const total = $derived(timelineCompute?.total ?? undefined)
+	const items = $derived(timelineCompute?.items ?? undefined)
+	const now = $derived(timelineCompute?.now ?? Date.now())
 
 	export function reset() {
-		min = undefined
-		max = undefined
-		items = computeItems(durationStatuses)
+		timelineCompute?.reset()
 	}
-
-	function computeItems(
-		durationStatuses: Record<
-			string,
-			{
-				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-			}
-		>
-	): any {
-		let nmin: undefined | number = undefined
-		let nmax: undefined | number = undefined
-
-		let isStillRunning = false
-
-		let cnt = 0
-		let nitems = {}
-		Object.entries(durationStatuses).forEach(([k, o]) => {
-			Object.values(o.byJob).forEach((v) => {
-				cnt++
-				if (v.started_at) {
-					if (!nmin) {
-						nmin = v.started_at
-					} else {
-						nmin = Math.min(nmin, v.started_at)
-					}
-				}
-				if (!flowDone && v.duration_ms == undefined) {
-					isStillRunning = true
-				}
-
-				if (!isStillRunning) {
-					if (v.started_at && v.duration_ms != undefined) {
-						let lmax = v.started_at + v.duration_ms
-						if (!nmax) {
-							nmax = lmax
-						} else {
-							nmax = Math.max(nmax, lmax)
-						}
-					}
-				}
-			})
-			let arr = Object.entries(o.byJob).map(([k, v]) => ({ ...v, id: k }))
-			arr.sort((x, y) => {
-				if (!x.started_at) {
-					return -1
-				} else if (!y.started_at) {
-					return 1
-				} else {
-					return x.started_at - y.started_at
-				}
-			})
-
-			nitems[k] = arr
-		})
-		items = nitems
-		min = nmin
-		max = isStillRunning || (cnt < flowModules.length && !flowDone) ? undefined : nmax
-		if (max && min) {
-			total = max - min
-			total = Math.max(total, 2000)
-		}
-	}
-
-	let now = $state(getDbClockNow().getTime())
-
-	let interval = setInterval((x) => {
-		if (!max) {
-			now = getDbClockNow().getTime()
-		}
-		if (min && (!max || total == undefined)) {
-			total = max ? max - min : Math.max(now - min, 2000)
-		}
-	}, 30)
-
-	onDestroy(() => {
-		interval && clearInterval(interval)
-		clearDebounce()
-	})
 </script>
+
+<OnChange
+	key={durationStatuses}
+	onChange={() => {
+		timelineCompute?.updateInputs(flowModules, durationStatuses, flowDone)
+	}}
+/>
 
 {#if items}
 	<div class="divide-y border-b">

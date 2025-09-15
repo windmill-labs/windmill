@@ -1,32 +1,40 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import type { GraphModuleState } from './graph'
+	import type { DurationStatus, GlobalIterationBounds, GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-	import { untrack } from 'svelte'
+	import { TimelineCompute } from '$lib/timelineCompute.svelte'
+	import { onMount, untrack } from 'svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import type { NavigationChain } from '$lib/keyboardChain'
+	import OnChange from './common/OnChange.svelte'
 
 	interface Props {
 		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
+		localDurationStatuses?: Record<string, DurationStatus>
+		globalIterationBounds?: Record<string, GlobalIterationBounds>
 		workspaceId: string | undefined
 		render: boolean
-		onSelectedIteration: (
+		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
 		mode?: 'flow' | 'aiagent'
+		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 
 	let {
 		job,
 		localModuleStates,
+		localDurationStatuses,
 		workspaceId,
 		render,
 		onSelectedIteration,
-		mode = 'flow'
+		mode = 'flow',
+		globalIterationBounds,
+		loadPreviousIterations
 	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
@@ -37,6 +45,26 @@
 	// Keyboard navigation state - incremental like expandedRows
 	let currentId = $state<string | null>('flow-root')
 	let navigationChain = $state<NavigationChain>({})
+
+	// Timeline state
+	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
+
+	onMount(() => {
+		timelineCompute = new TimelineCompute(
+			modules.map((m) => m.id),
+			localDurationStatuses ?? {},
+			job.type === 'CompletedJob'
+		)
+		return () => {
+			timelineCompute?.destroy()
+		}
+	})
+
+	// Derived timeline values
+	const timelineMin = $derived(timelineCompute?.min ?? undefined)
+	const timelineTotal = $derived(timelineCompute?.total ?? undefined)
+	const timelineItems = $derived(timelineCompute?.items ?? undefined)
+	const timelineNow = $derived(timelineCompute?.now ?? Date.now())
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
@@ -97,7 +125,44 @@
 	function select(id: string) {
 		currentId = id
 	}
+
+	let timelineAvailableWidths = $state<Record<string, number>>({})
+	let lastJobId: string | undefined = $state(job.id)
+
+	const timelinelWidth = $derived.by(() => {
+		const widths = Object.values(timelineAvailableWidths)
+		return widths.length > 0 ? Math.max(Math.min(...widths) - 12, 0) : 0
+	})
+
+	function updateJobId() {
+		if (job.id !== lastJobId) {
+			lastJobId = job.id
+			navigationChain = {}
+			timelineAvailableWidths = {}
+			currentId = 'flow-root'
+			showResultsInputs = true
+			timelineCompute?.reset()
+		}
+	}
+
+	$effect.pre(() => {
+		job.id
+		untrack(() => {
+			job.id && updateJobId()
+		})
+	})
 </script>
+
+<OnChange
+	key={localDurationStatuses}
+	onChange={() => {
+		timelineCompute?.updateInputs(
+			modules.map((m) => m.id),
+			localDurationStatuses ?? {},
+			job.type === 'CompletedJob'
+		)
+	}}
+/>
 
 <div
 	class="w-full rounded-md overflow-hidden border focus:border-gray-400 dark:focus:border-gray-400"
@@ -119,10 +184,17 @@
 		{render}
 		{getSelectedIteration}
 		flowId="root"
-		flowStatus={undefined}
 		{mode}
 		{currentId}
 		bind:navigationChain
 		{select}
+		{timelineMin}
+		{timelineTotal}
+		{timelineItems}
+		{timelineNow}
+		bind:timelineAvailableWidths
+		{timelinelWidth}
+		{globalIterationBounds}
+		{loadPreviousIterations}
 	/>
 </div>

@@ -14,7 +14,7 @@
 		flowJobsSuccess: (boolean | undefined)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
-		onSelectedIteration: onSelectedIteration
+		onSelectedIteration?: onSelectedIteration
 		showIcon?: boolean
 	}
 
@@ -39,7 +39,7 @@
 			filter > 0
 		) {
 			event.preventDefault()
-			onSelectedIteration({
+			onSelectedIteration?.({
 				index: filter - 1,
 				id: flowJobs[filter - 1],
 				manuallySet: true,
@@ -84,7 +84,7 @@
 			onmouseleave={() => (buttonHover = false)}
 			onclick={(e) => {
 				buttonHover = false
-				onSelectedIteration({ manuallySet: false, moduleId: moduleId })
+				onSelectedIteration?.({ manuallySet: false, moduleId: moduleId })
 			}}
 		>
 			{#if buttonHover}
@@ -155,7 +155,7 @@
 												items[idx].index == selected ? 'bg-surface-selected' : ''
 											)}
 											onClick={() => {
-												onSelectedIteration({
+												onSelectedIteration?.({
 													moduleId: moduleId,
 													index: items[idx].index,
 													id: items[idx].id,
