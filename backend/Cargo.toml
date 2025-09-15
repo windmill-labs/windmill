@@ -206,6 +206,7 @@ tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.10"
+#stuck because of swc for now
 serde = "=1.0.219"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
