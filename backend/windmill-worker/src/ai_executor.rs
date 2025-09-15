@@ -4,9 +4,6 @@ use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use ulid;
 use uuid::Uuid;
-
-#[cfg(feature = "benchmark")]
-use windmill_common::bench::BenchmarkIter;
 use windmill_common::{
     ai_providers::AIProvider,
     cache,
