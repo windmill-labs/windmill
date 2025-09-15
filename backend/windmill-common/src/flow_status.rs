@@ -111,6 +111,12 @@ pub struct FlowCleanupModule {
     pub flow_jobs_to_clean: Vec<Uuid>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowJobsTimeline {
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub duration: i64,
+}
+
 #[derive(Deserialize)]
 struct UntaggedFlowStatusModule {
     #[serde(rename = "type")]
@@ -122,6 +128,7 @@ struct UntaggedFlowStatusModule {
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
+    flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -167,6 +174,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -187,6 +196,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -206,6 +217,8 @@ pub enum FlowStatusModule {
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -260,6 +273,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 iterator: untagged.iterator,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
+                flow_jobs_timeline: untagged.flow_jobs_timeline,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -277,6 +291,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
+                flow_jobs_timeline: untagged.flow_jobs_timeline,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -293,6 +308,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
+                flow_jobs_timeline: untagged.flow_jobs_timeline,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -354,6 +370,15 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_timeline(&self) -> Option<Vec<Option<FlowJobsTimeline>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
+            FlowStatusModule::Success { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
+            FlowStatusModule::Failure { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
             _ => None,
         }
     }

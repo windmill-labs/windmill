@@ -37,7 +37,7 @@ use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult,
+    ApprovalConditions, FlowJobsTimeline, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -508,6 +508,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 parallel,
                 flow_jobs: Some(jobs),
                 flow_jobs_success,
+                flow_jobs_timeline,
                 ..
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
@@ -625,6 +626,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                             }
                         }
                     }
+                    let mut flow_jobs_timeline = flow_jobs_timeline.clone();
+                    if let Some(flow_jobs_timeline) = flow_jobs_timeline.as_mut() {
+                        let position = jobs.iter().position(|x| x == job_id_for_status);
+                        if let Some(position) = position {
+                            if position < flow_jobs_timeline.len() {
+                                flow_jobs_timeline[position] = Some(FlowJobsTimeline { started_at: chrono::Utc::now(), duration: 0 });
+                            }
+                        }
+                    }
 
                     let branches = current_module
                         .and_then(|x| x.get_branches_skip_failures().ok())
@@ -698,6 +708,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              job: job_id_for_status.clone(),
                              flow_jobs: Some(jobs.clone()),
                              flow_jobs_success: flow_jobs_success.clone(),
+                             flow_jobs_timeline: flow_jobs_timeline.clone(),
                              branch_chosen: None,
                              approvers: vec![],
                              failed_retries: vec![],
@@ -712,6 +723,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              job: job_id_for_status.clone(),
                              flow_jobs: Some(jobs.clone()),
                              flow_jobs_success: flow_jobs_success.clone(),
+                             flow_jobs_timeline: flow_jobs_timeline.clone(),
                              branch_chosen: None,
                              failed_retries: vec![],
                              agent_actions: None,
@@ -912,6 +924,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: job_id_for_status.clone(),
                             flow_jobs,
                             flow_jobs_success,
+                            flow_jobs_timeline,
                             branch_chosen,
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
