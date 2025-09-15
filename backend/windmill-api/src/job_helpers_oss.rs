@@ -5,8 +5,6 @@ pub use crate::job_helpers_ee::*;
 #[cfg(not(feature = "private"))]
 use axum::Router;
 #[cfg(not(feature = "private"))]
-use serde::Serialize;
-#[cfg(not(feature = "private"))]
 use uuid::Uuid;
 #[cfg(not(feature = "private"))]
 use windmill_common::s3_helpers::StorageResourceType;
@@ -31,12 +29,6 @@ use futures::Stream;
 use axum::response::Response;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use serde::Deserialize;
-
-#[derive(Serialize)]
-#[cfg(not(feature = "private"))]
-pub struct UploadFileResponse {
-    pub file_key: String,
-}
 
 #[derive(Deserialize)]
 #[cfg(not(feature = "private"))]
