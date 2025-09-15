@@ -3,7 +3,7 @@ use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
 
 use crate::ai::{
     providers::{
-        anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
+        google_ai::GoogleAIQueryBuilder,
         openai::{OpenAIQueryBuilder, OpenAIRequest, OpenAIResponse, OpenAIToolCall}, 
         openrouter::OpenRouterQueryBuilder,
     },
@@ -65,78 +65,9 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     use windmill_common::ai_providers::AIProvider;
 
     match provider.kind {
-        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new()),
-        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new()),
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
-        _ => Box::new(DefaultQueryBuilder::new()), // Fallback for other providers
+        _ => Box::new(OpenAIQueryBuilder::new()), // Use OpenAI as default for all other providers
     }
 }
 
-// Default implementation that follows OpenAI API format
-pub struct DefaultQueryBuilder;
-
-impl DefaultQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl QueryBuilder for DefaultQueryBuilder {
-    fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool {
-        matches!(output_type, OutputType::Text)
-    }
-
-    async fn build_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        _client: &AuthedClient,
-        _workspace_id: &str,
-    ) -> Result<String, Error> {
-        let request = OpenAIRequest {
-            model: args.model,
-            messages: args.messages,
-            tools: args.tools,
-            temperature: args.temperature,
-            max_completion_tokens: args.max_tokens,
-            response_format: None,
-        };
-
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
-    }
-
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        let openai_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to parse response: {}", e)))?;
-
-        let first_choice = openai_response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::internal_err("No response from API"))?;
-
-        Ok(ParsedResponse::Text {
-            content: first_choice.message.content.map(|c| match c {
-                OpenAIContent::Text(text) => text,
-                OpenAIContent::Parts(_) => String::new(), // For simplicity in default impl
-            }),
-            tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
-        })
-    }
-
-    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/chat/completions", base_url)
-    }
-
-    fn get_auth_headers(
-        &self,
-        api_key: &str,
-        _output_type: &OutputType,
-    ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
-    }
-}
