@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { displayDate, msToSec } from '$lib/utils'
-	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { GlobalIterationBounds } from './graph'
-	import FlowTimelineCompute from './FlowTimelineCompute.svelte'
+	import { TimelineCompute } from '$lib/timelineCompute.svelte'
+	import { onMount } from 'svelte'
+	import OnChange from './common/OnChange.svelte'
 
 	interface Props {
 		selfWaitTime?: number | undefined
@@ -34,33 +35,33 @@
 		globalIterationBounds
 	}: Props = $props()
 
-	let min: undefined | number = $state(undefined)
-	let max: undefined | number = $state(undefined)
-	let total: number | undefined = $state(undefined)
-	let items:
-		| Record<
-				string,
-				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
-		  >
-		| undefined = $state(undefined)
-	let now = $state(getDbClockNow().getTime())
-	let flowTimelineCompute = $state<FlowTimelineCompute | undefined>(undefined)
+	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
+
+	// Initialize timeline compute when we have duration statuses
+	onMount(() => {
+		timelineCompute = new TimelineCompute(flowModules, durationStatuses, flowDone)
+		return () => {
+			timelineCompute?.destroy()
+		}
+	})
+
+	// Derived timeline values
+	const min = $derived(timelineCompute?.min ?? undefined)
+	const max = $derived(timelineCompute?.max ?? undefined)
+	const total = $derived(timelineCompute?.total ?? undefined)
+	const items = $derived(timelineCompute?.items ?? undefined)
+	const now = $derived(timelineCompute?.now ?? Date.now())
 
 	export function reset() {
-		flowTimelineCompute?.reset()
+		timelineCompute?.reset()
 	}
 </script>
 
-<FlowTimelineCompute
-	{flowModules}
-	{durationStatuses}
-	{flowDone}
-	bind:min
-	bind:max
-	bind:total
-	bind:items
-	bind:now
-	bind:this={flowTimelineCompute}
+<OnChange
+	key={durationStatuses}
+	onChange={() => {
+		timelineCompute?.updateInputs(flowModules, durationStatuses, flowDone)
+	}}
 />
 
 {#if items}

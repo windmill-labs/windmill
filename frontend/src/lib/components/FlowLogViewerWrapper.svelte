@@ -2,12 +2,12 @@
 	import type { Job } from '$lib/gen'
 	import type { DurationStatus, GlobalIterationBounds, GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
-	import FlowTimelineCompute from './FlowTimelineCompute.svelte'
-	import { untrack } from 'svelte'
+	import { TimelineCompute } from '$lib/timelineCompute.svelte'
+	import { onMount, untrack } from 'svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import type { NavigationChain } from '$lib/keyboardChain'
-	import { getDbClockNow } from '$lib/forLater'
+	import OnChange from './common/OnChange.svelte'
 
 	interface Props {
 		job: Partial<Job>
@@ -47,18 +47,24 @@
 	let navigationChain = $state<NavigationChain>({})
 
 	// Timeline state
-	let timelineCompute = $state<FlowTimelineCompute | undefined>(undefined)
-	let timelineMin = $state<number | undefined>(undefined)
-	let timelineMax = $state<number | undefined>(undefined)
-	let timelineTotal = $state<number | undefined>(undefined)
-	let timelineItems = $state<
-		| Record<
-				string,
-				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
-		  >
-		| undefined
-	>(undefined)
-	let timelineNow = $state<number>(getDbClockNow().getTime())
+	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
+
+	onMount(() => {
+		timelineCompute = new TimelineCompute(
+			modules.map((m) => m.id),
+			localDurationStatuses ?? {},
+			job.type === 'CompletedJob'
+		)
+		return () => {
+			timelineCompute?.destroy()
+		}
+	})
+
+	// Derived timeline values
+	const timelineMin = $derived(timelineCompute?.min ?? undefined)
+	const timelineTotal = $derived(timelineCompute?.total ?? undefined)
+	const timelineItems = $derived(timelineCompute?.items ?? undefined)
+	const timelineNow = $derived(timelineCompute?.now ?? Date.now())
 
 	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
 	$effect(() => {
@@ -147,25 +153,23 @@
 	})
 </script>
 
+<OnChange
+	key={localDurationStatuses}
+	onChange={() => {
+		timelineCompute?.updateInputs(
+			modules.map((m) => m.id),
+			localDurationStatuses ?? {},
+			job.type === 'CompletedJob'
+		)
+	}}
+/>
+
 <div
 	class="w-full rounded-md overflow-hidden border focus:border-gray-400 dark:focus:border-gray-400"
 	role="tree"
 	tabindex="0"
 	onkeydown={handleKeydown}
 >
-	{#if localDurationStatuses}
-		<FlowTimelineCompute
-			flowModules={modules.map((m) => m.id)}
-			durationStatuses={localDurationStatuses}
-			flowDone={job.type === 'CompletedJob'}
-			bind:min={timelineMin}
-			bind:max={timelineMax}
-			bind:total={timelineTotal}
-			bind:items={timelineItems}
-			bind:now={timelineNow}
-			bind:this={timelineCompute}
-		/>
-	{/if}
 	<FlowLogViewer
 		{modules}
 		{localModuleStates}
