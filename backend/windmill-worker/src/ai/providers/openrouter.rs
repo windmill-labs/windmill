@@ -1,12 +1,70 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
-    providers::openai::OpenAIQueryBuilder,
+    providers::openai::{OpenAIQueryBuilder, OpenAIResponse},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
 };
+
+// OpenRouter-specific types
+#[derive(Serialize)]
+pub struct OpenRouterChatRequest<'a> {
+    pub model: &'a str,
+    pub messages: &'a [OpenAIMessage],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<&'a [ToolDef]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<Vec<&'a str>>,
+}
+
+// Legacy OpenRouter image structures (kept for compatibility)
+#[derive(Serialize)]
+pub struct OpenRouterImageRequest<'a> {
+    pub model: &'a str,
+    pub messages: Vec<OpenRouterImageMessage>,
+    pub modalities: Vec<&'a str>,
+}
+
+#[derive(Serialize)]
+pub struct OpenRouterImageMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Deserialize)]
+pub struct OpenRouterImageResponse {
+    pub choices: Vec<OpenRouterImageChoice>,
+}
+
+#[derive(Deserialize)]
+pub struct OpenRouterImageChoice {
+    pub message: OpenRouterImageResponseMessage,
+}
+
+#[derive(Deserialize)]
+pub struct OpenRouterImageResponseMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<OpenRouterImageData>>,
+}
+
+#[derive(Deserialize)]
+pub struct OpenRouterImageData {
+    pub image_url: OpenRouterImageUrl,
+}
+
+#[derive(Deserialize)]
+pub struct OpenRouterImageUrl {
+    pub url: String, // data:image/png;base64,... format
+}
 
 pub struct OpenRouterQueryBuilder {
     // OpenRouter uses OpenAI-compatible API, so we delegate most work to OpenAI builder

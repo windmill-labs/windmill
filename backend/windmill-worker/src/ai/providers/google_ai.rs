@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
@@ -7,6 +8,87 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
 };
+
+// Google AI/Gemini-specific types
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    pub data: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum GeminiPart {
+    Text { text: String },
+    InlineData { inline_data: GeminiInlineData },
+    FunctionCall { function_call: GeminiFunctionCall },
+    FunctionResponse { function_response: GeminiFunctionResponse },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GeminiFunctionCall {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GeminiFunctionResponse {
+    pub name: String,
+    pub response: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct GeminiContent {
+    pub parts: Vec<GeminiPart>,
+}
+
+#[derive(Serialize)]
+pub struct GeminiImageRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contents: Option<Vec<GeminiContent>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instances: Option<Vec<GeminiPredictContent>>,
+}
+
+#[derive(Serialize)]
+pub struct GeminiPredictContent {
+    pub prompt: String,
+}
+
+#[derive(Deserialize)]
+pub struct GeminiImageResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<GeminiCandidate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predictions: Option<Vec<GeminiPredictCandidate>>,
+}
+
+#[derive(Deserialize)]
+pub struct GeminiCandidate {
+    pub content: GeminiResponseContent,
+}
+
+#[derive(Deserialize)]
+pub struct GeminiPredictCandidate {
+    #[serde(rename = "bytesBase64Encoded")]
+    pub bytes_base64_encoded: String, // base64 encoded image
+}
+
+#[derive(Deserialize)]
+pub struct GeminiResponseContent {
+    pub parts: Vec<GeminiResponsePart>,
+}
+
+#[derive(Deserialize)]
+pub struct GeminiResponsePart {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
+    pub inline_data: Option<GeminiInlineData>,
+    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<GeminiFunctionCall>,
+}
 
 pub struct GoogleAIQueryBuilder;
 

@@ -4,7 +4,8 @@ use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
 use crate::ai::{
     providers::{
         anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
-        openai::OpenAIQueryBuilder, openrouter::OpenRouterQueryBuilder,
+        openai::{OpenAIQueryBuilder, OpenAIRequest, OpenAIResponse, OpenAIToolCall}, 
+        openrouter::OpenRouterQueryBuilder,
     },
     types::*,
 };

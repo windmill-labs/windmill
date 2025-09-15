@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
@@ -7,6 +8,89 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::*,
 };
+
+// OpenAI-specific types
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct OpenAIFunction {
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct OpenAIToolCall {
+    pub id: String,
+    pub function: OpenAIFunction,
+    pub r#type: String,
+}
+
+#[derive(Deserialize)]
+pub struct OpenAIChoice {
+    pub message: OpenAIMessage,
+}
+
+#[derive(Deserialize)]
+pub struct OpenAIResponse {
+    pub choices: Vec<OpenAIChoice>,
+}
+
+#[derive(Serialize)]
+pub struct ImageGenerationTool {
+    pub r#type: String,
+    pub quality: Option<String>,
+    pub background: Option<String>,
+}
+
+// Input content for image generation - supports both text and images
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImageGenerationContent {
+    #[serde(rename = "input_text")]
+    InputText { text: String },
+    #[serde(rename = "input_image")]
+    InputImage { image_url: String },
+}
+
+#[derive(Serialize)]
+pub struct ImageGenerationMessage {
+    pub role: String,
+    pub content: Vec<ImageGenerationContent>,
+}
+
+#[derive(Serialize)]
+pub struct ImageGenerationRequest<'a> {
+    pub model: &'a str,
+    pub input: Vec<ImageGenerationMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<&'a str>,
+    pub tools: Vec<ImageGenerationTool>,
+}
+
+#[derive(Deserialize)]
+pub struct OpenAIImageResponse {
+    pub output: Vec<OpenAIImageOutput>,
+}
+
+#[derive(Deserialize)]
+pub struct OpenAIImageOutput {
+    pub r#type: String, // Expected to be "image_generation_call"
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>, // Base64 encoded image, None if not completed
+}
+
+#[derive(Serialize)]
+pub struct OpenAIRequest<'a> {
+    pub model: &'a str,
+    pub messages: &'a [OpenAIMessage],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<&'a [ToolDef]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
+}
 
 pub struct OpenAIQueryBuilder;
 
