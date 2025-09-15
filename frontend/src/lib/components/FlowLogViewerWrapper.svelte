@@ -123,9 +123,10 @@
 	let timelineAvailableWidths = $state<Record<string, number>>({})
 	let lastJobId: string | undefined = $state(job.id)
 
-	const timelinelWidth = $derived(
-		Math.max(Math.min(...Object.values(timelineAvailableWidths)) - 12, 0)
-	)
+	const timelinelWidth = $derived.by(() => {
+		const widths = Object.values(timelineAvailableWidths)
+		return widths.length > 0 ? Math.max(Math.min(...widths) - 12, 0) : 0
+	})
 
 	function updateJobId() {
 		if (job.id !== lastJobId) {
