@@ -126,14 +126,16 @@ impl OpenAIQueryBuilder {
         let mut content =
             vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }];
 
-        // Add image if provided
-        if let Some(image) = args.image {
-            if !image.s3.is_empty() {
-                let (mime_type, image_bytes) =
-                    download_and_encode_s3_image(image, client, workspace_id).await?;
-                content.push(ImageGenerationContent::InputImage {
-                    image_url: format!("data:{};base64,{}", mime_type, image_bytes),
-                });
+        // Add images if provided
+        if let Some(images) = args.images {
+            for image in images.iter() {
+                if !image.s3.is_empty() {
+                    let (mime_type, image_bytes) =
+                        download_and_encode_s3_image(image, client, workspace_id).await?;
+                    content.push(ImageGenerationContent::InputImage {
+                        image_url: format!("data:{};base64,{}", mime_type, image_bytes),
+                    });
+                }
             }
         }
 

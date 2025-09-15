@@ -42,14 +42,19 @@ impl GoogleAIQueryBuilder {
                 );
             }
 
-            // Add input image if provided
-            if let Some(image) = args.image {
-                if !image.s3.is_empty() {
-                    let (mime_type, image_bytes) =
-                        download_and_encode_s3_image(image, client, workspace_id).await?;
-                    parts.push(GeminiPart::InlineData {
-                        inline_data: GeminiInlineData { mime_type: mime_type, data: image_bytes },
-                    });
+            // Add input images if provided
+            if let Some(images) = args.images {
+                for image in images.iter() {
+                    if !image.s3.is_empty() {
+                        let (mime_type, image_bytes) =
+                            download_and_encode_s3_image(image, client, workspace_id).await?;
+                        parts.push(GeminiPart::InlineData {
+                            inline_data: GeminiInlineData {
+                                mime_type: mime_type,
+                                data: image_bytes,
+                            },
+                        });
+                    }
                 }
             }
 

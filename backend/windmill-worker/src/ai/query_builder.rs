@@ -20,7 +20,7 @@ pub struct BuildRequestArgs<'a> {
     pub output_type: &'a OutputType,
     pub system_prompt: Option<&'a str>,
     pub user_message: &'a str,
-    pub image: Option<&'a S3Object>,
+    pub images: Option<&'a [S3Object]>,
     pub api_key: &'a str,
     pub base_url: &'a str,
 }

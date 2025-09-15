@@ -2,11 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::{
-    ai_providers::AIProvider,
-    db::DB,
-    error::Error,
-    flow_status::AgentAction,
-    flows::FlowModule,
+    ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
@@ -337,7 +333,7 @@ pub struct AIAgentArgs {
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
-    pub image: Option<S3Object>,
+    pub images: Option<Vec<S3Object>>,
 }
 
 #[derive(Deserialize, Debug)]

@@ -109,6 +109,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'user_message',
 				'system_prompt',
 				'max_completion_tokens',
+				'images',
 				'temperature',
 				'output_schema'
 			]

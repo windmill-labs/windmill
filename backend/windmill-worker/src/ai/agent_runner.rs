@@ -167,15 +167,18 @@ pub async fn run_agent_unified(
             vec![]
         };
 
-    // Create user message with optional image
-    let user_content = if let Some(image) = &args.image {
-        if !image.s3.is_empty() {
-            OpenAIContent::Parts(vec![
-                ContentPart::Text { text: args.user_message.clone() },
-                ContentPart::S3Object { s3_object: image.clone() },
-            ])
-        } else {
+    // Create user message with optional images
+    let user_content = if let Some(images) = &args.images {
+        let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
+        for image in images.iter() {
+            if !image.s3.is_empty() {
+                parts.push(ContentPart::S3Object { s3_object: image.clone() });
+            }
+        }
+        if parts.len() == 1 {
             OpenAIContent::Text(args.user_message.clone())
+        } else {
+            OpenAIContent::Parts(parts)
         }
     } else {
         OpenAIContent::Text(args.user_message.clone())
@@ -257,7 +260,7 @@ pub async fn run_agent_unified(
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: &args.user_message,
-                image: args.image.as_ref(),
+                images: args.images.as_deref(),
                 api_key,
                 base_url: &base_url,
             };
@@ -325,7 +328,7 @@ pub async fn run_agent_unified(
             output_type,
             system_prompt: args.system_prompt.as_deref(),
             user_message: &args.user_message,
-            image: args.image.as_ref(),
+            images: args.images.as_deref(),
             api_key,
             base_url: &base_url,
         };
