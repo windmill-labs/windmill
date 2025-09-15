@@ -71,9 +71,17 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				max_completion_tokens: {
 					type: 'number'
 				},
-				image: {
-					type: 'object',
-					format: 'resource-s3_object'
+				images: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							s3_object: {
+								type: 'object',
+								format: 'resource-s3_object'
+							}
+						}
+					}
 				},
 				temperature: {
 					type: 'number',
