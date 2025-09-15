@@ -40,12 +40,19 @@
 	let modelsCache = new Map<AIProvider, string[]>()
 
 	// Reactive items for the Select component
-	let items = $derived(
-		availableModels.map((model) => ({
+	let items = $derived.by(() => {
+		const r = availableModels.map((model) => ({
 			label: model,
 			value: model
 		}))
-	)
+		if (value?.model && !availableModels.find((model) => model === value.model)) {
+			r.push({
+				label: value.model,
+				value: value.model
+			})
+		}
+		return r
+	})
 
 	// Provider options for the toggle button group
 	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
@@ -187,6 +194,11 @@
 				bind:value={value.model}
 				placeholder="Select model"
 				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
+				onCreateItem={(r) => {
+					availableModels.push(r)
+					value.model = r
+				}}
+				createText="Press enter to use custom model"
 				{loading}
 				clearable={false}
 				noItemsMsg={'No models available'}

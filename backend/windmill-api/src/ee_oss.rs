@@ -11,10 +11,7 @@ use {crate::db::ApiAuthed, windmill_common::DB};
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
-use std::sync::Arc;
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
-use tokio::sync::RwLock;
-
+use {std::sync::Arc, tokio::sync::RwLock};
 #[cfg(not(feature = "private"))]
 pub async fn validate_license_key(_license_key: String) -> anyhow::Result<(String, bool)> {
     // Implementation is not open source

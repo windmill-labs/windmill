@@ -23,11 +23,11 @@
 	import { page } from '$app/state'
 	import { urlParamsToObject } from '$lib/utils'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
-	let notExists = false
-	let noPermission = false
+	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let notExists = $state(false)
+	let noPermission = $state(false)
 
-	let jwtError = false
+	let jwtError = $state(false)
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	function parseSecret(secret: string): { secret: string; jwt: string } {
