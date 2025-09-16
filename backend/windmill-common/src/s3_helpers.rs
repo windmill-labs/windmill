@@ -5,6 +5,7 @@ use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
 use chrono::{DateTime, Utc};
+use globset::{Glob, GlobMatcher};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -15,6 +16,7 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
+use quick_cache::sync::Cache;
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
 use serde::de::Visitor;
@@ -284,7 +286,7 @@ pub struct GoogleCloudStorage {
     pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct S3PermissionRule {
     pattern: String,
     allow: S3Permission, // read, write, delete, list
@@ -1211,11 +1213,27 @@ pub fn check_lfs_object_path_permissions(
     authed: &Authed,
     op: S3Permission,
 ) -> error::Result<()> {
+    let empty_rules = vec![];
+    let rules = lfs.get_advanced_permissions().unwrap_or(&empty_rules);
+
+    let compiled_rules = get_s3_permission_globs_for_authed(authed, &rules)?;
+    let compiled_rules = compiled_rules.lock().unwrap();
+    check_lfs_object_path_permissions_internal(lfs, path, authed, op, &compiled_rules)?;
+    Ok(())
+}
+
+pub fn check_lfs_object_path_permissions_internal(
+    lfs: &LargeFileStorage,
+    path: &str,
+    authed: &Authed,
+    op: S3Permission,
+    rules: &Vec<(S3PermissionRule, Vec<GlobMatcher>)>, // precomputed rules
+) -> error::Result<()> {
     if authed.is_admin || lfs.is_public_resource() {
         return Ok(());
     }
 
-    let Some(advanced_permissions) = lfs.get_advanced_permissions() else {
+    let Some(_) = lfs.get_advanced_permissions() else {
         // Legacy permissions behavior
         return (S3Permission::READ | S3Permission::WRITE | S3Permission::DELETE)
             .contains(op)
@@ -1227,8 +1245,8 @@ pub fn check_lfs_object_path_permissions(
             });
     };
 
-    for rule in advanced_permissions {
-        if match_s3_permission_pattern(&rule.pattern, path, authed)? {
+    for (rule, globs) in rules {
+        if globs.iter().any(|g| g.is_match(path)) {
             if rule.allow.contains(op) {
                 return Ok(()); // permission granted
             } else {
@@ -1244,131 +1262,84 @@ pub fn check_lfs_object_path_permissions(
     )));
 }
 
-// Checks that path matches rule like 'wm/private_{username}/**/* or 'wm/public/**'
-fn match_s3_permission_pattern(
-    mut rule: &str,
-    mut path: &str,
-    authed: &Authed,
-) -> error::Result<bool> {
-    use nom::bytes::complete::{tag, take_until, take_while};
-    let mut last_len = usize::MAX;
-    while !rule.is_empty() {
-        tracing::info!(
-            "match_s3_permission_pattern: rule: {}, path: {}",
-            rule,
-            path
-        );
-        if rule.len() >= last_len {
-            return Err(error::Error::InternalErr(format!(
-                "Infinite loop detected in match_s3_permission_pattern. rule: {}",
-                rule
-            )));
-        }
-        last_len = rule.len();
+lazy_static::lazy_static! {
+    // For every user (Authed), cache their S3PermissionRules and the corresponding compiled GlobMatchers
+    // TODO : Remove Vec<S3PermissionRule> from the key, and use invalidation
+    static ref S3_PERMISSION_GLOBS_CACHE: Cache<(Authed, Vec<S3PermissionRule>), Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>> = Cache::new(32);
+}
 
-        if let Ok((rule_rest, _)) = tag::<_, _, ()>("{username}")(rule) {
-            rule = rule_rest;
-            let Ok((path_rest, _)) = tag::<_, _, ()>(authed.username.as_str())(path) else {
-                return Ok(false);
-            };
-            path = path_rest;
-        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{group}")(rule) {
-            rule = rule_rest;
-            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
-            path = path_rest;
-            if !authed.groups.iter().any(|g| g == group) {
-                return Ok(false);
-            }
-        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{folder_write}")(rule) {
-            rule = rule_rest;
-            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
-            path = path_rest;
-            if !authed
-                .folders
-                .iter()
-                .any(|(f, f_can_write, f_is_owner)| f == group && (*f_can_write || *f_is_owner))
-            {
-                return Ok(false);
-            }
-        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{folder_read}")(rule) {
-            rule = rule_rest;
-            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
-            path = path_rest;
-            if !authed.folders.iter().any(|(f, _, _)| f == group) {
-                return Ok(false);
-            }
-        } else if rule.starts_with("{") {
-            return Err(error::Error::InternalErr(format!(
-                "Unknown placeholder in rule: {}}}",
-                take_until::<_, _, ()>("}")(rule).unwrap_or((rule, rule)).1
-            )));
-        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("**")(rule) {
-            if rule == "**/*" {
-                return Ok(true);
-            }
-            rule = rule_rest;
-            loop {
-                if match_s3_permission_pattern(rule, path, authed)? {
-                    tracing::info!(
-                        "match_s3_permission_pattern **/* true:            rule: {}, path: {}",
-                        rule,
-                        path
-                    );
-                    return Ok(true);
-                } else {
-                    // consume folder segments until pattern works
-                    path = path.trim_start_matches('/');
-                    let (path_rest, _) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
-                    path = path_rest;
-                    if path.is_empty() {
-                        return Ok(false);
-                    }
-                }
-            }
-        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("*")(rule) {
-            rule = rule_rest;
-            if rule.is_empty() {
-                // There is nothing after *, so * matches the last segment (file name, not folder)
-                return Ok(path.bytes().all(|c| c != b'/'));
-            } else if rule.starts_with('/') {
-                // * is a folder segment
-                let (path_rest, _) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
-                path = path_rest;
-            } else {
-                // Ensure loop termination : path must always get shorter
-                loop {
-                    if match_s3_permission_pattern(rule, path, authed)? {
-                        tracing::info!(
-                            "match_s3_permission_pattern * true:            rule: {}, path: {}",
-                            rule,
-                            path
-                        );
-                        return Ok(true);
-                    } else {
-                        if path.is_empty() {
-                            return Ok(false);
-                        }
-                        tracing::info!(
-                            "match_s3_permission_pattern * false:            rule: {}, path: {}",
-                            rule,
-                            path
-                        );
-                        path = &path[1..];
-                    }
-                }
-            }
-        } else {
-            let (rule_rest, rule_segment) =
-                take_while::<_, _, ()>(|c| c != '{' && c != '*')(rule).unwrap_or(("", rule));
-            rule = rule_rest;
-            if !path.starts_with(rule_segment) {
-                return Ok(false);
-            }
-            path = &path[rule_segment.len()..];
+pub fn get_s3_permission_globs_for_authed(
+    authed: &Authed,
+    rules: &Vec<S3PermissionRule>,
+) -> error::Result<Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>> {
+    if let Some(cached) = S3_PERMISSION_GLOBS_CACHE.get(&(authed.clone(), rules.clone())) {
+        return Ok(cached);
+    }
+
+    let mut compiled_rules = vec![];
+    for rule in rules {
+        let globs = s3_permission_pattern_to_globs(&rule.pattern, authed)?;
+        compiled_rules.push((rule.clone(), globs));
+    }
+    let compiled_rules = Arc::new(Mutex::new(compiled_rules));
+    S3_PERMISSION_GLOBS_CACHE.insert((authed.clone(), rules.clone()), compiled_rules.clone());
+    Ok(compiled_rules)
+}
+
+fn s3_permission_pattern_to_globs(rule: &str, authed: &Authed) -> error::Result<Vec<GlobMatcher>> {
+    let result = s3_permission_pattern_to_glob_strings(rule, authed)
+        .into_iter()
+        .map(|glob| {
+            Glob::new(&glob)
+                .map_err(|e| {
+                    error::Error::InternalErr(format!("Error parsing glob pattern: {}", e))
+                })
+                .map(|g| g.compile_matcher())
+        })
+        .collect::<error::Result<Vec<_>>>()?;
+    Ok(result)
+}
+
+// Eliminate all variables like {group}, {username} ... So that we are left with glob patterns
+fn s3_permission_pattern_to_glob_strings(rule: &str, authed: &Authed) -> Vec<String> {
+    // Doesn't support multiple different groups / folders in the same path for now
+
+    if rule.contains("{username}") {
+        return s3_permission_pattern_to_glob_strings(
+            &rule.replace("{username}", &authed.username),
+            authed,
+        );
+    }
+    if rule.contains("{group}") {
+        let mut results = vec![];
+        for group in &authed.groups {
+            let replaced = rule.replace("{group}", group);
+            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
+            results.extend(r);
         }
+        return results;
     }
-    if path.is_empty() {
-        return Ok(true);
+    if rule.contains("{folder_write}") {
+        let mut results = vec![];
+        for (folder, folder_can_write, folder_is_admin) in &authed.folders {
+            if !folder_can_write && !folder_is_admin {
+                continue;
+            }
+            let replaced = rule.replace("{folder_write}", folder);
+            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
+            results.extend(r);
+        }
+        return results;
     }
-    return Ok(false);
+    if rule.contains("{folder_read}") {
+        let mut results = vec![];
+        for (folder, _, _) in &authed.folders {
+            let replaced = rule.replace("{folder_read}", folder);
+            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
+            results.extend(r);
+        }
+        return results;
+    }
+
+    return vec![rule.to_string()];
 }
