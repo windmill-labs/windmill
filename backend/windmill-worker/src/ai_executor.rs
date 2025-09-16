@@ -14,7 +14,6 @@ use windmill_common::{
     flows::{FlowModuleValue, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
-    s3_helpers::S3Object,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
@@ -434,9 +433,8 @@ pub async fn run_agent(
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
-    if let Some(images) = &args.images {
-        for image_wrapper in images.iter() {
-            let image = &image_wrapper.s3_object;
+    if let Some(images) = &args.user_images {
+        for image in images.iter() {
             if !image.s3.is_empty() {
                 parts.push(ContentPart::S3Object { s3_object: image.clone() });
             }
@@ -509,22 +507,6 @@ pub async fn run_agent(
         }
 
         // For text output or image output with tools
-        // Extract S3Objects from ImageWrappers
-        let images_vec: Vec<S3Object> = args
-            .images
-            .as_ref()
-            .map(|imgs| {
-                imgs.iter()
-                    .map(|wrapper| wrapper.s3_object.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let images_slice = if images_vec.is_empty() {
-            None
-        } else {
-            Some(images_vec.as_slice())
-        };
-
         let build_args = BuildRequestArgs {
             messages: &messages,
             tools: tool_defs.as_deref(),
@@ -535,7 +517,7 @@ pub async fn run_agent(
             output_type,
             system_prompt: args.system_prompt.as_deref(),
             user_message: &args.user_message,
-            images: images_slice,
+            images: args.user_images.as_deref(),
         };
 
         let request_body = query_builder
