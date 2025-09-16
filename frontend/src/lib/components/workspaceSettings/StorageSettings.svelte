@@ -313,7 +313,7 @@
 	<Alert title="Standard Unix-style glob syntax is supported">
 		The following will be interpolated :
 		<ul class="list-disc pl-6">
-			<li><code>{'{user}'}</code> : Nickname of the user doing the request</li>
+			<li><code>{'{username}'}</code> : Nickname of the user doing the request</li>
 			<li><code>{'{group}'}</code> : Any group that the user belongs to</li>
 			<li><code>{'{folder_read}'}</code> : Any folder that the user has read access to</li>
 			<li><code>{'{folder_write}'}</code> : Any folder that the user has write access to</li>
