@@ -43,18 +43,22 @@
 
 	// Update target branch when repository changes
 	$effect(() => {
-		let cancelled = false
+		const abortController = new AbortController()
 
 		if (repo?.git_repo_resource_path) {
 			gitSyncContext.getTargetBranch(repo).then(branch => {
-				if (!cancelled) {
+				if (!abortController.signal.aborted) {
 					targetBranch = branch
+				}
+			}).catch(error => {
+				if (!abortController.signal.aborted) {
+					console.warn('Failed to get target branch:', error)
 				}
 			})
 		}
 
 		return () => {
-			cancelled = true
+			abortController.abort()
 		}
 	})
 

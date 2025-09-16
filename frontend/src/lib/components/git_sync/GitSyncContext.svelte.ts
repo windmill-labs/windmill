@@ -558,7 +558,6 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	// Helper methods for categorizing repositories
 	function getPrimarySyncRepository(): { repo: GitSyncRepository, idx: number } | null {
 		const idx = repositories.findIndex(r => !r.use_individual_branch)
 		return idx !== -1 ? { repo: repositories[idx], idx } : null
@@ -597,6 +596,13 @@ export function createGitSyncContext(workspace: string) {
 			}
 		})
 		return result
+	}
+
+	async function removeRepositoryByPath(resourcePath: string) {
+		const idx = repositories.findIndex(r => r.git_repo_resource_path === resourcePath)
+		if (idx !== -1) {
+			await removeRepository(idx)
+		}
 	}
 
 	function addSyncRepository() {
@@ -697,6 +703,7 @@ export function createGitSyncContext(workspace: string) {
 		addSyncRepository,
 		addPromotionRepository,
 		removeRepository,
+		removeRepositoryByPath,
 		getRepository,
 		getValidation,
 		revertRepository,

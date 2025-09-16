@@ -120,7 +120,7 @@
 										No secondary sync repositories configured
 									</div>
 								{:else}
-									{#each secondarySync as { idx }}
+									{#each secondarySync as { repo, idx } (repo.git_repo_resource_path)}
 										<div class="pl-4">
 											<GitSyncRepositoryCard
 												variant="secondary"
@@ -199,7 +199,7 @@
 
 					{#if legacyPromotionExpanded}
 						<div class="space-y-3 mt-3">
-							{#each legacyPromotion as { idx }}
+							{#each legacyPromotion as { repo, idx } (repo.git_repo_resource_path)}
 								<div class="pl-4">
 									<GitSyncRepositoryCard {idx} variant="legacy" isLegacy={true} />
 								</div>
