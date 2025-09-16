@@ -227,14 +227,14 @@
 {/if}
 
 {#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
-	<Popover closeOnOtherPopoverOpen>
+	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
 			<Button variant="border" btnClasses="px-2.5" color="dark" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>
 		<svelte:fragment slot="content">
-			<div class="flex flex-col gap-3 mx-4 pb-4 pt-5 min-w-[40rem]">
+			<div class="flex flex-col gap-3 mx-4 pb-4 pt-5 w-[48rem]">
 				<Toggle
 					bind:checked={
 						() => !!storage.advancedPermissions,
@@ -253,7 +253,7 @@
 				{/if}
 				{#if !storage.advancedPermissions}
 					{#if storage.resourceType == 's3'}
-						<div class="flex flex-col mt-2 mb-1 gap-1 max-w-[40rem]">
+						<div class="flex flex-col mt-2 mb-1 gap-1">
 							<Toggle
 								disabled={emptyString(storage.resourcePath)}
 								bind:checked={storage.publicResource}
@@ -318,10 +318,12 @@
 			<li><code>{'{folder_read}'}</code> : Any folder that the user has read access to</li>
 			<li><code>{'{folder_write}'}</code> : Any folder that the user has write access to</li>
 		</ul>
+		<br />
+		Note that changes may take up to 1 minute to propagate due to cache invalidation
 	</Alert>
 	{#each rules ?? [] as item, idx}
 		<div class="flex gap-2">
-			<ClearableInput bind:value={item.pattern} placeholder="Pattern" wrapperClass="w-[28rem]" />
+			<ClearableInput bind:value={item.pattern} placeholder="Pattern" />
 			<MultiSelect
 				items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
 				bind:value={item.allow}
