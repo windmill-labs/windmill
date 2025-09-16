@@ -43,6 +43,7 @@ use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
+use crate::triggers::trigger_helpers::ScriptId;
 use crate::{
     add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
@@ -172,21 +173,21 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/stream/f/*script_path",
-            post(stream_flow_by_path)
+            get(stream_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
             "/stream/p/*script_path",
-            post(stream_script_by_path)
+            get(stream_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
             "/stream/h/:hash",
-            post(stream_script_by_hash)
+            get(stream_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -5156,30 +5157,16 @@ pub async fn stream_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
-    let path = flow_path.to_path();
-
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_flow_path(path),
-            run_query.skip_preprocessor,
-        )
-        .await?;
-
-    let (uuid, _) = run_flow_by_path_inner(
-        authed.clone(),
-        db.clone(),
+    stream_job(
+        authed,
+        db,
         user_db,
-        w_id.clone(),
-        flow_path,
-        run_query,
+        w_id,
+        RunnableId::from_flow_path(flow_path.to_path()),
         args,
+        run_query,
     )
-    .await?;
-
-    stream_job(authed, db, w_id, uuid).await
+    .await
 }
 
 pub async fn stream_script_by_path(
@@ -5190,29 +5177,16 @@ pub async fn stream_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
-    let path = script_path.to_path();
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_script_path(path),
-            run_query.skip_preprocessor,
-        )
-        .await?;
-
-    let (uuid, _) = run_script_by_path_inner(
-        authed.clone(),
-        db.clone(),
-        user_db.clone(),
-        w_id.clone(),
-        script_path,
-        run_query,
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_script_path(script_path.to_path()),
         args,
+        run_query,
     )
-    .await?;
-
-    stream_job(authed, db, w_id, uuid).await
+    .await
 }
 
 pub async fn stream_script_by_hash(
@@ -5223,34 +5197,87 @@ pub async fn stream_script_by_hash(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_script_hash(script_hash),
-            run_query.skip_preprocessor,
-        )
-        .await?;
-    let (uuid, _) = run_job_by_hash_inner(
-        authed.clone(),
-        db.clone(),
-        user_db.clone(),
-        w_id.clone(),
-        script_hash,
-        run_query,
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_script_hash(script_hash),
         args,
+        run_query,
     )
-    .await?;
-    stream_job(authed, db, w_id, uuid).await
+    .await
 }
 
 pub async fn stream_job(
     authed: ApiAuthed,
     db: DB,
+    user_db: UserDB,
     w_id: String,
-    uuid: Uuid,
+    runnable_id: RunnableId,
+    args: RawWebhookArgs,
+    run_query: RunJobQuery,
 ) -> error::Result<Response> {
+    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
+    });
+
+    let payload_args = if let Some(payload) = payload_r {
+        payload?
+    } else {
+        HashMap::new()
+    };
+
+    let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+    args.body = args::Body::HashMap(payload_args);
+
+    let args = args
+        .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
+        .await?;
+
+    let uuid = match runnable_id {
+        RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
+        | RunnableId::HubScript(script_path) => {
+            run_script_by_path_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                StripPath(script_path),
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+        RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
+            run_job_by_hash_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                script_hash,
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+        RunnableId::FlowPath(flow_path) => {
+            run_flow_by_path_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                StripPath(flow_path),
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+    };
+
     let opt_authed = Some(authed.clone());
     let opt_tokened = OptTokened { token: None }; // ignored when authed is some
     let (tx, rx) = tokio::sync::mpsc::channel(32);

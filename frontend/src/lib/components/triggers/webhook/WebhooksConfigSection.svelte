@@ -55,13 +55,23 @@
 	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
-	let webhookType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync'
-	let requestType = $state(isFlow ? 'path' : 'path') as 'hash' | 'path' | 'get_path'
+	let webhookType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'stream'
+	let requestType = $state(isFlow ? 'path' : 'path') as 'hash' | 'path' | 'get_path' | 'get_hash'
 	let tokenType = $state('headers') as 'query' | 'headers'
 
 	$effect(() => {
 		if (webhookType === 'async' && requestType === 'get_path') {
 			requestType = hash ? 'hash' : 'path'
+		} else if (webhookType === 'stream' && (requestType === 'path' || requestType === 'hash')) {
+			requestType = requestType === 'path' ? 'get_path' : 'get_hash'
+		} else if (webhookType !== 'stream' && requestType === 'get_hash') {
+			requestType = 'hash'
+		}
+	})
+
+	$effect(() => {
+		if (webhookType === 'stream' && tokenType === 'headers') {
+			tokenType = 'query'
 		}
 	})
 
@@ -73,9 +83,9 @@
 	})
 	let url: string = $derived(
 		webhooks[webhookType][requestType] +
-			(tokenType === 'query'
+			(tokenType === 'query' || webhookType === 'stream'
 				? `?token=${token}${
-						requestType === 'get_path'
+						requestType === 'get_path' || webhookType === 'stream'
 							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 							: ''
 					}`
@@ -97,6 +107,10 @@
 				hash: `${webhookBase}/run_wait_result/h/${hash}`,
 				path: `${webhookBase}/run_wait_result/p/${path}`,
 				get_path: `${webhookBase}/run_wait_result/p/${path}`
+			},
+			stream: {
+				get_path: `${webhookBase}/stream/p/${path}`,
+				get_hash: `${webhookBase}/stream/h/${hash}`
 			}
 		}
 	}
@@ -113,6 +127,9 @@
 			sync: {
 				path: urlSync,
 				get_path: urlSync
+			},
+			stream: {
+				get_path: `${webhooksBase}/stream/f/${path}`
 			}
 		}
 	}
@@ -157,10 +174,35 @@ async function triggerJob() {
 		}
   });
 }`
-		}
+		} else if (webhookType === 'stream') {
+			return `
+import { EventSource } from "eventsource";
 
-		// Main function
-		let mainFunction = `
+export async function main() {
+	const endpoint = \`${url}\`;
+
+	return new Promise((resolve, reject) => {
+		const eventSource = new EventSource(endpoint);
+
+		eventSource.onmessage = (event) => {
+			const data = JSON.parse(event.data);
+			console.log(data);
+			if (data.completed) {
+				eventSource.close();
+				resolve(data.result);
+			}
+		};
+
+		eventSource.onerror = (error) => {
+			console.error('EventSource error:', error);
+			eventSource.close();
+			reject(error);
+		};
+	});
+}`
+		} else {
+			// Main function
+			let mainFunction = `
 export async function main() {
   const jobTriggerResponse = await triggerJob();
   const UUID = await jobTriggerResponse.text();
@@ -168,8 +210,8 @@ export async function main() {
   return jobCompletionData;
 }`
 
-		// triggerJob function
-		let triggerJobFunction = `
+			// triggerJob function
+			let triggerJobFunction = `
 async function triggerJob() {
   const body = JSON.stringify(${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2).replaceAll(
 		'\n',
@@ -184,8 +226,8 @@ async function triggerJob() {
   });
 }`
 
-		// waitForJobCompletion function
-		let waitForJobCompletionFunction = `
+			// waitForJobCompletion function
+			let waitForJobCompletionFunction = `
 function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -214,8 +256,9 @@ function waitForJobCompletion(UUID) {
   });
 }`
 
-		// Combine and return
-		return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
+			// Combine and return
+			return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
+		}
 	}
 
 	function curlCode() {
@@ -300,6 +343,15 @@ done`
 						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 						{item}
 					/>
+					<ToggleButton
+						label="Stream"
+						value="stream"
+						tooltip={'Triggers the execution and returns an SSE stream. ' +
+							(isFlow
+								? 'Only useful if the last step of the flow returns a stream.'
+								: 'Only useful if the script returns a stream.')}
+						{item}
+					/>
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
@@ -313,6 +365,7 @@ done`
 						icon={ArrowUpRight}
 						{item}
 						selectedColor="#fb923c"
+						disabled={webhookType === 'stream'}
 					/>
 					{#if !isFlow}
 						<ToggleButton
@@ -329,10 +382,20 @@ done`
 						label="GET by path"
 						value="get_path"
 						icon={ArrowDownRight}
-						disabled={webhookType !== 'sync'}
+						disabled={webhookType !== 'sync' && webhookType !== 'stream'}
 						{item}
 						selectedColor="#14b8a6"
 					/>
+					{#if !isFlow && webhookType === 'stream'}
+						<ToggleButton
+							label="GET by hash"
+							value="get_hash"
+							icon={ArrowDownRight}
+							{item}
+							disabled={!hash}
+							selectedColor="#14b8a6"
+						/>
+					{/if}
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
@@ -342,7 +405,12 @@ done`
 			>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
 				{#snippet children({ item })}
-					<ToggleButton label="Token in Headers" value="headers" {item} />
+					<ToggleButton
+						label="Token in Headers"
+						value="headers"
+						{item}
+						disabled={webhookType === 'stream'}
+					/>
 					<ToggleButton label="Token in Query" value="query" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
@@ -354,10 +422,12 @@ done`
 	<div>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="rest" size="xs">REST</Tab>
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && webhookType !== 'stream'}
 				<Tab value="curl" size="xs">Curl</Tab>
 			{/if}
-			<Tab value="fetch" size="xs">Fetch</Tab>
+			<Tab value="fetch" size="xs">
+				{webhookType === 'stream' ? 'Event Source' : 'Fetch'}
+			</Tab>
 
 			{#snippet content()}
 				{#key token}
