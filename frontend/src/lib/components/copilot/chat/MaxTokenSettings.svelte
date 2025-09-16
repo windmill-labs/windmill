@@ -6,6 +6,8 @@
 	import { getModelMaxTokens } from '../lib'
 	import { storeLocalSetting } from '$lib/utils'
 
+	const MAX_TOKENS_LIMIT = 2000000
+
 	let customMaxTokens = $state<string>('')
 
 	// Reactive values
@@ -32,7 +34,7 @@
 
 	function saveMaxTokens() {
 		const parsedTokens = parseInt(customMaxTokens)
-		if (isNaN(parsedTokens) || parsedTokens < 1 || parsedTokens > 200000) {
+		if (isNaN(parsedTokens) || parsedTokens < 1 || parsedTokens > MAX_TOKENS_LIMIT) {
 			return
 		}
 
@@ -90,7 +92,7 @@
 						bind:value={customMaxTokens}
 						type="number"
 						min="1"
-						max="200000"
+						max={MAX_TOKENS_LIMIT}
 						class="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-md bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 						placeholder="Enter max tokens"
 					/>
