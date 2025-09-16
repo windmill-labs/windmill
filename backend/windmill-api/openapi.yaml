@@ -18185,7 +18185,7 @@ components:
                 - source
                 - code
       required:
-        - function_name
+        - entrypoint_function
         - runnable_ref
 
     WindmillLargeFile:
