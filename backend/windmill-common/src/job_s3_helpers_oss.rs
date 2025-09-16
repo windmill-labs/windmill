@@ -1,6 +1,18 @@
+#[cfg(not(feature = "private"))]
+use std::sync::{Arc, Mutex};
+
+#[cfg(not(feature = "private"))]
+use globset::GlobMatcher;
+
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::job_s3_helpers_ee::*;
+
+#[cfg(not(feature = "private"))]
+use crate::{
+    db::Authed,
+    s3_helpers::{LargeFileStorage, S3Permission, S3PermissionRule},
+};
 
 #[cfg(not(feature = "private"))]
 use crate::s3_helpers::{ObjectStoreResource, StorageResourceType};

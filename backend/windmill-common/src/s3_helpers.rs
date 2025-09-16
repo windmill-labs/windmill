@@ -1,12 +1,9 @@
-use crate::db::Authed;
 use crate::error::{self};
-use crate::utils::ExpiringCacheEntry;
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
 use chrono::{DateTime, Utc};
-use globset::{Glob, GlobMatcher};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -17,7 +14,6 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
-use quick_cache::sync::Cache;
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
 use serde::de::Visitor;
@@ -289,8 +285,8 @@ pub struct GoogleCloudStorage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct S3PermissionRule {
-    pattern: String,
-    allow: S3Permission, // read, write, delete, list
+    pub pattern: String,
+    pub allow: S3Permission, // read, write, delete, list
 }
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1206,150 +1202,4 @@ impl ObjectStoreResource {
             ObjectStoreResource::Azure(az_resource) => az_resource.get_endpoint_url(),
         }
     }
-}
-
-pub fn check_lfs_object_path_permissions(
-    lfs: &LargeFileStorage,
-    path: &str,
-    authed: &Authed,
-    op: S3Permission,
-) -> error::Result<()> {
-    let empty_rules = vec![];
-    let rules = lfs.get_advanced_permissions().unwrap_or(&empty_rules);
-
-    let compiled_rules = get_s3_permission_globs_for_authed(authed, &rules)?;
-    let compiled_rules = compiled_rules.lock().unwrap();
-    check_lfs_object_path_permissions_internal(lfs, path, authed, op, &compiled_rules)?;
-    Ok(())
-}
-
-pub fn check_lfs_object_path_permissions_internal(
-    lfs: &LargeFileStorage,
-    path: &str,
-    authed: &Authed,
-    op: S3Permission,
-    rules: &Vec<(S3PermissionRule, Vec<GlobMatcher>)>, // precomputed rules
-) -> error::Result<()> {
-    if authed.is_admin || lfs.is_public_resource() {
-        return Ok(());
-    }
-
-    let Some(_) = lfs.get_advanced_permissions() else {
-        // Legacy permissions behavior
-        return (S3Permission::READ | S3Permission::WRITE | S3Permission::DELETE)
-            .contains(op)
-            .then_some(())
-            .ok_or_else(|| {
-                error::Error::NotAuthorized(format!(
-                    "Insufficient S3 permission for path {path} (List not allowed)"
-                ))
-            });
-    };
-
-    for (rule, globs) in rules {
-        if globs.iter().any(|g| g.is_match(path)) {
-            if rule.allow.contains(op) {
-                return Ok(()); // permission granted
-            } else {
-                let op = serde_json::to_string(&op).map_err(to_anyhow)?;
-                return Err(error::Error::NotAuthorized(format!(
-                    "Insufficient S3 permission for path {path} (Operation not permitted: {op})"
-                )));
-            }
-        }
-    }
-    return Err(error::Error::NotAuthorized(format!(
-        "Insufficient S3 permission for path {path} (no rule matched)"
-    )));
-}
-
-lazy_static::lazy_static! {
-    // For every user (Authed), cache their S3PermissionRules and the corresponding compiled GlobMatchers
-    static ref S3_PERMISSION_GLOBS_CACHE: Cache<Authed, ExpiringCacheEntry<Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>>> = Cache::new(32);
-}
-
-pub fn get_s3_permission_globs_for_authed(
-    authed: &Authed,
-    rules: &Vec<S3PermissionRule>,
-) -> error::Result<Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>> {
-    if let Some(cached) = S3_PERMISSION_GLOBS_CACHE.get(authed) {
-        if cached.expiry > std::time::Instant::now() {
-            return Ok(cached.value);
-        } else {
-            S3_PERMISSION_GLOBS_CACHE.remove(authed);
-        }
-    }
-
-    let mut compiled_rules = vec![];
-    for rule in rules {
-        let globs = s3_permission_pattern_to_globs(&rule.pattern, authed)?;
-        compiled_rules.push((rule.clone(), globs));
-    }
-    let compiled_rules = Arc::new(Mutex::new(compiled_rules));
-    S3_PERMISSION_GLOBS_CACHE.insert(
-        authed.clone(),
-        ExpiringCacheEntry {
-            value: compiled_rules.clone(),
-            expiry: std::time::Instant::now() + std::time::Duration::from_secs(60), // 1 minute
-        },
-    );
-    Ok(compiled_rules)
-}
-
-fn s3_permission_pattern_to_globs(rule: &str, authed: &Authed) -> error::Result<Vec<GlobMatcher>> {
-    let result = s3_permission_pattern_to_glob_strings(rule, authed)
-        .into_iter()
-        .map(|glob| {
-            Glob::new(&glob)
-                .map_err(|e| {
-                    error::Error::InternalErr(format!("Error parsing glob pattern: {}", e))
-                })
-                .map(|g| g.compile_matcher())
-        })
-        .collect::<error::Result<Vec<_>>>()?;
-    Ok(result)
-}
-
-// Eliminate all variables like {group}, {username} ... So that we are left with glob patterns
-fn s3_permission_pattern_to_glob_strings(rule: &str, authed: &Authed) -> Vec<String> {
-    // Doesn't support multiple different groups / folders in the same path for now
-
-    if rule.contains("{username}") {
-        return s3_permission_pattern_to_glob_strings(
-            &rule.replace("{username}", &authed.username),
-            authed,
-        );
-    }
-    if rule.contains("{group}") {
-        let mut results = vec![];
-        for group in &authed.groups {
-            let replaced = rule.replace("{group}", group);
-            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
-            results.extend(r);
-        }
-        return results;
-    }
-    if rule.contains("{folder_write}") {
-        let mut results = vec![];
-        for (folder, folder_can_write, folder_is_admin) in &authed.folders {
-            if !folder_can_write && !folder_is_admin {
-                continue;
-            }
-            let replaced = rule.replace("{folder_write}", folder);
-            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
-            results.extend(r);
-        }
-        return results;
-    }
-    if rule.contains("{folder_read}") {
-        let mut results = vec![];
-        for (folder, _, _) in &authed.folders {
-            let replaced = rule.replace("{folder_read}", folder);
-            let r = s3_permission_pattern_to_glob_strings(&replaced, authed);
-            results.extend(r);
-        }
-        return results;
-    }
-
-    return vec![rule.to_string()];
 }
