@@ -140,6 +140,7 @@ export function convertFrontendToBackendettingsItem(
 }
 
 export const defaultS3AdvancedPermissions: S3ResourceSettingsItem['advancedPermissions'] = [
+	{ pattern: 'windmill_uploads/*', allow: ['read', 'list'] },
 	{ pattern: 'u/{username}/**/*', allow: ['read', 'write', 'delete', 'list'] },
 	{ pattern: 'g/{group}/**/*', allow: ['read', 'write', 'delete', 'list'] },
 	{ pattern: 'f/{folder_write}/**/*', allow: ['read', 'write', 'delete', 'list'] },
