@@ -65,19 +65,326 @@
 	let version = $derived(page.url.searchParams.get('version') ?? 'minimal')
 </script>
 
-<div class="mx-auto max-w-xl min-h-screen min-w-96 p-4 flex flex-col gap-4">
-	<select bind:value={() => version, (v) => goto(`?version=${v}`)}>
-		<option value="minimal">Minimal</option>
-		<option value="border">Border</option>
-		<option value="border_nord">Border Nord</option>
-		<option value="minimalistic">Minimalistic</option>
-		<option value="card_stack">Card Stack</option>
-		<option value="inline_compact">Inline Compact</option>
-		<option value="dev_minimal">Dev Minimal</option>
-		<option value="dev_clean">Dev Clean</option>
-	</select>
+<div class="min-h-screen flex">
+	<!-- Design Summary Sidebar -->
+	<div class="w-80 bg-nord-6/5 border-r border-nord-4/20 p-6 flex flex-col gap-6">
+		<div class="space-y-4">
+			<div>
+				<h3 class="font-medium text-nord-0 mb-2">Theme Selector</h3>
+				<select
+					bind:value={() => version, (v) => goto(`?version=${v}`)}
+					class="w-full bg-white border border-nord-4/30 rounded px-3 py-2 text-sm text-nord-0 focus:outline-none focus:border-nord-8"
+				>
+					<option value="minimalistic">Minimalistic</option>
+					<option value="dev_clean">Dev Clean</option>
+					<option value="sharp_minimal">Sharp Minimal</option>
+					<option value="precision">Precision</option>
+					<option value="minimal">Minimal</option>
+					<option value="border">Border</option>
+					<option value="border_nord">Border Nord</option>
+					<option value="card_stack">Card Stack</option>
+					<option value="inline_compact">Inline Compact</option>
+					<option value="dev_minimal">Dev Minimal</option>
+				</select>
+			</div>
 
-	{#if version == 'minimal'}
+			{@render themeInfo()}
+		</div>
+	</div>
+
+	<!-- Main Form Area -->
+	<div class="flex-1 p-8 max-w-2xl">
+		<div class="max-w-xl mx-auto">{@render formContent()}</div>
+	</div>
+</div>
+
+{#snippet themeInfo()}
+	{#if version == 'minimalistic'}
+		<div class="bg-white rounded-lg border border-nord-4/20 p-4">
+			<h4 class="font-medium text-nord-0 mb-3">Minimalistic</h4>
+			<div class="space-y-3 text-sm">
+				<div>
+					<span class="font-medium text-nord-0">Colors:</span>
+					<span class="text-nord-3/70">Nord palette, subtle backgrounds</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Typography:</span>
+					<span class="text-nord-3/70">Clean, readable hierarchy</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Spacing:</span>
+					<span class="text-nord-3/70">Generous padding, breathing room</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Features:</span>
+					<span class="text-nord-3/70">Enhanced toggle, connect emphasis</span>
+				</div>
+			</div>
+		</div>
+	{:else if version == 'sharp_minimal'}
+		<div class="bg-white rounded-lg border border-nord-4/20 p-4">
+			<h4 class="font-medium text-nord-0 mb-3">Sharp Minimal</h4>
+			<div class="space-y-3 text-sm">
+				<div>
+					<span class="font-medium text-nord-0">Design:</span>
+					<span class="text-nord-3/70">Crisp edges, high contrast</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Interaction:</span>
+					<span class="text-nord-3/70">Bold connect button, clear states</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Layout:</span>
+					<span class="text-nord-3/70">Tight spacing, maximum efficiency</span>
+				</div>
+			</div>
+		</div>
+	{:else if version == 'precision'}
+		<div class="bg-white rounded-lg border border-nord-4/20 p-4">
+			<h4 class="font-medium text-nord-0 mb-3">Precision</h4>
+			<div class="space-y-3 text-sm">
+				<div>
+					<span class="font-medium text-nord-0">Approach:</span>
+					<span class="text-nord-3/70">Data-driven, exact alignment</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Visual:</span>
+					<span class="text-nord-3/70">Grid-based, mathematical spacing</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Interaction:</span>
+					<span class="text-nord-3/70">Precise controls, clear feedback</span>
+				</div>
+			</div>
+		</div>
+	{:else}
+		<div class="bg-gray-50 rounded-lg border border-gray-200 p-4">
+			<h4 class="font-medium text-gray-700 mb-2"
+				>{version.charAt(0).toUpperCase() + version.slice(1).replace('_', ' ')}</h4
+			>
+			<p class="text-sm text-gray-600">Legacy design variation</p>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet formContent()}
+	{#if version == 'minimalistic'}
+		<!-- Original Minimalistic Theme -->
+		<div class="space-y-8">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="flex flex-col gap-1 rounded-md transition-all duration-300 group">
+				<!-- Header  -->
+				<div class="flex flex-row gap-2 justify-between items-center">
+					<div class="flex flex-row gap-2">
+						<label for={key} class="text-sm font-semibold text-nord-0 whitespace-nowrap"
+							>{key}{#if schema.required.includes(key)}
+								<span class="text-sm text-red-500">&nbsp;*</span>
+							{/if}
+						</label>
+
+						<div class="text-sm text-nord-300/50 italic">{value.type}</div>
+					</div>
+
+					{@render actions?.()}
+				</div>
+				<!-- Input -->
+				<input
+					type="text"
+					class="!rounded-sm !bg-gray-50 !shadow-none !border-none hover:!border-nord-400 !text-nord-300 !focus:outline-none !focus:ring-none !p-3"
+					id={key}
+					placeholder={value.placeholder}
+					value={value.default}
+				/>
+				<!-- Description -->
+				<div class="text-2xs text-gray-400 italic">{value.description}</div>
+			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="flex flex-row gap-2 h-6 -my-2">
+				<button
+					class="group-hover:opacity-100 opacity-0 py-1 px-2 w-fit duration-200 hover:bg-surface-hover rounded-md border flex items-center justify-center h-full text-gray-500"
+				>
+					<Plug size={14} />
+				</button>
+				{@render toggleButton?.()}
+			</div>
+			{#snippet toggleButton()}
+				<div
+					class="flex flex-row w-fit border border-nord-500 rounded-md transition-opacity duration-200 group-hover:opacity-100 opacity-0 h-full"
+				>
+					<button
+						class="py-1 px-2 w-fit hover:bg-surface-hover rounded-md h-full text-xs font-normal text-gray-500"
+					>
+						{'${}'}
+					</button>
+					<button class=" py-1 px-2 w-fit rounded-md h-full bg-nord-500 text-nord-0">
+						<SquareFunction size={14} />
+					</button>
+				</div>
+			{/snippet}
+		{/snippet}
+	{:else if version == 'sharp_minimal'}
+		<!-- Sharp Minimal - High contrast, crisp edges, maximum efficiency -->
+		<div class="space-y-4">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div
+				class="group bg-white border border-nord-4/40 hover:border-nord-8/60 transition-colors duration-150"
+			>
+				<div class="flex items-center justify-between px-4 py-3 border-b border-nord-4/20">
+					<div class="flex items-center gap-3">
+						<label for={key} class="text-sm font-semibold text-nord-0 uppercase tracking-wide">
+							{key}
+						</label>
+						{#if schema.required.includes(key)}
+							<span class="text-xs bg-nord-11 text-white px-2 py-0.5 rounded font-bold">REQ</span>
+						{/if}
+						<code class="text-xs text-nord-3/70 bg-nord-6/10 px-2 py-1 rounded font-mono">
+							{value.type}
+						</code>
+					</div>
+					{@render toggle()}
+				</div>
+				<div class="px-4 py-3">
+					<input
+						type="text"
+						class="w-full border-0 bg-transparent text-nord-0 placeholder-nord-3/50 focus:outline-none text-base"
+						id={key}
+						placeholder={value.placeholder}
+						value={value.default}
+					/>
+				</div>
+				{#if value.description}
+					<div class="px-4 pb-3">
+						<p class="text-xs text-nord-3/70">{value.description}</p>
+					</div>
+				{/if}
+			</div>
+		{/snippet}
+
+		{#snippet toggle()}
+			<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+				<!-- Connect Button -->
+				<button
+					class="bg-nord-8 text-white px-3 py-1 rounded text-xs font-bold hover:bg-nord-9 transition-colors flex items-center gap-1"
+					title="Connect this field to a resource or variable"
+				>
+					<Plug size={12} />
+					CONNECT
+				</button>
+				<!-- Toggle between Static Input (${}) and JavaScript Expression (Function) -->
+				<div
+					class="flex border border-nord-4/40 rounded overflow-hidden"
+					role="group"
+					aria-label="Input type toggle"
+				>
+					<button
+						class="px-2 py-1 text-xs bg-nord-6/20 text-nord-0 hover:bg-nord-6/30 transition-colors font-medium"
+						title="Static input with variable insertion"
+						aria-pressed="true"
+					>
+						$&#123;&#125;
+					</button>
+					<button
+						class="px-2 py-1 text-xs bg-white text-nord-3/80 hover:bg-nord-6/20 transition-colors border-l border-nord-4/40"
+						title="JavaScript expression"
+						aria-pressed="false"
+					>
+						<SquareFunction size={10} />
+					</button>
+				</div>
+			</div>
+		{/snippet}
+	{:else if version == 'precision'}
+		<!-- Precision - Clean grid-based layout with perfect alignment -->
+		<div class="space-y-1">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div
+				class="group grid grid-cols-12 gap-6 items-center py-4 px-4 hover:bg-nord-6/5 rounded-md transition-colors"
+			>
+				<!-- Label Column (3 units) - Clean alignment -->
+				<div class="col-span-3">
+					<label for={key} class="text-sm font-medium text-nord-0 flex items-center gap-2">
+						{key}
+						{#if schema.required.includes(key)}
+							<div class="w-1.5 h-1.5 bg-nord-11 rounded-full flex-shrink-0"></div>
+						{/if}
+					</label>
+					<div class="text-xs text-nord-3/60 font-mono mt-0.5">{value.type}</div>
+				</div>
+
+				<!-- Input Column (7 units) - Generous space -->
+				<div class="col-span-7">
+					<input
+						type="text"
+						class="w-full bg-nord-6/8 border border-nord-4/30 rounded-md px-3 py-2.5 text-nord-0 placeholder-nord-3/50 focus:outline-none focus:border-nord-8 focus:bg-white transition-all duration-150 text-sm"
+						id={key}
+						placeholder={value.placeholder}
+						value={value.default}
+					/>
+					{#if value.description}
+						<p class="text-xs text-nord-3/60 mt-1.5 leading-relaxed">{value.description}</p>
+					{/if}
+				</div>
+
+				<!-- Controls Column (2 units) - Right aligned -->
+				<div class="col-span-2 flex justify-end">
+					{@render toggle()}
+				</div>
+			</div>
+		{/snippet}
+
+		{#snippet toggle()}
+			<div
+				class="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+			>
+				<!-- Connect button -->
+				<button
+					class="bg-nord-8 text-white p-2 rounded-md hover:bg-nord-9 transition-colors shadow-sm"
+					title="Connect this field"
+				>
+					<Plug size={12} />
+				</button>
+
+				<!-- Toggle controls - horizontal layout -->
+				<div
+					class="flex border border-nord-4/30 rounded-md overflow-hidden bg-white shadow-sm"
+					role="group"
+					aria-label="Input type"
+				>
+					<button
+						class="p-2 text-xs bg-nord-6/15 text-nord-0 hover:bg-nord-6/25 transition-colors font-medium"
+						title="Static input with variables"
+						aria-pressed="true"
+					>
+						{'${}'}
+					</button>
+					<button
+						class="p-2 bg-white text-nord-3/80 hover:bg-nord-6/15 transition-colors border-l border-nord-4/30"
+						title="JavaScript expression"
+						aria-pressed="false"
+					>
+						<SquareFunction size={10} />
+					</button>
+				</div>
+			</div>
+		{/snippet}
+	{:else if version == 'minimal'}
 		<div class="flex flex-col gap-2 divide-y divide-gray-200">
 			{#each Object.entries(schema.properties) as [key, value]}
 				{@render input({ key, value })}
@@ -320,7 +627,9 @@
 		</div>
 
 		{#snippet input({ key, value })}
-			<div class="bg-white shadow-md rounded-lg border border-gray-100 hover:shadow-lg transition-shadow duration-200 p-5">
+			<div
+				class="bg-white shadow-md rounded-lg border border-gray-100 hover:shadow-lg transition-shadow duration-200 p-5"
+			>
 				<!-- Label with Icon -->
 				<div class="flex items-center gap-2 mb-3">
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
@@ -415,10 +724,14 @@
 
 		{#snippet actions()}
 			<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-				<button class="p-1.5 text-nord-3/60 hover:text-nord-8 hover:bg-nord-6/20 rounded transition-colors">
+				<button
+					class="p-1.5 text-nord-3/60 hover:text-nord-8 hover:bg-nord-6/20 rounded transition-colors"
+				>
 					<Plug size={14} />
 				</button>
-				<button class="p-1.5 text-nord-3/60 hover:text-nord-10 hover:bg-nord-6/20 rounded transition-colors">
+				<button
+					class="p-1.5 text-nord-3/60 hover:text-nord-10 hover:bg-nord-6/20 rounded transition-colors"
+				>
 					<SquareFunction size={14} />
 				</button>
 			</div>
@@ -447,7 +760,7 @@
 				</div>
 				<input
 					type="text"
-					class="w-full border-0 border-b border-nord-4/30 bg-transparent pb-2 text-nord-0 placeholder-nord-3/40 focus:outline-none focus:border-nord-8 transition-colors"
+					class="w-full !rounded-none !shadow-none !border-0 !border-b !border-nord-4/30 !bg-transparent !pb-2 !text-nord-0 !placeholder-nord-3/40 !focus:outline-none !focus:border-nord-8 transition-colors"
 					id={key}
 					placeholder={value.placeholder}
 					value={value.default}
@@ -469,4 +782,4 @@
 			</div>
 		{/snippet}
 	{/if}
-</div>
+{/snippet}
