@@ -485,7 +485,6 @@ async fn list_paths_from_workspace_runnable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<String>> {
     let mut tx = user_db.begin(&authed).await?;
-    // TODO: Are we fine?
     let runnables = sqlx::query_scalar!(
         r#"SELECT importer_path FROM dependency_map 
             WHERE workspace_id = $1 AND imported_path = $2"#,
