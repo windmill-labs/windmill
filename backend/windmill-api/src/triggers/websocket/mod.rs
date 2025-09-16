@@ -16,6 +16,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 mod handler;
+mod listener;
 
 #[derive(Copy, Clone)]
 pub struct WebsocketTrigger;

@@ -35,6 +35,8 @@
 	}
 
 	let { value = $bindable(), trigger: trigger_render }: Props = $props()
+	
+	const isActionsColumn = $derived((value as any)?._isActionsColumn === true)
 
 	const presets = [
 		{
@@ -123,16 +125,18 @@
 					<input type="text" placeholder="Header name" bind:value={value.headerName} />
 				</Label>
 
-				<Label label="Editable value">
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
-						options={{ right: 'Editable' }}
-						bind:checked={value.editable}
-						size="xs"
-					/>
-				</Label>
+				{#if !isActionsColumn}
+					<Label label="Editable value">
+						<Toggle
+							on:pointerdown={(e) => {
+								e?.stopPropagation()
+							}}
+							options={{ right: 'Editable' }}
+							bind:checked={value.editable}
+							size="xs"
+						/>
+					</Label>
+				{/if}
 
 				<Label label="Min width (px)">
 					<input type="number" placeholder="width" bind:value={value.minWidth} />
@@ -155,8 +159,8 @@
 						</Tooltip>
 					{/snippet}
 
-					<input type="range" step="1" bind:value={value.flex} min={1} max={12} />
-					<div class="text-xs">{value.flex}</div>
+					<input type="range" step="1" bind:value={value.flex} min={0} max={12} />
+					<div class="text-xs">{value.flex ?? 0}</div>
 				</Label>
 
 				<Label label="Hide">
@@ -170,7 +174,8 @@
 					/>
 				</Label>
 
-				<Label label="Value formatter">
+				{#if !isActionsColumn}
+					<Label label="Value formatter">
 					{#snippet header()}
 						<Tooltip
 							documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
@@ -228,83 +233,84 @@
 					{/key}
 				</div>
 
-				<Label label="Sort">
-					<select bind:value={value.sort}>
+					<Label label="Sort">
+						<select bind:value={value.sort}>
+							<option value={null}>None</option>
+							<option value="asc">Ascending</option>
+							<option value="desc">Descending</option>
+						</select>
+					</Label>
+
+					<Label label="Filter">
+						{#snippet header()}
+							<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
+								Filtering allows you to limit the rows displayed in your grid to those that match
+								criteria you specify.
+							</Tooltip>
+						{/snippet}
+						<Toggle
+							on:pointerdown={(e) => {
+								e?.stopPropagation()
+							}}
+							options={{ right: 'Enable filter' }}
+							bind:checked={value.filter}
+							size="xs"
+						/>
+					</Label>
+
+					<!--
+				EE only
+
+				<Label label="Aggregation function">
+					<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
+				</Label>
+
+				<Label label="Pivot">
+					<Toggle bind:checked={value.pivot} size="xs" />
+				</Label>
+
+				<Label label="Pivot index">
+					<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
+				</Label>
+
+				<Label label="Pinned">
+					<select bind:value={value.pinned}>
 						<option value={null}>None</option>
-						<option value="asc">Ascending</option>
-						<option value="desc">Descending</option>
+						<option value="left">Left</option>
+						<option value="right">Right</option>
 					</select>
 				</Label>
 
-				<Label label="Filter">
-					{#snippet header()}
-						<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
-							Filtering allows you to limit the rows displayed in your grid to those that match
-							criteria you specify.
-						</Tooltip>
-					{/snippet}
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
-						options={{ right: 'Enable filter' }}
-						bind:checked={value.filter}
-						size="xs"
-					/>
+				<Label label="Row group">
+					<Toggle bind:checked={value.rowGroup} size="xs" />
 				</Label>
 
-				<!--
-			EE only
-
-			<Label label="Aggregation function">
-				<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
-			</Label>
-
-			<Label label="Pivot">
-				<Toggle bind:checked={value.pivot} size="xs" />
-			</Label>
-
-			<Label label="Pivot index">
-				<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
-			</Label>
-
-			<Label label="Pinned">
-				<select bind:value={value.pinned}>
-					<option value={null}>None</option>
-					<option value="left">Left</option>
-					<option value="right">Right</option>
-				</select>
-			</Label>
-
-			<Label label="Row group">
-				<Toggle bind:checked={value.rowGroup} size="xs" />
-			</Label>
-
-			<Label label="Row group index">
-				<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
-			</Label>
-			 -->
-
-				<Label label="Type">
-					<select bind:value={value.cellRendererType}>
-						<option value="text">Text</option>
-						<option value="link">Link</option>
-					</select>
+				<Label label="Row group index">
+					<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
 				</Label>
+				 -->
 
-				{#if value.cellRendererType === 'link'}
-					<Alert type="info" title="Label" size="xs">
-						They are two ways to define a link:
-						<ul class="list-disc list-inside">
-							<li>
-								<strong>String</strong>: The string will be used as the link and the label.
-							</li>
-							<li>
-								<strong>Object</strong>: The object must have a <code>href</code> and a
-								<code>label</code> property.
-							</li>
-						</ul>
-					</Alert>
+					<Label label="Type">
+						<select bind:value={value.cellRendererType}>
+							<option value="text">Text</option>
+							<option value="link">Link</option>
+						</select>
+					</Label>
+
+					{#if value.cellRendererType === 'link'}
+						<Alert type="info" title="Label" size="xs">
+							They are two ways to define a link:
+							<ul class="list-disc list-inside">
+								<li>
+									<strong>String</strong>: The string will be used as the link and the label.
+								</li>
+								<li>
+									<strong>Object</strong>: The object must have a <code>href</code> and a
+									<code>label</code> property.
+								</li>
+							</ul>
+						</Alert>
+					{/if}
 				{/if}
 			</div>
 		{/if}

@@ -1923,9 +1923,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.36"
+version = "1.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5252b3d2648e5eedbc1a6f501e3c795e07025c1e93bbf8bbdd6eef7f447a6d54"
+checksum = "65193589c6404eb80b450d618eaf9a2cafaaafd57ecce47370519ef674a7bd44"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -5879,7 +5879,7 @@ dependencies = [
  "js-sys",
  "libc",
  "r-efi",
- "wasi 0.14.5+wasi-0.2.4",
+ "wasi 0.14.6+wasi-0.2.4",
  "wasm-bindgen",
 ]
 
@@ -6541,9 +6541,9 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "humantime"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b112acc8b3adf4b107a8ec20977da0273a8c386765a3ec0229bd500a1443f9f"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hyper"
@@ -6706,9 +6706,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.16"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d9b05277c7e8da2c93a568989bb6207bef0112e8d17df7a6eda4a3cf143bc5e"
+checksum = "3c6995591a8f1380fcb4ba966a252a4b29188d51d2b89e3a252f5305be65aea8"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -6756,9 +6756,9 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.63"
+version = "0.1.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0c919e5debc312ad217002b8048a17b7d83f80703865bbfcfebb0458b0b27d8"
+checksum = "33e57f83510bb73707521ebaffa789ec8caf86f9657cad665b092b581d40e9fb"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
@@ -6766,7 +6766,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.0",
 ]
 
 [[package]]
@@ -7651,9 +7651,9 @@ dependencies = [
 
 [[package]]
 name = "libredox"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "391290121bad3d37fbddad76d8f5d1c1c314cfc646d143d7e07a3086ddff0ce3"
+checksum = "416f7e718bdb06000964960ffa43b4335ad4012ae8b99060261aa4a8088d5ccb"
 dependencies = [
  "bitflags 2.9.4",
  "libc",
@@ -9525,9 +9525,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pest"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1db05f56d34358a8b1066f67cbb203ee3e7ed2ba674a6263a1d5ec6db2204323"
+checksum = "21e0a3a33733faeaf8651dfee72dd0f388f0c8e5ad496a3478fa5a922f49cfa8"
 dependencies = [
  "memchr",
  "thiserror 2.0.16",
@@ -9536,9 +9536,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb056d9e8ea77922845ec74a1c4e8fb17e7c218cc4fc11a15c5d25e189aa40bc"
+checksum = "bc58706f770acb1dbd0973e6530a3cff4746fb721207feb3a8a6064cd0b6c663"
 dependencies = [
  "pest",
  "pest_generator",
@@ -9546,9 +9546,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87e404e638f781eb3202dc82db6760c8ae8a1eeef7fb3fa8264b2ef280504966"
+checksum = "6d4f36811dfe07f7b8573462465d5cb8965fffc2e71ae377a33aecf14c2c9a2f"
 dependencies = [
  "pest",
  "pest_meta",
@@ -9559,9 +9559,9 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd1101f170f5903fde0914f899bb503d9ff5271d7ba76bbb70bea63690cc0d5"
+checksum = "42919b05089acbd0a5dcd5405fb304d17d1053847b81163d09c4ad18ce8e8420"
 dependencies = [
  "pest",
  "sha2 0.10.9",
@@ -10771,9 +10771,9 @@ dependencies = [
 
 [[package]]
 name = "resolv-conf"
-version = "0.7.4"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95325155c684b1c89f7765e30bc1c42e4a6da51ca513615660cb8a62ef9a88e3"
+checksum = "6b3789b30bd25ba102de4beabd95d21ac45b69b1be7d14522bab988c526d6799"
 
 [[package]]
 name = "retry-policies"
@@ -11017,9 +11017,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.37.2"
+version = "1.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b203a6425500a03e0919c42d3c47caca51e79f1132046626d2c8871c5092035d"
+checksum = "c8975fc98059f365204d635119cf9c5a60ae67b841ed49b5422a9a7e56cdfac0"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -11065,7 +11065,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
- "semver 1.0.26",
+ "semver 1.0.27",
 ]
 
 [[package]]
@@ -11140,7 +11140,7 @@ dependencies = [
  "once_cell",
  "ring 0.17.14",
  "rustls-pki-types",
- "rustls-webpki 0.103.5",
+ "rustls-webpki 0.103.6",
  "subtle",
  "zeroize",
 ]
@@ -11245,9 +11245,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.5"
+version = "0.103.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a37813727b78798e53c2bec3f5e8fe12a6d6f8389bf9ca7802add4c9905ad8"
+checksum = "8572f3c2cb9934231157b45499fc41e1f58c589fdfb81a844ba873265e80f8eb"
 dependencies = [
  "aws-lc-rs",
  "ring 0.17.14",
@@ -11592,9 +11592,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.26"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56e6fa9c48d24d85fb3de5ad847117517440f6beceb7798af16b4a87d616b8d0"
+checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "semver-parser"
@@ -14740,18 +14740,18 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasi"
-version = "0.14.5+wasi-0.2.4"
+version = "0.14.6+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4494f6290a82f5fe584817a676a34b9d6763e8d9d18204009fb31dceca98fd4"
+checksum = "7f71243a3f320c00a8459e455c046ce571229c2f31fd11645d9dc095e3068ca0"
 dependencies = [
  "wasip2",
 ]
 
 [[package]]
 name = "wasip2"
-version = "1.0.0+wasi-0.2.4"
+version = "1.0.1+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03fa2761397e5bd52002cd7e73110c71af2109aca4e521a9f40473fe685b0a24"
+checksum = "0562428422c63773dad2c345a1882263bbf4d65cf3f42e90921f787ef5ad58e7"
 dependencies = [
  "wit-bindgen",
 ]
@@ -15109,7 +15109,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "aws-sdk-config",
@@ -15169,7 +15169,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -15289,7 +15289,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -15304,7 +15304,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "chrono",
  "serde",
@@ -15317,7 +15317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -15336,7 +15336,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15386,7 +15386,7 @@ dependencies = [
  "reqwest 0.12.23",
  "reqwest-middleware",
  "reqwest-retry",
- "semver 1.0.26",
+ "semver 1.0.27",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -15420,7 +15420,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "regex",
  "serde",
@@ -15435,7 +15435,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -15459,7 +15459,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15471,7 +15471,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15480,7 +15480,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15492,7 +15492,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15504,7 +15504,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15516,7 +15516,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15528,7 +15528,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15540,7 +15540,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15551,7 +15551,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15562,7 +15562,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15574,7 +15574,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15597,7 +15597,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15611,7 +15611,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15628,7 +15628,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15642,7 +15642,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15660,7 +15660,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -15685,7 +15685,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15695,7 +15695,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15728,7 +15728,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15738,7 +15738,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.542.1"
+version = "1.543.0"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -15778,6 +15778,7 @@ dependencies = [
  "lazy_static",
  "libloading 0.8.8",
  "mappable-rc",
+ "mime_guess",
  "mysql_async",
  "native-tls",
  "nix 0.27.1",
@@ -15910,7 +15911,20 @@ dependencies = [
  "windows-interface 0.59.1",
  "windows-link 0.1.3",
  "windows-result 0.3.4",
- "windows-strings",
+ "windows-strings 0.4.2",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.62.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57fe7168f7de578d2d8a05b07fd61870d2e73b4020e9f49aa00da8471723497c"
+dependencies = [
+ "windows-implement 0.60.0",
+ "windows-interface 0.59.1",
+ "windows-link 0.2.0",
+ "windows-result 0.4.0",
+ "windows-strings 0.5.0",
 ]
 
 [[package]]
@@ -16020,7 +16034,7 @@ checksum = "5b8a9ed28765efc97bbc954883f4e6796c33a06546ebafacbabee9696967499e"
 dependencies = [
  "windows-link 0.1.3",
  "windows-result 0.3.4",
- "windows-strings",
+ "windows-strings 0.4.2",
 ]
 
 [[package]]
@@ -16042,12 +16056,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-result"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7084dcc306f89883455a206237404d3eaf961e5bd7e0f312f7c91f57eb44167f"
+dependencies = [
+ "windows-link 0.2.0",
+]
+
+[[package]]
 name = "windows-strings"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
+]
+
+[[package]]
+name = "windows-strings"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7218c655a553b0bed4426cf54b20d7ba363ef543b52d515b3e48d7fd55318dda"
+dependencies = [
+ "windows-link 0.2.0",
 ]
 
 [[package]]
@@ -16335,9 +16367,9 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wit-bindgen"
-version = "0.45.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c573471f125075647d03df72e026074b7203790d41351cd6edc96f46bcccd36"
+checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
 name = "writeable"

@@ -526,7 +526,7 @@
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)

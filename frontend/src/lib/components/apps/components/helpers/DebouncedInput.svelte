@@ -24,7 +24,7 @@
 		...rest
 	}: Props = $props()
 
-	let timer: NodeJS.Timeout
+	let timer: number
 	let inputElement: HTMLInputElement | null = $state(null)
 
 	function debounce(event: KeyboardEvent): void {
