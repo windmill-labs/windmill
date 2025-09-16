@@ -13,6 +13,7 @@
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
+	import MaxTokenSettings from './MaxTokenSettings.svelte'
 
 	let {
 		messages,
@@ -84,7 +85,9 @@
 		}
 	})
 
-	const isLastMessageTool = $derived(messages.length > 0 && messages[messages.length - 1].role === 'tool')
+	const isLastMessageTool = $derived(
+		messages.length > 0 && messages[messages.length - 1].role === 'tool'
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -264,6 +267,7 @@
 					<div class="flex flex-row gap-2 min-w-0">
 						<ChatMode />
 						<ProviderModelSelector />
+						<MaxTokenSettings />
 					</div>
 				{/if}
 			</div>

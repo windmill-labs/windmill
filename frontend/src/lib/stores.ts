@@ -176,6 +176,7 @@ export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
+export const COPILOT_MAX_TOKENS_SETTING_NAME = 'copilotMaxTokens'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
@@ -196,6 +197,11 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 				provider: sessionProvider as AIProvider
 			}
 		: undefined
+)
+
+const storedMaxTokens = getLocalSetting(COPILOT_MAX_TOKENS_SETTING_NAME)
+export const copilotMaxTokens = writable<Record<string, number>>(
+	storedMaxTokens ? JSON.parse(storedMaxTokens) : {}
 )
 export const usedTriggerKinds = writable<string[]>([])
 
