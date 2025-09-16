@@ -48,13 +48,6 @@
 	}
 
 	$effect(() => {
-		// Initialize the input with current value when opened
-		if (customMaxTokens === '') {
-			customMaxTokens = currentMaxTokens.toString()
-		}
-	})
-
-	$effect(() => {
 		currentModel
 		customMaxTokens = currentMaxTokens.toString()
 	})

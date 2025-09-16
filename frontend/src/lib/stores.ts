@@ -200,9 +200,15 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 )
 
 const storedMaxTokens = getLocalSetting(COPILOT_MAX_TOKENS_SETTING_NAME)
-export const copilotMaxTokens = writable<Record<string, number>>(
-	storedMaxTokens ? JSON.parse(storedMaxTokens) : {}
-)
+let parsedMaxTokens = {}
+if (storedMaxTokens) {
+	try {
+		parsedMaxTokens = JSON.parse(storedMaxTokens)
+	} catch (e) {
+		console.error('error parsing copilot max tokens', e)
+	}
+}
+export const copilotMaxTokens = writable<Record<string, number>>(parsedMaxTokens)
 export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
