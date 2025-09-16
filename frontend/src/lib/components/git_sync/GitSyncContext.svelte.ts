@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { JobService, WorkspaceService } from '$lib/gen'
+import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
 import type { GitRepositorySettings as BackendGitRepositorySettings, GitSyncObjectType } from '$lib/gen'
 import { jobManager } from '$lib/services/JobManager'
 import hubPaths from '$lib/hubPaths.json'
@@ -20,6 +20,10 @@ export type GitSyncRepository = BackendGitRepositorySettings & {
 	detectionJobStatus?: 'running' | 'success' | 'failure'
 	// Internal tracking for resource path changes
 	_trackedPath?: string
+	// Cached target branch from git resource
+	_targetBranch?: string
+	// Detection timestamp to avoid race conditions
+	_detectionTimestamp?: number
 }
 
 export type GitSyncTestJob = {
@@ -68,8 +72,15 @@ export function createGitSyncContext(workspace: string) {
 			if (repo.isUnsavedConnection) {
 				const currentPath = repo.git_repo_resource_path
 
-				if (repo._trackedPath && repo._trackedPath !== currentPath && repo.detectionState && repo.detectionState !== 'idle') {
-					_resetRepoDetectionState(repo)
+				if (repo._trackedPath && repo._trackedPath !== currentPath) {
+					// Clear cached branch when resource path changes
+					repo._targetBranch = undefined
+
+					// Reset detection state for any non-idle state (including errors)
+					if (repo.detectionState && repo.detectionState !== 'idle') {
+						// Cancel any running detection job by resetting immediately
+						_resetRepoDetectionState(repo)
+					}
 				}
 
 				repo._trackedPath = currentPath
@@ -273,6 +284,9 @@ export function createGitSyncContext(workspace: string) {
 		repo.detectionJobId = undefined
 		repo.detectionJobStatus = undefined
 
+		// Track the detection timestamp to avoid race conditions from old jobs
+		const detectionTimestamp = Date.now()
+
 		try {
 			const jobId = await JobService.runScriptByPath({
 				workspace,
@@ -291,15 +305,21 @@ export function createGitSyncContext(workspace: string) {
 
 			repo.detectionJobId = jobId
 			repo.detectionJobStatus = 'running'
+			repo._detectionTimestamp = detectionTimestamp
 
 			// Use JobManager for polling - result will be the actual job response
 			await jobManager.runWithProgress(
 				() => Promise.resolve(jobId),
 				{
 					workspace,
-					timeout: 30000,
-					timeoutMessage: 'Detection job timed out after 30s',
+					timeout: 60000,
+					timeoutMessage: 'Detection job timed out after 60s',
 					onProgress: (status) => {
+						// Only update state if this detection is still current
+						if (repo._detectionTimestamp !== detectionTimestamp) {
+							return
+						}
+
 						repo.detectionJobStatus = status.status
 
 						// Process successful detection result
@@ -313,7 +333,7 @@ export function createGitSyncContext(workspace: string) {
 								if (response.local) {
 									repo.extractedSettings = response.local
 									// Auto-apply the extracted settings
-									repo.settings = { 
+									repo.settings = {
 										...response.local,
 										exclude_path: response.local.exclude_path || [],
 										extra_include_path: response.local.extra_include_path || []
@@ -328,6 +348,11 @@ export function createGitSyncContext(workspace: string) {
 				}
 			)
 		} catch (error: any) {
+			// Only set error if this detection is still current
+			if (repo._detectionTimestamp !== detectionTimestamp) {
+				return
+			}
+
 			repo.detectionState = 'error'
 			repo.detectionError = error?.message || error?.toString() || 'Failed to detect repository'
 			repo.detectionJobStatus = 'failure'
@@ -533,6 +558,128 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
+	function getPrimarySyncRepository(): { repo: GitSyncRepository, idx: number } | null {
+		const idx = repositories.findIndex(r => !r.use_individual_branch)
+		return idx !== -1 ? { repo: repositories[idx], idx } : null
+	}
+
+	function getPrimaryPromotionRepository(): { repo: GitSyncRepository, idx: number } | null {
+		const idx = repositories.findIndex(r => r.use_individual_branch)
+		return idx !== -1 ? { repo: repositories[idx], idx } : null
+	}
+
+	function getSecondarySyncRepositories(): { repo: GitSyncRepository, idx: number }[] {
+		const result: { repo: GitSyncRepository, idx: number }[] = []
+		let foundFirst = false
+		repositories.forEach((repo, idx) => {
+			if (!repo.use_individual_branch) {
+				if (foundFirst) {
+					result.push({ repo, idx })
+				} else {
+					foundFirst = true
+				}
+			}
+		})
+		return result
+	}
+
+	function getLegacyPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
+		const result: { repo: GitSyncRepository, idx: number }[] = []
+		let foundFirst = false
+		repositories.forEach((repo, idx) => {
+			if (repo.use_individual_branch) {
+				if (foundFirst) {
+					result.push({ repo, idx })
+				} else {
+					foundFirst = true
+				}
+			}
+		})
+		return result
+	}
+
+	async function removeRepositoryByPath(resourcePath: string) {
+		const idx = repositories.findIndex(r => r.git_repo_resource_path === resourcePath)
+		if (idx !== -1) {
+			await removeRepository(idx)
+		}
+	}
+
+	function addSyncRepository() {
+		repositories.push({
+			git_repo_resource_path: '',
+			script_path: hubPaths.gitSync,
+			use_individual_branch: false,
+			group_by_folder: false,
+			settings: {
+				include_path: ['f/**'],
+				exclude_path: [],
+				extra_include_path: [],
+				include_type: ['script', 'flow', 'app', 'folder']
+			},
+			exclude_types_override: [],
+			legacyImported: false,
+			isUnsavedConnection: true,
+			collapsed: false
+		})
+		gitSyncTestJobs.push({
+			jobId: '',
+			status: undefined
+		})
+	}
+
+	function addPromotionRepository() {
+		repositories.push({
+			git_repo_resource_path: '',
+			script_path: hubPaths.gitSync,
+			use_individual_branch: true,
+			group_by_folder: false,
+			settings: {
+				include_path: ['f/**'],
+				exclude_path: [],
+				extra_include_path: [],
+				include_type: ['script', 'flow', 'app', 'folder']
+			},
+			exclude_types_override: [],
+			legacyImported: false,
+			isUnsavedConnection: true,
+			collapsed: false
+		})
+		gitSyncTestJobs.push({
+			jobId: '',
+			status: undefined
+		})
+	}
+
+	// Helper to get target branch from git resource
+	async function getTargetBranch(repo: GitSyncRepository): Promise<string> {
+		if (!repo.git_repo_resource_path) {
+			return 'main'
+		}
+
+		if (repo._targetBranch) {
+			return repo._targetBranch
+		}
+
+		try {
+			const resource = await ResourceService.getResource({
+				workspace,
+				path: repo.git_repo_resource_path
+			})
+
+			// Extract branch from git resource value
+			const resourceValue = resource.value as any
+			const targetBranch = resourceValue?.branch || 'main'
+
+			// Cache the result
+			repo._targetBranch = targetBranch
+			return targetBranch
+		} catch (error) {
+			console.warn('Failed to fetch git resource for branch info:', error)
+			return 'main'
+		}
+	}
+
 	// Return context object
 	return {
 		// State (read-only access)
@@ -553,7 +700,10 @@ export function createGitSyncContext(workspace: string) {
 
 		// Methods
 		addRepository,
+		addSyncRepository,
+		addPromotionRepository,
 		removeRepository,
+		removeRepositoryByPath,
 		getRepository,
 		getValidation,
 		revertRepository,
@@ -569,6 +719,15 @@ export function createGitSyncContext(workspace: string) {
 		closeSuccessModal,
 		loadSettings,
 		saveRepository,
+
+		// Repository categorization methods
+		getPrimarySyncRepository,
+		getPrimaryPromotionRepository,
+		getSecondarySyncRepositories,
+		getLegacyPromotionRepositories,
+
+		// Helper methods
+		getTargetBranch,
 	}
 }
 

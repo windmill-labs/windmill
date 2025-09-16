@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import hubPaths from '$lib/hubPaths.json'
-	import { tryEvery } from '$lib/utils'
+	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsResponse, SettingsObject } from '$lib/git-sync'
 
 	interface Props {
@@ -163,50 +163,46 @@
 				applyJobStatus = 'running'
 			}
 
-			let jobSuccess = false
-			let result: any = {}
+			// Use JobManager instead of tryEvery
+			const result = await jobManager.runWithProgress(
+				() => Promise.resolve(jobId),
+				{
+					workspace,
+					timeout: 60000,
+					timeoutMessage: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s`,
+					onProgress: (status) => {
+						if (isPreview) {
+							previewJobStatus = status.status
+						} else {
+							applyJobStatus = status.status
+						}
 
-			await tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-					if (jobSuccess) {
-						const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-						result = jobResult
+						// Handle failure status
+						if (status.status === 'failure') {
+							if (isPreview) {
+								previewError = status.error || 'Preview failed'
+							} else {
+								applyError = status.error || 'Pull failed'
+							}
+						}
 					}
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s` }
-						})
-					} catch (err) {}
-				},
-				interval: 500,
-				timeout: 60000
-			})
+				}
+			)
 
+			// Handle successful result
 			if (isPreview) {
-				previewJobStatus = jobSuccess ? 'success' : 'failure'
-				if (jobSuccess) {
-					previewResult = result
-				} else {
-					previewError = 'Preview failed'
+				if (previewJobStatus === 'success') {
+					previewResult = result as SyncResponse | SettingsResponse
 				}
 			} else {
-				applyJobStatus = jobSuccess ? 'success' : 'failure'
-				if (jobSuccess) {
-					const settingsData = result?.local
+				if (applyJobStatus === 'success') {
+					const settingsData = (result as any)?.local
 					const hasSettingsChanges = settingsData && onFilterUpdate
 					if (hasSettingsChanges) {
 						onFilterUpdate(settingsData)
 						await saveUpdatedSettings()
 					}
 					onSuccess?.()
-				} else {
-					applyError = 'Pull failed'
 				}
 			}
 		} catch (e) {
