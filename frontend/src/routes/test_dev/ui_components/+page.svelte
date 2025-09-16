@@ -71,6 +71,10 @@
 		<option value="border">Border</option>
 		<option value="border_nord">Border Nord</option>
 		<option value="minimalistic">Minimalistic</option>
+		<option value="card_stack">Card Stack</option>
+		<option value="inline_compact">Inline Compact</option>
+		<option value="dev_minimal">Dev Minimal</option>
+		<option value="dev_clean">Dev Clean</option>
 	</select>
 
 	{#if version == 'minimal'}
@@ -306,6 +310,163 @@
 					</button>
 				</div>
 			{/snippet}
+		{/snippet}
+	{:else if version == 'card_stack'}
+		<!-- Card Stack Layout - Each field is a distinct card -->
+		<div class="flex flex-col gap-3">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="bg-white shadow-md rounded-lg border border-gray-100 hover:shadow-lg transition-shadow duration-200 p-5">
+				<!-- Label with Icon -->
+				<div class="flex items-center gap-2 mb-3">
+					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+					<label for={key} class="text-base font-medium text-gray-900">
+						{key}{#if schema.required.includes(key)}
+							<span class="text-red-500 ml-1">*</span>
+						{/if}
+					</label>
+					<div class="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-600 font-mono">
+						{value.type}
+					</div>
+				</div>
+				<!-- Input -->
+				<input
+					type="text"
+					class="w-full border border-gray-200 rounded-md px-3 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+					id={key}
+					placeholder={value.placeholder ?? value.description}
+					value={value.default}
+				/>
+				<!-- Description -->
+				{#if value.description}
+					<p class="text-sm text-gray-500 mt-2 leading-relaxed">{value.description}</p>
+				{/if}
+			</div>
+		{/snippet}
+	{:else if version == 'inline_compact'}
+		<!-- Inline Compact - Labels and inputs on same line -->
+		<div class="space-y-4">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="grid grid-cols-3 gap-4 items-start py-3 border-b border-gray-100 last:border-b-0">
+				<!-- Label Column -->
+				<div class="text-right pr-3">
+					<label for={key} class="text-sm font-medium text-gray-700 block">
+						{key}{#if schema.required.includes(key)}
+							<span class="text-red-500">*</span>
+						{/if}
+					</label>
+					<div class="text-xs text-gray-400 mt-1">{value.type}</div>
+				</div>
+				<!-- Input Column -->
+				<div class="col-span-2">
+					<input
+						type="text"
+						class="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+						id={key}
+						placeholder={value.placeholder}
+						value={value.default}
+					/>
+					{#if value.description}
+						<p class="text-xs text-gray-500 mt-1">{value.description}</p>
+					{/if}
+				</div>
+			</div>
+		{/snippet}
+	{:else if version == 'dev_minimal'}
+		<!-- Developer Minimal - Ultra clean with Nord colors -->
+		<div class="space-y-6">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="group">
+				<div class="flex items-center justify-between mb-2">
+					<label for={key} class="text-sm font-medium text-nord-0">
+						{key}{#if schema.required.includes(key)}
+							<span class="text-nord-11 ml-1">*</span>
+						{/if}
+						<span class="text-nord-3/60 font-mono text-xs ml-2">{value.type}</span>
+					</label>
+					{@render actions()}
+				</div>
+				<input
+					type="text"
+					class="w-full bg-nord-6/10 border border-nord-4/20 rounded px-3 py-2 text-nord-0 placeholder-nord-3/50 focus:outline-none focus:border-nord-8 focus:bg-nord-6/5 transition-colors"
+					id={key}
+					placeholder={value.placeholder}
+					value={value.default}
+				/>
+				{#if value.description}
+					<p class="text-xs text-nord-3/60 mt-1">{value.description}</p>
+				{/if}
+			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+				<button class="p-1.5 text-nord-3/60 hover:text-nord-8 hover:bg-nord-6/20 rounded transition-colors">
+					<Plug size={14} />
+				</button>
+				<button class="p-1.5 text-nord-3/60 hover:text-nord-10 hover:bg-nord-6/20 rounded transition-colors">
+					<SquareFunction size={14} />
+				</button>
+			</div>
+		{/snippet}
+	{:else if version == 'dev_clean'}
+		<!-- Developer Clean - Extremely minimal, focus on content -->
+		<div class="space-y-8">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="group">
+				<div class="flex items-baseline justify-between mb-1">
+					<div class="flex items-baseline gap-3">
+						<label for={key} class="text-nord-0 font-medium">
+							{key}
+						</label>
+						<span class="text-nord-3/50 text-xs font-mono">{value.type}</span>
+						{#if schema.required.includes(key)}
+							<span class="w-1 h-1 bg-nord-11 rounded-full"></span>
+						{/if}
+					</div>
+					{@render actions()}
+				</div>
+				<input
+					type="text"
+					class="w-full border-0 border-b border-nord-4/30 bg-transparent pb-2 text-nord-0 placeholder-nord-3/40 focus:outline-none focus:border-nord-8 transition-colors"
+					id={key}
+					placeholder={value.placeholder}
+					value={value.default}
+				/>
+				{#if value.description}
+					<p class="text-xs text-nord-3/50 mt-2">{value.description}</p>
+				{/if}
+			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+				<button class="text-nord-3/40 hover:text-nord-8 transition-colors" title="Connect">
+					<Plug size={14} />
+				</button>
+				<button class="text-nord-3/40 hover:text-nord-10 transition-colors" title="Function">
+					<SquareFunction size={14} />
+				</button>
+			</div>
 		{/snippet}
 	{/if}
 </div>
