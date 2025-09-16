@@ -7504,6 +7504,30 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/run/dynamic_select:
+    post:
+      summary: run dynamic select helper function
+      operationId: runDynamicSelect
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dynamic select request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicInputData"
+      responses:
+        "201":
+          description: dynamic select job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/queue/list:
     get:
       summary: list all queued jobs
@@ -18120,6 +18144,49 @@ components:
                     type: string
                 required:
                   - path
+
+    DynamicInputData:
+      type: object
+      properties:
+        entrypoint_function:
+          type: string
+          description: Name of the function to execute for dynamic select
+        args:
+          type: object
+          description: Arguments to pass to the function
+        runnable_ref:
+          type: object
+          oneOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [deployed]
+                path:
+                  type: string
+                  description: Path to the deployed script or flow
+                runnable_kind:
+                  $ref: "#/components/schemas/RunnableKind"
+              required:
+                - source
+                - path
+                - runnable_kind
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [inline]
+                code:
+                  type: string
+                  description: Code content for inline execution
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+              required:
+                - source
+                - code
+      required:
+        - function_name
+        - runnable_ref
 
     WindmillLargeFile:
       type: object
