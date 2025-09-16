@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use axum::{
     extract::{Extension, Query},
     routing::get,
@@ -19,7 +21,10 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{
+        ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE,
+        SHARD_ID_TO_SHARD_DB,
+    },
     DB,
 };
 
@@ -217,7 +222,15 @@ async fn get_queue_counts(
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
     require_super_admin(&db, &authed.email).await?;
-    let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
+    let shard_db = SHARD_ID_TO_SHARD_DB.read().await.clone().unwrap();
+    let mut queue_counts = HashMap::new();
+
+    for (_shard_id, shard_db) in shard_db.iter() {
+        let counts = windmill_common::queue::get_queue_counts(shard_db).await;
+        for (k, v) in counts {
+            *queue_counts.entry(k).or_insert(0) += v;
+        }
+    }
     Ok(Json(queue_counts))
 }
 

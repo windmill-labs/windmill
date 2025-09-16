@@ -36,7 +36,7 @@ use windmill_common::jobs::{
     JobStatus, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, SHARD_ID_TO_SHARD_DB, TMP_DIR};
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
@@ -6010,6 +6010,34 @@ async fn add_batch_jobs(
         }
     };
 
+    let uuids = (0..n)
+        .into_iter()
+        .map(|_| Uuid::new_v4())
+        .collect::<Vec<Uuid>>();
+
+    let shard_db_store = SHARD_ID_TO_SHARD_DB.read().await.clone().unwrap();
+
+    let mut uuid_per_db = {
+        let mut store = HashMap::with_capacity(shard_db_store.len());
+
+        for (shard_id, _) in &shard_db_store {
+            store.insert(*shard_id, Vec::new());
+        }
+        store
+    };
+
+    for uuid in uuids.into_iter() {
+        let mut hasher = DefaultHasher::new();
+
+        uuid.hash(&mut hasher);
+
+        let shard_id = (hasher.finish() as usize) % shard_db_store.len();
+
+        let uuids = uuid_per_db.get_mut(&shard_id).unwrap();
+
+        uuids.push(uuid);
+    }
+
     let language = language.unwrap_or(ScriptLang::Deno);
 
     let tag = if let Some(dedicated_worker) = dedicated_worker {
@@ -6026,72 +6054,11 @@ async fn add_batch_jobs(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let uuids = sqlx::query_scalar!(
-        r#"
-        WITH uuid_table AS (
-            SELECT gen_random_uuid() AS uuid
-            FROM generate_series(1, $16)
-        ),
-        inserted_job AS (
-            INSERT INTO v2_job (
-                id, workspace_id, raw_code, raw_lock, raw_flow, tag,
-                runnable_id, runnable_path, kind, script_lang,
-                created_by, permissioned_as, permissioned_as_email,
-                concurrent_limit, concurrency_time_window_s, timeout, args
-            )
-            SELECT
-                uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb
-            FROM uuid_table
-            RETURNING id AS "id!"
-        ),
-        inserted_runtime AS (
-            INSERT INTO v2_job_runtime (id, ping) SELECT uuid, null FROM uuid_table
-        ),
-        inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
-            SELECT uuid, $17, $18, $19, $20, $21, $22, $1 FROM uuid_table
-        ),
-        inserted_job_status AS (
-            INSERT INTO v2_job_status (id, flow_status)
-            SELECT uuid, $23
-            FROM uuid_table
-            WHERE $23::jsonb IS NOT NULL
-        )
-        INSERT INTO v2_job_queue
-            (id, workspace_id, scheduled_for, tag)
-            (SELECT uuid, $1, $24, $25 FROM uuid_table)
-        RETURNING id
-        "#,
-        w_id,
-        raw_code,
-        raw_lock,
-        raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
-        tag,
-        hash,
-        path,
-        job_kind.clone() as JobKind,
-        language as ScriptLang,
-        authed.username,
-        username_to_permissioned_as(&authed.username),
-        authed.email,
-        concurrent_limit,
-        concurrent_time_window_s,
-        timeout,
-        n,
-        authed.email,
-        authed.username,
-        authed.is_admin,
-        authed.is_operator,
-        &[],
-        &[],
-        flow_status.map(|status| sqlx::types::Json(status)) as Option<sqlx::types::Json<FlowStatus>>,
-        Utc::now(),
-        tag,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let uuids = uuid_per_db
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<Vec<Uuid>>();
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
@@ -6107,6 +6074,74 @@ async fn add_batch_jobs(
             &uuids
         )
         .execute(&mut *tx)
+        .await?;
+    }
+
+    for (shard_id, uuids) in uuid_per_db.into_iter() {
+        let db = shard_db_store.get(&shard_id).unwrap();
+        sqlx::query!(
+            r#"
+            WITH uuid_table AS (
+                SELECT unnest($25::uuid[]) AS uuid
+            ),
+            inserted_job AS (
+                INSERT INTO v2_job (
+                    id, workspace_id, raw_code, raw_lock, raw_flow, tag,
+                    runnable_id, runnable_path, kind, script_lang,
+                    created_by, permissioned_as, permissioned_as_email,
+                    concurrent_limit, concurrency_time_window_s, timeout, args
+                )
+                SELECT
+                    uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                    $10, $11, $12, $13, $14, $15,
+                    ('{ "uuid": "' || uuid || '" }')::jsonb
+                FROM uuid_table
+                RETURNING id AS "id!"
+            ),
+            inserted_runtime AS (
+                INSERT INTO v2_job_runtime (id, ping) SELECT uuid, null FROM uuid_table
+            ),
+            inserted_job_perms AS (
+                INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
+                SELECT uuid, $16, $17, $18, $19, $20, $21, $1 FROM uuid_table
+            ),
+            inserted_job_status AS (
+                INSERT INTO v2_job_status (id, flow_status)
+                SELECT uuid, $22
+                FROM uuid_table
+                WHERE $22::jsonb IS NOT NULL
+            )
+            INSERT INTO v2_job_queue
+                (id, workspace_id, scheduled_for, tag)
+                (SELECT uuid, $1, $23, $24 FROM uuid_table)
+            "#,
+            w_id,
+            raw_code,
+            raw_lock,
+            raw_flow.clone().map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
+            tag,
+            hash,
+            path,
+            job_kind.clone() as JobKind,
+            language as ScriptLang,
+            authed.username,
+            username_to_permissioned_as(&authed.username),
+            authed.email,
+            concurrent_limit,
+            concurrent_time_window_s,
+            timeout,
+            authed.email,
+            authed.username,
+            authed.is_admin,
+            authed.is_operator,
+            &[],
+            &[],
+            flow_status.clone().map(|status| sqlx::types::Json(status)) as Option<sqlx::types::Json<FlowStatus>>,
+            Utc::now(),
+            tag,
+            &uuids
+        )
+        .execute(db)
         .await?;
     }
 

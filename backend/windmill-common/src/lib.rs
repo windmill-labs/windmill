@@ -383,6 +383,36 @@ pub async fn connect_db(
     Ok(connect(&database_url, max_connections, worker_mode).await?)
 }
 
+pub async fn connect_db_with_url(
+    database_url: &str,
+    server_mode: bool,
+    indexer_mode: bool,
+    worker_mode: bool,
+) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+    use anyhow::Context;
+
+    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
+        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
+        Err(_) => {
+            if server_mode {
+                DEFAULT_MAX_CONNECTIONS_SERVER
+            } else if indexer_mode {
+                DEFAULT_MAX_CONNECTIONS_INDEXER
+            } else {
+                DEFAULT_MAX_CONNECTIONS_WORKER
+                    + std::env::var("NUM_WORKERS")
+                        .ok()
+                        .map(|x| x.parse().ok())
+                        .flatten()
+                        .unwrap_or(1)
+                    - 1
+            }
+        }
+    };
+
+    Ok(connect(&database_url, max_connections, worker_mode).await?)
+}
+
 pub async fn connect(
     database_url: &str,
     max_connections: u32,

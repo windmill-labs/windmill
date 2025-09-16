@@ -15,9 +15,12 @@ use monitor::{
     send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::postgres::{PgListener, PgPoolOptions, PgConnectOptions};
+use sqlx::postgres::PgListener;
 use std::{
-    collections::HashMap, fs::{create_dir_all, DirBuilder}, net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{Duration, Instant}
+    collections::HashMap,
+    fs::{create_dir_all, DirBuilder},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::{Duration, Instant},
 };
 use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
@@ -31,7 +34,7 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
-    get_database_url,
+    connect_db, connect_db_with_url, get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -56,7 +59,7 @@ use windmill_common::{
     },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, SHARD_DB_INSTANCE, SHARD_DB_URL,
-        SHARD_ID_TO_SHARD_URLS, SHARD_URLS, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        SHARD_ID_TO_SHARD_DB, SHARD_URLS, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, METRICS_ENABLED,
 };
@@ -313,12 +316,12 @@ async fn windmill_main() -> anyhow::Result<()> {
     if let Some(shard_urls) = &*SHARD_URLS {
         let mut hash = HashMap::new();
         for (i, shard_db_url) in shard_urls.iter().enumerate() {
-            tracing::info!("Shard url: {}", shard_db_url);
-            let opt = PgConnectOptions::from_str(&shard_db_url)?;
-            let shard_db = PgPoolOptions::new().connect_with(opt).await?;
+            println!("Shard url: {}", shard_db_url);
+            let shard_db = connect_db_with_url(&shard_db_url, true, false, false).await?;
+            println!("Connected to shard db {}", shard_db_url);
             hash.insert(i, shard_db);
         }
-        let mut shard_url_to_db = SHARD_ID_TO_SHARD_URLS.write().await;
+        let mut shard_url_to_db = SHARD_ID_TO_SHARD_DB.write().await;
         *shard_url_to_db = Some(hash);
     }
 
@@ -785,8 +788,8 @@ Windmill Community Edition {GIT_VERSION}
 
                     match &*SHARD_DB_URL {
                         Some(shard_db_url) => {
-                            let db =
-                                windmill_common::connect(shard_db_url.as_str(), 5, true).await?;
+                            let db = connect_db_with_url(shard_db_url.as_str(), false, false, true)
+                                .await?;
                             *SHARD_DB_INSTANCE.write().await = Some(db);
                         }
                         _ => {}
