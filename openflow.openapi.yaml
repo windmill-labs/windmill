@@ -526,10 +526,6 @@ components:
               items:
                 type: string
                 format: uuid
-        stream_jobs:
-          type: array
-          items:
-            type: string
       required:
         - step
         - modules
