@@ -18,15 +18,17 @@
 		contentClasses="flex flex-col gap-y-2 p-4"
 	>
 		<svelte:fragment slot="trigger">
-			<Button
-				btnClasses="text-tertiary"
-				color="light"
-				size="xs"
-				nonCaptureEvent={true}
-				startIcon={{ icon: Settings }}
-				iconOnly
-				title="Editor settings"
-			/>
+			{#if customUi.editorSettings != false}
+				<Button
+					btnClasses="text-tertiary"
+					color="light"
+					size="xs"
+					nonCaptureEvent={true}
+					startIcon={{ icon: Settings }}
+					iconOnly
+					title="Editor settings"
+				/>
+			{/if}
 		</svelte:fragment>
 
 		<svelte:fragment slot="content">

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.543.0](https://github.com/windmill-labs/windmill/compare/v1.542.4...v1.543.0) (2025-09-15)
+
+
+### Features
+
+* **ai agent:** handle images in ai agent ([#6572](https://github.com/windmill-labs/windmill/issues/6572)) ([20f48e6](https://github.com/windmill-labs/windmill/commit/20f48e6dedde8b494367f962e870a0ef7ab85e67))
+
+
+### Bug Fixes
+
+* fix navbapp app navigation ([223feed](https://github.com/windmill-labs/windmill/commit/223feede4d2cf5cb7a3079995ca5cb0a01a87f35))
+* **frontend:** add timeline to the flow log viewer ([#6577](https://github.com/windmill-labs/windmill/issues/6577)) ([b0495b7](https://github.com/windmill-labs/windmill/commit/b0495b7133550ecbfd04c8cc90dcf9e9ca57f99e))
+* run preprocessor even if empty flow ([#6609](https://github.com/windmill-labs/windmill/issues/6609)) ([c24c629](https://github.com/windmill-labs/windmill/commit/c24c6293179e584fbeddbe787176db6fc748cf4a))
+
+## [1.542.4](https://github.com/windmill-labs/windmill/compare/v1.542.3...v1.542.4) (2025-09-13)
+
+
+### Bug Fixes
+
+* **aichat:** fix tool usage for gemini models ([#6599](https://github.com/windmill-labs/windmill/issues/6599)) ([7dbf5ca](https://github.com/windmill-labs/windmill/commit/7dbf5ca561a4045a829a8642491ed242243ec825))
+* allow custom models in ai agent step ([eb7cbd2](https://github.com/windmill-labs/windmill/commit/eb7cbd29bf48a5587791ef586f642af56a4ab11c))
+* **backend:** email trigger fix build ([#6602](https://github.com/windmill-labs/windmill/issues/6602)) ([82dcb71](https://github.com/windmill-labs/windmill/commit/82dcb711ca46635683f51dfab9a67204662ddab9))
+* **backend:** email triggers error handler and retry ([#6601](https://github.com/windmill-labs/windmill/issues/6601)) ([41667d0](https://github.com/windmill-labs/windmill/commit/41667d06fc8552dbc0235feb7f297f18e060b01d))
+* custom tag helper ([bef6bb8](https://github.com/windmill-labs/windmill/commit/bef6bb826f1c72d91130fc6886bf062ebf809c0c))
+* fix first step's schema clone ([84757a6](https://github.com/windmill-labs/windmill/commit/84757a68d7122f6b1489cdaec417e9adcd827555))
+* improve aggrid actions column ([#6600](https://github.com/windmill-labs/windmill/issues/6600)) ([c755e2b](https://github.com/windmill-labs/windmill/commit/c755e2bad006a5cc147adb47417270af9d042d24))
+* use $var: syntax for empty string template fields ([#6603](https://github.com/windmill-labs/windmill/issues/6603)) ([0a7d762](https://github.com/windmill-labs/windmill/commit/0a7d762010002da129856414b4d3300bce09ac28))
+* workspace forks script versioning (hashes) ([#6604](https://github.com/windmill-labs/windmill/issues/6604)) ([9454ab5](https://github.com/windmill-labs/windmill/commit/9454ab5cc439aeba7eb9133bd34cfa5a9e27fcaf))
+
 ## [1.542.3](https://github.com/windmill-labs/windmill/compare/v1.542.2...v1.542.3) (2025-09-11)
 
 

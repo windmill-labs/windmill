@@ -2,7 +2,7 @@
 	import { WorkerService } from '$lib/gen'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	interface Props {
 		tag: string
 		tagLabel?: string
@@ -15,10 +15,21 @@
 	let timeout: number | undefined = undefined
 
 	let visible = true
+
+	let customTag = $derived.by(() => {
+		if (tag.includes('$workspace') || tag.includes('$args')) return
+
+		if (tag.includes('(')) {
+			return tag.split('(')[0]
+		}
+		return tag
+	})
+
 	async function lookForTag(): Promise<void> {
 		try {
-			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({ tags: tag })
-			noWorkerWithTag = !existsWorkerWithTag[tag]
+			if (!customTag) return
+			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({ tags: customTag })
+			noWorkerWithTag = !existsWorkerWithTag[customTag]
 			if (noWorkerWithTag) {
 				timeout = setTimeout(() => {
 					if (visible) {
@@ -31,7 +42,10 @@
 		}
 	}
 
-	lookForTag()
+	$effect(() => {
+		customTag
+		untrack(() => lookForTag())
+	})
 
 	onDestroy(() => {
 		visible = false
@@ -45,7 +59,7 @@
 	<Popover notClickable placement="top">
 		<AlertTriangle size={16} class="text-yellow-500" />
 		{#snippet text()}
-			No worker with {tagLabel ?? 'tag'} <b>{tag}</b> is currently running.
+			No worker with {tagLabel ?? 'tag'} <b>{customTag}</b> is currently running.
 		{/snippet}
 	</Popover>
 {/if}
