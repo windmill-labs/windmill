@@ -329,7 +329,7 @@
 				bind:value={item.allow}
 				disablePortal
 				class="w-[20rem]"
-				placeholder="Deny all accesss"
+				placeholder="Deny all access"
 				hideMainClearBtn
 			/>
 			<CloseButton onClick={() => rules?.splice(idx, 1)} />
