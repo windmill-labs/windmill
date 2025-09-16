@@ -144,11 +144,6 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    dbg!("DEPENDENCY_JOB!");
-    dbg!("DEPENDENCY_JOB!");
-    dbg!("DEPENDENCY_JOB!");
-    dbg!("DEPENDENCY_JOB!");
-    dbg!("DEPENDENCY_JOB!");
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
@@ -361,11 +356,6 @@ pub async fn handle_dependency_job(
 
                 ScriptHash(new_hash)
             } else {
-                dbg!("OUT");
-                dbg!("OUT");
-                dbg!("OUT");
-                dbg!("OUT");
-                dbg!("OUT");
                 // We do not create new row for this update
                 // That means we can keep current hash and just update lock
                 sqlx::query!(
@@ -475,7 +465,7 @@ pub async fn process_relative_imports(
     permissioned_as: &str,
     lock: Option<String>,
 ) -> error::Result<()> {
-    let relative_imports = extract_relative_imports(dbg!(&code), script_path, script_lang);
+    let relative_imports = extract_relative_imports(&code, script_path, script_lang);
     // TODO: Do the same for flows steps
     if let Some(relative_imports) = relative_imports {
         let mut tx = db.begin().await?;
@@ -632,9 +622,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
                 w_id,
-            ).fetch_one(&mut *flow_tx)
+            ).fetch_optional(&mut *flow_tx)
             .await
-            .map_err(to_anyhow);
+            .map_err(to_anyhow).map(Option::flatten);
 
             match r {
                 // TODO: Fallback - remove eventually.
@@ -692,10 +682,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     }
                 }
                 Ok(None) => {
-                    tracing::error!(
-                        "no flow version found for path {path}",
-                        path = s.importer_path
-                    );
                     if *WMDEBUG_NO_DMAP_DISSOLVE {
                         tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
                     } else {
@@ -708,7 +694,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                             flow_tx,
                             &None,
                         )
-                        .await?
+                        .await
                         .commit()
                         .await?;
                     }
@@ -737,9 +723,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
                 s.importer_path,
                 w_id,
-            ).fetch_one(&mut *tx)
+            ).fetch_optional(&mut *tx)
             .await
-            .map_err(to_anyhow);
+            .map_err(to_anyhow).map(Option::flatten);
 
             match r {
                 // Get current version of current flow.
@@ -780,10 +766,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     }
                 }
                 Ok(None) => {
-                    tracing::error!(
-                        "no app version found for path {path}",
-                        path = s.importer_path
-                    );
                     if *WMDEBUG_NO_DMAP_DISSOLVE {
                         tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable.");
                     } else {
@@ -796,15 +778,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                             tx,
                             &None,
                         )
-                        .await?
+                        .await
                         .commit()
                         .await?;
                     }
                     continue;
                 }
                 Err(err) => {
-                    // TODO: Clean malformed dependency_map row
-                    // TODO: If flow or app also take into account nodes.
                     tracing::error!(
                         "error getting latest deployed app version for path {path}: {err}",
                         path = s.importer_path,
@@ -872,7 +852,6 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
-    dbg!("HANDLE_FLOW_DEPENDENCY_JOB");
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
@@ -1058,7 +1037,7 @@ pub async fn handle_flow_dependency_job(
             Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
-        tx = dbg!(dependency_map).dissolve(tx).await;
+        tx = dependency_map.dissolve(tx).await;
 
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
@@ -1195,7 +1174,6 @@ async fn lock_modules<'c>(
     let mut errors = Vec::new();
     for mut e in modules.into_iter() {
         let id = e.id.clone();
-        dbg!(&id);
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -2174,7 +2152,7 @@ pub async fn handle_app_dependency_job(
     let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
         &job.workspace_id,
         &job_path,
-        "flow",
+        "app",
         &parent_path,
         db,
     )

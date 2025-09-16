@@ -5,19 +5,6 @@ use windmill_common::error::Result;
 lazy_static::lazy_static! {
     pub static ref WMDEBUG_NO_DMAP_DISSOLVE: bool = std::env::var("WMDEBUG_NO_DMAP_DISSOLVE").is_ok();
 }
-// TODO: Clean dependency_map table
-// TODO: Completely messup the thing
-// - Change referenced node.
-// TODO: Resilience - What if this fails there?
-// TODO: Scripts do some black magic to make raw reqs work
-// TODO: Add more logs
-// TODO: Check if works with CLI
-// TODO: Make sure if used with CLI it is not calling db and is not modifying dm
-// TODO: What if renamed the object but rearrange is not called?
-// TODO: Check if using CLI also generates new versions of flows/scripts
-// TODO: Same but if deploying imported script (CLI)
-// TODO: CLI do not skip if action was to rename step or flow/app/script
-/// self-heals even if dependency_map is deleted
 #[derive(Debug)]
 pub struct ScopedDependencyMap {
     dm: HashSet<(String, String)>,
@@ -27,6 +14,9 @@ pub struct ScopedDependencyMap {
 }
 
 impl ScopedDependencyMap {
+    /// Calls DB, however is assumed to be called once per dependency job
+    /// AND is scoped to smaller subset of data
+    /// So it is not too expensive
     pub(crate) async fn fetch_maybe_rearranged<'a>(
         w_id: &str,
         importer_path: &str,
@@ -38,6 +28,12 @@ impl ScopedDependencyMap {
             .as_ref()
             .is_some_and(|x| !x.is_empty() && x != importer_path)
         {
+            tracing::info!(
+                workspace_id = %w_id,
+                "detected top level rename from: {} to: {importer_path} on object of kind: {importer_kind}. reflecting in dependency_map.",
+                parent_path.clone().unwrap_or_default(),
+            );
+
             let dm = sqlx::query_as::<_, (String, String)>(
                 "
 UPDATE dependency_map
@@ -65,9 +61,7 @@ RETURNING importer_node_id, imported_path
         }
     }
 
-    /// Calls DB, however is assumed to be called once per dependency job
-    /// AND is scoped to smaller subset of data
-    /// So it is not too expensive
+    /// Almost same as [[Self::fetch_maybe_rearranged]], however only reads values, thus a bit faster.
     pub(crate) async fn fetch<'a>(
         w_id: &str,
         importer_path: &str,
@@ -105,12 +99,13 @@ SELECT importer_node_id, imported_path
         mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
         let Some(mut relative_imports) = relative_imports else {
+            tracing::info!("relative imports are not found for: importer - {}, importer_node_id - {}, importer_kind - {}",
+                &self.importer_path,
+                &node_id,
+                &self.importer_kind,
+            );
             return Ok(tx);
         };
-
-        dbg!(&relative_imports);
-        dbg!(node_id);
-        dbg!(&self.importer_path);
 
         // This does:
         // 1. remove all relative imports from relative_imports that ARE tracked in dependency_map
@@ -168,6 +163,8 @@ SELECT importer_node_id, imported_path
             return tx;
         }
 
+        tracing::info!("dissolving dependency_map: {:?}", &self);
+
         // We _could_ shove it into single query, but this query is rarely called AND let's keep it simple for redability.
         for (importer_node_id, imported_path) in self.dm.into_iter() {
             tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}",
@@ -206,15 +203,25 @@ SELECT importer_node_id, imported_path
         tx
     }
 
+    /// Selectively clean dependency_map for object
+    /// If `importer_node_id` is None will clear all nodes.
     pub(crate) async fn clear_map_for_item<'c>(
         item_path: &str,
         w_id: &str,
         importer_kind: &str,
         mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
         importer_node_id: &Option<String>,
-    ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
-        tracing::warn!("self-healed, but is the bug");
-        sqlx::query!(
+    ) -> sqlx::Transaction<'c, sqlx::Postgres> {
+        tracing::warn!(
+            importer = item_path,
+            kind = importer_kind,
+            node_id = importer_node_id,
+            workspace_id = w_id,
+            "discovered orphan entry in `dependency_map`. It will be healed automatically, however please report this issue to Windmill Team.",
+        );
+
+        // MUST succeed. Error MUST not block the execution.
+        if let Err(err) = sqlx::query!(
             "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
                  AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text)",
@@ -224,7 +231,13 @@ SELECT importer_node_id, imported_path
             importer_node_id.clone(),
         )
         .execute(&mut *tx)
-        .await?;
-        Ok(tx)
+        .await
+        {
+            tracing::error!(
+                workspace_id = w_id,
+                "error while clearing discovered orphan: {err}"
+            );
+        }
+        tx
     }
 }

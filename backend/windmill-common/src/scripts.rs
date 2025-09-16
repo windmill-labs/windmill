@@ -329,7 +329,7 @@ impl Hash for Schema {
     }
 }
 
-#[derive(Serialize, Deserialize, Hash)]
+#[derive(Serialize, Deserialize, Hash, Debug)]
 pub struct NewScript {
     pub path: String,
     pub parent_hash: Option<ScriptHash>,
