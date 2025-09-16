@@ -70,6 +70,7 @@
 		<option value="minimal">Minimal</option>
 		<option value="border">Border</option>
 		<option value="border_nord">Border Nord</option>
+		<option value="minimalistic">Minimalistic</option>
 	</select>
 
 	{#if version == 'minimal'}
@@ -204,6 +205,75 @@
 				<input
 					type="text"
 					class="!rounded-md !bg-gray-50 !shadow-none !border-nord-500 hover:!border-nord-400 !text-nord-300 !focus:outline-none !focus:ring-none"
+					id={key}
+					placeholder={value.placeholder}
+					value={value.default}
+				/>
+				<!-- Description -->
+				<div class="text-2xs text-gray-400 italic">{value.description}</div>
+			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="flex flex-row gap-2 h-6 -my-2">
+				<button
+					class="group-hover:opacity-100 opacity-0 py-1 px-2 w-fit duration-200 hover:bg-surface-hover rounded-md border flex items-center justify-center h-full text-gray-500"
+				>
+					<Plug size={14} />
+				</button>
+				{@render toggleButton?.()}
+			</div>
+			{#snippet toggleButton()}
+				<div
+					class="flex flex-row w-fit border border-nord-500 rounded-md transition-opacity duration-200 group-hover:opacity-100 opacity-0 h-full"
+				>
+					<button
+						class="py-1 px-2 w-fit hover:bg-surface-hover rounded-md h-full text-xs font-normal text-gray-500"
+					>
+						{'${}'}
+					</button>
+					<button class=" py-1 px-2 w-fit rounded-md h-full bg-nord-500 text-nord-0">
+						<SquareFunction size={14} />
+					</button>
+				</div>
+			{/snippet}
+		{/snippet}
+	{:else if version == 'minimalistic'}
+		<!--
+	Accent : nord-0
+	Text Neutral : nord-300
+	Text Highlight: nord-0 / semibold
+	Text Secondary: nord-300/50
+	Background surface-secondary: nord-600/20
+	Border: nord-500
+	callForAction: gray-500
+	-->
+		<div class="flex flex-col gap-8">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div class="flex flex-col gap-1 rounded-md transition-all duration-300 group">
+				<!-- Header  -->
+				<div class="flex flex-row gap-2 justify-between items-center">
+					<div class="flex flex-row gap-2">
+						<label for={key} class="text-sm font-semibold text-nord-0 whitespace-nowrap"
+							>{key}{#if schema.required.includes(key)}
+								<span class="text-sm text-red-500">&nbsp;*</span>
+							{/if}
+						</label>
+
+						<div class="text-sm text-nord-300/50 italic">{value.type}</div>
+					</div>
+
+					{@render actions?.()}
+				</div>
+				<!-- Input -->
+				<input
+					type="text"
+					class="!rounded-sm !bg-gray-50 !shadow-none !border-none hover:!border-nord-400 !text-nord-300 !focus:outline-none !focus:ring-none !p-3"
 					id={key}
 					placeholder={value.placeholder}
 					value={value.default}
