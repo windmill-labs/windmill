@@ -1,5 +1,6 @@
 use crate::db::Authed;
 use crate::error::{self};
+use crate::utils::ExpiringCacheEntry;
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
@@ -1264,16 +1265,19 @@ pub fn check_lfs_object_path_permissions_internal(
 
 lazy_static::lazy_static! {
     // For every user (Authed), cache their S3PermissionRules and the corresponding compiled GlobMatchers
-    // TODO : Remove Vec<S3PermissionRule> from the key, and use invalidation
-    static ref S3_PERMISSION_GLOBS_CACHE: Cache<(Authed, Vec<S3PermissionRule>), Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>> = Cache::new(32);
+    static ref S3_PERMISSION_GLOBS_CACHE: Cache<Authed, ExpiringCacheEntry<Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>>> = Cache::new(32);
 }
 
 pub fn get_s3_permission_globs_for_authed(
     authed: &Authed,
     rules: &Vec<S3PermissionRule>,
 ) -> error::Result<Arc<Mutex<Vec<(S3PermissionRule, Vec<GlobMatcher>)>>>> {
-    if let Some(cached) = S3_PERMISSION_GLOBS_CACHE.get(&(authed.clone(), rules.clone())) {
-        return Ok(cached);
+    if let Some(cached) = S3_PERMISSION_GLOBS_CACHE.get(authed) {
+        if cached.expiry > std::time::Instant::now() {
+            return Ok(cached.value);
+        } else {
+            S3_PERMISSION_GLOBS_CACHE.remove(authed);
+        }
     }
 
     let mut compiled_rules = vec![];
@@ -1282,7 +1286,13 @@ pub fn get_s3_permission_globs_for_authed(
         compiled_rules.push((rule.clone(), globs));
     }
     let compiled_rules = Arc::new(Mutex::new(compiled_rules));
-    S3_PERMISSION_GLOBS_CACHE.insert((authed.clone(), rules.clone()), compiled_rules.clone());
+    S3_PERMISSION_GLOBS_CACHE.insert(
+        authed.clone(),
+        ExpiringCacheEntry {
+            value: compiled_rules.clone(),
+            expiry: std::time::Instant::now() + std::time::Duration::from_secs(60), // 1 minute
+        },
+    );
     Ok(compiled_rules)
 }
 
