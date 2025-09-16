@@ -3,10 +3,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
-	import type { GlobalIterationBounds } from './graph'
 	import { TimelineCompute } from '$lib/timelineCompute.svelte'
 	import { onMount } from 'svelte'
 	import OnChange from './common/OnChange.svelte'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 
 	interface Props {
 		selfWaitTime?: number | undefined
@@ -19,9 +19,7 @@
 			}
 		>
 		flowDone?: boolean
-		decreaseIterationFrom?: (key: string, amount: number) => void
 		buildSubflowKey: (key: string) => string
-		globalIterationBounds: Record<string, GlobalIterationBounds>
 	}
 
 	let {
@@ -29,10 +27,7 @@
 		aggregateWaitTime = undefined,
 		flowModules,
 		durationStatuses,
-		flowDone = false,
-		decreaseIterationFrom,
-		buildSubflowKey,
-		globalIterationBounds
+		flowDone = false
 	}: Props = $props()
 
 	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
@@ -55,6 +50,8 @@
 	export function reset() {
 		timelineCompute?.reset()
 	}
+
+	const barHeight = 16
 </script>
 
 <OnChange
@@ -103,27 +100,19 @@
 			</div>
 		{/if}
 		{#each Object.values(flowModules) as k (k)}
-			{@const iterationFrom = globalIterationBounds[buildSubflowKey(k)]?.iteration_from ?? 0}
-			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
-				{#if iterationFrom > 0}
-					<div class="w-full flex flex-row-reverse sticky top-0">
-						<button
-							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
-							onclick={() => {
-								decreaseIterationFrom?.(k, 20)
-							}}
-							>Viewing iterations {iterationFrom} to {globalIterationBounds[buildSubflowKey(k)]
-								?.iteration_total}. Load more
-						</button>
-					</div>
-				{/if}
-
+			<div class="shadow-inner dark:shadow-gray-700 relative">
 				<div class="px-2 py-2 grid grid-cols-6 w-full">
 					<div class="truncate">{k.startsWith('subflow:') ? k.substring(8) : k}</div>
-					<div class="col-span-5 flex min-h-6">
+					<div class="col-span-5 flex">
 						{#if min && total}
-							<div class="flex flex-col gap-2 w-full p-2 ml-4">
-								{#each items?.[k] ?? [] as b}
+							<VirtualList
+								width="100%"
+								height={Math.min(400, (items?.[k]?.length ?? 0) * barHeight)}
+								itemCount={items?.[k]?.length ?? 0}
+								itemSize={barHeight}
+							>
+								{#snippet item({ index, style })}
+									{@const b = items?.[k]?.[index]}
 									{@const waitingLen = b?.created_at
 										? b.started_at
 											? b.started_at - b?.created_at
@@ -131,7 +120,7 @@
 												? 0
 												: now - b?.created_at
 										: 0}
-									<div class="flex w-full">
+									<div class="flex w-full p-1 pl-12" {style}>
 										<TimelineBar
 											position="left"
 											id={b?.id}
@@ -155,8 +144,8 @@
 											/>
 										{/if}
 									</div>
-								{/each}
-							</div>
+								{/snippet}
+							</VirtualList>
 						{/if}</div
 					></div
 				>

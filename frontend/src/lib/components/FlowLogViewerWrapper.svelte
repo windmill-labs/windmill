@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import type { DurationStatus, GlobalIterationBounds, GraphModuleState } from './graph'
+	import type { DurationStatus, GraphModuleState } from './graph'
 	import FlowLogViewer from './FlowLogViewer.svelte'
 	import { TimelineCompute } from '$lib/timelineCompute.svelte'
 	import { onMount, untrack } from 'svelte'
@@ -13,7 +13,6 @@
 		job: Partial<Job>
 		localModuleStates: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
-		globalIterationBounds?: Record<string, GlobalIterationBounds>
 		workspaceId: string | undefined
 		render: boolean
 		onSelectedIteration?: (
@@ -22,7 +21,6 @@
 				| { manuallySet: false; moduleId: string }
 		) => Promise<void>
 		mode?: 'flow' | 'aiagent'
-		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 
 	let {
@@ -32,9 +30,7 @@
 		workspaceId,
 		render,
 		onSelectedIteration,
-		mode = 'flow',
-		globalIterationBounds,
-		loadPreviousIterations
+		mode = 'flow'
 	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control
@@ -194,7 +190,5 @@
 		{timelineNow}
 		bind:timelineAvailableWidths
 		{timelinelWidth}
-		{globalIterationBounds}
-		{loadPreviousIterations}
 	/>
 </div>

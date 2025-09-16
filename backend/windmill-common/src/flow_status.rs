@@ -114,7 +114,7 @@ pub struct FlowCleanupModule {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowJobDuration {
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration: i64,
+    pub duration_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -128,7 +128,7 @@ struct UntaggedFlowStatusModule {
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
-    flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
+    flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -174,7 +174,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,7 +196,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
@@ -218,7 +218,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -273,7 +273,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 iterator: untagged.iterator,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
-                flow_jobs_timeline: untagged.flow_jobs_timeline,
+                flow_jobs_duration: untagged.flow_jobs_duration,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -291,7 +291,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
-                flow_jobs_timeline: untagged.flow_jobs_timeline,
+                flow_jobs_duration: untagged.flow_jobs_duration,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -308,7 +308,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
-                flow_jobs_timeline: untagged.flow_jobs_timeline,
+                flow_jobs_duration: untagged.flow_jobs_duration,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -374,11 +374,11 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn flow_jobs_timeline(&self) -> Option<Vec<Option<FlowJobDuration>>> {
+    pub fn flow_jobs_duration(&self) -> Option<Vec<Option<FlowJobDuration>>> {
         match self {
-            FlowStatusModule::InProgress { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
-            FlowStatusModule::Success { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
-            FlowStatusModule::Failure { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
+            FlowStatusModule::InProgress { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
+            FlowStatusModule::Success { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
+            FlowStatusModule::Failure { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
             _ => None,
         }
     }

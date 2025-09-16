@@ -4980,7 +4980,7 @@ async fn restarted_flows_resolution(
                         if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
                             new_flow_jobs_success.truncate(branch_or_iteration_n);
                         }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_timeline();
+                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
                         if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
                             new_flow_jobs_timeline.truncate(branch_or_iteration_n);
                         }
@@ -4990,7 +4990,7 @@ async fn restarted_flows_resolution(
                             iterator: None,
                             flow_jobs: Some(new_flow_jobs),
                             flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_timeline: new_flow_jobs_timeline,
+                            flow_jobs_duration: new_flow_jobs_timeline,
                             branch_chosen: None,
                             branchall: Some(BranchAllStatus {
                                 branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
@@ -5025,7 +5025,7 @@ async fn restarted_flows_resolution(
                         if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
                             new_flow_jobs_success.truncate(branch_or_iteration_n);
                         }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_timeline();
+                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
                         if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
                             new_flow_jobs_timeline.truncate(branch_or_iteration_n);
                         }
@@ -5038,7 +5038,7 @@ async fn restarted_flows_resolution(
                             }),
                             flow_jobs: Some(new_flow_jobs),
                             flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_timeline: new_flow_jobs_timeline,
+                            flow_jobs_duration: new_flow_jobs_timeline,
                             branch_chosen: None,
                             branchall: None,
                             parallel,

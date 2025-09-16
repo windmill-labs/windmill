@@ -27,11 +27,6 @@ export type DurationStatus = {
 	byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
 }
 
-export type GlobalIterationBounds = {
-	iteration_from?: number
-	iteration_total?: number
-}
-
 export type FlowStatusViewerContext = {
 	flowStateStore?: FlowState
 	retryStatus: StateStore<Record<string, number | undefined>>
@@ -58,6 +53,7 @@ export type GraphModuleState = {
 	selectedForloopIndex?: number
 	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
+	flow_jobs_duration?: { started_at?: string | undefined; duration_ms?: number | undefined }[]
 	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number
