@@ -452,7 +452,7 @@ fn remove_ansi_codes(s: &str) -> String {
 
 pub async fn process_relative_imports(
     db: &sqlx::Pool<sqlx::Postgres>,
-    job_id: Option<Uuid>,
+    _job_id: Option<Uuid>,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
     w_id: &str,
     script_path: &str,
