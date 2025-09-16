@@ -2007,8 +2007,10 @@ async fn push_next_flow_job(
         }
     });
 
-    // if this is an empty module of if the module has already been completed, successfully, update the parent flow
-    if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
+    // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
+    if (flow.modules.is_empty() && !step.is_preprocessor_step())
+        || matches!(status_module, FlowStatusModule::Success { .. })
+    {
         return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
             flow: flow_job.id,
             success: true,

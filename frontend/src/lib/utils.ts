@@ -248,6 +248,28 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+export function msToReadableTimeShort(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	if (days > 0) {
+		return `${days}d`
+	} else if (hours > 0) {
+		return `${hours}h`
+	} else if (minutes > 0) {
+		return `${minutes}m`
+	} else {
+		return `${msToSec(ms, maximumFractionDigits)}s`
+	}
+}
+
 export function getToday() {
 	var today = new Date()
 	return today
