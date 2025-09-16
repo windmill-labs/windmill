@@ -131,6 +131,7 @@ struct UntaggedFlowStatusModule {
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
     agent_actions_success: Option<Vec<bool>>,
+    is_stream: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -178,6 +179,8 @@ pub enum FlowStatusModule {
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions_success: Option<Vec<bool>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_stream: Option<bool>,
     },
     Success {
         id: String,
@@ -267,6 +270,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 progress: untagged.progress,
                 agent_actions: untagged.agent_actions,
                 agent_actions_success: untagged.agent_actions_success,
+                is_stream: untagged.is_stream,
             }),
             "Success" => Ok(FlowStatusModule::Success {
                 id: untagged

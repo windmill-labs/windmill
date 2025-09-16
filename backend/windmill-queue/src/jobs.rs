@@ -4996,6 +4996,7 @@ async fn restarted_flows_resolution(
                             progress: None,
                             agent_actions: None,
                             agent_actions_success: None,
+                            is_stream: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -5036,6 +5037,7 @@ async fn restarted_flows_resolution(
                             progress: None,
                             agent_actions: None,
                             agent_actions_success: None,
+                            is_stream: None,
                         });
                     }
                     _ => {

@@ -51,7 +51,6 @@
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
-	import FlowJobsStream from './runs/FlowJobsStream.svelte'
 
 	let {
 		flowStateStore,
@@ -1055,7 +1054,6 @@
 		| 'graph'
 		| 'logs'
 		| 'assets'
-		| 'jobs_stream'
 
 	let animateLogsTab = $state(false)
 
@@ -1163,7 +1161,7 @@
 					{innerModules}
 					{suspendStatus}
 					{hideJobId}
-					result_streams={selected == 'jobs_stream' ? undefined : resultStreams}
+					result_streams={resultStreams}
 				/>
 			</div>
 		{/if}
@@ -1179,9 +1177,6 @@
 					>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
-					{#if job.flow_status?.stream_jobs}
-						<Tab value="jobs_stream"><span class="font-semibold">Jobs stream</span></Tab>
-					{/if}
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1563,11 +1558,6 @@
 				style="min-height: {minTabHeight}px"
 			>
 				<JobAssetsViewer {job} />
-			</div>
-		{/if}
-		{#if selected == 'jobs_stream' && render}
-			<div class="p-2">
-				<FlowJobsStream {jobId} />
 			</div>
 		{/if}
 	</div>

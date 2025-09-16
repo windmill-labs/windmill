@@ -5672,7 +5672,6 @@ paths:
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
-        - $ref: "#/components/parameters/JobsStream"
 
       requestBody:
         description: script args
@@ -8090,10 +8089,6 @@ paths:
           schema:
             type: boolean
         - name: no_logs
-          in: query
-          schema:
-            type: boolean
-        - name: only_jobs_stream
           in: query
           schema:
             type: boolean
@@ -14056,12 +14051,6 @@ components:
     SkipPreprocessor:
       name: skip_preprocessor
       description: skip the preprocessor
-      in: query
-      schema:
-        type: boolean
-    JobsStream:
-      name: jobs_stream
-      description: will return an SSE stream with the flow jobs stream instead of the job result
       in: query
       schema:
         type: boolean

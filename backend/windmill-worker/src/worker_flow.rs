@@ -3170,6 +3170,7 @@ async fn push_next_flow_job(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                is_stream: None,
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
@@ -3185,6 +3186,7 @@ async fn push_next_flow_job(
             progress: None,
             agent_actions: None,
             agent_actions_success: None,
+            is_stream: None,
         },
         NextStatus::NextBranchStep(NextBranch {
             mut flow_jobs,
@@ -3210,6 +3212,7 @@ async fn push_next_flow_job(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                is_stream: None,
             }
         }
 
@@ -3226,6 +3229,7 @@ async fn push_next_flow_job(
             progress: None,
             agent_actions: None,
             agent_actions_success: None,
+            is_stream: None,
         },
         NextStatus::NextStep => {
             FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: one_uuid? }
