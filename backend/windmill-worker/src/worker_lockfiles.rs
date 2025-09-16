@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
@@ -1056,12 +1056,11 @@ pub async fn handle_flow_dependency_job(
         .await?;
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
-        let (mut value_lite, mut step_to_id_hm) = (flow.clone(), HashMap::new());
+        let mut value_lite = flow.clone();
 
         tx = reduce_flow(
             tx,
             &mut value_lite.modules,
-            &mut step_to_id_hm,
             &job_path,
             &job.workspace_id,
             flow.failure_module.as_ref(),
@@ -1634,12 +1633,10 @@ async fn insert_flow_modules<'c>(
     same_worker: bool,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
-    step_to_id_hm: &mut HashMap<String, FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     tx = Box::pin(reduce_flow(
         tx,
         modules,
-        step_to_id_hm,
         path,
         workspace_id,
         failure_module,
@@ -1672,7 +1669,6 @@ async fn insert_flow_modules<'c>(
 async fn reduce_flow<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     modules: &mut Vec<FlowModule>,
-    step_to_id_hm: &mut HashMap<String, FlowNodeId>,
     path: &str,
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
@@ -1680,7 +1676,6 @@ async fn reduce_flow<'c>(
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
-        let step = module.id.clone();
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
                 Error::internal_err(format!(
@@ -1720,8 +1715,6 @@ async fn reduce_flow<'c>(
                 )
                 .await?;
 
-                step_to_id_hm.insert(step, id);
-
                 val = FlowScript {
                     input_transforms,
                     id,
@@ -1744,7 +1737,6 @@ async fn reduce_flow<'c>(
                     same_worker,
                     modules,
                     modules_node,
-                    step_to_id_hm,
                 )
                 .await?;
             }
@@ -1758,7 +1750,6 @@ async fn reduce_flow<'c>(
                         same_worker,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        step_to_id_hm,
                     )
                     .await?;
                 }
@@ -1770,7 +1761,6 @@ async fn reduce_flow<'c>(
                     same_worker,
                     default,
                     default_node,
-                    step_to_id_hm,
                 )
                 .await?;
             }
@@ -1784,7 +1774,6 @@ async fn reduce_flow<'c>(
                         same_worker,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        step_to_id_hm,
                     )
                     .await?;
                 }
