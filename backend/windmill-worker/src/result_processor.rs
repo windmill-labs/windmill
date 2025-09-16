@@ -17,13 +17,7 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time,
-    error::{self, Error},
-    jobs::JobKind,
-    utils::WarnAfterExt,
-    worker::{to_raw_value, Connection, WORKER_GROUP},
-    worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
-    KillpillSender, DB,
+    add_time, error::{self, Error}, flow_status::FlowJobDuration, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
 };
 
 #[cfg(feature = "benchmark")]
@@ -342,6 +336,7 @@ pub fn start_background_processor(
                         &w_id,
                         success,
                         Arc::new(result),
+                        None,
                         true,
                         &same_worker_tx,
                         &worker_dir,
@@ -582,6 +577,7 @@ pub async fn process_completed_job(
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
+        let started_at = job.started_at.clone();
 
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
@@ -614,7 +610,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        add_completed_job(
+        let (_, duration) = add_completed_job(
             db,
             &job,
             true,
@@ -642,6 +638,7 @@ pub async fn process_completed_job(
                     &workspace_id,
                     true,
                     result,
+                    started_at.map(|x| FlowJobDuration { started_at: x, duration: duration }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -682,6 +679,7 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
+                    duration.map(|x| FlowJobDuration { started_at: job.started_at.unwrap(), duration: x }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -783,6 +781,7 @@ pub async fn handle_job_error(
             &job.workspace_id,
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
+            None,
             unrecoverable,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,

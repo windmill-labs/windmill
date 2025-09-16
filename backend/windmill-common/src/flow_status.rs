@@ -112,7 +112,7 @@ pub struct FlowCleanupModule {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct FlowJobsTimeline {
+pub struct FlowJobDuration {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub duration: i64,
 }
@@ -128,7 +128,7 @@ struct UntaggedFlowStatusModule {
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
-    flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+    flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -174,7 +174,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,7 +196,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
@@ -218,7 +218,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_timeline: Option<Vec<Option<FlowJobsTimeline>>>,
+        flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -374,7 +374,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn flow_jobs_timeline(&self) -> Option<Vec<Option<FlowJobsTimeline>>> {
+    pub fn flow_jobs_timeline(&self) -> Option<Vec<Option<FlowJobDuration>>> {
         match self {
             FlowStatusModule::InProgress { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),
             FlowStatusModule::Success { flow_jobs_timeline, .. } => flow_jobs_timeline.clone(),

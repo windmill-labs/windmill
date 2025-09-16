@@ -37,7 +37,7 @@ use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowJobsTimeline, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult
+    ApprovalConditions, FlowJobDuration, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -79,6 +79,7 @@ pub async fn update_flow_status_after_job_completion(
     w_id: &str,
     success: bool,
     result: Arc<Box<RawValue>>,
+    flow_job_duration: Option<FlowJobDuration>,
     unrecoverable: bool,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
@@ -95,6 +96,7 @@ pub async fn update_flow_status_after_job_completion(
         job_id_for_status: job_id_for_status.clone(),
         success,
         result,
+        flow_job_duration,
         stop_early_override,
         has_triggered_error_handler: false,
     };
@@ -108,6 +110,7 @@ pub async fn update_flow_status_after_job_completion(
             &rec.job_id_for_status,
             w_id,
             rec.success,
+            rec.flow_job_duration.clone(),
             rec.result,
             unrecoverable,
             same_worker_tx,
@@ -131,6 +134,7 @@ pub async fn update_flow_status_after_job_completion(
                     &rec.job_id_for_status,
                     w_id,
                     false,
+                    rec.flow_job_duration,
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
                     }))),
@@ -185,6 +189,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     job_id_for_status: Uuid,
     success: bool,
     result: Arc<Box<RawValue>>,
+    flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
 }
@@ -267,6 +272,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     job_id_for_status: &Uuid,
     w_id: &str,
     mut success: bool,
+    flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
     same_worker_tx: &SameWorkerSender,
@@ -630,8 +636,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     if let Some(flow_jobs_timeline) = flow_jobs_timeline.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
                         if let Some(position) = position {
-                            if position < flow_jobs_timeline.len() {
-                                flow_jobs_timeline[position] = Some(FlowJobsTimeline { started_at: chrono::Utc::now(), duration: 0 });
+                                if position < flow_jobs_timeline.len() {
+                                    flow_jobs_timeline[position] = flow_job_duration.clone();
                             }
                         }
                     }
@@ -884,6 +890,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let flow_jobs = module_status.flow_jobs();
                 let branch_chosen = module_status.branch_chosen();
                 let mut flow_jobs_success = module_status.flow_jobs_success();
+                let mut flow_jobs_timeline = module_status.flow_jobs_timeline();
 
                 if let (Some(flow_job_success), Some(flow_jobs)) =
                     (flow_jobs_success.as_mut(), flow_jobs.as_ref())
@@ -892,6 +899,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                     if let Some(position) = position {
                         if position < flow_job_success.len() {
                             flow_job_success[position] = Some(success);
+                        }
+                    }
+                }
+
+                if let (Some(flow_jobs_timeline), Some(flow_jobs)) =
+                    (flow_jobs_timeline.as_mut(), flow_jobs.as_ref())
+                {
+                    let position = flow_jobs.iter().position(|x| x == job_id_for_status);
+                    if let Some(position) = position {
+                        if position < flow_jobs_timeline.len() {
+                            flow_jobs_timeline[position] = flow_job_duration.clone();
                         }
                     }
                 }
@@ -966,6 +984,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: job_id_for_status.clone(),
                             flow_jobs,
                             flow_jobs_success,
+                            flow_jobs_timeline,
                             branch_chosen,
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             agent_actions: module_status.agent_actions(),
@@ -1374,6 +1393,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         }
 
+        let mut flow_job_duration = None;
         if flow_job.is_canceled() {
             add_completed_job_error(
                 db,
@@ -1400,8 +1420,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
 
             add_time!(bench, "flow status update 1");
-            if success {
-                add_completed_job(
+            let duration =if success {
+                let (_, duration) = add_completed_job(
                     db,
                     &flow_job,
                     true,
@@ -1414,8 +1434,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                 )
                 .await?;
+                duration
             } else {
-                add_completed_job(
+                let (_, duration) = add_completed_job(
                     db,
                     &flow_job,
                     false,
@@ -1432,7 +1453,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                 )
                 .await?;
-            }
+                duration
+            };
+            flow_job_duration = flow_job.started_at.map(|x| FlowJobDuration { started_at: x, duration: duration });
+
         }
         true
     } else {
@@ -1482,6 +1506,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         flow: parent_job,
                         job_id_for_status: flow,
                         success: success && !is_failure_step,
+                        flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
                         stop_early_override: if stop_early {
                             Some(skip_if_stop_early)
@@ -2762,6 +2787,11 @@ async fn push_next_flow_job(
                     } else {
                         Some(vec![])
                     },
+                    flow_jobs_timeline: if branch_chosen.is_some() {
+                        None
+                    } else {
+                        Some(vec![])
+                    },
                     branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],
@@ -3157,6 +3187,7 @@ async fn push_next_flow_job(
                     mut flow_jobs,
                     while_loop,
                     mut flow_jobs_success,
+                    mut flow_jobs_timeline,
                     ..
                 },
             ..
@@ -3168,11 +3199,15 @@ async fn push_next_flow_job(
             if let Some(flow_jobs_success) = &mut flow_jobs_success {
                 flow_jobs_success.push(None);
             }
+            if let Some(flow_jobs_timeline) = &mut flow_jobs_timeline {
+                flow_jobs_timeline.push(None);
+            }
             FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: Some(FlowIterator { index, itered }),
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
+                flow_jobs_timeline,
                 branch_chosen: None,
                 branchall: None,
                 id: status_module.id(),
@@ -3188,6 +3223,7 @@ async fn push_next_flow_job(
             iterator,
             flow_jobs_success: Some(vec![None; uuids.len()]),
             flow_jobs: Some(uuids.clone()),
+            flow_jobs_timeline: Some(vec![None; uuids.len()]),
             branch_chosen: None,
             branchall,
             id: status_module.id(),
@@ -3201,6 +3237,7 @@ async fn push_next_flow_job(
             mut flow_jobs,
             status,
             mut flow_jobs_success,
+            mut flow_jobs_timeline,
             ..
         }) => {
             let uuid = one_uuid?;
@@ -3208,11 +3245,15 @@ async fn push_next_flow_job(
             if let Some(flow_jobs_success) = &mut flow_jobs_success {
                 flow_jobs_success.push(None);
             }
+            if let Some(flow_jobs_timeline) = &mut flow_jobs_timeline {
+                flow_jobs_timeline.push(None);
+            }
             FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: None,
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
+                flow_jobs_timeline,
                 branch_chosen: None,
                 branchall: Some(status),
                 id: status_module.id(),
@@ -3229,6 +3270,7 @@ async fn push_next_flow_job(
             iterator: None,
             flow_jobs: None,
             flow_jobs_success: None,
+            flow_jobs_timeline: None,
             branch_chosen: Some(branch),
             branchall: None,
             id: status_module.id(),
@@ -3405,6 +3447,7 @@ struct ForloopNextIteration {
     itered: Vec<Box<RawValue>>,
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
+    flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -3420,6 +3463,7 @@ struct NextBranch {
     status: BranchAllStatus,
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
+    flow_jobs_timeline: Option<Vec<Option<FlowJobDuration>>>,
 }
 
 #[derive(Debug)]
@@ -3671,13 +3715,14 @@ async fn compute_next_flow_transform(
         FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
-            let (flow_jobs, flow_jobs_success) = match status_module {
+            let (flow_jobs, flow_jobs_success, flow_jobs_timeline) = match status_module {
                 FlowStatusModule::InProgress {
                     flow_jobs: Some(flow_jobs),
                     flow_jobs_success,
+                    flow_jobs_timeline,
                     ..
-                } => (flow_jobs.clone(), flow_jobs_success.clone()),
-                _ => (vec![], Some(vec![])),
+                } => (flow_jobs.clone(), flow_jobs_success.clone(), flow_jobs_timeline.clone()),
+                _ => (vec![], Some(vec![]), Some(vec![])),
             };
             let next_loop_idx = flow_jobs.len();
             next_loop_iteration(
@@ -3688,6 +3733,7 @@ async fn compute_next_flow_transform(
                     itered: vec![],
                     flow_jobs: flow_jobs,
                     flow_jobs_success: flow_jobs_success,
+                    flow_jobs_timeline: flow_jobs_timeline,
                     new_args: Iter {
                         index: next_loop_idx as i32,
                         value: windmill_common::worker::to_raw_value(&next_loop_idx),
@@ -3886,7 +3932,7 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::BranchAll { branches, parallel, .. } => {
-            let (branch_status, flow_jobs, flow_jobs_success) = match status_module {
+            let (branch_status, flow_jobs, flow_jobs_success, flow_jobs_timeline) = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
@@ -3934,6 +3980,7 @@ async fn compute_next_flow_transform(
                             BranchAllStatus { branch: 0, len: branches.len() },
                             vec![],
                             Some(vec![]),
+                            Some(vec![]),
                         )
                     }
                 }
@@ -3941,11 +3988,13 @@ async fn compute_next_flow_transform(
                     branchall: Some(BranchAllStatus { branch, len }),
                     flow_jobs: Some(flow_jobs),
                     flow_jobs_success,
+                    flow_jobs_timeline,
                     ..
                 } if !parallel => (
                     BranchAllStatus { branch: branch + 1, len: len.clone() },
                     flow_jobs.clone(),
                     flow_jobs_success.clone(),
+                    flow_jobs_timeline.clone(),
                 ),
 
                 _ => Err(Error::BadRequest(format!(
@@ -3981,7 +4030,6 @@ async fn compute_next_flow_transform(
                     branch_chosen: Some(BranchChosen::Default),
                 });
             };
-
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
@@ -3994,6 +4042,7 @@ async fn compute_next_flow_transform(
                     status: branch_status,
                     flow_jobs,
                     flow_jobs_success,
+                    flow_jobs_timeline,
                 }),
             ))
         }
@@ -4139,6 +4188,7 @@ async fn next_forloop_status(
                     itered,
                     flow_jobs: vec![],
                     flow_jobs_success: Some(vec![]),
+                    flow_jobs_timeline: Some(vec![]),
                     new_args: iter,
                     while_loop: false,
                 })
@@ -4151,6 +4201,7 @@ async fn next_forloop_status(
             iterator: Some(FlowIterator { itered, index }),
             flow_jobs: Some(flow_jobs),
             flow_jobs_success,
+            flow_jobs_timeline,
             ..
         } if !*parallel => {
             let itered_new = if itered.is_empty() {
@@ -4201,6 +4252,7 @@ async fn next_forloop_status(
                 itered: itered_new.clone(),
                 flow_jobs: flow_jobs.clone(),
                 flow_jobs_success: flow_jobs_success.clone(),
+                flow_jobs_timeline: flow_jobs_timeline.clone(),
                 new_args: Iter { index: index as i32, value: next.to_owned() },
                 while_loop: false,
             })
