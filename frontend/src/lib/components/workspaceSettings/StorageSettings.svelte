@@ -310,12 +310,14 @@
 {/snippet}
 
 {#snippet advancedPermissionsEditor(rules: S3ResourceSettingsItem['advancedPermissions'])}
-	<Alert title="You can use the following variables :">
+	<Alert title="You can use the following :">
 		<ul class="list-disc pl-5">
-			<li><code>user</code> : Nickname of the user doing the request</li>
-			<li><code>group</code> : Any group that the user belongs to</li>
-			<li><code>folder_read</code> : Any folder that the user has read access to</li>
-			<li><code>folder_write</code> : Any folder that the user has write access to</li>
+			<li><code>{'{user}'}</code> : Nickname of the user doing the request</li>
+			<li><code>{'{group}'}</code> : Any group that the user belongs to</li>
+			<li><code>{'{folder_read}'}</code> : Any folder that the user has read access to</li>
+			<li><code>{'{folder_write}'}</code> : Any folder that the user has write access to</li>
+			<li><code>*</code> : any path segment</li>
+			<li><code>**</code> : zero or more folders</li>
 		</ul>
 	</Alert>
 	{#each rules ?? [] as item, idx}

@@ -218,7 +218,7 @@ pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
     return ObjectStoreReload::Never;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum LargeFileStorage {
     S3Storage(S3Storage),
@@ -260,7 +260,7 @@ impl LargeFileStorage {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -268,7 +268,7 @@ pub struct S3Storage {
     pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -276,18 +276,18 @@ pub struct AzureBlobStorage {
     pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
-    pub advanced_permissions: Option<S3PermissionRule>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct S3PermissionRule {
     pattern: String,
-    allow: Vec<S3Permission>, // read, write, delete, list
+    allow: S3Permission, // read, write, delete, list
 }
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -330,9 +330,9 @@ impl<'de> Deserialize<'de> for S3Permission {
         impl<'de> Visitor<'de> for PermVisitor {
             type Value = S3Permission;
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("a list of permission strings")
+                f.write_str("comma separated list of permissions: read, write, delete, list")
             }
-            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
                 let mut perms = S3Permission::empty();
                 for value in v.split(',') {
                     perms |= match value {
@@ -347,7 +347,7 @@ impl<'de> Deserialize<'de> for S3Permission {
             }
         }
 
-        deserializer.deserialize_seq(PermVisitor)
+        deserializer.deserialize_str(PermVisitor)
     }
 }
 
@@ -1207,20 +1207,168 @@ impl ObjectStoreResource {
 
 pub fn check_lfs_object_path_permissions(
     lfs: &LargeFileStorage,
-    _object_path: &str,
+    path: &str,
     authed: &Authed,
+    op: S3Permission,
 ) -> error::Result<()> {
     if authed.is_admin || lfs.is_public_resource() {
         return Ok(());
     }
-    let _username = authed.username.as_str();
 
-    // if lfs.get_advanced_permissions() {
-    //     if !object_path.starts_with(&format!("u/{username}/")) {
-    //         return Err(error::Error::NotAuthorized(format!(
-    //             "Can only access paths u/{username}/**"
-    //         )));
-    //     }
-    // }
-    return Ok(());
+    let Some(advanced_permissions) = lfs.get_advanced_permissions() else {
+        // Legacy permissions behavior
+        return (S3Permission::READ | S3Permission::WRITE | S3Permission::DELETE)
+            .contains(op)
+            .then_some(())
+            .ok_or_else(|| {
+                error::Error::NotAuthorized(format!(
+                    "Insufficient S3 permission for path {path} (List not allowed)"
+                ))
+            });
+    };
+
+    for rule in advanced_permissions {
+        if match_s3_permission_pattern(&rule.pattern, path, authed)? {
+            if rule.allow.contains(op) {
+                return Ok(()); // permission granted
+            } else {
+                let op = serde_json::to_string(&op).map_err(to_anyhow)?;
+                return Err(error::Error::NotAuthorized(format!(
+                    "Insufficient S3 permission for path {path} (Operation not permitted: {op})"
+                )));
+            }
+        }
+    }
+    return Err(error::Error::NotAuthorized(format!(
+        "Insufficient S3 permission for path {path} (no rule matched)"
+    )));
+}
+
+// Checks that path matches rule like 'wm/private_{username}/**/* or 'wm/public/**'
+fn match_s3_permission_pattern(
+    mut rule: &str,
+    mut path: &str,
+    authed: &Authed,
+) -> error::Result<bool> {
+    use nom::bytes::complete::{tag, take_until, take_while};
+    let mut last_len = usize::MAX;
+    while !rule.is_empty() {
+        tracing::info!(
+            "match_s3_permission_pattern: rule: {}, path: {}",
+            rule,
+            path
+        );
+        if rule.len() >= last_len {
+            return Err(error::Error::InternalErr(format!(
+                "Infinite loop detected in match_s3_permission_pattern. rule: {}",
+                rule
+            )));
+        }
+        last_len = rule.len();
+
+        if let Ok((rule_rest, _)) = tag::<_, _, ()>("{username}")(rule) {
+            rule = rule_rest;
+            let Ok((path_rest, _)) = tag::<_, _, ()>(authed.username.as_str())(path) else {
+                return Ok(false);
+            };
+            path = path_rest;
+        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{group}")(rule) {
+            rule = rule_rest;
+            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
+            path = path_rest;
+            if !authed.groups.iter().any(|g| g == group) {
+                return Ok(false);
+            }
+        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{folder_write}")(rule) {
+            rule = rule_rest;
+            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
+            path = path_rest;
+            if !authed
+                .folders
+                .iter()
+                .any(|(f, f_can_write, f_is_owner)| f == group && (*f_can_write || *f_is_owner))
+            {
+                return Ok(false);
+            }
+        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("{folder_read}")(rule) {
+            rule = rule_rest;
+            let (path_rest, group) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
+            path = path_rest;
+            if !authed.folders.iter().any(|(f, _, _)| f == group) {
+                return Ok(false);
+            }
+        } else if rule.starts_with("{") {
+            return Err(error::Error::InternalErr(format!(
+                "Unknown placeholder in rule: {}}}",
+                take_until::<_, _, ()>("}")(rule).unwrap_or((rule, rule)).1
+            )));
+        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("**")(rule) {
+            if rule == "**/*" {
+                return Ok(true);
+            }
+            rule = rule_rest;
+            loop {
+                if match_s3_permission_pattern(rule, path, authed)? {
+                    tracing::info!(
+                        "match_s3_permission_pattern **/* true:            rule: {}, path: {}",
+                        rule,
+                        path
+                    );
+                    return Ok(true);
+                } else {
+                    // consume folder segments until pattern works
+                    path = path.trim_start_matches('/');
+                    let (path_rest, _) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
+                    path = path_rest;
+                    if path.is_empty() {
+                        return Ok(false);
+                    }
+                }
+            }
+        } else if let Ok((rule_rest, _)) = tag::<_, _, ()>("*")(rule) {
+            rule = rule_rest;
+            if rule.is_empty() {
+                // There is nothing after *, so * matches the last segment (file name, not folder)
+                return Ok(path.bytes().all(|c| c != b'/'));
+            } else if rule.starts_with('/') {
+                // * is a folder segment
+                let (path_rest, _) = take_until::<_, _, ()>("/")(path).unwrap_or(("", path));
+                path = path_rest;
+            } else {
+                // Ensure loop termination : path must always get shorter
+                loop {
+                    if match_s3_permission_pattern(rule, path, authed)? {
+                        tracing::info!(
+                            "match_s3_permission_pattern * true:            rule: {}, path: {}",
+                            rule,
+                            path
+                        );
+                        return Ok(true);
+                    } else {
+                        if path.is_empty() {
+                            return Ok(false);
+                        }
+                        tracing::info!(
+                            "match_s3_permission_pattern * false:            rule: {}, path: {}",
+                            rule,
+                            path
+                        );
+                        path = &path[1..];
+                    }
+                }
+            }
+        } else {
+            let (rule_rest, rule_segment) =
+                take_while::<_, _, ()>(|c| c != '{' && c != '*')(rule).unwrap_or(("", rule));
+            rule = rule_rest;
+            if !path.starts_with(rule_segment) {
+                return Ok(false);
+            }
+            path = &path[rule_segment.len()..];
+        }
+    }
+    if path.is_empty() {
+        return Ok(true);
+    }
+    return Ok(false);
 }

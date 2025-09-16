@@ -34,7 +34,10 @@ export function convertBackendSettingsToFrontendSettingsItem(
 	let advancedPermissions = large_file_storage?.advanced_permissions
 		? large_file_storage.advanced_permissions.map((rule) => ({
 				...rule,
-				allow: rule.allow?.split(',').map((rule) => rule as 'read' | 'write' | 'delete' | 'list')
+				allow: rule.allow
+					?.split(',')
+					.filter((rule) => !!rule)
+					.map((rule) => rule as 'read' | 'write' | 'delete' | 'list')
 			}))
 		: undefined
 	if (large_file_storage?.type === 'S3Storage') {
@@ -137,9 +140,9 @@ export function convertFrontendToBackendettingsItem(
 }
 
 export const defaultS3AdvancedPermissions: S3ResourceSettingsItem['advancedPermissions'] = [
-	{ pattern: 'u/{user}/**', allow: ['read', 'write', 'delete', 'list'] },
-	{ pattern: 'g/{group}/**', allow: ['read', 'write', 'delete', 'list'] },
-	{ pattern: 'f/{folder_read}/**', allow: ['read', 'list'] },
-	{ pattern: 'f/{folder_write}/**', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'u/{username}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'g/{group}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'f/{folder_write}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'f/{folder_read}/**/*', allow: ['read', 'list'] },
 	{ pattern: '**/*', allow: [] }
 ]
