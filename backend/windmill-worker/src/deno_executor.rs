@@ -7,8 +7,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, listen_for_is_stream_tx,
-        parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
+        start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -419,7 +419,7 @@ try {{
         start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
     };
 
-    let is_stream_tx = listen_for_is_stream_tx(job, conn);
+    let stream_notifier = StreamNotifier::new(conn, job);
 
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
@@ -437,7 +437,7 @@ try {{
         false,
         &mut Some(occupancy_metrics),
         None,
-        is_stream_tx,
+        stream_notifier,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

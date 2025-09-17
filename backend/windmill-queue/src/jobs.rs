@@ -4098,6 +4098,7 @@ pub async fn push<'c, 'd>(
                         }),
                         user_states,
                         preprocessor_module: None,
+                        stream_job: None,
                     }
                 }
                 _ => {
@@ -4352,6 +4353,7 @@ pub async fn push<'c, 'd>(
                 }),
                 user_states,
                 preprocessor_module: None,
+                stream_job: None,
             };
             let value = flow_data.value();
             let priority = value.priority;
@@ -4996,7 +4998,6 @@ async fn restarted_flows_resolution(
                             progress: None,
                             agent_actions: None,
                             agent_actions_success: None,
-                            is_stream: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -5037,7 +5038,6 @@ async fn restarted_flows_resolution(
                             progress: None,
                             agent_actions: None,
                             agent_actions_success: None,
-                            is_stream: None,
                         });
                     }
                     _ => {

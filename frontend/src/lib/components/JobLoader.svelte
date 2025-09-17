@@ -653,6 +653,12 @@
 					if (resultStreamOffset) {
 						params.set('stream_offset', resultStreamOffset.toString())
 					}
+					if (job) {
+						params.set(
+							'is_flow',
+							(job.job_kind === 'flow' || job.job_kind === 'flowpreview').toString()
+						)
+					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
 

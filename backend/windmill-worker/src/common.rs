@@ -1063,70 +1063,131 @@ pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
         .unwrap_or(job.id)
 }
 
-async fn update_flow_status_module_with_is_stream(
-    db: &DB,
-    parent_job: &uuid::Uuid,
-) -> Result<(), Error> {
-    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
-    tracing::info!("setting is_stream to step {:?}", step);
-    match step {
-        Step::Step(step) => {
-            sqlx::query!(
-                r#"
-                    UPDATE v2_job_status SET
-                        flow_status = jsonb_set(
-                            flow_status,
-                            array['modules', $2::TEXT, 'is_stream'],
-                            to_jsonb(TRUE)
-                        )
-                    WHERE id = $1
-                    "#,
-                parent_job,
-                step as i32
-            )
-            .execute(db)
-            .await?;
-        }
-        _ => {}
-    }
-    Ok(())
+#[derive(Clone)]
+pub struct StreamNotifier {
+    db: DB,
+    job_id: uuid::Uuid,
+    parent_job: uuid::Uuid,
+    root_job: uuid::Uuid,
 }
 
-pub fn listen_for_is_stream_tx(
-    job: &MiniPulledJob,
-    conn: &Connection,
-) -> Option<tokio::sync::mpsc::Sender<()>> {
-    if job.is_flow_step() {
-        if let Some(parent_job) = job.parent_job.as_ref() {
-            let (is_stream_tx, mut is_stream_rx) = tokio::sync::mpsc::channel::<()>(1);
-            let parent_job = *parent_job;
-            let db = match &conn {
-                Connection::Sql(db) => db.clone(),
+#[async_recursion]
+async fn check_if_nested_step_is_last(
+    db: &DB,
+    parent_job: Uuid,
+    parent_of_parent_job: Option<Uuid>,
+    root_job: Uuid,
+) -> error::Result<bool> {
+    // get parent of parent job to get step of parent job
+    let parent_of_parent_job = parent_of_parent_job.or(sqlx::query_scalar!(
+        "SELECT parent_job FROM v2_job WHERE id = $1",
+        parent_job
+    )
+    .fetch_one(db)
+    .await?);
+    if let Some(parent_of_parent_job) = parent_of_parent_job {
+        let r = sqlx::query!(
+            r#"SELECT 
+                (flow_status->'step')::integer as step,
+                jsonb_array_length(flow_status->'modules') as len,
+                flow_status->'modules'->-1->>'branch_chosen' IS NOT NULL as is_branch_one,
+                parent_job as ppp_job
+            FROM v2_job 
+                LEFT JOIN v2_job_status USING (id)
+            WHERE v2_job.id = $1"#,
+            parent_of_parent_job
+        )
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching step flow status: {e:#}")))?;
+
+        if let Some(step) = r.step {
+            let step = Step::from_i32_and_len(step, r.len.unwrap_or(0) as usize);
+
+            // if parent job is last and a branch one and
+            // - root_job is equal to parent of parent job, return true
+            // - root job is not equal to parent of parent job, recursively check if the parent of parent job is a branch one and last
+            if step.is_last_step() && r.is_branch_one.unwrap_or(false) {
+                if parent_of_parent_job == root_job {
+                    return Ok(true);
+                } else {
+                    return check_if_nested_step_is_last(
+                        db,
+                        parent_of_parent_job,
+                        r.ppp_job,
+                        root_job,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+impl StreamNotifier {
+    pub fn new(conn: &Connection, job: &MiniPulledJob) -> Option<Self> {
+        let root_job = get_root_job_id(job);
+        if job.is_flow_step() && job.parent_job.is_some() {
+            match conn {
+                Connection::Sql(db) => Some(Self {
+                    db: db.clone(),
+                    parent_job: job.parent_job.unwrap(),
+                    job_id: job.id,
+                    root_job,
+                }),
                 Connection::Http(_) => {
                     tracing::warn!(
                         "Flow job streaming is only supported for workers connected to a database"
                     );
-                    return None;
+                    None
                 }
-            };
-            tokio::spawn(async move {
-                if let Some(_) = is_stream_rx.recv().await {
-                    if let Err(err) =
-                        update_flow_status_module_with_is_stream(&db, &parent_job).await
-                    {
-                        tracing::error!(
-                            "Error updating flow status module with is stream: {err:#}"
-                        );
-                    };
-                }
-            });
-
-            Some(is_stream_tx)
+            }
         } else {
             None
         }
-    } else {
-        None
+    }
+
+    async fn update_flow_status_with_stream_job_inner(
+        db: DB,
+        parent_job: Uuid,
+        job_id: Uuid,
+        root_job: Uuid,
+    ) -> Result<(), Error> {
+        let step = get_step_of_flow_status(&db, parent_job).await?;
+
+        if step.is_last_step()
+            && (parent_job == root_job
+                || check_if_nested_step_is_last(&db, parent_job, None, root_job).await?)
+        {
+            sqlx::query!(r#"
+                    UPDATE v2_job_status
+                    SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))
+                    WHERE id = $2"#,
+                    job_id,
+                    root_job
+                )
+                .execute(&db)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub fn update_flow_status_with_stream_job(&self) -> () {
+        let db = self.db.clone();
+        let parent_job = self.parent_job;
+        let job_id = self.job_id;
+        let root_job = self.root_job;
+        tokio::spawn(async move {
+            if let Err(err) =
+                Self::update_flow_status_with_stream_job_inner(db, parent_job, job_id, root_job)
+                    .await
+            {
+                tracing::error!("Could not notify about stream job {}: {err:#?}", parent_job);
+            }
+        });
     }
 }
 

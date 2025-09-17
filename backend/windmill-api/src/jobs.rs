@@ -172,21 +172,21 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/stream/f/*script_path",
+            "/run_and_stream/f/*script_path",
             get(stream_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/stream/p/*script_path",
+            "/run_and_stream/p/*script_path",
             get(stream_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/stream/h/:hash",
+            "/run_and_stream/h/:hash",
             get(stream_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
@@ -5302,6 +5302,7 @@ pub async fn stream_job(
         Some(true),
         Some(true),
         None,
+        None,
         tx,
     );
 
@@ -6325,6 +6326,7 @@ pub struct JobUpdateQuery {
     pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
     pub fast: Option<bool>,
+    pub is_flow: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -6353,6 +6355,8 @@ pub struct JobUpdate {
     pub job: Option<Job>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub only_result: Option<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_stream_job_id: Option<Uuid>,
 }
 
 impl JobUpdate {
@@ -6371,6 +6375,7 @@ impl Hash for JobUpdate {
         self.mem_peak.hash(state);
         self.progress.hash(state);
         self.stream_offset.hash(state);
+        self.flow_stream_job_id.hash(state);
         if !self.completed.unwrap_or(false) {
             self.flow_status.as_ref().map(|x| x.get().hash(state));
             self.workflow_as_code_status
@@ -6443,6 +6448,7 @@ async fn get_job_update(
         running,
         only_result,
         no_logs,
+        is_flow,
         ..
     }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
@@ -6461,6 +6467,7 @@ async fn get_job_update(
             false,
             only_result,
             no_logs,
+            is_flow,
             None,
         )
         .await?,
@@ -6480,6 +6487,7 @@ async fn get_job_update_sse(
         no_logs,
         only_result,
         fast,
+        is_flow,
     }): Query<JobUpdateQuery>,
 ) -> error::Result<Response> {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
@@ -6497,6 +6505,7 @@ async fn get_job_update_sse(
         only_result,
         fast,
         no_logs,
+        is_flow,
         tx,
     );
 
@@ -6541,19 +6550,18 @@ fn start_job_update_sse_stream(
     only_result: Option<bool>,
     fast: Option<bool>,
     no_logs: Option<bool>,
+    is_flow: Option<bool>,
     tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
 ) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
         let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
+        let mut flow_stream_job_id = None;
 
         // Send initial update immediately
         let mut running = running;
         let mut mem_peak = 0;
-
-        let mut flow_stream_job_id = None;
-
         match get_job_update_data(
             &opt_authed,
             &opt_tokened,
@@ -6568,7 +6576,8 @@ fn start_job_update_sse_stream(
             true,
             only_result,
             no_logs,
-            Some(&mut flow_stream_job_id),
+            is_flow,
+            flow_stream_job_id,
         )
         .await
         {
@@ -6594,6 +6603,9 @@ fn start_job_update_sse_stream(
                     } else {
                         update.stream_offset = None;
                     }
+                }
+                if update.flow_stream_job_id.is_some() {
+                    flow_stream_job_id = update.flow_stream_job_id;
                 }
                 if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
                     tracing::warn!("Failed to send initial job update for job {job_id}");
@@ -6659,7 +6671,8 @@ fn start_job_update_sse_stream(
                 true,
                 only_result,
                 no_logs,
-                Some(&mut flow_stream_job_id),
+                is_flow,
+                flow_stream_job_id,
             )
             .await
             {
@@ -6673,6 +6686,12 @@ fn start_job_update_sse_stream(
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
                     }
+                    // get update only returns flow_stream_job_id the first time it changes so we override it with existing value if any before the hash comparison
+                    if flow_stream_job_id.is_some() {
+                        update.flow_stream_job_id = flow_stream_job_id;
+                    }
+
+                    tracing::info!("tx is closed: {:?}", tx.is_closed());
 
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
@@ -6700,6 +6719,13 @@ fn start_job_update_sse_stream(
                             } else {
                                 tracing::info!("not updating stream_offset");
                                 update.stream_offset = None;
+                            }
+                        }
+                        if update.flow_stream_job_id.is_some() {
+                            if flow_stream_job_id.is_none() {
+                                flow_stream_job_id = update.flow_stream_job_id;
+                            } else {
+                                update.flow_stream_job_id = None;
                             }
                         }
                         if let Some(new_mem_peak) = update.mem_peak {
@@ -6734,55 +6760,10 @@ fn start_job_update_sse_stream(
 
 async fn get_flow_stream_delta(
     db: &DB,
-    flow_status: &Option<sqlx::types::Json<Box<RawValue>>>,
-    flow_stream_job_id: &mut Option<Uuid>,
+    flow_stream_job_id: Option<Uuid>,
     stream_offset: Option<i32>,
 ) -> error::Result<Option<(Option<String>, Option<i32>)>> {
-    let job_id = if let Some(job_id) = flow_stream_job_id {
-        Some(*job_id)
-    } else if let Some(sqlx::types::Json(flow_status)) = flow_status {
-        let flow_status = serde_json::from_str::<FlowStatus>(flow_status.get())?;
-        match flow_status.modules.last() {
-            Some(FlowStatusModule::InProgress { is_stream: Some(true), job, .. }) => {
-                *flow_stream_job_id = Some(*job);
-                Some(*job)
-            }
-            Some(FlowStatusModule::InProgress { branch_chosen: Some(_), job, .. }) => {
-                // when last step is a branch one, get the flow status of the job and check if the last module status is in progress and is_stream is set to true
-                let record = sqlx::query!(
-                    r#"
-                    SELECT
-                        (flow_status->'modules'->-1->>'type') as module_type,
-                        (flow_status->'modules'->-1->>'is_stream')::bool as is_stream,
-                        (flow_status->'modules'->-1->>'job')::uuid as job
-                    FROM v2_job_status
-                    WHERE id = $1
-                    "#,
-                    job
-                )
-                .fetch_optional(db)
-                .await?;
-
-                if let Some(record) = record {
-                    if record.module_type.as_deref() == Some("InProgress")
-                        && record.is_stream.unwrap_or(false)
-                    {
-                        *flow_stream_job_id = record.job;
-                        record.job
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
-
-    if let Some(job_id) = job_id {
+    if let Some(job_id) = flow_stream_job_id {
         let record = sqlx::query!(
             "SELECT SUBSTR(rs.stream, $1) AS new_result_stream, CHAR_LENGTH(rs.stream) + 1 AS stream_offset FROM job_result_stream rs WHERE rs.job_id = $2",
             stream_offset.unwrap_or(0),
@@ -6814,7 +6795,8 @@ async fn get_job_update_data(
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
     no_logs: Option<bool>,
-    flow_stream_job_id: Option<&mut Option<Uuid>>,
+    is_flow: Option<bool>,
+    flow_stream_job_id: Option<Uuid>,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -6833,19 +6815,19 @@ async fn get_job_update_data(
         None
     };
 
+    let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
+
     if only_result.unwrap_or(false) {
-        let (result, running, mut result_stream, mut new_stream_offset, flow_status) = if let Some(
-            tags,
-        ) = tags
-        {
-            let r = sqlx::query!(
+        let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
+            if let Some(tags) = tags {
+                let r = sqlx::query!(
                 "SELECT 
                     jc.result as \"result: sqlx::types::Json<Box<RawValue>>\",
                     v2_job.tag,
                     v2_job_queue.running as \"running: Option<bool>\",
                     SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
                     CHAR_LENGTH(rs.stream) AS stream_offset,
-                    COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\"
+                    CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
                 LEFT JOIN v2_job_completed jc USING (id)
@@ -6855,35 +6837,36 @@ async fn get_job_update_data(
                 w_id,
                 job_id,
                 stream_offset.unwrap_or(0),
+                ignore_flow_stream_job_id,
             )
             .fetch_optional(db)
             .await?
             .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
-            if !tags.contains(&r.tag.as_str()) {
-                return Err(Error::NotAuthorized(format!(
-                    "Job tag {} is not in the scope tags: {}",
-                    r.tag,
-                    tags.join(", ")
-                )));
-            }
-            let running = r.running.as_ref().map(|x| *x);
-            (
-                r.result.map(|x| x.0),
-                running,
-                r.result_stream.flatten(),
-                r.stream_offset,
-                r.flow_status,
-            )
-        } else {
-            if running.is_some_and(|x| !x) {
-                let r = sqlx::query!(
+                if !tags.contains(&r.tag.as_str()) {
+                    return Err(Error::NotAuthorized(format!(
+                        "Job tag {} is not in the scope tags: {}",
+                        r.tag,
+                        tags.join(", ")
+                    )));
+                }
+                let running = r.running.as_ref().map(|x| *x);
+                (
+                    r.result.map(|x| x.0),
+                    running,
+                    r.result_stream.flatten(),
+                    r.stream_offset,
+                    r.stream_job,
+                )
+            } else {
+                if running.is_some_and(|x| !x) {
+                    let r = sqlx::query!(
                     "SELECT
                         COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         jq.running as \"running: Option<bool>\",
                         SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
                         CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
-                        COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\"
+                        CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $1::uuid as job_id, $2::text as workspace_id
                     ) base
@@ -6895,26 +6878,28 @@ async fn get_job_update_data(
                     job_id,
                     w_id,
                     stream_offset.unwrap_or(0),
+                    ignore_flow_stream_job_id,
                 ).fetch_optional(db).await?;
-                if let Some(r) = r {
-                    let running = r.running.as_ref().map(|x| *x);
-                    (
-                        r.result.map(|x| x.0),
-                        running,
-                        r.result_stream.flatten(),
-                        r.stream_offset,
-                        r.flow_status,
-                    )
+                    if let Some(r) = r {
+                        let running = r.running.as_ref().map(|x| *x);
+                        (
+                            r.result.map(|x| x.0),
+                            running,
+                            r.result_stream.flatten(),
+                            r.stream_offset,
+                            r.stream_job,
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    }
                 } else {
-                    (None, None, None, None, None)
-                }
-            } else {
-                let q = sqlx::query!(
+                    let q = sqlx::query!(
                     "SELECT
                         COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
                         CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
-                        COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\"
+                        COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                        CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $2::uuid as job_id, $1::text as workspace_id
                     ) base
@@ -6925,31 +6910,32 @@ async fn get_job_update_data(
                     w_id,
                     job_id,
                     stream_offset.unwrap_or(0),
+                    ignore_flow_stream_job_id,
                 )
                 .fetch_optional(db)
                 .await?;
-                if let Some(r) = q {
-                    (
-                        r.result.map(|x| x.0),
-                        running,
-                        r.result_stream.flatten(),
-                        r.stream_offset,
-                        r.flow_status,
-                    )
-                } else {
-                    (None, None, None, None, None)
+                    if let Some(r) = q {
+                        (
+                            r.result.map(|x| x.0),
+                            running,
+                            r.result_stream.flatten(),
+                            r.stream_offset,
+                            r.stream_job,
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    }
                 }
-            }
-        };
+            };
 
-        if let Some(flow_stream_job_id) = flow_stream_job_id {
-            let flow_stream_delta =
-                get_flow_stream_delta(db, &flow_status, flow_stream_job_id, stream_offset).await?;
+        let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
 
-            if let Some((flow_result_stream, flow_stream_offset)) = flow_stream_delta {
-                result_stream = flow_result_stream;
-                new_stream_offset = flow_stream_offset;
-            }
+        let flow_stream_delta =
+            get_flow_stream_delta(db, flow_stream_job_id, stream_offset).await?;
+
+        if let Some((flow_result_stream, flow_stream_offset)) = flow_stream_delta {
+            result_stream = flow_result_stream;
+            new_stream_offset = flow_stream_offset;
         }
 
         Ok(JobUpdate {
@@ -6965,6 +6951,7 @@ async fn get_job_update_data(
             flow_status: None,
             workflow_as_code_status: None,
             only_result: result,
+            flow_stream_job_id,
         })
     } else {
         let mut record = sqlx::query!(
@@ -6978,6 +6965,7 @@ async fn get_job_update_data(
                 SUBSTR(rs.stream, $8) AS new_result_stream,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                (COALESCE(c.flow_status, f.flow_status)->>'stream_job')::uuid AS stream_job,
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
                 CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
@@ -7021,15 +7009,14 @@ async fn get_job_update_data(
             None
         };
 
-        if let Some(flow_stream_job_id) = flow_stream_job_id {
-            let flow_stream_delta =
-                get_flow_stream_delta(db, &record.flow_status, flow_stream_job_id, stream_offset)
-                    .await?;
+        let flow_stream_job_id = flow_stream_job_id.or(record.stream_job);
 
-            if let Some((new_result_stream, stream_offset)) = flow_stream_delta {
-                record.new_result_stream = new_result_stream;
-                record.stream_offset = stream_offset;
-            }
+        let flow_stream_delta =
+            get_flow_stream_delta(db, flow_stream_job_id, stream_offset).await?;
+
+        if let Some((new_result_stream, stream_offset)) = flow_stream_delta {
+            record.new_result_stream = new_result_stream;
+            record.stream_offset = stream_offset;
         }
 
         Ok(JobUpdate {
@@ -7049,6 +7036,7 @@ async fn get_job_update_data(
                 .flow_status
                 .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             only_result: None,
+            flow_stream_job_id,
         })
     }
 }

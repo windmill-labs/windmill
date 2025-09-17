@@ -16,9 +16,9 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, listen_for_is_stream_tx,
-        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
+        read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
+        StreamNotifier,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
@@ -1313,7 +1313,7 @@ try {{
 
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
-            let is_stream_tx = listen_for_is_stream_tx(job, conn);
+            let stream_notifier = StreamNotifier::new(conn, job);
 
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
@@ -1330,7 +1330,7 @@ try {{
                 &job.workspace_id,
                 false,
                 occupancy_metrics,
-                is_stream_tx,
+                stream_notifier,
             )
             .await?;
             tracing::info!(
@@ -1473,7 +1473,7 @@ try {{
         .await?
     };
 
-    let is_stream_tx = listen_for_is_stream_tx(job, conn);
+    let stream_notifier = StreamNotifier::new(conn, job);
 
     let handle_result = handle_child(
         &job.id,
@@ -1489,7 +1489,7 @@ try {{
         false,
         &mut Some(occupancy_metrics),
         None,
-        is_stream_tx,
+        stream_notifier,
     )
     .await?;
 

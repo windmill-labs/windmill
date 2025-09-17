@@ -52,7 +52,7 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics};
+use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
 use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
@@ -114,7 +114,7 @@ pub async fn handle_child(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Do not print logs to output, but instead save to string.
     pipe_stdout: Option<&mut String>,
-    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    stream_notifier: Option<StreamNotifier>,
 ) -> error::Result<HandleChildResult> {
     let start = Instant::now();
 
@@ -316,7 +316,7 @@ pub async fn handle_child(
         &mut rx2,
         child_name,
         &mut stream_result,
-        is_stream_tx,
+        stream_notifier,
     )
     .instrument(trace_span!("child_lines"));
 
@@ -356,7 +356,7 @@ pub async fn write_lines(
     rx2: &mut broadcast::Receiver<()>,
     child_name: &str,
     stream_result: &mut Vec<String>,
-    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    stream_notifier: Option<StreamNotifier>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -484,18 +484,14 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
-            let is_stream_tx = is_stream_tx.clone();
+            let stream_notifier = stream_notifier.clone();
             let is_stream = is_stream.clone();
             (do_write, write_result) = tokio::spawn(async move {
                 if !nstream.is_empty() {
-                    if let Some(tx) = is_stream_tx {
+                    if let Some(stream_notifier) = stream_notifier {
                         if !is_stream.load(Ordering::SeqCst) {
-                            if let Err(err) = tx.send(()).await {
-                                tracing::error!(
-                                    "Could not notify about stream job {job_id}: {err:#?}"
-                                );
-                            };
                             is_stream.store(true, Ordering::SeqCst);
+                            stream_notifier.update_flow_status_with_stream_job();
                         }
                     }
 

@@ -52,7 +52,10 @@ use crate::common::OccupancyMetrics;
 use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
-use crate::{common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller};
+use crate::{
+    common::{unsafe_raw, StreamNotifier},
+    handle_child::run_future_with_polling_update_job_poller,
+};
 
 #[derive(Debug, Clone)]
 pub struct IdContext {
@@ -769,7 +772,7 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
-    _is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    _stream_notifier: Option<StreamNotifier>,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
@@ -791,7 +794,7 @@ pub async fn eval_fetch_timeout(
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
-    is_stream_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    stream_notifier: Option<StreamNotifier>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
@@ -947,14 +950,10 @@ pub async fn eval_fetch_timeout(
                     use windmill_common::result_stream::extract_stream_from_logs;
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
-                        if let Some(tx) = is_stream_tx.clone() {
+                        if let Some(sn) = stream_notifier.as_ref() {
                             if !is_stream {
                                 is_stream = true;
-                                if let Err(err) = tx.send(()).await {
-                                    tracing::error!(
-                                        "Could not notify about stream job {job_id}: {err:#?}"
-                                    );
-                                };
+                                sn.update_flow_status_with_stream_job();
                             }
                         }
 
