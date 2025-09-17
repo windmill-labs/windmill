@@ -151,6 +151,9 @@ aws-sdk-config.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
 libloading.workspace = true
+bitflags.workspace = true
+nom.workspace = true
+globset.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -197,6 +200,7 @@ windmill-api-client = { path = "./windmill-api-client" }
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }
 
+bitflags = "2.9.4"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
@@ -356,6 +360,8 @@ pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
+nom = "8.0.0"
+globset = "0.4.16"
 
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 

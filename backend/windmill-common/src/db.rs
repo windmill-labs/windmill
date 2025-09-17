@@ -2,7 +2,7 @@ use sqlx::{Acquire, Pool, Postgres, Transaction};
 
 pub type DB = Pool<Postgres>;
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct Authed {
     pub email: String,
     pub username: String,
