@@ -88,6 +88,7 @@
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
 	let argInput: ArgInput | undefined = $state(undefined)
+	let showArrayExprPicker = $state(false)
 	let focusedPrev = false
 
 	let hidden = $state(false)
@@ -239,6 +240,14 @@
 
 	function isStaticTemplate(inputCat: InputCat) {
 		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
+	}
+
+	function shouldShowArrayHelper(): boolean {
+		return (
+			propertyType === 'javascript' &&
+			inputCat === 'list' &&
+			schema?.properties?.[argName]?.items?.type === 'number'
+		)
 	}
 
 	function connectProperty(rawValue: string) {
@@ -712,6 +721,68 @@
 						{#if !hideHelpButton}
 							<DynamicInputHelpBox />
 						{/if}
+						
+						{#if shouldShowArrayHelper()}
+							<div class="mt-2 mb-2">
+								{#if !showArrayExprPicker}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										on:click={() => {
+											showArrayExprPicker = true
+										}}
+									>
+										Add item
+									</Button>
+								{:else}
+									<div class="flex items-center gap-2 p-2 border rounded-md bg-surface-secondary">
+										<input
+											type="text"
+											disabled
+											placeholder="Select a property..."
+											class="flex-1 px-2 py-1 text-sm bg-surface-secondary border-0 text-secondary"
+										/>
+										<FlowPlugConnect
+											id="array-expr-picker"
+											connecting={false}
+											on:click={() => {
+												focusProp?.(argName, 'connect', (path) => {
+													// Set the array expression
+													const arrayExpr = `[${path}]`
+													arg.expr = arrayExpr
+													arg.type = 'javascript'
+													
+													// Update monaco editor
+													monaco?.setCode(arrayExpr)
+													
+													// Hide picker and dispatch change
+													showArrayExprPicker = false
+													dispatch('change', { argName, arg })
+													
+													return true
+												})
+											}}
+										/>
+										<Button
+											variant="border"
+											color="light"
+											size="xs"
+											on:click={() => {
+												showArrayExprPicker = false
+												clearFocus?.()
+											}}
+										>
+											Cancel
+										</Button>
+									</div>
+									<div class="text-xs text-secondary mt-1">
+										Insert a property to create a single-item array expression
+									</div>
+								{/if}
+							</div>
+						{/if}
+						
 						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
