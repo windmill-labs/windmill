@@ -25,6 +25,7 @@
 		selectedUlClass = '',
 		placeholderClass = '',
 		allowClear = true,
+		hideMainClearBtn = false,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -47,6 +48,7 @@
 		selectedUlClass?: string
 		placeholderClass?: string
 		allowClear?: boolean
+		hideMainClearBtn?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -132,7 +134,7 @@
 			/>
 		</ul>
 	{/if}
-	{#if allowClear}
+	{#if allowClear && !hideMainClearBtn}
 		<CloseButton
 			noBg
 			class="mr-1 remove-all"
