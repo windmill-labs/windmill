@@ -26,7 +26,7 @@
 			<div class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5">
 				<span class={`truncate ${multipleModels ? '' : 'pr-2'}`}>{providerModel.model}</span>
 				{#if multipleModels}
-					<div class="shrink-0 pr-1">
+					<div class="shrink-0">
 						<ChevronDown size={16} />
 					</div>
 				{/if}

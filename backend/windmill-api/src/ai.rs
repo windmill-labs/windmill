@@ -272,6 +272,8 @@ pub struct AIConfig {
     pub code_completion_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_prompts: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
 pub fn global_service() -> Router {

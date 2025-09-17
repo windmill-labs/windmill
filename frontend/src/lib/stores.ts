@@ -102,12 +102,14 @@ export const copilotInfo = writable<{
 	defaultModel?: AIProviderModel
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
+	maxTokensPerModel?: Record<string, number>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
 	aiModels: [],
-	customPrompts: {}
+	customPrompts: {},
+	maxTokensPerModel: {}
 })
 
 export async function loadCopilot(workspace: string) {
@@ -143,7 +145,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			codeCompletionModel: aiConfig.code_completion_model,
 			defaultModel: aiConfig.default_model,
 			aiModels: aiModels,
-			customPrompts: aiConfig.custom_prompts ?? {}
+			customPrompts: aiConfig.custom_prompts ?? {},
+			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -153,7 +156,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
 			aiModels: [],
-			customPrompts: {}
+			customPrompts: {},
+			maxTokensPerModel: {}
 		})
 	}
 }
@@ -197,6 +201,7 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 			}
 		: undefined
 )
+
 export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
