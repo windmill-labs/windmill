@@ -29,6 +29,14 @@ use crate::{
     FlowVersionInfo, ScriptHashInfo,
 };
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct DynamicInput {
+    #[serde(rename = "x-windmill-dyn-select-code")]
+    pub x_windmill_dyn_select_code: String,
+    #[serde(rename = "x-windmill-dyn-select-lang")]
+    pub x_windmill_dyn_select_lang: ScriptLang,
+}
+
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -547,6 +555,11 @@ pub async fn script_path_to_payload<'e>(
         script_timeout,
         on_behalf_of,
     ))
+}
+
+#[inline(always)]
+pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
+    format!("{workspace_id}:{path}")
 }
 
 pub async fn get_payload_tag_from_prefixed_path(

@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -621,8 +621,8 @@ export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
 
 	export type HelperScript =
-		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-		| { type: 'hash'; hash: string }
+		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
+		| { source: 'inline'; code: string; lang: ScriptLang }
 
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
