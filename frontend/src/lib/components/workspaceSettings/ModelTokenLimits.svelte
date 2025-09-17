@@ -107,7 +107,7 @@
 		</div>
 
 		<div class="flex flex-col gap-3">
-			{#each Object.entries(modelsByProvider) as [provider, models]}
+			{#each Object.entries(modelsByProvider).filter(([provider, models]) => models.length > 0) as [provider, models]}
 				{@const isExpanded = !collapsedProviders[provider]}
 				{@const hasCustom = hasCustomSettings(provider, models)}
 				<div class="border border-gray-200 dark:border-gray-700 rounded-md">
