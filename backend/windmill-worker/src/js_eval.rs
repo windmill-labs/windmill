@@ -48,14 +48,11 @@ use windmill_common::worker::{write_file, TMP_DIR};
 use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
-use crate::common::OccupancyMetrics;
+use crate::common::{OccupancyMetrics, StreamNotifier};
 use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
-use crate::{
-    common::{unsafe_raw, StreamNotifier},
-    handle_child::run_future_with_polling_update_job_poller,
-};
+use crate::{common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller};
 
 #[derive(Debug, Clone)]
 pub struct IdContext {

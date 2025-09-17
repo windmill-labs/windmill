@@ -6686,12 +6686,6 @@ fn start_job_update_sse_stream(
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
                     }
-                    // get update only returns flow_stream_job_id the first time it changes so we override it with existing value if any before the hash comparison
-                    if flow_stream_job_id.is_some() {
-                        update.flow_stream_job_id = flow_stream_job_id;
-                    }
-
-                    tracing::info!("tx is closed: {:?}", tx.is_closed());
 
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
@@ -6707,11 +6701,6 @@ fn start_job_update_sse_stream(
                                 update.log_offset = None;
                             }
                         }
-                        tracing::info!(
-                            "stream_offset: {:?}, update stream offset: {:?}",
-                            stream_offset,
-                            update.stream_offset
-                        );
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {
                                 tracing::info!("updating stream_offset to {:?}", new_stream_offset);
