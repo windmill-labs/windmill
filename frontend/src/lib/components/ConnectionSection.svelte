@@ -45,7 +45,21 @@
 			sendUserToast('Connected to Teams successfully')
 			onLoadSettings()
 		} catch (error) {
-			sendUserToast('Failed to connect to Teams', true)
+			// Extract the actual error message from the API response
+			let errorMessage = 'Failed to connect to Teams'
+
+			if (typeof error?.body === 'string') {
+				// If body is a string, use it directly (this is the backend error message)
+				errorMessage = error.body
+			} else if (error?.body?.message) {
+				// If body is an object with a message property
+				errorMessage = error.body.message
+			} else if (error?.message && error.message !== 'Bad Request') {
+				// Fallback to error message if it's not the generic HTTP status
+				errorMessage = error.message
+			}
+
+			sendUserToast(errorMessage, true)
 			console.error('Error connecting to Teams:', error)
 		}
 	}

@@ -3,7 +3,7 @@
 	import { RefreshCcw } from 'lucide-svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import Select from './select/Select.svelte'
-	import { onMount } from 'svelte'
+	import { debounce } from '$lib/utils'
 
 	interface TeamItem {
 		team_id: string
@@ -12,7 +12,6 @@
 
 	interface Props {
 		disabled?: boolean
-		placeholder?: string
 		selectedTeam?: TeamItem | undefined
 		containerClass?: string
 		showRefreshButton?: boolean
@@ -23,7 +22,6 @@
 
 	let {
 		disabled = false,
-		placeholder = 'Select a team',
 		selectedTeam = $bindable(),
 		containerClass = 'w-64',
 		showRefreshButton = true,
@@ -33,26 +31,69 @@
 	}: Props = $props()
 
 	let isFetching = $state(false)
-	onMount(() => {
-		if (!teams) loadTeams()
+	let hasSearched = $state(false)
+	let searchResults = $state<TeamItem[]>([])
+
+	// Only enable search mode if no teams are provided
+	const searchMode = !teams
+
+	// Determine which teams to show: provided teams or search results
+	// In search mode, include the selected team if it exists
+	let displayTeams = $derived(() => {
+		const baseTeams = teams || searchResults;
+		if (searchMode && selectedTeam && !baseTeams.find(t => t.team_id === selectedTeam?.team_id)) {
+			return [selectedTeam, ...baseTeams];
+		}
+		return baseTeams;
 	})
 
-	async function loadTeams() {
+	// Create separate filter text for search mode
+	let searchFilterText = $state('')
+
+	// Debounced search function
+	const debouncedSearch = debounce(async (query: string) => {
+		await searchTeams(query)
+	}, 500)
+
+	// Watch for search filter text changes (only in search mode)
+	$effect(() => {
+		if (searchMode) {
+			if (searchFilterText.length >= 2) {
+				debouncedSearch.debounced(searchFilterText)
+			} else if (searchFilterText.length === 0) {
+				searchResults = []
+				hasSearched = false
+			}
+		}
+	})
+
+	async function searchTeams(query: string) {
+		if (query.length < 2) return
+
 		isFetching = true
+		hasSearched = true
 		try {
 			const response = (await WorkspaceService.listAvailableTeamsIds({
-				workspace: $workspaceStore!
+				workspace: $workspaceStore!,
+				search: query
 			})) as unknown as TeamItem[]
 
-			teams = response || []
+			searchResults = response || []
 			isFetching = false
-			console.log('Teams loaded:', teams.length)
-			return teams
+			console.log('Teams found:', searchResults.length, 'for query:', query)
+			return searchResults
 		} catch (error) {
 			isFetching = false
 			onError?.(error)
-			console.error('Error loading teams:', error)
+			console.error('Error searching teams:', error)
+			searchResults = []
 			return []
+		}
+	}
+
+	async function refreshSearch() {
+		if (searchMode && searchFilterText.length >= 2) {
+			await searchTeams(searchFilterText)
 		}
 	}
 </script>
@@ -60,40 +101,67 @@
 <div class={containerClass}>
 	<div class="flex items-center gap-2">
 		<div class="flex-grow" style="min-width: {minWidth};">
-			<Select
-				containerStyle={'min-width: ' + minWidth}
-				items={teams?.map((team) => ({
-					label: team.team_name,
-					value: team.team_id
-				})) ?? []}
-				{placeholder}
-				clearable
-				disabled={disabled || isFetching}
-				bind:value={
-					() => selectedTeam?.team_id,
-					(value) => (selectedTeam = teams?.find((team) => team.team_id === value))
-				}
-			/>
+			{#if searchMode}
+				<Select
+					containerStyle={'min-width: ' + minWidth}
+					items={displayTeams().map((team) => ({
+						label: team.team_name,
+						value: team.team_id
+					}))}
+					placeholder="Search teams..."
+					clearable
+					disabled={disabled || isFetching}
+					bind:filterText={searchFilterText}
+					bind:value={
+						() => selectedTeam?.team_id,
+						(value) => {
+							selectedTeam = value ? displayTeams().find((team) => team.team_id === value) : undefined
+						}
+					}
+				/>
+			{:else}
+				<Select
+					containerStyle={'min-width: ' + minWidth}
+					items={displayTeams().map((team) => ({
+						label: team.team_name,
+						value: team.team_id
+					}))}
+					placeholder="Select a team"
+					clearable
+					disabled={disabled || isFetching}
+					bind:value={
+						() => selectedTeam?.team_id,
+						(value) => {
+							selectedTeam = value ? displayTeams().find((team) => team.team_id === value) : undefined
+						}
+					}
+				/>
+			{/if}
 		</div>
 
 		{#if showRefreshButton}
 			<button
-				onclick={loadTeams}
-				disabled={isFetching || disabled}
+				onclick={refreshSearch}
+				disabled={isFetching || disabled || (searchMode && searchFilterText.length < 2)}
 				class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
-				title="Refresh teams from Microsoft"
+				title={searchMode ? "Refresh search results" : "Refresh teams from Microsoft"}
 			>
 				<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 			</button>
 		{/if}
 	</div>
 
-	{#if isFetching || ((!teams || teams.length === 0) && !isFetching)}
+	{#if searchMode && (isFetching || hasSearched)}
 		<div class="text-xs text-tertiary mt-1">
 			{#if isFetching}
-				Fetching teams from Microsoft...
-			{:else}
-				No available teams found
+				<div class="flex items-center gap-1">
+					<div class="animate-spin h-3 w-3 border border-gray-300 border-t-blue-500 rounded-full"></div>
+					Searching Microsoft Teams...
+				</div>
+			{:else if hasSearched && searchFilterText.length >= 2 && searchResults.length === 0}
+				No teams found for "{searchFilterText}"
+			{:else if searchResults.length > 0}
+				Found {searchResults.length} team{searchResults.length === 1 ? '' : 's'}
 			{/if}
 		</div>
 	{/if}

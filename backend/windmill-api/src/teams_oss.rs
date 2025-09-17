@@ -5,7 +5,11 @@ pub use crate::teams_ee::*;
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use axum::Router;
 #[cfg(not(feature = "private"))]
+use axum::extract::Query;
+#[cfg(not(feature = "private"))]
 use http::status::StatusCode;
+#[cfg(not(feature = "private"))]
+use serde::Deserialize;
 #[cfg(not(feature = "private"))]
 use windmill_common::error::Error;
 
@@ -18,6 +22,13 @@ pub async fn edit_teams_command() -> Result<StatusCode, Error> {
 
 #[cfg(not(feature = "private"))]
 pub async fn workspaces_list_available_teams_ids() -> Result<StatusCode, Error> {
+    return Err(Error::BadRequest(
+        "Teams only available on enterprise".to_string(),
+    ));
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn workspaces_list_available_team_channels() -> Result<StatusCode, Error> {
     return Err(Error::BadRequest(
         "Teams only available on enterprise".to_string(),
     ));
