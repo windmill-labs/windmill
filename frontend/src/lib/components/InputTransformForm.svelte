@@ -38,6 +38,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	import { deepEqual } from 'fast-equals'
+	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -242,21 +243,7 @@
 	}
 
 	function shouldShowS3ArrayHelper(): boolean {
-		return (
-			propertyType === 'javascript' &&
-			inputCat === 'list' &&
-			(schema?.properties?.[argName]?.items?.resourceType === 's3_object' ||
-				schema?.properties?.[argName]?.items?.resourceType === 's3object')
-		)
-	}
-
-	function shouldShowS3ArrayStaticHelper(): boolean {
-		return (
-			propertyType === 'static' &&
-			inputCat === 'list' &&
-			(schema?.properties?.[argName]?.items?.resourceType === 's3_object' ||
-				schema?.properties?.[argName]?.items?.resourceType === 's3object')
-		)
+		return inputCat === 'list' && schema?.properties?.[argName]?.items?.resourceType === 's3object'
 	}
 
 	function appendPathToArrayExpr(currentExpr: string | undefined, path: string): string {
@@ -737,34 +724,24 @@
 							bind:placeholder={schema.properties[argName].placeholder}
 						/>
 
-						{#if shouldShowS3ArrayStaticHelper()}
-							<div class="mt-2 mb-2">
-								<Button
-									variant="border"
-									color="light"
-									size="xs"
-									startIcon={{ icon: Plug }}
-									on:click={() => {
-										switchToJsAndConnect((path) => {
-											const arrayExpr = appendPathToArrayExpr(arg.expr, path)
-											arg.expr = arrayExpr
-											arg.type = 'javascript'
+						{#if shouldShowS3ArrayHelper()}
+							<S3ArrayHelperButton
+								on:click={() => {
+									switchToJsAndConnect((path) => {
+										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
+										arg.expr = arrayExpr
+										arg.type = 'javascript'
 
-											// Update Monaco editor after setting the expression
-											tick().then(() => {
-												monaco?.setCode(arrayExpr)
-											})
-
-											// Dispatch change
-											dispatch('change', { argName, arg })
-
-											return true
+										// Update Monaco editor after setting the expression
+										tick().then(() => {
+											monaco?.setCode(arrayExpr)
 										})
-									}}
-								>
-									Add object from an expression
-								</Button>
-							</div>
+
+										// Dispatch change
+										dispatch('change', { argName, arg })
+									})
+								}}
+							/>
 						{/if}
 					{:else if arg.expr != undefined}
 						<div class="border mt-2">
@@ -797,32 +774,24 @@
 						{/if}
 
 						{#if shouldShowS3ArrayHelper()}
-							<div class="mb-2">
-								<Button
-									variant="border"
-									color="light"
-									size="xs"
-									startIcon={{ icon: Plug }}
-									on:click={() => {
-										focusProp?.(argName, 'connect', (path) => {
-											const arrayExpr = appendPathToArrayExpr(arg.expr, path)
+							<S3ArrayHelperButton
+								on:click={() => {
+									focusProp?.(argName, 'connect', (path) => {
+										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 
-											arg.expr = arrayExpr
-											arg.type = 'javascript'
+										arg.expr = arrayExpr
+										arg.type = 'javascript'
 
-											// Update monaco editor
-											monaco?.setCode(arrayExpr)
+										// Update monaco editor
+										monaco?.setCode(arrayExpr)
 
-											// Dispatch change
-											dispatch('change', { argName, arg })
+										// Dispatch change
+										dispatch('change', { argName, arg })
 
-											return true
-										})
-									}}
-								>
-									Add object from an expression
-								</Button>
-							</div>
+										return true
+									})
+								}}
+							/>
 						{/if}
 
 						<div class="mb-2"></div>
