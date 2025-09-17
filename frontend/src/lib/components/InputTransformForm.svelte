@@ -721,7 +721,7 @@
 						{#if !hideHelpButton}
 							<DynamicInputHelpBox />
 						{/if}
-						
+
 						{#if shouldShowArrayHelper()}
 							<div class="mt-2 mb-2">
 								{#if !showArrayExprPicker}
@@ -748,18 +748,33 @@
 											connecting={false}
 											on:click={() => {
 												focusProp?.(argName, 'connect', (path) => {
-													// Set the array expression
-													const arrayExpr = `[${path}]`
+													let arrayExpr: string
+
+													// Check if current expr is already an array
+													const currentExpr = arg.expr?.trim() || ''
+													if (currentExpr.startsWith('[') && currentExpr.endsWith(']')) {
+														// Parse existing array and append new item
+														const innerContent = currentExpr.slice(1, -1).trim()
+														if (innerContent) {
+															arrayExpr = `[${innerContent}, ${path}]`
+														} else {
+															arrayExpr = `[${path}]`
+														}
+													} else {
+														// Create new array with single item
+														arrayExpr = `[${path}]`
+													}
+
 													arg.expr = arrayExpr
 													arg.type = 'javascript'
-													
+
 													// Update monaco editor
 													monaco?.setCode(arrayExpr)
-													
+
 													// Hide picker and dispatch change
 													showArrayExprPicker = false
 													dispatch('change', { argName, arg })
-													
+
 													return true
 												})
 											}}
@@ -777,12 +792,12 @@
 										</Button>
 									</div>
 									<div class="text-xs text-secondary mt-1">
-										Insert a property to create a single-item array expression
+										Insert a property to add to the array expression
 									</div>
 								{/if}
 							</div>
 						{/if}
-						
+
 						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
