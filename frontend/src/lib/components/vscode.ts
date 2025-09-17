@@ -231,7 +231,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
-					'editor.background': '#272D38',
+					'editor.background': '#00000000',
 					'editor.selectionBackground': '#434C5ECC',
 					'editor.lineHighlightBackground': '#3B4252',
 					'editorCursor.foreground': '#D8DEE9',
@@ -244,8 +244,9 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				inherit: true,
 				rules: [],
 				colors: {
+					'editor.background': '#FFFFFF00',
 					'editorLineNumber.foreground': '#999',
-					'editorGutter.background': '#F9FAFB'
+					'editorGutter.background': '#FFFFFF00'
 				}
 			})
 
