@@ -11,6 +11,7 @@
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { computeShow } from '$lib/utils'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -58,6 +59,7 @@
 		hideHelpButton?: boolean
 		class?: string
 		editor?: SimpleEditor | undefined
+		otherArgs?: Record<string, InputTransform>
 	}
 
 	let {
@@ -79,13 +81,16 @@
 		enableAi = false,
 		hideHelpButton = false,
 		class: className = '',
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		otherArgs = {}
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
 	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
+
+	let hidden = $state(false)
 
 	const variableMatch = (value: string): RegExpMatchArray | null =>
 		value.match(/^variable\('([^']+)'\)$/)
@@ -259,6 +264,47 @@
 		}
 	}
 
+	function handleFieldVisibility(
+		schema: Schema | any,
+		arg: InputTransform | any,
+		otherArgs: Record<string, any>
+	) {
+		const schemaProperty = schema?.properties?.[argName]
+		if (schemaProperty?.showExpr) {
+			// Build args object with current field value and other context
+			const currentValue = propertyType === 'static' ? arg?.value : arg?.expr
+
+			// Convert otherArgs from InputTransform objects to their actual values
+			const contextArgs = {
+				[argName]: currentValue
+			}
+
+			// Extract values from InputTransform objects in otherArgs
+			Object.keys(otherArgs ?? {}).forEach((key) => {
+				const otherArg = otherArgs[key]
+				const otherArgValue = otherArg.type === 'static' ? otherArg.value : otherArg.expr
+				contextArgs[key] = otherArgValue
+			})
+
+			const shouldShow = computeShow(argName, schemaProperty.showExpr, contextArgs)
+			if (shouldShow) {
+				hidden = false
+			} else if (!hidden) {
+				hidden = true
+				// Clear the arg value when hidden (following SchemaForm pattern)
+				if (arg) {
+					arg.value = undefined
+					arg.expr = undefined
+				}
+				// Make sure validation passes when hidden
+				inputCheck = true
+			}
+		} else {
+			// No showExpr, always show
+			hidden = false
+		}
+	}
+
 	function onFocus() {
 		focused = true
 		if (isStaticTemplate(inputCat)) {
@@ -359,12 +405,20 @@
 	$effect(() => {
 		schema?.properties?.[argName]?.default && untrack(() => setDefaultCode())
 	})
+	$effect.pre(() => {
+		// Monitor changes that affect field visibility
+		JSON.stringify(schema)
+		JSON.stringify(arg)
+		JSON.stringify(otherArgs)
+
+		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
+	})
 	let connecting = $derived(
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
 	)
 </script>
 
-{#if arg != undefined}
+{#if arg != undefined && !hidden}
 	<div
 		class={twMerge(
 			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',

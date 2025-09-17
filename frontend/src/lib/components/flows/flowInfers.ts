@@ -62,50 +62,58 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'object',
 					format: 'ai-provider'
 				},
+				output_type: {
+					type: 'string',
+					description:
+						'The type of output the AI agent will generate (text or image). Image output requires a configured workspace S3 storage, will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
+					enum: ['text', 'image'],
+					default: 'text'
+				},
 				user_message: {
-					type: 'string'
+					type: 'string',
+					description: 'The message to give as input to the AI agent.'
 				},
 				system_prompt: {
-					type: 'string'
+					type: 'string',
+					description: 'The system prompt to give as input to the AI agent.'
 				},
-				image: {
-					type: 'object',
-					description: 'Image to send to the AI agent (optional)',
-					format: 'resource-s3_object'
+				user_images: {
+					type: 'array',
+					description:
+						'Array of images to give as input to the AI agent. Requires a configured workspace S3 storage.',
+					items: {
+						type: 'object' as const,
+						resourceType: 's3object'
+					}
 				},
 				max_completion_tokens: {
-					type: 'number'
+					type: 'number',
+					description: 'The maximum number of output tokens.'
 				},
 				temperature: {
 					type: 'number',
 					description:
-						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
-				},
-				output_type: {
-					type: 'string',
-					description:
-						'The type of output the AI agent will generate (text or image). Image output will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
-					enum: ['text', 'image'],
-					default: 'text'
+						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
+					showExpr: "fields.output_type === 'text'"
 				},
 				output_schema: {
 					type: 'object',
 					description:
 						'JSON schema that the AI agent will follow for its response format (only used if output_type is text)',
-					format: 'json-schema'
+					format: 'json-schema',
+					showExpr: "fields.output_type === 'text'"
 				}
 			},
-			required: ['provider', 'model', 'user_message'],
+			required: ['provider', 'user_message', 'output_type'],
 			type: 'object',
 			order: [
 				'provider',
-				'model',
+				'output_type',
 				'user_message',
 				'system_prompt',
-				'image',
+				'user_images',
 				'max_completion_tokens',
 				'temperature',
-				'output_type',
 				'output_schema'
 			]
 		}
