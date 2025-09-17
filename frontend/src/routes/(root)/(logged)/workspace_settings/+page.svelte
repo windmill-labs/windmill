@@ -81,6 +81,7 @@
 	let codeCompletionModel: string | undefined = $state(undefined)
 	let defaultModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
+	let maxTokensPerModel: Record<string, number> = $state({})
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -246,6 +247,7 @@
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 		customPrompts = settings.ai_config?.custom_prompts ?? {}
+		maxTokensPerModel = settings.ai_config?.max_tokens_per_model ?? {}
 		for (const mode of Object.values(AIMode)) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -810,6 +812,7 @@
 				bind:codeCompletionModel
 				bind:defaultModel
 				bind:customPrompts
+				bind:maxTokensPerModel
 				bind:usingOpenaiClientCredentialsOauth
 			/>
 		{:else if tab == 'windmill_lfs'}

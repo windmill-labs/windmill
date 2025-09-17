@@ -102,12 +102,14 @@ export const copilotInfo = writable<{
 	defaultModel?: AIProviderModel
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
+	maxTokensPerModel?: Record<string, number>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
 	aiModels: [],
-	customPrompts: {}
+	customPrompts: {},
+	maxTokensPerModel: {}
 })
 
 export async function loadCopilot(workspace: string) {
@@ -143,7 +145,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			codeCompletionModel: aiConfig.code_completion_model,
 			defaultModel: aiConfig.default_model,
 			aiModels: aiModels,
-			customPrompts: aiConfig.custom_prompts ?? {}
+			customPrompts: aiConfig.custom_prompts ?? {},
+			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -153,7 +156,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
 			aiModels: [],
-			customPrompts: {}
+			customPrompts: {},
+			maxTokensPerModel: {}
 		})
 	}
 }
@@ -176,7 +180,6 @@ export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
-export const COPILOT_MAX_TOKENS_SETTING_NAME = 'copilotMaxTokens'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
@@ -199,16 +202,10 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 		: undefined
 )
 
-const storedMaxTokens = getLocalSetting(COPILOT_MAX_TOKENS_SETTING_NAME)
-let parsedMaxTokens = {}
-if (storedMaxTokens) {
-	try {
-		parsedMaxTokens = JSON.parse(storedMaxTokens)
-	} catch (e) {
-		console.error('error parsing copilot max tokens', e)
-	}
-}
-export const copilotMaxTokens = writable<Record<string, number>>(parsedMaxTokens)
+// Derive max tokens from workspace settings instead of localStorage
+export const copilotMaxTokens = derived(copilotInfo, ($copilotInfo) => {
+	return $copilotInfo.maxTokensPerModel ?? {}
+})
 export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {

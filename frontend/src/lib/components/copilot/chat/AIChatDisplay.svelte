@@ -13,7 +13,6 @@
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
-	import MaxTokenSettings from './MaxTokenSettings.svelte'
 
 	let {
 		messages,
@@ -267,7 +266,6 @@
 					<div class="flex flex-row gap-2 min-w-0">
 						<ChatMode />
 						<ProviderModelSelector />
-						<MaxTokenSettings />
 					</div>
 				{/if}
 			</div>

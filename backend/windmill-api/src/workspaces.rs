@@ -924,6 +924,7 @@ async fn get_copilot_info(
             default_model: None,
             code_completion_model: None,
             custom_prompts: None,
+            max_tokens_per_model: None,
         }))
     }
 }
