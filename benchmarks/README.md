@@ -75,7 +75,7 @@ in `benchmarks_noop.ts`
 
 You can build it locally with:
 ```
-deno install -A benchmarks_noop.ts
+deno install -A benchmark_oneoff.ts
 ```
 and then
 ```

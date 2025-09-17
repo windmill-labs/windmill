@@ -20,7 +20,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
-use sqlx::prelude::FromRow;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
 use tokio::{sync::RwLock, time::sleep};
@@ -35,7 +34,7 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::{job_id_to_shard_db, shard_db_or_main_db};
-use windmill_common::jobs::{JobStatus, JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY, SHARD_DB_INSTANCE};
 #[cfg(feature = "enterprise")]
