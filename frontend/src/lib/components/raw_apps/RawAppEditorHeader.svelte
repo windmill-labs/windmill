@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -42,7 +45,6 @@
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import type { HiddenRunnable } from '../apps/types'
-	import type { Writable } from 'svelte/store'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
 	import type { Runnable } from '../apps/inputType'
 	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
@@ -65,60 +67,75 @@
 	// 		const hex = result.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
 	// 		return hex
 	// 	}
-	// }
 
-	export let summary: string
-	export let policy: Policy
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedApp:
-		| {
-				value: any
-				draft?: any
-				path: string
-				summary: string
-				policy: any
-				draft_only?: boolean
-				custom_path?: string
-		  }
-		| undefined = undefined
-	export let version: number | undefined = undefined
+	interface Props {
+		// }
+		summary: string
+		policy: Policy
+		diffDrawer?: DiffDrawer | undefined
+		savedApp?:
+			| {
+					value: any
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					custom_path?: string
+			  }
+			| undefined
+		version?: number | undefined
+		newApp: boolean
+		newPath?: string
+		appPath: string
+		runnables: Record<string, HiddenRunnable>
+		files: Record<string, string> | undefined
+		jobs: string[]
+		jobsById: Record<string, any>
+		getBundle: () => Promise<{
+			js: string
+			css: string
+		}>
+	}
 
-	export let newApp: boolean
-	export let newPath: string = ''
-	export let appPath: string
-	export let runnables: Writable<Record<string, HiddenRunnable>>
-	export let files: Record<string, string> | undefined
-	export let jobs: string[]
-	export let jobsById: Record<string, any>
-	export let getBundle: () => Promise<{
-		js: string
-		css: string
-	}>
+	let {
+		summary = $bindable(),
+		policy = $bindable(),
+		diffDrawer = undefined,
+		savedApp = $bindable(undefined),
+		version = $bindable(undefined),
+		newApp,
+		newPath = '',
+		appPath,
+		runnables,
+		files,
+		jobs = $bindable(),
+		jobsById = $bindable(),
+		getBundle
+	}: Props = $props()
 
-	let newEditedPath = ''
+	let newEditedPath = $state('')
 
-	$: app = files ? { runnables: $runnables, files } : undefined
-
-	let deployedValue: Value | undefined = undefined // Value to diff against
-	let deployedBy: string | undefined = undefined // Author
-	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
-	let open: boolean = false // Is confirmation modal open
+	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedBy: string | undefined = $state(undefined) // Author
+	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+	let open: boolean = $state(false) // Is confirmation modal open
 
 	// const { app, summary, appPath, jobs, jobsById, staticExporter } = getContext('AppViewerContext')
 
-	const loading = {
+	const loading = $state({
 		publish: false,
 		save: false,
 		saveDraft: false
-	}
+	})
 
-	let pathError: string | undefined = undefined
-	let appExport: AppExportButton
+	let pathError: string | undefined = $state(undefined)
+	let appExport = $state() as AppExportButton | undefined
 
-	let draftDrawerOpen = false
-	let saveDrawerOpen = false
-	let historyBrowserDrawerOpen = false
-	let deploymentMsg: string | undefined = undefined
+	let draftDrawerOpen = $state(false)
+	let saveDrawerOpen = $state(false)
+	let historyBrowserDrawerOpen = $state(false)
+	let deploymentMsg: string | undefined = $state(undefined)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -136,7 +153,7 @@
 			: `u/${$userStore?.username}`
 		policy.triggerables_v2 = Object.fromEntries(
 			(await Promise.all(
-				Object.values($runnables).map(async (runnable) => {
+				Object.values(runnables).map(async (runnable) => {
 					return await processRunnable(runnable.name, runnable, runnable.fields)
 				})
 			)) as [string, TriggerableV2][]
@@ -333,9 +350,7 @@
 		}
 	}
 
-	let secretUrl: string | undefined = undefined
-
-	$: appPath && appPath != '' && secretUrl == undefined && getSecretUrl()
+	let secretUrl: string | undefined = $state(undefined)
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -532,7 +547,7 @@
 		}
 	}
 
-	let onLatest = true
+	let onLatest = $state(true)
 	async function compareVersions() {
 		if (version === undefined) {
 			return
@@ -549,10 +564,8 @@
 		}
 	}
 
-	$: saveDrawerOpen && compareVersions()
-
-	let dirtyPath = false
-	let path: Path | undefined = undefined
+	let dirtyPath = $state(false)
+	let path: Path | undefined = $state(undefined)
 
 	let moreItems = [
 		{
@@ -567,7 +580,7 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport.open(app)
+				appExport?.open(app)
 			}
 		},
 		{
@@ -609,12 +622,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	let customPath = savedApp?.custom_path
-	let dirtyCustomPath = false
-	let customPathError = ''
-	$: fullCustomUrl = `${window.location.origin}${base}/a/${
-		isCloudHosted() ? $workspaceStore + '/' : ''
-	}${customPath}`
+	let customPath = $state(savedApp?.custom_path)
+	let dirtyCustomPath = $state(false)
+	let customPathError = $state('')
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
@@ -638,9 +648,8 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-	$: customPath !== undefined && validateCustomPath(customPath)
 
-	let jobsDrawerOpen = false
+	let jobsDrawerOpen = $state(false)
 
 	function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -654,6 +663,21 @@
 			}
 		}
 	}
+	let app = $derived(files ? { runnables: runnables, files } : undefined)
+	$effect(() => {
+		appPath && appPath != '' && secretUrl == undefined && getSecretUrl()
+	})
+	$effect(() => {
+		saveDrawerOpen && compareVersions()
+	})
+	let fullCustomUrl = $derived(
+		`${window.location.origin}${base}/a/${
+			isCloudHosted() ? $workspaceStore + '/' : ''
+		}${customPath}`
+	)
+	$effect(() => {
+		customPath !== undefined && validateCustomPath(customPath)
+	})
 </script>
 
 <UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
@@ -681,15 +705,15 @@
 			</Alert>
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					autofocus
 					type="text"
 					placeholder="App summary"
 					class="text-sm w-full font-semibold"
-					on:keydown|stopPropagation
+					onkeydown={stopPropagation(bubble('keydown'))}
 					bind:value={summary}
-					on:keyup={() => {
+					onkeyup={() => {
 						if (appPath == '' && summary?.length > 0 && !dirtyPath) {
 							path?.setName(
 								summary
@@ -739,15 +763,15 @@
 		{/if}
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				autofocus
 				type="text"
 				placeholder="App summary"
 				class="text-sm w-full"
 				bind:value={summary}
-				on:keydown|stopPropagation
-				on:keyup={() => {
+				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeyup={() => {
 					if (appPath == '' && summary?.length > 0 && !dirtyPath) {
 						path?.setName(
 							summary
@@ -763,7 +787,7 @@
 		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Deployment message</span>
 		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				type="text"
 				placeholder="Optional deployment message"
@@ -929,7 +953,7 @@
 							class={customPathError === ''
 								? ''
 								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-							on:input={() => {
+							oninput={() => {
 								dirtyCustomPath = true
 							}}
 						/>
@@ -988,7 +1012,7 @@
 			<div class="flex justify-start w-full border rounded-md overflow-hidden">
 				<div>
 					<button
-						on:click={async () => {
+						onclick={async () => {
 							saveDrawerOpen = true
 							setTimeout(() => {
 								document.getElementById('path')?.focus()
@@ -1009,7 +1033,7 @@
 					value={defaultIfEmptyString(newEditedPath, newPath)}
 					size={defaultIfEmptyString(newEditedPath, newPath)?.length || 50}
 					class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-					on:focus={({ currentTarget }) => {
+					onfocus={({ currentTarget }) => {
 						currentTarget.select()
 					}}
 				/>
@@ -1021,13 +1045,13 @@
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<DropdownV2 items={moreItems} class="h-auto">
-			<svelte:fragment slot="buttonReplacement">
+			{#snippet buttonReplacement()}
 				<Button nonCaptureEvent size="xs" color="light">
 					<div class="flex flex-row items-center">
 						<MoreVertical size={14} />
 					</div>
 				</Button>
-			</svelte:fragment>
+			{/snippet}
 		</DropdownV2>
 
 		<div class="hidden md:inline relative overflow-visible">
