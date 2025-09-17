@@ -259,6 +259,15 @@
 		)
 	}
 
+	function shouldShowS3ArrayStaticHelper(): boolean {
+		return (
+			propertyType === 'static' &&
+			inputCat === 'list' &&
+			(schema?.properties?.[argName]?.items?.resourceType === 's3_object' ||
+				schema?.properties?.[argName]?.items?.resourceType === 's3object')
+		)
+	}
+
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
 		const varMatch = variableMatch(rawValue)
@@ -701,6 +710,41 @@
 							bind:title={schema.properties[argName].title}
 							bind:placeholder={schema.properties[argName].placeholder}
 						/>
+						
+						{#if shouldShowS3ArrayStaticHelper()}
+							<div class="mt-2 mb-2">
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									on:click={() => {
+										// Switch to JavaScript mode
+										propertyType = 'javascript'
+										arg.type = 'javascript'
+										arg.expr = '[]'
+										arg.value = undefined
+										
+										// Immediately activate connect mode
+										focusProp?.(argName, 'connect', (path) => {
+											const arrayExpr = `[${path}]`
+											arg.expr = arrayExpr
+											arg.type = 'javascript'
+											
+											// Dispatch change
+											dispatch('change', { argName, arg })
+											
+											return true
+										})
+									}}
+								>
+									Add an object from the catalog
+								</Button>
+								<div class="text-xs text-secondary mt-1">
+									Switch to expression mode and connect an S3 resource
+								</div>
+							</div>
+						{/if}
+						
 					{:else if arg.expr != undefined}
 						<div class="border mt-2">
 							<SimpleEditor
