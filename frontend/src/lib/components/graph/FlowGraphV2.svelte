@@ -133,6 +133,7 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		flowHasChanged?: boolean
+		exitNoteMode?: () => void
 	}
 
 	let {
@@ -184,7 +185,8 @@
 		showJobStatus = false,
 		suspendStatus = {},
 		flowHasChanged = false,
-		noteMode = false
+		noteMode = false,
+		exitNoteMode = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -395,7 +397,6 @@
 		return false
 	}
 
-
 	function onNoteAdded(newNoteFromTool: any) {
 		// Add the note to our separate notes array if a note was created
 		if (newNoteFromTool) {
@@ -404,12 +405,12 @@
 				text: '',
 				position: newNoteFromTool.position,
 				size: newNoteFromTool.size || { width: 200, height: 100 },
-				color: 'oklch(96.2% 0.059 95.617)'
+				color: 'oklch(96.7% 0.067 122.328)'
 			}
 			notes = [...notes, newNote]
 			nextNoteId += 1
 		}
-		noteMode = false
+		exitNoteMode?.()
 		updateStores()
 	}
 

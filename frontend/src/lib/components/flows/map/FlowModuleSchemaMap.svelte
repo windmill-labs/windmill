@@ -616,6 +616,7 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
+			exitNoteMode={() => (noteMode = false)}
 		/>
 	</div>
 </div>

@@ -48,8 +48,8 @@
 
 <div
 	class={twMerge(
-		'relative w-full h-full rounded-md shadow-md border',
-		selected ? 'outline outline-1 outline-amber-300' : ''
+		'relative w-full h-full rounded-md border group',
+		selected ? `outline outline-1 outline-lime-300` : ''
 	)}
 	style:background-color={data.color}
 	onpointerup={() => {
@@ -65,7 +65,7 @@
 >
 	<!-- Delete button -->
 	<button
-		class="absolute top-3 right-3 w-5 h-5 bg-transparent text-secondary hover:bg-red-500 hover:text-white rounded-md flex items-center justify-center shadow-sm border transition-colors z-10"
+		class="opacity-0 group-hover:opacity-100 hover:opacity-100 absolute -top-6 right-0 w-5 h-5 bg-transparent text-secondary hover:bg-red-500 hover:border-red-500 hover:text-white border rounded-md flex items-center justify-center transition-colors z-10"
 		onclick={handleDelete}
 		title="Delete note"
 		aria-label="Delete note"
@@ -77,10 +77,11 @@
 	<div class="p-2 h-full">
 		<textarea
 			bind:this={textareaElement}
-			class="windmillapp w-full h-full !bg-transparent !border-none outline-none shadow-none focus:outline-none focus:ring-transparent resize-none text-sm font-mono overflow-hidden"
+			class="windmillapp w-full h-full !bg-transparent !border-none outline-none shadow-none focus:outline-none focus:ring-transparent resize-none text-xs font-mono overflow-hidden"
 			placeholder="Add your note here..."
 			value={data.text}
 			oninput={handleTextChange}
+			spellcheck="false"
 		></textarea>
 	</div>
 

@@ -116,7 +116,7 @@
 	<!-- Preview note while drawing -->
 	{#if previewNote}
 		<div
-			class="absolute border-2 border-dashed border-amber-400 bg-amber-100 bg-opacity-50 rounded-md pointer-events-none"
+			class="absolute border-2 border-dashed border-lime-400 bg-lime-100 bg-opacity-50 rounded-md pointer-events-none"
 			style="
         width: {previewNote.size.width}px;
         height: {previewNote.size.height}px;

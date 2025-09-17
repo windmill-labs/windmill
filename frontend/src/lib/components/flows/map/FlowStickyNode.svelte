@@ -91,8 +91,8 @@
 		</Popover>
 	{/if}
 	<Popover>
-		<button onclick={() => toggleNoteMode?.()} class={nodeClass}>
-			<StickyNote size={14} class={noteMode ? 'text-blue-600' : ''} />
+		<button onclick={() => toggleNoteMode?.()} class={twMerge(nodeClass, 'relative')}>
+			<StickyNote size={14} />
 		</button>
 		{#snippet text()}
 			{noteMode ? 'Exit note mode' : 'Add notes'}
