@@ -30,7 +30,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
+	import { FunctionSquare, InfoIcon, Plug } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
@@ -717,6 +717,7 @@
 									variant="border"
 									color="light"
 									size="xs"
+									startIcon={{ icon: Plug }}
 									on:click={async () => {
 										// Switch to JavaScript mode
 										propertyType = 'javascript'
