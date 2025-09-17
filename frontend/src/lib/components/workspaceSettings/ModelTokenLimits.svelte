@@ -60,10 +60,6 @@
 		}
 	}
 
-	function resetToDefaults() {
-		maxTokensPerModel = {}
-	}
-
 	function resetModelToDefault(provider: AIProvider, model: string) {
 		const modelKey = getModelKey(provider, model)
 		const newSettings = { ...maxTokensPerModel }

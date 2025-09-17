@@ -1,8 +1,8 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
+	copilotInfo,
 	getCurrentModel,
 	workspaceStore,
-	copilotMaxTokens,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
@@ -199,8 +199,9 @@ function getModelSpecificConfig(
 ) {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
-	const customMaxTokensStore = get(copilotMaxTokens)
-	const maxTokens = customMaxTokensStore[modelKey] ?? defaultMaxTokens
+	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	console.log('maxTokens', maxTokens)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))

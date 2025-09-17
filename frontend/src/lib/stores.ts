@@ -202,10 +202,6 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 		: undefined
 )
 
-// Derive max tokens from workspace settings instead of localStorage
-export const copilotMaxTokens = derived(copilotInfo, ($copilotInfo) => {
-	return $copilotInfo.maxTokensPerModel ?? {}
-})
 export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
