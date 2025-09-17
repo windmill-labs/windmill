@@ -266,7 +266,10 @@
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		workspaceDefaultAppPath = settings.default_app
 
-		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
+		s3ResourceSettings = convertBackendSettingsToFrontendSettings(
+			settings.large_file_storage,
+			!!$enterpriseLicense
+		)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 

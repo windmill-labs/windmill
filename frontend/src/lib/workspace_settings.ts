@@ -17,19 +17,23 @@ export type S3ResourceSettings = S3ResourceSettingsItem & {
 	secondaryStorage: [string, S3ResourceSettingsItem][] | undefined
 }
 export function convertBackendSettingsToFrontendSettings(
-	large_file_storage: GetSettingsResponse['large_file_storage']
+	large_file_storage: GetSettingsResponse['large_file_storage'],
+	isEnterprise: boolean
 ): S3ResourceSettings {
-	let settings: Partial<S3ResourceSettings> =
-		convertBackendSettingsToFrontendSettingsItem(large_file_storage)
+	let settings: Partial<S3ResourceSettings> = convertBackendSettingsToFrontendSettingsItem(
+		large_file_storage,
+		isEnterprise
+	)
 	settings.secondaryStorage = Object.entries(large_file_storage?.secondary_storage ?? {}).map(
-		([key, value]) => [key, convertBackendSettingsToFrontendSettingsItem(value)]
+		([key, value]) => [key, convertBackendSettingsToFrontendSettingsItem(value, isEnterprise)]
 	)
 
 	return settings as S3ResourceSettings
 }
 
 export function convertBackendSettingsToFrontendSettingsItem(
-	large_file_storage: GetSettingsResponse['large_file_storage']
+	large_file_storage: GetSettingsResponse['large_file_storage'],
+	isEnterprise: boolean
 ): S3ResourceSettingsItem {
 	let advancedPermissions = large_file_storage?.advanced_permissions
 		? large_file_storage.advanced_permissions.map((rule) => ({
@@ -80,7 +84,7 @@ export function convertBackendSettingsToFrontendSettingsItem(
 			resourceType: 's3',
 			resourcePath: undefined,
 			publicResource: undefined,
-			advancedPermissions: defaultS3AdvancedPermissions
+			advancedPermissions: defaultS3AdvancedPermissions(isEnterprise)
 		}
 	}
 }
@@ -139,11 +143,16 @@ export function convertFrontendToBackendettingsItem(
 	}
 }
 
-export const defaultS3AdvancedPermissions: S3ResourceSettingsItem['advancedPermissions'] = [
-	{ pattern: 'windmill_uploads/*', allow: ['read', 'write', 'delete'] },
-	{ pattern: 'u/{username}/**/*', allow: ['read', 'write', 'delete', 'list'] },
-	{ pattern: 'g/{group}/**/*', allow: ['read', 'write', 'delete', 'list'] },
-	{ pattern: 'f/{folder_write}/**/*', allow: ['read', 'write', 'delete', 'list'] },
-	{ pattern: 'f/{folder_read}/**/*', allow: ['read', 'list'] },
-	{ pattern: '**/*', allow: [] }
-]
+export function defaultS3AdvancedPermissions(
+	isEnterprise: boolean
+): S3ResourceSettingsItem['advancedPermissions'] {
+	if (!isEnterprise) return undefined
+	return [
+		{ pattern: 'windmill_uploads/*', allow: ['read', 'write', 'delete'] },
+		{ pattern: 'u/{username}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+		{ pattern: 'g/{group}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+		{ pattern: 'f/{folder_write}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+		{ pattern: 'f/{folder_read}/**/*', allow: ['read', 'list'] },
+		{ pattern: '**/*', allow: [] }
+	]
+}
