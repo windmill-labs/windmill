@@ -367,8 +367,10 @@
 {#if arg != undefined}
 	<div
 		class={twMerge(
-			'p-4 bg-nord-600 ml-2 relative hover:bg-nord-500  transition-all duration-200 rounded-sm',
-			$propPickerConfig?.propName == argName ? 'bg-nord-500 border-l-4 border-blue-500 z-50 ' : '',
+			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
+			$propPickerConfig?.propName == argName
+				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-50 '
+				: 'hover:rounded-md',
 			className
 		)}
 	>
