@@ -268,7 +268,12 @@ async fn transform_json_unchecked(
             .await
             .map_err(to_anyhow)?;
             let mc = build_crypt(&db, &w_id).await?;
-            let variable = decrypt(&mc, variable)?;
+            let variable = decrypt(&mc, variable).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        &s, e
+                    ))
+                })?;
             serde_json::Value::String(variable)
         }
         s @ serde_json::Value::String(_) => s.clone(),
