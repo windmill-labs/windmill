@@ -710,41 +710,48 @@
 							bind:title={schema.properties[argName].title}
 							bind:placeholder={schema.properties[argName].placeholder}
 						/>
-						
+
 						{#if shouldShowS3ArrayStaticHelper()}
 							<div class="mt-2 mb-2">
 								<Button
 									variant="border"
 									color="light"
 									size="xs"
-									on:click={() => {
+									on:click={async () => {
 										// Switch to JavaScript mode
 										propertyType = 'javascript'
 										arg.type = 'javascript'
 										arg.expr = '[]'
 										arg.value = undefined
-										
+
+										// Wait for the component to re-render and Monaco to be available
+										await tick()
+
 										// Immediately activate connect mode
 										focusProp?.(argName, 'connect', (path) => {
 											const arrayExpr = `[${path}]`
 											arg.expr = arrayExpr
 											arg.type = 'javascript'
-											
+
+											// Update Monaco editor after setting the expression
+											tick().then(() => {
+												monaco?.setCode(arrayExpr)
+											})
+
 											// Dispatch change
 											dispatch('change', { argName, arg })
-											
+
 											return true
 										})
 									}}
 								>
-									Add an object from the catalog
+									Add object from an expression
 								</Button>
 								<div class="text-xs text-secondary mt-1">
 									Switch to expression mode and connect an S3 resource
 								</div>
 							</div>
 						{/if}
-						
 					{:else if arg.expr != undefined}
 						<div class="border mt-2">
 							<SimpleEditor
