@@ -34,7 +34,7 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand } from 'lucide-svelte'
+	import { Expand, StickyNote } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively } from '$lib/utils'
@@ -55,6 +55,8 @@
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import NoteTool from './NoteTool.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -367,6 +369,19 @@
 
 	let height = $state(0)
 
+	// Note feature state
+	type NoteData = {
+		id: string
+		text: string
+		position: { x: number; y: number }
+		size: { width: number; height: number }
+		color: string
+	}
+
+	let noteMode = $state(false)
+	let notes = $state<NoteData[]>([])
+	let nextNoteId = $state(1)
+
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -377,6 +392,56 @@
 		}
 
 		return false
+	}
+
+	function toggleNoteMode() {
+		noteMode = !noteMode
+	}
+
+	function onNoteAdded(newNoteFromTool: any) {
+		// Add the note to our separate notes array if a note was created
+		if (newNoteFromTool) {
+			const newNote: NoteData = {
+				id: `note-${nextNoteId}`,
+				text: '',
+				position: newNoteFromTool.position,
+				size: newNoteFromTool.size || { width: 200, height: 100 },
+				color: 'oklch(96.2% 0.059 95.617)'
+			}
+			notes = [...notes, newNote]
+			nextNoteId += 1
+		}
+		noteMode = false
+		updateStores()
+	}
+
+	function updateNoteText(noteId: string, text: string) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, text } : note))
+	}
+
+	function deleteNote(noteId: string) {
+		notes = notes.filter((note) => note.id !== noteId)
+		updateStores()
+	}
+
+	function convertNotesToNodes(): Node[] {
+		return notes.map((note) => ({
+			id: note.id,
+			type: 'note',
+			position: note.position,
+			data: {
+				text: note.text,
+				color: note.color,
+				onUpdate: (text: string) => updateNoteText(note.id, text),
+				onDelete: () => deleteNote(note.id)
+			},
+			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,
+			width: note.size.width,
+			height: note.size.height,
+			zIndex: 1,
+			draggable: true,
+			selectable: true
+		}))
 	}
 
 	async function updateStores() {
@@ -409,7 +474,8 @@
 		nodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
 			...assetNodesResult.newAssetNodes,
-			...aiToolNodesResult.toolNodes
+			...aiToolNodesResult.toolNodes,
+			...convertNotesToNodes()
 		]
 		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
 
@@ -435,7 +501,8 @@
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
-		newAiTool: NewAiToolNode
+		newAiTool: NewAiToolNode,
+		note: NoteNode
 	} as any
 
 	const edgeTypes = {
@@ -565,7 +632,7 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
-				onpaneclick={(e) => {
+				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
 				}}
 				{nodes}
@@ -586,6 +653,10 @@
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+
+				{#if noteMode}
+					<NoteTool {onNoteAdded} />
+				{/if}
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton
@@ -603,6 +674,15 @@
 							class="!bg-surface"
 						>
 							<Expand size="14" />
+						</ControlButton>
+					{/if}
+					{#if editMode}
+						<ControlButton
+							onclick={toggleNoteMode}
+							class={`!bg-surface ${noteMode ? '!bg-blue-100 dark:!bg-blue-900/30' : ''}`}
+							title={noteMode ? 'Exit note mode' : 'Add notes'}
+						>
+							<StickyNote size="14" class={noteMode ? 'text-blue-600' : ''} />
 						</ControlButton>
 					{/if}
 				</Controls>
