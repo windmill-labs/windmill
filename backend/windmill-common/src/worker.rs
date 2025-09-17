@@ -193,7 +193,7 @@ lazy_static::lazy_static! {
 
     pub static ref SHARD_DB_INSTANCE: Arc<RwLock<Option<Pool<Postgres>>>> = Arc::new(RwLock::new(None));
 
-    pub static ref SHARD_ID_TO_SHARD_URLS: Arc<RwLock<Option<HashMap<usize, Pool<Postgres>>>>> = Arc::new(RwLock::new(None));
+    pub static ref SHARD_ID_TO_SHARD_DB: Arc<RwLock<Option<HashMap<usize, Pool<Postgres>>>>> = Arc::new(RwLock::new(None));
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()

@@ -34,7 +34,7 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
-    connect_db, connect_db_with_url, get_database_url,
+    connect_db_with_url, get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,

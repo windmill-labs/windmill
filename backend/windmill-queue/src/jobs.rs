@@ -37,7 +37,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::{job_id_to_shard_db, shard_db_or_main_db};
 use windmill_common::jobs::{JobStatus, JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY, SHARD_DB_INSTANCE};
 #[cfg(feature = "enterprise")]
 use windmill_common::BASE_URL;
 use windmill_common::{
@@ -840,8 +840,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // let start = std::time::Instant::now();
 
     let mut tx = db.begin().await?;
-    let push_db = shard_db_or_main_db(db).await;
-    let mut shard_db_tx = push_db.begin().await?;
+    let shard_db = SHARD_DB_INSTANCE.read().await.clone().unwrap();
+
+    let mut shard_db_tx = shard_db.begin().await?;
+
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
@@ -858,117 +860,45 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
-    #[derive(Debug, Deserialize, FromRow)]
-    struct QueueInfo {
-        workspace_id: String,
-        started_at: Option<chrono::DateTime<Utc>>,
-        flow_status: Option<serde_json::Value>,
-        workflow_as_code_status: Option<serde_json::Value>,
-        worker: Option<String>,
-    }
-
-    let queue_info = sqlx::query_as!(
-        QueueInfo,
-        r#"
-        SELECT 
-            q.workspace_id,
-            q.started_at,
-            s.flow_status,
-            s.workflow_as_code_status,
-            q.worker
-        FROM v2_job_queue q
-        LEFT JOIN v2_job_status s USING (id)
-        WHERE q.id = $1
-        "#,
-        queued_job.id
-    )
-    .fetch_one(&mut *shard_db_tx)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to fetch queue info for job {}: {e:#}",
-            job_id
-        ))
-    })?;
-
-    let now = chrono::Utc::now();
-
-    let status = if canceled_by.is_some() {
-        JobStatus::Canceled
-    } else if skipped {
-        JobStatus::Skipped
-    } else if success {
-        JobStatus::Success
-    } else {
-        JobStatus::Failure
-    };
-
-    let duration_ms = duration.unwrap_or_else(|| {
-        let started = queue_info.started_at.unwrap_or(now);
-        ((now.timestamp_millis() - started.timestamp_millis()) as i64).max(0)
-    });
-
-    let memory_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
-    let canceled_by_user = canceled_by.clone().and_then(|cb| cb.username);
-    let canceled_reason = canceled_by.clone().and_then(|cb| cb.reason);
-
-    let _duration = sqlx::query_scalar!(
-        r#"
-        INSERT INTO v2_job_completed (
-            workspace_id,
-            id,
-            started_at,
-            duration_ms,
-            result,
-            result_columns,
-            canceled_by,
-            canceled_reason,
-            flow_status,
-            workflow_as_code_status,
-            memory_peak,
-            status,
-            worker
+    let _duration =  sqlx::query_scalar!(
+            "INSERT INTO v2_job_completed AS cj
+                    ( workspace_id
+                    , id
+                    , started_at
+                    , duration_ms
+                    , result
+                    , result_columns
+                    , canceled_by
+                    , canceled_reason
+                    , flow_status
+                    , workflow_as_code_status
+                    , memory_peak
+                    , status
+                    , worker
+                    )
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                        flow_status, workflow_as_code_status,
+                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
+                        WHEN $7::BOOL THEN 'skipped'::job_status
+                        WHEN $2::BOOL THEN 'success'::job_status
+                        ELSE 'failure'::job_status END AS status,
+                        q.worker
+                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            /* $1 */ queued_job.id,
+            /* $2 */ success,
+            /* $3 */ result as Json<&T>,
+            /* $4 */ canceled_by.is_some(),
+            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
+            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
+            /* $7 */ skipped,
+            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+            /* $9 */ duration,
+            /* $10 */ result_columns as Option<&Vec<String>>,
         )
-        VALUES (
-            $1, 
-            $2, 
-            $3,
-            $4, 
-            $5, 
-            $6, 
-            $7, 
-            $8, 
-            $9, 
-            $10, 
-            $11, 
-            $12,
-            $13
-        )
-        ON CONFLICT (id) 
-            DO UPDATE
-        SET 
-            status = EXCLUDED.status,
-            result = EXCLUDED.result
-        RETURNING 
-            duration_ms AS "duration_ms!"
-        "#,
-        queue_info.workspace_id,
-        queued_job.id,
-        queue_info.started_at,
-        duration_ms,
-        result as Json<&T>,
-        result_columns as Option<&Vec<String>>,
-        canceled_by_user,
-        canceled_reason,
-        queue_info.flow_status,
-        queue_info.workflow_as_code_status,
-        memory_peak,
-        status as JobStatus,
-        queue_info.worker
-    )
-    .fetch_one(&mut *tx) // This is the main DB transaction
-    .await
-    .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
+        .fetch_one(&mut *shard_db_tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
 
     if let Some(labels) = result.wm_labels() {
         sqlx::query!(
