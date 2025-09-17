@@ -202,7 +202,7 @@
 								resourcePath: '',
 								resourceType: 's3',
 								publicResource: false,
-								advancedPermissions: defaultS3AdvancedPermissions
+								advancedPermissions: defaultS3AdvancedPermissions(!!$enterpriseLicense)
 							}
 						])
 						s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
@@ -235,11 +235,22 @@
 		</svelte:fragment>
 		<svelte:fragment slot="content">
 			<div class="flex flex-col gap-3 mx-4 pb-4 pt-5 w-[48rem]">
+				{#if !$enterpriseLicense}
+					<Alert
+						type={storage.advancedPermissions ? 'error' : 'info'}
+						title="Advanced permission rules are an Enterprise feature"
+					>
+						Consider upgrading to Windmill EE to use advanced permission rules to control access to
+						your object storage at a more granular level.</Alert
+					>
+				{/if}
 				<Toggle
 					bind:checked={
 						() => !!storage.advancedPermissions,
 						(v) => {
-							storage.advancedPermissions = v ? defaultS3AdvancedPermissions : undefined
+							storage.advancedPermissions = v
+								? defaultS3AdvancedPermissions(!!$enterpriseLicense)
+								: undefined
 							if (v) storage.publicResource = false
 						}
 					}
@@ -247,6 +258,7 @@
 						right: 'Enable advanced permission rules',
 						rightTooltip: 'Control precisely which paths are allowed to your users.'
 					}}
+					disabled={!storage.advancedPermissions && !$enterpriseLicense}
 				/>
 				{#if storage.advancedPermissions}
 					{@render advancedPermissionsEditor(storage.advancedPermissions)}
