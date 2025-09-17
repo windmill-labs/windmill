@@ -201,7 +201,6 @@ function getModelSpecificConfig(
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	console.log('maxTokens', maxTokens)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
