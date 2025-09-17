@@ -16818,6 +16818,12 @@ components:
           type: boolean
         auto_acknowledge_msg:
           type: boolean
+        ack_deadline:
+          type: integer
+          format: int32
+          minimum: 10
+          maximum: 600
+          description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
         error_handler_args:
