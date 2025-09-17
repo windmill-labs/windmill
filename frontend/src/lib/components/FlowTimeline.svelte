@@ -51,7 +51,7 @@
 		timelineCompute?.reset()
 	}
 
-	const barHeight = 16
+	const barHeight = 20
 </script>
 
 <OnChange
@@ -120,7 +120,7 @@
 												? 0
 												: now - b?.created_at
 										: 0}
-									<div class="flex w-full p-1 pl-12" {style}>
+									<div class="flex w-full p-1 pb-2 pl-12" {style}>
 										<TimelineBar
 											position="left"
 											id={b?.id}

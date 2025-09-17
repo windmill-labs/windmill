@@ -528,7 +528,7 @@
 					let key = buildSubflowKey(mod.id ?? '', prefix)
 					let durationStatuses = Object.fromEntries(
 						mod.flow_jobs_duration.map((duration, idx) => {
-							let started_at = duration.started_at
+							let started_at = duration?.started_at
 								? new Date(duration.started_at).getTime()
 								: undefined
 							return [
@@ -536,7 +536,7 @@
 								{
 									created_at: started_at,
 									started_at: started_at,
-									duration_ms: duration.duration_ms
+									duration_ms: duration?.duration_ms
 								}
 							]
 						})
@@ -1231,7 +1231,7 @@
 								</span>
 							</Button>
 						{/if}
-						{#if forloop_selected == loopJobId}
+						{#if forloop_selected == loopJobId || innerModule?.type == 'branchall'}
 							{@const forloopIsSelected =
 								forloop_selected == loopJobId ||
 								(innerModule?.type != 'forloopflow' && innerModule?.type != 'whileloopflow')}
