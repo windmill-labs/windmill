@@ -748,9 +748,6 @@
 								>
 									Add object from an expression
 								</Button>
-								<div class="text-xs text-secondary mt-1">
-									Switch to expression mode and connect an S3 resource
-								</div>
 							</div>
 						{/if}
 					{:else if arg.expr != undefined}
@@ -860,48 +857,46 @@
 						{/if}
 
 						{#if shouldShowS3ArrayHelper()}
-							<div class="mt-2 mb-2">
-								<div class="flex items-center gap-2">
-									<span class="text-sm text-secondary">Add S3 resource:</span>
-									<FlowPlugConnect
-										id="s3-array-expr-picker"
-										connecting={false}
-										on:click={() => {
-											focusProp?.(argName, 'connect', (path) => {
-												let arrayExpr: string
+							<div class="mb-2">
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									startIcon={{ icon: Plug }}
+									on:click={() => {
+										focusProp?.(argName, 'connect', (path) => {
+											let arrayExpr: string
 
-												// Check if current expr is already an array
-												const currentExpr = arg.expr?.trim() || ''
-												if (currentExpr.startsWith('[') && currentExpr.endsWith(']')) {
-													// Parse existing array and append new item
-													const innerContent = currentExpr.slice(1, -1).trim()
-													if (innerContent) {
-														arrayExpr = `[${innerContent}, ${path}]`
-													} else {
-														arrayExpr = `[${path}]`
-													}
+											// Check if current expr is already an array
+											const currentExpr = arg.expr?.trim() || ''
+											if (currentExpr.startsWith('[') && currentExpr.endsWith(']')) {
+												// Parse existing array and append new item
+												const innerContent = currentExpr.slice(1, -1).trim()
+												if (innerContent) {
+													arrayExpr = `[${innerContent}, ${path}]`
 												} else {
-													// Create new array with single item
 													arrayExpr = `[${path}]`
 												}
+											} else {
+												// Create new array with single item
+												arrayExpr = `[${path}]`
+											}
 
-												arg.expr = arrayExpr
-												arg.type = 'javascript'
+											arg.expr = arrayExpr
+											arg.type = 'javascript'
 
-												// Update monaco editor
-												monaco?.setCode(arrayExpr)
+											// Update monaco editor
+											monaco?.setCode(arrayExpr)
 
-												// Dispatch change
-												dispatch('change', { argName, arg })
+											// Dispatch change
+											dispatch('change', { argName, arg })
 
-												return true
-											})
-										}}
-									/>
-								</div>
-								<div class="text-xs text-secondary mt-1">
-									Connect an S3 resource to add to the array expression
-								</div>
+											return true
+										})
+									}}
+								>
+									Add S3 resource
+								</Button>
 							</div>
 						{/if}
 
