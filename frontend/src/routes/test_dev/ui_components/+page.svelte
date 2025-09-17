@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { goto } from '$app/navigation'
-	import { Plug, SquareFunction } from 'lucide-svelte'
+	import { Plug, SquareFunction, WandSparkles } from 'lucide-svelte'
 
 	const schema = {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -9,11 +9,16 @@
 			provider: {
 				type: 'object',
 				format: 'ai-provider',
-				placeholder: 'Select an AI provider'
+				placeholder: 'Select an AI provider',
+				options: [
+					{ label: 'OpenAI', value: 'openai' },
+					{ label: 'Google AI', value: 'google_ai' },
+					{ label: 'OpenRouter', value: 'openrouter' }
+				]
 			},
 			user_message: {
 				type: 'string',
-				default: 'Hello, how are you?'
+				placeholder: 'Ex: Hello, how are you?'
 			},
 			system_prompt: {
 				type: 'string',
@@ -76,6 +81,7 @@
 					class="w-full bg-white border border-nord-4/30 rounded px-3 py-2 text-sm text-nord-0 focus:outline-none focus:border-nord-8"
 				>
 					<option value="minimalistic">Minimalistic</option>
+					<option value="minimalistic_2">Minimalistic 2</option>
 					<option value="dev_clean">Dev Clean</option>
 					<option value="sharp_minimal">Sharp Minimal</option>
 					<option value="precision">Precision</option>
@@ -118,6 +124,41 @@
 				<div>
 					<span class="font-medium text-nord-0">Features:</span>
 					<span class="text-nord-3/70">Enhanced toggle, connect emphasis</span>
+				</div>
+			</div>
+		</div>
+	{:else if version == 'minimalistic_2'}
+		<div class="bg-white rounded-lg border border-nord-4/20 p-4">
+			<h4 class="font-medium text-nord-0 mb-3">Minimalistic 2</h4>
+			<div class="space-y-3 text-sm">
+				<div>
+					<span class="font-medium text-nord-0">Approach:</span>
+					<span class="text-nord-3/70"
+						>Shapes are slightly rounded, Groups are formed by padding and background color, borders
+						can be added to mark contrast. Prefer borders to shadows. borders, text have 3 colors:
+						primary, secondary, tertiary. Primary is reserved for headers/labels. Buttons have 2
+						styles: border, no background for secondary action, accent for primary action</span
+					>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Colors:</span>
+					<span class="text-nord-3/70">Nord palette, subtle backgrounds, no shadows</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Typography:</span>
+					<span class="text-nord-3/70">Clean, readable hierarchy</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Spacing:</span>
+					<span class="text-nord-3/70">Generous padding, breathing room</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Features:</span>
+					<span class="text-nord-3/70">Toggle with no shadow</span>
+				</div>
+				<div>
+					<span class="font-medium text-nord-0">Shapes:</span>
+					<span class="text-nord-3/70">Slightly Rounded corners</span>
 				</div>
 			</div>
 		</div>
@@ -225,6 +266,74 @@
 					</button>
 					<button class=" py-1 px-2 w-fit rounded-md h-full bg-nord-500 text-nord-0">
 						<SquareFunction size={14} />
+					</button>
+				</div>
+			{/snippet}
+		{/snippet}
+	{:else if version == 'minimalistic_2'}
+		<!-- Original Minimalistic Theme -->
+		<div class="space-y-4">
+			{#each Object.entries(schema.properties) as [key, value]}
+				{@render input({ key, value })}
+			{/each}
+		</div>
+
+		{#snippet input({ key, value })}
+			<div
+				class="flex flex-col gap-1 rounded-md transition-all duration-300 group p-4 bg-nord-600/30 border border-nord-500/30"
+			>
+				<!-- Header  -->
+				<div class="flex flex-row gap-2 justify-between items-center">
+					<div class="flex flex-row gap-2">
+						<label for={key} class="text-sm font-semibold text-nord-0 whitespace-nowrap"
+							>{key}{#if schema.required.includes(key)}
+								<span class="text-sm text-red-500">&nbsp;*</span>
+							{/if}
+						</label>
+
+						<div class="text-sm text-nord-300/50 italic">{value.type}</div>
+					</div>
+
+					{@render actions?.()}
+				</div>
+				<!-- Input -->
+				<input
+					type="text"
+					class="!rounded-sm !shadow-none !bg-transparent !border-none !hover:border-nord-400 !text-nord-300 !focus:outline-none !focus:ring-none !p-2 !placeholder-gray-400"
+					id={key}
+					placeholder={value.placeholder}
+					value={value.default}
+				/>
+				<!-- Description -->
+				<div class="text-2xs text-gray-400 italic">{value.description}</div>
+			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="flex flex-row gap-2 h-6 -my-2">
+				<button
+					class="group-hover:opacity-100 opacity-0 py-1 px-2 w-fit duration-200 hover:bg-surface-hover rounded-md border flex items-center justify-center h-full text-purple-500 border-purple-200"
+				>
+					<WandSparkles size={14} />
+				</button>
+				{@render toggleButton?.()}
+				<button
+					class="group-hover:opacity-100 opacity-0 py-1 px-2 w-fit duration-200 hover:bg-surface-hover rounded-md border flex items-center justify-center h-full text-gray-500"
+				>
+					<Plug size={14} />
+				</button>
+			</div>
+			{#snippet toggleButton()}
+				<div
+					class="flex flex-row w-fit border border-nord-500 rounded-md transition-opacity duration-200 group-hover:opacity-100 opacity-0 h-full bg-nord-300/10 items-center"
+				>
+					<button
+						class="py-1 px-2 w-fit hover:bg-surface-hover rounded-md h-full text-2xs font-normal text-gray-400 hover:text-nord-0 center-center"
+					>
+						static
+					</button>
+					<button class=" py-1 px-2 w-fit rounded-md h-full bg-gray-50 text-nord-0">
+						<SquareFunction size={12} />
 					</button>
 				</div>
 			{/snippet}

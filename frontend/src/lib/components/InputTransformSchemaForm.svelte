@@ -99,7 +99,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="mb-8 relative bg-gray-50 shadow-sm rounded-md">
+				<div class="mb-8 relative">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
