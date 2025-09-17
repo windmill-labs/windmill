@@ -22,7 +22,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { tick } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import { buildPrefixRegex } from './flows/previousResults'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
@@ -365,16 +364,8 @@
 </script>
 
 {#if arg != undefined}
-	<div
-		class={twMerge(
-			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
-			$propPickerConfig?.propName == argName
-				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-50 '
-				: 'hover:rounded-md',
-			className
-		)}
-	>
-		<div class="flex flex-row justify-between gap-1 pb-1 px-2">
+	<div class={twMerge('pl-2 pt-2 pb-2 ml-2 relative group', className)}>
+		<div class="flex flex-row justify-between gap-1 pb-1">
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
@@ -401,7 +392,12 @@
 				{/if}
 			</div>
 			{#if !noDynamicToggle}
-				<div class="flex flex-row gap-x-2 gap-y-1 flex-wrap z-10 items-center">
+				<div
+					class={twMerge(
+						'flex flex-row gap-x-2 gap-y-1 flex-wrap z-10 items-center group-hover:opacity-100 transition-opacity',
+						!connecting ? 'opacity-0' : ''
+					)}
+				>
 					{#if enableAi}
 						<StepInputGen
 							bind:this={stepInputGen}
@@ -430,8 +426,10 @@
 							}}
 							{pickableProperties}
 							{argName}
+							btnClass="h-6 px-2"
 						/>
 					{/if}
+
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
@@ -486,19 +484,19 @@
 									propertyType = 'static'
 								}
 							}}
+							class="h-6"
 						>
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
+										class="text-tertiary"
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
-										light
 										value="static"
-										size="xs2"
 										label={'${}'}
 										{item}
 									/>
 								{:else}
-									<ToggleButton small label="Static" value="static" {item} />
+									<ToggleButton class="text-tertiary" small label="static" value="static" {item} />
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -515,6 +513,7 @@
 									</Button>
 								{:else}
 									<ToggleButton
+										class="text-tertiary"
 										small
 										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
@@ -529,6 +528,7 @@
 
 					{#if propPickerWrapperContext}
 						<FlowPlugConnect
+							wrapperClasses="h-6"
 							id="flow-editor-plug"
 							{connecting}
 							on:click={() => {
@@ -672,29 +672,6 @@
 						>
 					{/if}
 				</div>
-
-				{#if $propPickerConfig?.propName == argName}
-					<div
-						class="text-blue-500 absolute top-2 lg:-right-2.5 -right-1"
-						in:fade={{ duration: 200 }}
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							width="16"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="currentColor"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<polyline points="24 24 12 12 24 0" />
-						</svg>
-					</div>
-				{:else}
-					<div class="w-0"></div>
-				{/if}
 			</div>
 		</div>
 	</div>

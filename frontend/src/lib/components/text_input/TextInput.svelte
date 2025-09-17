@@ -1,0 +1,31 @@
+<script lang="ts">
+	import type { HTMLInputAttributes } from 'svelte/elements'
+	import { twMerge } from 'tailwind-merge'
+
+	type Props = {
+		inputProps?: HTMLInputAttributes
+		value?: string
+		class?: string
+		error?: string
+	}
+
+	let { inputProps, value = $bindable(), class: className = '', error }: Props = $props()
+</script>
+
+<input
+	{...inputProps}
+	class={twMerge(
+		// TODO Make tailwind classes for every color
+		'!bg-surface-secondary !border-transparent !shadow-none !py-2.5 !px-4',
+		'focus:!ring-0',
+		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+		'!rounded-md',
+		'transition-colors',
+		'focus:!border-nord-900 dark:focus:!border-nord-900 hover:!border-nord-400 dark:hover:!border-nord-300',
+		error
+			? '!border-red-300 focus:!border-red-400 hover:!border-red-500 dark:!border-red-400/40 dark:hover:!border-red-600/40'
+			: '!border-transparent',
+		className
+	)}
+	bind:value
+/>

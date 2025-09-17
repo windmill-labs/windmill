@@ -46,6 +46,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		label?: string
@@ -133,7 +134,7 @@
 		oneOf = $bindable(undefined),
 		required = false,
 		pattern = $bindable(undefined),
-		valid = $bindable(undefined),
+		valid = $bindable(undefined), // Note : this should not exist, valid and error should be one coherent state
 		enum_ = $bindable(undefined),
 		disabled = false,
 		itemsType = $bindable(undefined),
@@ -340,7 +341,7 @@
 
 	let setCodeDisabled = false
 
-	let timeout: number | undefined = undefined
+	let timeout: NodeJS.Timeout | undefined = undefined
 	function setNewValueFromCode(nvalue: any) {
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue
@@ -624,7 +625,22 @@
 				/>
 			{:else}
 				<div class="relative w-full">
-					<input
+					<TextInput
+						inputProps={{
+							autofocus,
+							onfocus: bubble('focus'),
+							onblur: bubble('blur'),
+							disabled,
+							type: 'number',
+							onkeydown: () => (ignoreValueUndefined = true),
+							placeholder: placeholder ?? defaultValue ?? '',
+							min: extra['min'],
+							max: extra['max']
+						}}
+						{error}
+						bind:value
+					/>
+					<!-- <input
 						{autofocus}
 						onfocus={bubble('focus')}
 						onblur={bubble('blur')}
@@ -640,7 +656,7 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-					/>
+					/> -->
 				</div>
 			{/if}
 		{:else if inputCat == 'boolean'}
