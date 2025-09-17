@@ -60,7 +60,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::not_found_if_none;
+use windmill_common::utils::{not_found_if_none, WarnAfterExt};
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -2392,6 +2392,15 @@ async fn update_workspace_settings(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
+        "INSERT INTO workspace_key (workspace_id, kind, key)
+        SELECT $2, kind, key FROM workspace_key WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         r#"
         UPDATE workspace_settings
         SET
@@ -2546,78 +2555,17 @@ async fn clone_variables(
     target_workspace_id: &str,
     db: &DB,
 ) -> Result<()> {
-    // Get all variables from source workspace
-    let variables = sqlx::query_as!(
-        ExportableListableVariable,
-        "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
-         FROM variable 
+     sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+         FROM variable
          WHERE workspace_id = $1",
-        source_workspace_id
+        source_workspace_id,
+        target_workspace_id,
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut **tx)
     .await?;
 
-    if variables.is_empty() {
-        return Ok(());
-    }
-
-    // Get workspace keys from within the transaction
-    let source_key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        source_workspace_id
-    )
-    .fetch_one(db)
-    .await?;
-
-    let target_key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        target_workspace_id
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-
-    // Build encryption keys manually
-    use windmill_common::variables::SECRET_SALT;
-    let source_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", source_key, salt)
-    } else {
-        source_key
-    };
-    let target_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", target_key, salt)
-    } else {
-        target_key
-    };
-
-    let source_mc = magic_crypt::new_magic_crypt!(source_crypt_key, 256);
-    let target_mc = magic_crypt::new_magic_crypt!(target_crypt_key, 256);
-
-    // Process each variable
-    for var in variables {
-        let final_value = if var.is_secret && var.value.is_some() {
-            // Decrypt with source key and re-encrypt with target key
-            let decrypted_value = decrypt(&source_mc, var.value.unwrap())?;
-            Some(encrypt(&target_mc, &decrypted_value))
-        } else {
-            var.value
-        };
-
-        sqlx::query!(
-            "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            target_workspace_id,
-            var.path,
-            final_value,
-            var.is_secret,
-            var.description,
-            var.extra_perms,
-            var.account,
-            var.is_oauth,
-            var.expires_at,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
 
     Ok(())
 }
@@ -2981,16 +2929,6 @@ async fn create_workspace_fork(
             VALUES ($1, $2)",
         forked_id,
         nw.color,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let key = rd_string(64);
-    sqlx::query!(
-        "INSERT INTO workspace_key
-            (workspace_id, kind, key)
-            VALUES ($1, 'cloud', $2)",
-        forked_id,
-        &key
     )
     .execute(&mut *tx)
     .await?;
