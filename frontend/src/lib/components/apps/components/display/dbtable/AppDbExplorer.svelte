@@ -94,7 +94,7 @@
 		initConfig(components['dbexplorercomponent'].initialData.configuration, configuration)
 	)
 
-	let timeoutInput: NodeJS.Timeout | undefined = undefined
+	let timeoutInput: number | undefined = undefined
 
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
@@ -318,7 +318,7 @@
 	})
 
 	let lastTable: string | undefined = $state(undefined)
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
 		return Object.keys(subset).every((key) => {

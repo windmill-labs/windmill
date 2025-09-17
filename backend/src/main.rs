@@ -435,16 +435,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         environment
     } else {
         load_base_url(&conn)
-        .await
-        .unwrap_or_else(|_| "local".to_string())
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split(".")
-        .next()
-        .unwrap_or_else(|| "local")
-        .to_string()
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
     };
-
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -910,6 +909,8 @@ Windmill Community Edition {GIT_VERSION}
                                                                     }
                                                                 }
                                                                 &"flow" => {
+                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);
                                                                 },
                                                                 _ => {

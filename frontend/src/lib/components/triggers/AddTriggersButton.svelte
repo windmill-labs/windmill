@@ -23,7 +23,6 @@
 		setDropdownWidthToButtonWidth = false,
 		children,
 		class: className,
-		triggerScriptPicker,
 		placement = 'bottom',
 		isEditor = false,
 		onAddDraftTrigger,
@@ -94,7 +93,6 @@
 		{
 			displayName: 'Scheduled Poll',
 			action: (e) => {
-				e.preventDefault()
 				onAddDraftTrigger?.('poll')
 				onAddScheduledPoll?.()
 			},
@@ -127,15 +125,11 @@
 	class={className}
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside
-	customMenu={!!triggerScriptPicker}
 	on:close={() => onClose?.()}
 >
 	{#snippet buttonReplacement()}
 		<div class={className} bind:clientWidth={triggersButtonWidth}>
 			{@render children?.()}
 		</div>
-	{/snippet}
-	{#snippet menu()}
-		{@render triggerScriptPicker?.()}
 	{/snippet}
 </DropdownV2>

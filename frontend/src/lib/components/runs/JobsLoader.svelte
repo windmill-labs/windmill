@@ -90,7 +90,7 @@
 		perPage = undefined,
 		allowWildcards = false
 	}: Props = $props()
-	let intervalId: NodeJS.Timeout | undefined = $state()
+	let intervalId: number | undefined = $state()
 	let sync = true
 
 	function onParamChanges() {
@@ -198,7 +198,7 @@
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
 				perPage,
-				allowWildcards
+				allowWildcards: allowWildcards ? true : undefined
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -388,9 +388,7 @@
 						if (isQueuedJob) {
 							if (cursor > 0) {
 								let inc = invCursor == 0 && jobs[invCursor].type == 'CompletedJob' ? 0 : 1
-								const date = new Date(
-									jobs[invCursor + inc]?.started_at ?? jobs[invCursor + inc]?.created_at!
-								)
+								const date = new Date(jobs[invCursor + inc]?.created_at!)
 								date.setMilliseconds(date.getMilliseconds() + 1)
 								ts = date.toISOString()
 							}

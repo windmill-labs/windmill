@@ -1,5 +1,6 @@
 import { log } from "../../deps.ts";
 import { execSync } from "node:child_process";
+import { WM_FORK_PREFIX } from "../main.ts";
 
 export function getCurrentGitBranch(): string | null {
   try {
@@ -15,6 +16,34 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
+export function getOriginalBranchForWorkspaceForks(branchName: string | null): string | null {
+  if (!branchName || !branchName.startsWith(WM_FORK_PREFIX)) {
+    return null
+  }
+
+  const start = branchName.indexOf("/") + 1;
+  const end = branchName.lastIndexOf("/");
+
+  if (start < 0 || end < 0 || end - start <= 0) {
+    return null
+  }
+
+  return branchName.slice(start, end)
+}
+
+export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string): string | null {
+  if (!branchName.startsWith(WM_FORK_PREFIX)) {
+    return null
+  }
+
+  const start = branchName.lastIndexOf("/") + 1;
+
+  if (start < 0) {
+    return null
+  }
+
+  return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
+}
 export function isGitRepository(): boolean {
   try {
     execSync("git rev-parse --git-dir", {

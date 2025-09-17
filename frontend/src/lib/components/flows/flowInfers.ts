@@ -68,6 +68,11 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				system_prompt: {
 					type: 'string'
 				},
+				image: {
+					type: 'object',
+					description: 'Image to send to the AI agent (optional)',
+					format: 'resource-s3_object'
+				},
 				max_completion_tokens: {
 					type: 'number'
 				},
@@ -76,9 +81,17 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					description:
 						'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).'
 				},
+				output_type: {
+					type: 'string',
+					description:
+						'The type of output the AI agent will generate (text or image). Image output will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
+					enum: ['text', 'image'],
+					default: 'text'
+				},
 				output_schema: {
 					type: 'object',
-					description: 'JSON schema that the AI agent will follow for its response format',
+					description:
+						'JSON schema that the AI agent will follow for its response format (only used if output_type is text)',
 					format: 'json-schema'
 				}
 			},
@@ -89,8 +102,10 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				'model',
 				'user_message',
 				'system_prompt',
+				'image',
 				'max_completion_tokens',
 				'temperature',
+				'output_type',
 				'output_schema'
 			]
 		}

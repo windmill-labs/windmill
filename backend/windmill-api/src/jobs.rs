@@ -33,10 +33,11 @@ use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    ENTRYPOINT_OVERRIDE,
+    DynamicInput, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::utils::WarnAfterExt;
+use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
@@ -192,6 +193,7 @@ pub fn workspaced_service() -> Router {
             "/run_wait_result/preview_flow",
             post(run_wait_result_preview_flow),
         )
+        .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -203,6 +205,8 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
+        .route("/queue/position/:timestamp", get(get_queue_position))
+        .route("/queue/scheduled_for/:id", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -535,6 +539,51 @@ async fn force_cancel(
             )));
         }
     }
+}
+
+#[derive(Serialize)]
+struct QueuePosition {
+    position: Option<i64>,
+}
+
+async fn get_queue_position(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((_w_id, scheduled_for)): Path<(String, i64)>,
+) -> error::Result<Json<QueuePosition>> {
+    // First check if the job exists and is in queue
+
+    // Count jobs that are scheduled before this job and are not suspended
+    let count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) as count
+             FROM v2_job_queue
+             WHERE scheduled_for < to_timestamp($1::bigint / 1000.0)
+             AND running = false
+             AND suspend_until IS NULL",
+        scheduled_for,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    Ok(Json(QueuePosition { position: Some(count + 1) }))
+}
+
+async fn get_scheduled_for(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Json<i64>> {
+    let scheduled_for = sqlx::query_scalar!(
+        "SELECT scheduled_for FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let scheduled_for = not_found_if_none(scheduled_for, "QueuedJob", &id.to_string())?;
+    Ok(Json(scheduled_for.timestamp_millis()))
 }
 
 async fn get_flow_job_debug_info(
@@ -3426,6 +3475,22 @@ struct PreviewFlow {
     restarted_from: Option<RestartedFrom>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DynamicSelectRequest {
+    pub entrypoint_function: String,
+    pub args: Option<HashMap<String, Box<JsonRawValue>>>,
+    pub runnable_ref: DynamicSelectRunnableRef,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "source")]
+pub enum DynamicSelectRunnableRef {
+    #[serde(rename = "deployed")]
+    Deployed { path: String, runnable_kind: RunnableKind },
+    #[serde(rename = "inline")]
+    Inline { code: String, language: Option<ScriptLang> },
+}
+
 pub struct QueryOrBody<D>(pub Option<D>);
 
 #[axum::async_trait]
@@ -5951,6 +6016,155 @@ async fn run_wait_result_preview_flow(
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
     let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     return result;
+}
+
+async fn run_dynamic_select(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(request): Json<DynamicSelectRequest>,
+) -> error::Result<Response> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    if matches!(
+        request.runnable_ref,
+        DynamicSelectRunnableRef::Inline { .. }
+    ) && authed.is_operator
+    {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
+
+    let dynamic_input: DynamicInput;
+
+    match request.runnable_ref {
+        DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
+            RunnableKind::Script => {
+                let mut script_args = request.args.unwrap_or_default();
+                script_args.insert(
+                    "_ENTRYPOINT_OVERRIDE".to_string(),
+                    serde_json::value::to_raw_value(&request.entrypoint_function)?,
+                );
+
+                let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
+
+                let (uuid, _) = run_script_by_path_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    StripPath(path),
+                    run_query.clone(),
+                    push_args.clone(),
+                )
+                .await?;
+
+                return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
+            }
+            RunnableKind::Flow => {
+                let mut conn = user_db.clone().begin(&authed).await?;
+
+                let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
+                {
+                    Some(cached) => cached.as_ref().clone(),
+                    None => {
+                        let dynamic_input = sqlx::query_scalar!(
+                            r#"
+                        SELECT 
+                            schema 
+                        FROM 
+                            flow 
+                        WHERE 
+                            workspace_id = $1 AND 
+                            path = $2
+                    "#,
+                            &w_id,
+                            &path
+                        )
+                        .fetch_one(&mut *conn)
+                        .await?
+                        .and_then(|dynamic_input| {
+                            Some(serde_json::from_value::<DynamicInput>(dynamic_input))
+                        })
+                        .transpose()?;
+
+                        let Some(dynamic_input) = dynamic_input else {
+                            return Err(Error::BadRequest(format!(
+                                "Flow at path {} does not have a dynamic select schema",
+                                path
+                            )));
+                        };
+
+                        let dynamic_input_key =
+                            windmill_common::jobs::generate_dynamic_input_key(&w_id, &path);
+                        DYNAMIC_INPUT_CACHE
+                            .insert(dynamic_input_key, Arc::new(dynamic_input.clone()));
+                        dynamic_input
+                    }
+                };
+
+                conn.commit().await?;
+
+                dynamic_input = dynamic_input_res;
+            }
+        },
+        DynamicSelectRunnableRef::Inline { code, language } => {
+            dynamic_input = DynamicInput {
+                x_windmill_dyn_select_code: code,
+                x_windmill_dyn_select_lang: language.unwrap_or_default(),
+            };
+        }
+    }
+
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::Code(RawCode {
+            hash: None,
+            content: dynamic_input.x_windmill_dyn_select_code,
+            path: None,
+            language: dynamic_input.x_windmill_dyn_select_lang,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        }),
+        PushArgs::from(&request.args.unwrap_or_default()),
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        scheduled_for,
+        None,
+        None,
+        None,
+        None,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        true,
+        None,
+        run_query.timeout,
+        None,
+        None,
+        Some(&authed.clone().into()),
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
 pub async fn run_job_by_hash(

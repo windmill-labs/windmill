@@ -1,6 +1,16 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.88-slim-bookworm
 
+# Build libwindmill_duckdb_ffi_internal.so separately
+FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
+
+WORKDIR /windmill-duckdb-ffi-internal
+RUN apt-get update && apt-get install -y pkg-config clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY ./backend/windmill-duckdb-ffi-internal .
+RUN cargo build --release -p windmill_duckdb_ffi_internal
+
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -20,7 +30,7 @@ WORKDIR /windmill
 ENV SQLX_OFFLINE=true
 # ENV CARGO_INCREMENTAL=1
 
-FROM node:20-alpine as frontend
+FROM node:24-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
@@ -81,7 +91,6 @@ COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
-
 
 FROM ${DEBIAN_IMAGE}
 
@@ -191,6 +200,7 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
+COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
@@ -204,6 +214,7 @@ COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
 ENV RUSTUP_HOME="/usr/local/rustup"
 ENV CARGO_HOME="/usr/local/cargo"
+ENV LD_LIBRARY_PATH="."
 
 WORKDIR ${APP}
 

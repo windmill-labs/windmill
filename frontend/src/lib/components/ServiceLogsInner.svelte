@@ -15,7 +15,7 @@
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
 	import Select from './select/Select.svelte'
 	import { goto } from '$lib/navigation'
@@ -55,7 +55,7 @@
 	type ByWorkerGroup = Record<string, ByHostname>
 	type ByMode = Record<string, ByWorkerGroup>
 
-	let timeout: NodeJS.Timeout | undefined = $state(undefined)
+	let timeout: number | undefined = $state(undefined)
 
 	let allLogs: ByMode | undefined = $state(undefined)
 	let manualPicker: ManuelDatePicker | undefined = $state(undefined)
@@ -298,7 +298,7 @@
 
 	let logs: any = $state()
 
-	let debounceTimeout: NodeJS.Timeout | undefined = undefined
+	let debounceTimeout: number | undefined = undefined
 	const debouncePeriod: number = 400
 	let loadingLogs = $state(false)
 	let loadingLogCounts = $state(false)

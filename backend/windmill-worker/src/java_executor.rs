@@ -689,6 +689,7 @@ async fn run<'a>(
             }
         }
         cmd.args(&["-classpath", &classpath, "net.script.App"])
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

@@ -14,7 +14,7 @@
 		flowJobsSuccess: (boolean | undefined)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
-		onSelectedIteration: onSelectedIteration
+		onSelectedIteration?: onSelectedIteration
 		showIcon?: boolean
 	}
 
@@ -39,7 +39,7 @@
 			filter > 0
 		) {
 			event.preventDefault()
-			onSelectedIteration({
+			onSelectedIteration?.({
 				index: filter - 1,
 				id: flowJobs[filter - 1],
 				manuallySet: true,
@@ -84,7 +84,7 @@
 			onmouseleave={() => (buttonHover = false)}
 			onclick={(e) => {
 				buttonHover = false
-				onSelectedIteration({ manuallySet: false, moduleId: moduleId })
+				onSelectedIteration?.({ manuallySet: false, moduleId: moduleId })
 			}}
 		>
 			{#if buttonHover}
@@ -136,7 +136,7 @@
 				</MeltButton>
 			{/snippet}
 
-			{#snippet children({ item })}
+			{#snippet children({ item: childrenItem })}
 				<div class="flex flex-col px-1">
 					<input type="number" bind:value={filter} onkeydown={onKeydown} />
 
@@ -145,7 +145,7 @@
 							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
 								{#snippet header()}{/snippet}
 								{#snippet footer()}{/snippet}
-								{#snippet children({ index: idx, style })}
+								{#snippet item({ index: idx, style })}
 									<div {style}>
 										<MenuItem
 											class={twMerge(
@@ -155,7 +155,7 @@
 												items[idx].index == selected ? 'bg-surface-selected' : ''
 											)}
 											onClick={() => {
-												onSelectedIteration({
+												onSelectedIteration?.({
 													moduleId: moduleId,
 													index: items[idx].index,
 													id: items[idx].id,
@@ -163,7 +163,7 @@
 												})
 												menu?.close()
 											}}
-											{item}
+											item={childrenItem}
 										>
 											#{items[idx].index + 1}
 										</MenuItem>

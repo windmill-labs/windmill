@@ -1,5 +1,5 @@
 import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
-import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
+import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../utils/git.ts";
 import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -313,7 +313,18 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 
   const config = await readConfigFile();
   const { gitBranches } = config;
-  const currentBranch = getCurrentGitBranch();
+
+  const rawBranch = getCurrentGitBranch();
+
+  const originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawBranch);
+
+  let currentBranch: string | null;
+  if (originalBranchIfForked) {
+    log.info(`Workspace fork detected from branch name \`${rawBranch}\`. Validating branch configuration using original branch \`${originalBranchIfForked}\``);
+    currentBranch = originalBranchIfForked;
+  } else {
+    currentBranch = rawBranch;
+  }
 
   // In a git repository, gitBranches section is recommended
   if (!gitBranches || Object.keys(gitBranches).length === 0) {
@@ -386,10 +397,20 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean, suppressLogs?: boolean): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
-  let effective = { ...topLevelSettings };
+  const effective = { ...topLevelSettings };
 
   if (isGitRepository()) {
-    const currentBranch = getCurrentGitBranch();
+    const branch = getCurrentGitBranch();
+
+    const originalBranchIfForked = getOriginalBranchForWorkspaceForks(branch);
+
+    let currentBranch: string | null;
+    if (originalBranchIfForked) {
+      log.info(`Using overrides from original branch \`${originalBranchIfForked}\``);
+      currentBranch = originalBranchIfForked;
+    } else {
+      currentBranch = branch
+    }
 
     // If promotion is specified, use that branch's promotionOverrides or overrides
     if (promotion && gitBranches && gitBranches[promotion]) {
@@ -414,7 +435,8 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
     else if (currentBranch && gitBranches && gitBranches[currentBranch] && gitBranches[currentBranch].overrides) {
       Object.assign(effective, gitBranches[currentBranch].overrides);
       if (!suppressLogs) {
-        log.info(`Applied settings for Git branch: ${currentBranch}`);
+        const extraLog = originalBranchIfForked ? ` (because it is the origin of the workspace fork branch \`${branch}\`)` : "";
+        log.info(`Applied settings for Git branch: ${currentBranch}${extraLog}`);
       }
     } else if (currentBranch) {
       log.debug(`No branch-specific overrides found for '${currentBranch}', using top-level settings`);

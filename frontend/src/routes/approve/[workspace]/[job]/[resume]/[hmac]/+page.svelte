@@ -32,7 +32,7 @@
 
 	let dynamicSchema: any = $state({})
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	let error: string | undefined = $state(undefined)
 	let default_payload: any = $state({})
 	let enum_payload: object = $state({})

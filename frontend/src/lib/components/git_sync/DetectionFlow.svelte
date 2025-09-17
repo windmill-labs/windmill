@@ -6,13 +6,41 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
+	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 
-	let { idx } = $props<{ idx: number }>()
+	let { idx, mode } = $props<{ idx: number, mode?: 'sync' | 'promotion' }>()
 
 	const gitSyncContext = getGitSyncContext()
 	const repo = $derived(gitSyncContext.getRepository(idx))
+	let targetBranch = $state('main')
+
+	// Update target branch when repository changes
+	$effect(() => {
+		const abortController = new AbortController()
+
+		if (repo?.git_repo_resource_path) {
+			gitSyncContext.getTargetBranch(repo).then(branch => {
+				if (!abortController.signal.aborted) {
+					targetBranch = branch
+				}
+			}).catch(error => {
+				if (!abortController.signal.aborted) {
+					console.warn('Failed to get target branch:', error)
+				}
+			})
+		}
+
+		return () => {
+			abortController.abort()
+		}
+	})
 
 	async function handleDetect() {
+		if (!repo) {
+			sendUserToast('Repository not found', true)
+			return
+		}
+
 		try {
 			await gitSyncContext.detectRepository(idx)
 		} catch (error: any) {
@@ -46,24 +74,13 @@
 	}
 </script>
 
+
 {#if repo}
 	<div class="space-y-4">
 		{#if !repo.detectionState || repo.detectionState === 'idle'}
-			<!-- Step 1: Show toggles first, then check button -->
-			<div class="space-y-3">
-				<Toggle
-					disabled={!repo.git_repo_resource_path}
-					bind:checked={repo.use_individual_branch}
-					options={{
-						left: 'Sync mode',
-						leftTooltip: 'Changes will be committed directly to the branch',
-						right: 'Promotion mode',
-						rightTooltip:
-							"Changes will be made to a new branch per deployed object (prefixed with 'wm_deploy/')"
-					}}
-				/>
-
-				{#if repo.use_individual_branch}
+			<!-- Folder grouping option for promotion mode -->
+			{#if mode === 'promotion'}
+				<div class="space-y-3">
 					<Toggle
 						disabled={!repo.git_repo_resource_path}
 						bind:checked={repo.group_by_folder}
@@ -73,8 +90,8 @@
 								'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
 						}}
 					/>
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			<!-- Check repo settings button -->
 			<div class="flex justify-start">
@@ -113,19 +130,7 @@
 				useIndividualBranch={repo.use_individual_branch}
 			/>
 
-			<!-- Display mode settings as prominent text -->
-			<div class="text-base">
-				{#if repo.use_individual_branch}
-					<div
-						><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div
-					>
-					{#if repo.group_by_folder}
-						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
-					{/if}
-				{:else}
-					<div>Sync: <span class="font-bold">Syncing back to branch main</span></div>
-				{/if}
-			</div>
+			<GitSyncModeDisplay {mode} {targetBranch} repository={repo} />
 
 			<!-- Initialize button -->
 			<div class="flex justify-start">
@@ -152,19 +157,7 @@
 				useIndividualBranch={repo.use_individual_branch}
 			/>
 
-			<!-- Display mode settings as prominent text -->
-			<div class="text-base">
-				{#if repo.use_individual_branch}
-					<div
-						><span class="font-bold">Promotion:</span> Creating branches whose promotion target is main</div
-					>
-					{#if repo.group_by_folder}
-						<div class="text-sm text-tertiary mt-1">Grouped by folder</div>
-					{/if}
-				{:else}
-					<div>Sync: <span class="font-bold">Syncing back to branch main</span></div>
-				{/if}
-			</div>
+			<GitSyncModeDisplay {mode} {targetBranch} repository={repo} />
 
 			<!-- Save connection button -->
 			<div class="flex justify-start">

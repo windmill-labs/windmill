@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -243,6 +243,28 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 		return `${hours}h ${minutes % 60}m ${seconds % 60}s`
 	} else if (minutes > 0) {
 		return `${minutes}m ${seconds % 60}s`
+	} else {
+		return `${msToSec(ms, maximumFractionDigits)}s`
+	}
+}
+
+export function msToReadableTimeShort(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	if (days > 0) {
+		return `${days}d`
+	} else if (hours > 0) {
+		return `${hours}h`
+	} else if (minutes > 0) {
+		return `${minutes}m`
 	} else {
 		return `${msToSec(ms, maximumFractionDigits)}s`
 	}
@@ -599,8 +621,8 @@ export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
 
 	export type HelperScript =
-		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-		| { type: 'hash'; hash: string }
+		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
+		| { source: 'inline'; code: string; lang: ScriptLang }
 
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
@@ -1012,6 +1034,14 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	}
 
 	return dynamicTemplateRegex.test(expr)
+}
+
+export function urlParamsToObject(params: URLSearchParams): Record<string, string> {
+	const result: Record<string, string> = {}
+	params.forEach((value, key) => {
+		result[key] = value
+	})
+	return result
 }
 
 export async function tryEvery({

@@ -320,7 +320,7 @@
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
 
-	let timeout2: NodeJS.Timeout | undefined = undefined
+	let timeout2: number | undefined = undefined
 	function encodeScriptState(script: NewScript) {
 		untrack(() => timeout2 && clearTimeout(timeout2))
 		timeout2 = setTimeout(() => {
@@ -334,7 +334,7 @@
 		}, 500)
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {

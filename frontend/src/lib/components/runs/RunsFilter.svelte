@@ -107,10 +107,10 @@
 		}
 	}
 
-	let labelTimeout: NodeJS.Timeout | undefined = $state(undefined)
-	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = $state(undefined)
-	let tagTimeout: NodeJS.Timeout | undefined = $state(undefined)
-	let workerTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let labelTimeout: number | undefined = $state(undefined)
+	let concurrencyKeyTimeout: number | undefined = $state(undefined)
+	let tagTimeout: number | undefined = $state(undefined)
+	let workerTimeout: number | undefined = $state(undefined)
 
 	let allWorkspacesValue = $state(allWorkspaces ? 'all' : 'admins')
 	let displayedLabel = $derived(label)
