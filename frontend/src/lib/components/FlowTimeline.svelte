@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte'
 	import OnChange from './common/OnChange.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
+	import { Tween } from 'svelte/motion'
 
 	interface Props {
 		selfWaitTime?: number | undefined
@@ -46,6 +47,11 @@
 	const total = $derived(timelineCompute?.total ?? undefined)
 	const items = $derived(timelineCompute?.items ?? undefined)
 	const now = $derived(timelineCompute?.now ?? Date.now())
+	const duration = new Tween(0, { duration: 1000 })
+
+	$effect(() => {
+		duration.set(max && min ? max - min : 0)
+	})
 
 	export function reset() {
 		timelineCompute?.reset()
@@ -67,7 +73,7 @@
 			><div></div>
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
 				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
-						class="hidden lg:block">{msToSec(max - min)}s</div
+						class="hidden lg:block">{msToSec(duration.current, 1)}s</div
 					>
 				{/if}<div class="flex gap-1 items-center font-mono"
 					>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}

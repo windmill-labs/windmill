@@ -502,7 +502,7 @@
 									mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
 							}
 						: {}
-					console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
+					// console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
 					setModuleState(
 						mod.id ?? '',
 						{

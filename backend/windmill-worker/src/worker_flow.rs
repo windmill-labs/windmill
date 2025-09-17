@@ -529,7 +529,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              sqlx::query_scalar!(
                                  "UPDATE v2_job_status SET
                                      flow_status = JSONB_SET(
-                                         JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                         JSONB_SET(JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4), ARRAY['modules', $1::TEXT, 'flow_jobs_duration', $3::TEXT], $5),
                                          ARRAY['modules', $1::TEXT, 'iterator', 'index'],
                                          ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
                                      )
@@ -538,7 +538,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                                  old_status.step,
                                  flow,
                                  position as i32,
-                                 json!(success)
+                                 json!(success),
+                                 flow_job_duration.as_ref().map(|x| json!(x))
                              )
                          } else {
                              sqlx::query_scalar!(
@@ -900,7 +901,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let position = flow_jobs.iter().position(|x| x == job_id_for_status);
                     if let Some(position) = position {
                         if position < flow_job_success.len() {
-                            tracing::error!("flow_job_success: {:?}", success);
                             flow_job_success[position] = Some(success);
                         }
                     }
@@ -912,7 +912,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let position = flow_jobs.iter().position(|x| x == job_id_for_status);
                     if let Some(position) = position {
                         if position < flow_jobs_duration.len() {
-                            tracing::error!("flow_job_duration: {:?}", flow_job_duration);
                             flow_jobs_duration[position] = flow_job_duration.clone();
                         }
                     }
