@@ -68,6 +68,9 @@
 
 	// Initialize version from URL parameter, fallback to 'minimal'
 	let version = $derived(page.url.searchParams.get('version') ?? 'minimal')
+
+	// Toggle state for the rounded toggle component
+	let toggleState = $state(false)
 </script>
 
 <div class="min-h-screen flex">
@@ -81,7 +84,7 @@
 					class="w-full bg-white border border-nord-4/30 rounded px-3 py-2 text-sm text-nord-0 focus:outline-none focus:border-nord-8"
 				>
 					<option value="minimalistic">Minimalistic</option>
-					<option value="minimalistic_2">Minimalistic 2</option>
+					<option value="minimalistic_border">Minimalistic Border</option>
 					<option value="dev_clean">Dev Clean</option>
 					<option value="sharp_minimal">Sharp Minimal</option>
 					<option value="precision">Precision</option>
@@ -127,17 +130,17 @@
 				</div>
 			</div>
 		</div>
-	{:else if version == 'minimalistic_2'}
+	{:else if version == 'minimalistic_border'}
 		<div class="bg-white rounded-lg border border-nord-4/20 p-4">
-			<h4 class="font-medium text-nord-0 mb-3">Minimalistic 2</h4>
+			<h4 class="font-medium text-nord-0 mb-3">Minimalistic Border</h4>
 			<div class="space-y-3 text-sm">
 				<div>
 					<span class="font-medium text-nord-0">Approach:</span>
 					<span class="text-nord-3/70"
 						>Shapes are slightly rounded, Groups are formed by padding and background color, borders
-						can be added to mark contrast. Prefer borders to shadows. borders, text have 3 colors:
+						can be added to mark contrast. Prefer thin borders to shadows. Text have 3 colors:
 						primary, secondary, tertiary. Primary is reserved for headers/labels. Buttons have 2
-						styles: border, no background for secondary action, accent for primary action</span
+						main styles: border, no background for secondary action, full accent for primary action</span
 					>
 				</div>
 				<div>
@@ -151,10 +154,6 @@
 				<div>
 					<span class="font-medium text-nord-0">Spacing:</span>
 					<span class="text-nord-3/70">Generous padding, breathing room</span>
-				</div>
-				<div>
-					<span class="font-medium text-nord-0">Features:</span>
-					<span class="text-nord-3/70">Toggle with no shadow</span>
 				</div>
 				<div>
 					<span class="font-medium text-nord-0">Shapes:</span>
@@ -270,17 +269,72 @@
 				</div>
 			{/snippet}
 		{/snippet}
-	{:else if version == 'minimalistic_2'}
+	{:else if version == 'minimalistic_border'}
 		<!-- Original Minimalistic Theme -->
-		<div class="space-y-4">
-			{#each Object.entries(schema.properties) as [key, value]}
-				{@render input({ key, value })}
-			{/each}
-		</div>
+		<div class="flex divide-x divide-gray-200 gap-8">
+			<div class="flex flex-col gap-2 min-w-[600px]">
+				{#each Object.entries(schema.properties) as [key, value]}
+					{@render input({ key, value })}
+				{/each}
+			</div>
+			<div class="flex flex-col gap-8 px-4 min-w-[600px]">
+				<div class="flex flex-row gap-2 text-sm text-nord-0"
+					>toggle:{@render toggleButton?.(true)}</div
+				>
+				<div class="flex flex-row gap-2 text-sm text-nord-0"
+					>buttons light most of the buttons:
+					<button
+						class="py-1 px-2 w-fit duration-200 hover:bg-surface-hover rounded-md border flex items-center justify-center h-full text-gray-500"
+					>
+						<Plug size={14} />
+					</button>
+				</div>
+				<div class="flex flex-row gap-2 text-sm text-nord-0"
+					>buttons full accent for the main call to action only:
+					<button
+						class="text-white py-1 px-2 w-fit duration-200 rounded-md justify-center h-full bg-nord-950 hover:bg-[#4d698b]"
+					>
+						Click me !
+					</button>
+				</div>
 
+				<div class="flex flex-row gap-2 text-sm text-nord-0 items-center">
+					rounded toggle:
+					<button
+						class="relative w-9 h-5 rounded-full transition-all duration-100 {toggleState
+							? 'bg-nord-950 hover:bg-[#4d698b]'
+							: 'bg-nord-600 hover:bg-nord-500'}"
+						aria-label="Toggle switch"
+						onclick={() => (toggleState = !toggleState)}
+					>
+						<div
+							class="absolute top-0 left-0 w-5 h-5 rounded-full bg-white transition-transform duration-100 ease-in-out border border-gray-300 {toggleState
+								? 'translate-x-4 border-nord-950'
+								: ''}"
+						></div>
+					</button>
+				</div>
+
+				<span class="text-sm text-nord-0"> text primary : nord-0 for headers/labels </span>
+				<span class="text-sm text-nord-300">
+					text secondary : nord-300 for most of the text and input values
+				</span>
+				<span class="text-sm text-gray-400">
+					text tertiary : gray-400 for placeholders/descriptions
+				</span>
+				<div class="flex flex-row gap-2 text-sm text-nord-0">
+					input with placeholder:
+					<input
+						type="text"
+						class="windmillapp !bg-gray-50 rounded-sm border border-transparent hover:border-outline-400 text-nord-300 p-2 placeholder-gray-400 text-sm focus:ring-0 focus:outline-none focus:border-nord-900"
+						placeholder={'Ex: placeholder'}
+					/>
+				</div>
+			</div>
+		</div>
 		{#snippet input({ key, value })}
 			<div
-				class="flex flex-col gap-1 rounded-md transition-all duration-300 group p-4 bg-nord-600/30 border border-nord-500/30"
+				class="flex flex-col gap-1.5 rounded-md transition-all duration-300 group px-4 py-6 border border-transparent hover:border-nord-600"
 			>
 				<!-- Header  -->
 				<div class="flex flex-row gap-2 justify-between items-center">
@@ -291,7 +345,7 @@
 							{/if}
 						</label>
 
-						<div class="text-sm text-nord-300/50 italic">{value.type}</div>
+						<div class="text-sm text-gray-400 italic">{value.type}</div>
 					</div>
 
 					{@render actions?.()}
@@ -299,7 +353,7 @@
 				<!-- Input -->
 				<input
 					type="text"
-					class="!rounded-sm !shadow-none !bg-transparent !border-none !hover:border-nord-400 !text-nord-300 !focus:outline-none !focus:ring-none !p-2 !placeholder-gray-400"
+					class="windmillapp !bg-gray-50 rounded-sm border border-transparent hover:border-outline-400 text-nord-300 p-2 placeholder-gray-400 text-sm focus:ring-0 focus:outline-none focus:border-nord-900"
 					id={key}
 					placeholder={value.placeholder}
 					value={value.default}
@@ -323,20 +377,24 @@
 					<Plug size={14} />
 				</button>
 			</div>
-			{#snippet toggleButton()}
-				<div
-					class="flex flex-row w-fit border border-nord-500 rounded-md transition-opacity duration-200 group-hover:opacity-100 opacity-0 h-full bg-nord-300/10 items-center"
+		{/snippet}
+		{#snippet toggleButton(forceVisible = false)}
+			<div
+				class="h-6 flex flex-row w-fit rounded-md transition-opacity duration-200 group-hover:opacity-100 {forceVisible
+					? 'opacity-100'
+					: 'opacity-0'} bg-nord-600 items-center"
+			>
+				<button
+					class="py-1 px-2 w-fit hover:bg-surface-hover rounded-md h-full text-2xs font-normal text-gray-400 hover:text-nord-0 center-center"
 				>
-					<button
-						class="py-1 px-2 w-fit hover:bg-surface-hover rounded-md h-full text-2xs font-normal text-gray-400 hover:text-nord-0 center-center"
-					>
-						static
-					</button>
-					<button class=" py-1 px-2 w-fit rounded-md h-full bg-gray-50 text-nord-0">
-						<SquareFunction size={12} />
-					</button>
-				</div>
-			{/snippet}
+					static
+				</button>
+				<button
+					class=" py-1 px-2 w-fit rounded-md h-full bg-gray-50 text-nord-0 border-gray-300 border"
+				>
+					<SquareFunction size={12} />
+				</button>
+			</div>
 		{/snippet}
 	{:else if version == 'sharp_minimal'}
 		<!-- Sharp Minimal - High contrast, crisp edges, maximum efficiency -->
