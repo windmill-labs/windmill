@@ -424,6 +424,14 @@
 		updateStores()
 	}
 
+	function updateNotePosition(noteId: string, position: { x: number; y: number }) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, position } : note))
+	}
+
+	function updateNoteSize(noteId: string, size: { width: number; height: number }) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, size } : note))
+	}
+
 	function convertNotesToNodes(): Node[] {
 		return notes.map((note) => ({
 			id: note.id,
@@ -433,12 +441,13 @@
 				text: note.text,
 				color: note.color,
 				onUpdate: (text: string) => updateNoteText(note.id, text),
-				onDelete: () => deleteNote(note.id)
+				onDelete: () => deleteNote(note.id),
+				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size)
 			},
 			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,
 			width: note.size.width,
 			height: note.size.height,
-			zIndex: 1,
+			zIndex: -2000,
 			draggable: true,
 			selectable: true
 		}))
@@ -634,6 +643,12 @@
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
+				}}
+				onnodedragstop={(event) => {
+					const node = event.targetNode
+					if (node && node.type === 'note') {
+						updateNotePosition(node.id, node.position)
+					}
 				}}
 				{nodes}
 				{edges}

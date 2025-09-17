@@ -9,6 +9,7 @@
 			color: string
 			onUpdate?: (text: string) => void
 			onDelete?: () => void
+			onSizeChange?: (size: { width: number; height: number }) => void
 		}
 		selected?: boolean
 		dragging?: boolean
@@ -90,6 +91,12 @@
 		minHeight={100}
 		lineClass="!border-4 !border-transparent !rounded-md"
 		handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
+		onResizeEnd={(_, params) => {
+			// Update note size when resizing ends
+			if (data.onSizeChange && params.width !== undefined && params.height !== undefined) {
+				data.onSizeChange({ width: params.width, height: params.height })
+			}
+		}}
 	/>
 </div>
 
