@@ -268,6 +268,40 @@
 		)
 	}
 
+	function appendPathToArrayExpr(currentExpr: string | undefined, path: string): string {
+		const trimmedExpr = currentExpr?.trim() || ''
+
+		if (trimmedExpr.startsWith('[') && trimmedExpr.endsWith(']')) {
+			// Parse existing array and append new item
+			const innerContent = trimmedExpr.slice(1, -1).trim()
+			if (innerContent) {
+				return `[${innerContent}, ${path}]`
+			} else {
+				return `[${path}]`
+			}
+		} else {
+			// Create new array with single item
+			return `[${path}]`
+		}
+	}
+
+	async function switchToJsAndConnect(onPath: (path: string) => void) {
+		// Switch to JavaScript mode
+		propertyType = 'javascript'
+		arg.type = 'javascript'
+		arg.expr = arg.expr || '[]'
+		arg.value = undefined
+
+		// Wait for the component to re-render and Monaco to be available
+		await tick()
+
+		// Activate connect mode
+		focusProp?.(argName, 'connect', (path) => {
+			onPath(path)
+			return true
+		})
+	}
+
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
 		const varMatch = variableMatch(rawValue)
@@ -519,6 +553,12 @@
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
+
+								// Reset array picker when switching away from JS mode
+								if (propertyType === 'javascript' && e.detail !== 'javascript') {
+									showArrayExprPicker = false
+								}
+
 								if (e.detail === 'javascript') {
 									if (arg.expr == undefined) {
 										arg.expr = getDefaultExpr(
@@ -718,19 +758,9 @@
 									color="light"
 									size="xs"
 									startIcon={{ icon: Plug }}
-									on:click={async () => {
-										// Switch to JavaScript mode
-										propertyType = 'javascript'
-										arg.type = 'javascript'
-										arg.expr = '[]'
-										arg.value = undefined
-
-										// Wait for the component to re-render and Monaco to be available
-										await tick()
-
-										// Immediately activate connect mode
-										focusProp?.(argName, 'connect', (path) => {
-											const arrayExpr = `[${path}]`
+									on:click={() => {
+										switchToJsAndConnect((path) => {
+											const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 											arg.expr = arrayExpr
 											arg.type = 'javascript'
 
@@ -806,22 +836,7 @@
 											connecting={false}
 											on:click={() => {
 												focusProp?.(argName, 'connect', (path) => {
-													let arrayExpr: string
-
-													// Check if current expr is already an array
-													const currentExpr = arg.expr?.trim() || ''
-													if (currentExpr.startsWith('[') && currentExpr.endsWith(']')) {
-														// Parse existing array and append new item
-														const innerContent = currentExpr.slice(1, -1).trim()
-														if (innerContent) {
-															arrayExpr = `[${innerContent}, ${path}]`
-														} else {
-															arrayExpr = `[${path}]`
-														}
-													} else {
-														// Create new array with single item
-														arrayExpr = `[${path}]`
-													}
+													const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 
 													arg.expr = arrayExpr
 													arg.type = 'javascript'
@@ -865,22 +880,7 @@
 									startIcon={{ icon: Plug }}
 									on:click={() => {
 										focusProp?.(argName, 'connect', (path) => {
-											let arrayExpr: string
-
-											// Check if current expr is already an array
-											const currentExpr = arg.expr?.trim() || ''
-											if (currentExpr.startsWith('[') && currentExpr.endsWith(']')) {
-												// Parse existing array and append new item
-												const innerContent = currentExpr.slice(1, -1).trim()
-												if (innerContent) {
-													arrayExpr = `[${innerContent}, ${path}]`
-												} else {
-													arrayExpr = `[${path}]`
-												}
-											} else {
-												// Create new array with single item
-												arrayExpr = `[${path}]`
-											}
+											const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 
 											arg.expr = arrayExpr
 											arg.type = 'javascript'
@@ -895,7 +895,7 @@
 										})
 									}}
 								>
-									Add S3 resource
+									Add object from an expression
 								</Button>
 							</div>
 						{/if}
