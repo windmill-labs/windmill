@@ -36,7 +36,6 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::ExportableListableVariable;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
@@ -60,7 +59,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::utils::{not_found_if_none, WarnAfterExt};
+use windmill_common::utils::not_found_if_none;
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -2342,7 +2341,6 @@ async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    db: &DB,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -2363,7 +2361,7 @@ async fn clone_workspace_data(
     clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone variables with re-encryption
-    clone_variables(tx, source_workspace_id, target_workspace_id, db).await?;
+    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
@@ -2553,7 +2551,6 @@ async fn clone_variables(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    db: &DB,
 ) -> Result<()> {
      sqlx::query!(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
@@ -2565,7 +2562,6 @@ async fn clone_variables(
     )
     .execute(&mut **tx)
     .await?;
-
 
     Ok(())
 }
@@ -2946,7 +2942,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &db).await?;
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
