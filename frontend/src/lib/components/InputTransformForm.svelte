@@ -30,7 +30,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare, InfoIcon, Plug } from 'lucide-svelte'
+	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
@@ -726,7 +726,7 @@
 
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
-								on:click={() => {
+								onClick={() => {
 									switchToJsAndConnect((path) => {
 										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 										arg.expr = arrayExpr
@@ -775,7 +775,7 @@
 
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
-								on:click={() => {
+								onClick={() => {
 									focusProp?.(argName, 'connect', (path) => {
 										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
 
