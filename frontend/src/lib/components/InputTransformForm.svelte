@@ -726,6 +726,7 @@
 
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
+								{connecting}
 								onClick={() => {
 									switchToJsAndConnect((path) => {
 										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
@@ -775,6 +776,7 @@
 
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
+								{connecting}
 								onClick={() => {
 									focusProp?.(argName, 'connect', (path) => {
 										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
