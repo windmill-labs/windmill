@@ -445,14 +445,9 @@
 				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets, false),
 				model,
 				// overflowWidgetsDomNode: widgets,
-				lineNumbers: (ln) => '<span></span>',
-				lineNumbersMinChars: 0,
-				lineDecorationsWidth: 0,
-				scrollbar: {
-					verticalScrollbarSize: 0
-				},
-				renderLineHighlight: 'none',
-				padding: { top: 6, bottom: 6 },
+				// lineNumbers: 'on',
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
 				fontSize,
 				suggestOnTriggerCharacters: true
 			})
@@ -658,14 +653,14 @@
 		{code}
 		lineNumbersWidth={23}
 		lineNumbersOffset={-8}
-		class="border template nonmain-editor rounded-lg min-h-4 mx-0.5 overflow-clip"
+		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
 	style="height: 18px;"
 	class="{$$props.class ??
-		''} border template nonmain-editor rounded-lg min-h-4 mx-0.5 overflow-clip {!editor
+		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
 		? 'hidden'
 		: ''}"
 	bind:clientWidth={width}
