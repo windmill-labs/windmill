@@ -12,6 +12,8 @@
 		maxTokensPerModel: Record<string, number>
 	} = $props()
 
+	let errors = $state<Record<string, string>>({})
+
 	// Group available models by provider
 	const modelsByProvider = $derived(
 		Object.entries(aiProviders).reduce(
@@ -42,6 +44,7 @@
 	function updateTokensForModel(provider: AIProvider, model: string, tokens: number) {
 		const modelKey = getModelKey(provider, model)
 		if (tokens < 1 || tokens > MAX_TOKENS_LIMIT) {
+			errors[modelKey] = 'Token limit must be between 1 and ' + MAX_TOKENS_LIMIT
 			return
 		}
 
@@ -58,6 +61,7 @@
 				[modelKey]: tokens
 			}
 		}
+		errors[modelKey] = ''
 	}
 
 	function resetModelToDefault(provider: AIProvider, model: string) {
@@ -93,40 +97,47 @@
 							{@const currentTokens = getCurrentTokensForModel(provider as AIProvider, model)}
 							{@const defaultTokens = getDefaultTokensForModel(provider as AIProvider, model)}
 							{@const isAtDefault = isModelAtDefault(provider as AIProvider, model)}
-							<div class="flex items-center gap-3">
-								<div class="flex-1 min-w-0">
-									<span class="text-sm text-primary truncate block">{model}</span>
+							<div class="flex flex-col gap-1">
+								<div class="flex items-center gap-3">
+									<div class="flex-1 min-w-0">
+										<span class="text-sm text-primary truncate block">{model}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<input
+											type="number"
+											min="1"
+											max={MAX_TOKENS_LIMIT}
+											value={currentTokens}
+											oninput={(e) => {
+												const value = parseInt(e.currentTarget.value)
+												if (!isNaN(value)) {
+													updateTokensForModel(provider as AIProvider, model, value)
+												}
+											}}
+											class="w-20 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-700 rounded bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+										/>
+										<span class="text-xs text-secondary whitespace-nowrap">tokens</span>
+									</div>
 								</div>
-								<div class="flex items-center gap-2">
-									<input
-										type="number"
-										min="1"
-										max={MAX_TOKENS_LIMIT}
-										value={currentTokens}
-										oninput={(e) => {
-											const value = parseInt(e.currentTarget.value)
-											if (!isNaN(value)) {
-												updateTokensForModel(provider as AIProvider, model, value)
-											}
-										}}
-										class="w-20 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-700 rounded bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-									/>
-									<span class="text-xs text-secondary whitespace-nowrap">tokens</span>
-								</div>
+								{#if !isAtDefault}
+									<div class="text-xs text-tertiary flex flex-row items-center gap-1">
+										<span>Default: {defaultTokens} tokens</span>
+										<button
+											type="button"
+											onclick={() => resetModelToDefault(provider as AIProvider, model)}
+											class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 whitespace-nowrap"
+											title="Reset to default ({defaultTokens})"
+										>
+											Reset
+										</button>
+									</div>
+									{#if errors[getModelKey(provider as AIProvider, model)]}
+										<div class="text-xs text-red-500"
+											>{errors[getModelKey(provider as AIProvider, model)]}</div
+										>
+									{/if}
+								{/if}
 							</div>
-							{#if !isAtDefault}
-								<div class="text-xs text-tertiary ml-0 flex flex-row items-center gap-1">
-									<span>Default: {defaultTokens} tokens</span>
-									<button
-										type="button"
-										onclick={() => resetModelToDefault(provider as AIProvider, model)}
-										class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 whitespace-nowrap"
-										title="Reset to default ({defaultTokens})"
-									>
-										Reset
-									</button>
-								</div>
-							{/if}
 						{/each}
 					</div>
 				</div>
