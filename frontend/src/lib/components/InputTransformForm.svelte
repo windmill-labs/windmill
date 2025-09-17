@@ -246,21 +246,32 @@
 		return inputCat === 'list' && schema?.properties?.[argName]?.items?.resourceType === 's3object'
 	}
 
-	function appendPathToArrayExpr(currentExpr: string | undefined, path: string): string {
+	function appendPathToArrayExpr(currentExpr: string | undefined, path: string) {
 		const trimmedExpr = currentExpr?.trim() || ''
 
+		let newExpr = trimmedExpr
 		if (trimmedExpr.startsWith('[') && trimmedExpr.endsWith(']')) {
 			// Parse existing array and append new item
 			const innerContent = trimmedExpr.slice(1, -1).trim()
 			if (innerContent) {
-				return `[${innerContent}, ${path}]`
+				newExpr = `[${innerContent}, ${path}]`
 			} else {
-				return `[${path}]`
+				newExpr = `[${path}]`
 			}
 		} else {
 			// Create new array with single item
-			return `[${path}]`
+			newExpr = `[${path}]`
 		}
+		arg.expr = newExpr
+		arg.type = 'javascript'
+
+		// Update Monaco editor after setting the expression
+		tick().then(() => {
+			monaco?.setCode(newExpr)
+		})
+
+		// Dispatch change
+		dispatch('change', { argName, arg })
 	}
 
 	async function switchToJsAndConnect(onPath: (path: string) => void) {
@@ -727,21 +738,8 @@
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
 								{connecting}
-								onClick={() => {
-									switchToJsAndConnect((path) => {
-										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
-										arg.expr = arrayExpr
-										arg.type = 'javascript'
-
-										// Update Monaco editor after setting the expression
-										tick().then(() => {
-											monaco?.setCode(arrayExpr)
-										})
-
-										// Dispatch change
-										dispatch('change', { argName, arg })
-									})
-								}}
+								onClick={() =>
+									switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
 							/>
 						{/if}
 					{:else if arg.expr != undefined}
@@ -777,22 +775,11 @@
 						{#if shouldShowS3ArrayHelper()}
 							<S3ArrayHelperButton
 								{connecting}
-								onClick={() => {
+								onClick={() =>
 									focusProp?.(argName, 'connect', (path) => {
-										const arrayExpr = appendPathToArrayExpr(arg.expr, path)
-
-										arg.expr = arrayExpr
-										arg.type = 'javascript'
-
-										// Update monaco editor
-										monaco?.setCode(arrayExpr)
-
-										// Dispatch change
-										dispatch('change', { argName, arg })
-
+										appendPathToArrayExpr(arg.expr, path)
 										return true
-									})
-								}}
+									})}
 							/>
 						{/if}
 
