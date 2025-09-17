@@ -83,6 +83,7 @@
 		cloud_subscription_id?: string
 		create_update_subscription_id?: string
 		auto_acknowledge_msg: boolean
+		ack_deadline?: number
 	}
 
 	let {
@@ -97,6 +98,7 @@
 		subscription_mode = $bindable('create_update'),
 		base_endpoint = $bindable(getBaseUrl()),
 		auto_acknowledge_msg = $bindable(true),
+		ack_deadline = $bindable(),
 		path = '',
 		showTestingBadge = false,
 		cloud_subscription_id = $bindable(''),
