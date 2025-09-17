@@ -3,14 +3,18 @@ import { emptyString } from './utils'
 
 // Extended type to include GCS support until backend types are regenerated
 
-type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
-type s3ResourceSettingsItem = {
-	resourceType: s3type
+type S3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
+export type S3ResourceSettingsItem = {
+	resourceType: S3type
 	resourcePath: string | undefined
 	publicResource: boolean | undefined
+	advancedPermissions?: {
+		pattern: string
+		allow: ('read' | 'write' | 'delete' | 'list')[]
+	}[]
 }
-export type S3ResourceSettings = s3ResourceSettingsItem & {
-	secondaryStorage: [string, s3ResourceSettingsItem][] | undefined
+export type S3ResourceSettings = S3ResourceSettingsItem & {
+	secondaryStorage: [string, S3ResourceSettingsItem][] | undefined
 }
 export function convertBackendSettingsToFrontendSettings(
 	large_file_storage: GetSettingsResponse['large_file_storage']
@@ -26,42 +30,57 @@ export function convertBackendSettingsToFrontendSettings(
 
 export function convertBackendSettingsToFrontendSettingsItem(
 	large_file_storage: GetSettingsResponse['large_file_storage']
-): s3ResourceSettingsItem {
+): S3ResourceSettingsItem {
+	let advancedPermissions = large_file_storage?.advanced_permissions
+		? large_file_storage.advanced_permissions.map((rule) => ({
+				...rule,
+				allow: rule.allow
+					?.split(',')
+					.filter((rule) => !!rule)
+					.map((rule) => rule as 'read' | 'write' | 'delete' | 'list')
+			}))
+		: undefined
 	if (large_file_storage?.type === 'S3Storage') {
 		return {
 			resourceType: 's3',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions
 		}
 	} else if (large_file_storage?.type === 'AzureBlobStorage') {
 		return {
 			resourceType: 'azure_blob',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions
 		}
 	} else if (large_file_storage?.type === 'AzureWorkloadIdentity') {
 		return {
 			resourceType: 'azure_workload_identity',
 			resourcePath: large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions
 		}
 	} else if (large_file_storage?.type === 'S3AwsOidc') {
 		return {
 			resourceType: 's3_aws_oidc',
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions
 		}
 	} else if (large_file_storage?.type === 'GoogleCloudStorage') {
 		return {
 			resourceType: 'gcloud_storage',
 			resourcePath: large_file_storage?.gcs_resource_path?.replace('$res:', ''),
-			publicResource: large_file_storage?.public_resource
+			publicResource: large_file_storage?.public_resource,
+			advancedPermissions
 		}
 	} else {
 		return {
 			resourceType: 's3',
 			resourcePath: undefined,
-			publicResource: undefined
+			publicResource: undefined,
+			advancedPermissions: defaultS3AdvancedPermissions
 		}
 	}
 }
@@ -80,12 +99,20 @@ export function convertFrontendToBackendSetting(
 	return settings
 }
 export function convertFrontendToBackendettingsItem(
-	s3ResourceSettings: s3ResourceSettingsItem
+	s3ResourceSettings: S3ResourceSettingsItem
 ): LargeFileStorage | undefined {
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
 		let params = {
-			public_resource: s3ResourceSettings.publicResource
+			public_resource: s3ResourceSettings.publicResource,
+			...(s3ResourceSettings.advancedPermissions
+				? {
+						advanced_permissions: s3ResourceSettings.advancedPermissions.map((rule) => ({
+							...rule,
+							allow: rule.allow.join(',')
+						}))
+					}
+				: {})
 		}
 		if (s3ResourceSettings.resourceType === 'azure_blob') {
 			let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
@@ -111,3 +138,12 @@ export function convertFrontendToBackendettingsItem(
 		return params
 	}
 }
+
+export const defaultS3AdvancedPermissions: S3ResourceSettingsItem['advancedPermissions'] = [
+	{ pattern: 'windmill_uploads/*', allow: ['read', 'write', 'delete'] },
+	{ pattern: 'u/{username}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'g/{group}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'f/{folder_write}/**/*', allow: ['read', 'write', 'delete', 'list'] },
+	{ pattern: 'f/{folder_read}/**/*', allow: ['read', 'list'] },
+	{ pattern: '**/*', allow: [] }
+]

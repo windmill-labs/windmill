@@ -159,3 +159,21 @@ pub struct DeleteS3FileQuery {
     pub file_key: String,
     pub storage: Option<String>,
 }
+
+#[cfg(not(feature = "private"))]
+pub async fn get_workspace_s3_resource_and_check_paths<'c>(
+    _authed: &crate::db::ApiAuthed,
+    _db: &crate::db::DB,
+    _user_db: Option<windmill_common::db::UserDB>,
+    _token: &str,
+    _w_id: &str,
+    _storage: Option<String>,
+    _paths: &[(&str, windmill_common::s3_helpers::S3Permission)],
+) -> windmill_common::error::Result<(
+    Option<bool>,
+    Option<windmill_common::s3_helpers::ObjectStoreResource>,
+)> {
+    Err(windmill_common::error::Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}

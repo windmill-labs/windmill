@@ -18088,6 +18088,10 @@ components:
           type: string
         public_resource:
           type: boolean
+        advanced_permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/S3PermissionRule"
         secondary_storage:
           type: object
           additionalProperties:
@@ -18284,6 +18288,15 @@ components:
           additionalProperties:
             type: string
 
+    S3PermissionRule:
+      type: object
+      properties:
+        pattern:
+          type: string
+        allow:
+          type: string # comma separated permissions : "read,write,delete,list"
+      required: ["pattern", "allow"]
+    
     GitRepositorySettings:
       type: object
       properties:
