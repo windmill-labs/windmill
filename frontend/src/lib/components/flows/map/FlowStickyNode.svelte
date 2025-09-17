@@ -2,7 +2,7 @@
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
-	import { DollarSign, Settings } from 'lucide-svelte'
+	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
@@ -15,6 +15,8 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		noteMode?: boolean
+		toggleNoteMode?: () => void
 	}
 
 	let {
@@ -23,7 +25,9 @@
 		smallErrorHandler,
 		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat
+		toggleAiChat,
+		noteMode,
+		toggleNoteMode
 	}: Props = $props()
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -86,4 +90,12 @@
 			{/snippet}
 		</Popover>
 	{/if}
+	<Popover>
+		<button onclick={() => toggleNoteMode?.()} class={nodeClass}>
+			<StickyNote size={14} class={noteMode ? 'text-blue-600' : ''} />
+		</button>
+		{#snippet text()}
+			{noteMode ? 'Exit note mode' : 'Add notes'}
+		{/snippet}
+	</Popover>
 </div>

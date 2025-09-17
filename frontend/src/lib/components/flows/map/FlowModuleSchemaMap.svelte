@@ -261,8 +261,13 @@
 	let dependents: Record<string, string[]> = $state({})
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
+	let noteMode = $state(false)
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
+	function toggleNoteMode() {
+		noteMode = !noteMode
 	}
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
@@ -370,6 +375,8 @@
 			on:generateStep
 			{aiChatOpen}
 			{toggleAiChat}
+			{noteMode}
+			{toggleNoteMode}
 		/>
 	</div>
 
@@ -388,6 +395,7 @@
 			moving={$moving?.id}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
+			{noteMode}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
 			{workspace}

@@ -34,7 +34,7 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand, StickyNote } from 'lucide-svelte'
+	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively } from '$lib/utils'
@@ -104,6 +104,7 @@
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
+		noteMode?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -182,7 +183,8 @@
 		flowJob = undefined,
 		showJobStatus = false,
 		suspendStatus = {},
-		flowHasChanged = false
+		flowHasChanged = false,
+		noteMode = false
 	}: Props = $props()
 
 	setContext<{
@@ -378,7 +380,6 @@
 		color: string
 	}
 
-	let noteMode = $state(false)
 	let notes = $state<NoteData[]>([])
 	let nextNoteId = $state(1)
 
@@ -394,9 +395,6 @@
 		return false
 	}
 
-	function toggleNoteMode() {
-		noteMode = !noteMode
-	}
 
 	function onNoteAdded(newNoteFromTool: any) {
 		// Add the note to our separate notes array if a note was created
@@ -689,15 +687,6 @@
 							class="!bg-surface"
 						>
 							<Expand size="14" />
-						</ControlButton>
-					{/if}
-					{#if editMode}
-						<ControlButton
-							onclick={toggleNoteMode}
-							class={`!bg-surface ${noteMode ? '!bg-blue-100 dark:!bg-blue-900/30' : ''}`}
-							title={noteMode ? 'Exit note mode' : 'Add notes'}
-						>
-							<StickyNote size="14" class={noteMode ? 'text-blue-600' : ''} />
 						</ControlButton>
 					{/if}
 				</Controls>
