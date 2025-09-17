@@ -87,6 +87,13 @@
 	function hasCustomSettings(provider: string, models: Array<{ model: string }>): boolean {
 		return models.some((m) => !isModelAtDefault(provider as AIProvider, m.model))
 	}
+
+	$effect(() => {
+		// Initialize collapsedProviders to true for all providers
+		collapsedProviders = {
+			...Object.fromEntries(Object.keys(aiProviders).map((provider) => [provider, true]))
+		}
+	})
 </script>
 
 {#if Object.keys(aiProviders).length > 0}
@@ -107,12 +114,14 @@
 					<button
 						type="button"
 						onclick={() => toggleProvider(provider)}
-						class="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors rounded-md"
+						class="w-full px-4 py-3 flex items-center justify-between bg-surface-secondary hover:bg-surface-hover transition-colors rounded-md"
 					>
 						<div class="flex items-center gap-2">
 							<h4 class="font-medium text-sm capitalize">{provider}</h4>
 							{#if hasCustom}
-								<span class="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded">
+								<span
+									class="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded"
+								>
 									Modified
 								</span>
 							{/if}
@@ -123,9 +132,9 @@
 							<ChevronDown size={16} class="text-gray-500" />
 						{/if}
 					</button>
-					
+
 					{#if isExpanded}
-						<div transition:slide|local={{ duration: 200 }} class="px-4 pb-4 pt-1">
+						<div transition:slide|local={{ duration: 200 }} class="p-3">
 							<div class="space-y-3">
 								{#each models as { model }}
 									{@const currentTokens = getCurrentTokensForModel(provider as AIProvider, model)}
