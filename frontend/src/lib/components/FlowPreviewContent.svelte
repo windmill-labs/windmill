@@ -521,7 +521,7 @@
 									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
 									flowStore.val.schema?.['x-windmill-dyn-select-lang']
 										? {
-												type: 'inline',
+												source: 'inline',
 												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
 												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
 											}

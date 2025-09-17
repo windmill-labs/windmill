@@ -84,22 +84,12 @@
 					reject(error)
 				}
 			}
-			helperScript?.type == 'inline'
-				? resultJobLoader?.runPreview(
-						helperScript?.path ?? 'NO_PATH',
-						helperScript.code,
-						helperScript.lang,
-						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-						undefined,
-						undefined,
-						undefined,
-						cb
-					)
-				: resultJobLoader?.runScriptByHash(
-						helperScript?.hash ?? 'NO_HASH',
-						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-						cb
-					)
+			resultJobLoader?.runDynamicInputScript(
+				entrypoint,
+				helperScript!,
+				{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+				cb
+			)
 		})
 	}
 

@@ -442,7 +442,7 @@
 								}
 							}}
 							helperScript={{
-								type: 'inline',
+								source: 'inline',
 								code: dynCode!,
 								lang: dynLang!
 							}}

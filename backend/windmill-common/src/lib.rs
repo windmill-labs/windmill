@@ -152,6 +152,7 @@ lazy_static::lazy_static! {
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo> = Cache::new(1000);
     pub static ref FLOW_INFO_CACHE: Cache<(String, i64), FlowVersionInfo> = Cache::new(1000);
 

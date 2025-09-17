@@ -21,7 +21,6 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
-	import { type ScriptLang } from '$lib/gen'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -257,19 +256,11 @@
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
 					<SchemaForm
-						helperScript={runnable.hash
-							? {
-									type: 'hash',
-									hash: runnable.hash
-								}
-							: runnable.schema?.['x-windmill-dyn-select-code'] &&
-								  runnable.schema?.['x-windmill-dyn-select-lang']
-								? {
-										type: 'inline',
-										code: runnable.schema['x-windmill-dyn-select-code'] as string,
-										lang: runnable.schema['x-windmill-dyn-select-lang'] as ScriptLang
-									}
-								: undefined}
+						helperScript={{
+							source: 'deployed',
+							path: runnable.path!,
+							runnable_kind: runnable.hash ? 'script' : 'flow'
+						}}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}

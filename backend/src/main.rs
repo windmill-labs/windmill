@@ -909,6 +909,8 @@ Windmill Community Edition {GIT_VERSION}
                                                                     }
                                                                 }
                                                                 &"flow" => {
+                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);
                                                                 },
                                                                 _ => {
