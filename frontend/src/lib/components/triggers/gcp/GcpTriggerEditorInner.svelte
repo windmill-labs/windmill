@@ -445,32 +445,28 @@
 												</div>
 											{/if}
 										</Subsection>
-										<Subsection
-											label="Acknowledgment deadline"
-											tooltip="Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds). Range: 10-600 seconds."
-										>
-											<div class="mt-2">
-												<input
-													type="number"
-													bind:value={ack_deadline}
-													disabled={!can_write}
-													min="10"
-													max="600"
-													step="1"
-													placeholder="600"
-													class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-												/>
-											</div>
-											<div class="mt-2 text-xs text-secondary">
-												Leave empty to use subscription default (600 seconds). This affects how long
-												messages remain in flight before being redelivered.
-											</div>
-										</Subsection>
-									{:else}
-										<div class="flex items-center justify-center h-32 text-tertiary">
-											No settings available for push delivery type
-										</div>
 									{/if}
+									<Subsection
+										label="Acknowledgment deadline"
+										tooltip="Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds). Range: 10-600 seconds."
+									>
+										<div class="mt-2">
+											<input
+												type="number"
+												bind:value={ack_deadline}
+												disabled={!can_write}
+												min="10"
+												max="600"
+												step="1"
+												placeholder="600"
+												class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+											/>
+										</div>
+										<div class="mt-2 text-xs text-secondary">
+											Leave empty to use subscription default (600 seconds). This affects how long
+											messages remain in flight before being redelivered.
+										</div>
+									</Subsection>
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
