@@ -242,10 +242,6 @@
 		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
 
-	function shouldShowS3ArrayHelper(): boolean {
-		return inputCat === 'list' && schema?.properties?.[argName]?.items?.resourceType === 's3object'
-	}
-
 	function appendPathToArrayExpr(currentExpr: string | undefined, path: string) {
 		const trimmedExpr = currentExpr?.trim() || ''
 
@@ -465,6 +461,10 @@
 	})
 	let connecting = $derived(
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
+	)
+	let shouldShowS3ArrayHelper = $derived(
+		inputCat === 'list' &&
+			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
 	)
 </script>
 
@@ -735,7 +735,7 @@
 							bind:placeholder={schema.properties[argName].placeholder}
 						/>
 
-						{#if shouldShowS3ArrayHelper()}
+						{#if shouldShowS3ArrayHelper}
 							<S3ArrayHelperButton
 								{connecting}
 								onClick={() =>
@@ -772,7 +772,7 @@
 							<DynamicInputHelpBox />
 						{/if}
 
-						{#if shouldShowS3ArrayHelper()}
+						{#if shouldShowS3ArrayHelper}
 							<S3ArrayHelperButton
 								{connecting}
 								onClick={() =>
