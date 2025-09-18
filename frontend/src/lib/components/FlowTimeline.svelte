@@ -5,7 +5,7 @@
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { GlobalIterationBounds } from './graph'
 	import { TimelineCompute } from '$lib/timelineCompute.svelte'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import OnChange from './common/OnChange.svelte'
 
 	interface Props {
@@ -55,6 +55,13 @@
 	export function reset() {
 		timelineCompute?.reset()
 	}
+
+	$effect(() => {
+		flowDone
+		untrack(() => {
+			timelineCompute?.setFlowDone(flowDone)
+		})
+	})
 </script>
 
 <OnChange
@@ -70,7 +77,7 @@
 			><div></div>
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
 				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
-						class="hidden lg:block">{msToSec(max - min)}s</div
+						class="hidden lg:block">{msToSec(max - min, 1)}s</div
 					>
 				{/if}<div class="flex gap-1 items-center font-mono"
 					>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}

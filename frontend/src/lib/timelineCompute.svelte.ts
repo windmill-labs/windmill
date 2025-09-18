@@ -54,6 +54,7 @@ export class TimelineCompute {
 	reset() {
 		this.min = undefined
 		this.max = undefined
+		this.#flowDone = false
 		this.items = this.computeItems(this.#durationStatuses)
 	}
 
@@ -64,6 +65,10 @@ export class TimelineCompute {
 	) {
 		this.#flowModules = flowModules
 		this.#durationStatuses = durationStatuses
+		this.#flowDone = flowDone
+	}
+
+	setFlowDone(flowDone: boolean) {
 		this.#flowDone = flowDone
 	}
 
@@ -129,6 +134,7 @@ export class TimelineCompute {
 		})
 		this.items = nitems
 		this.min = nmin
+
 		this.max =
 			isStillRunning || (cnt < this.#flowModules.length && !this.#flowDone) ? undefined : nmax
 		if (this.max && this.min) {
