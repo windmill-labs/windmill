@@ -166,7 +166,6 @@ impl AIRequestConfig {
         };
 
         tracing::debug!("AI request URL: {}", url);
-        println!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
             .request(method, url)
