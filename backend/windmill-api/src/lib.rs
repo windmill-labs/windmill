@@ -156,6 +156,8 @@ pub mod stripe_ee;
 mod stripe_oss;
 #[cfg(feature = "private")]
 pub mod teams_ee;
+#[cfg(feature = "private")]
+mod teams_cache;
 mod teams_oss;
 mod token;
 mod tracing_init;

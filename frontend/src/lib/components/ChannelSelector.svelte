@@ -59,7 +59,7 @@
 	// Watch for search filter text changes (only in search mode)
 	$effect(() => {
 		if (searchMode) {
-			if (searchFilterText.length >= 2) {
+			if (searchFilterText.length >= 1) {
 				debouncedSearch.debounced(searchFilterText)
 			} else if (searchFilterText.length === 0) {
 				searchResults = []
@@ -69,12 +69,12 @@
 	})
 
 	async function searchChannels(query: string) {
-		if (query.length < 2 || !teamId) return
+		if (!query || !teamId) return
 
 		isFetching = true
 		hasSearched = true
 		try {
-			const response = await WorkspaceService.listAvailableTeamChannels({
+			const response = await WorkspaceService.listAvailableTeamsChannels({
 				workspace: $workspaceStore!,
 				teamId: teamId,
 				search: query
@@ -101,11 +101,11 @@
 			{#if searchMode}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
+					items={searchFilterText.length >= 1 || (searchFilterText.length === 0 && selectedChannel) ? displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
 						label: channel.channel_name ?? 'Unknown Channel',
 						value: channel.channel_id ?? ''
-					}))}
-					placeholder={teamId ? "Search channels..." : "Select a team first"}
+					})) : []}
+					placeholder={isFetching ? "Searching..." : (teamId ? "Search channels..." : "Select a team first")}
 					clearable
 					disabled={disabled || isFetching || !teamId}
 					bind:filterText={searchFilterText}
@@ -137,22 +137,4 @@
 		</div>
 	</div>
 
-	{#if searchMode && (isFetching || hasSearched)}
-		<div class="text-xs text-tertiary mt-1">
-			{#if isFetching}
-				<div class="flex items-center gap-1">
-					<div class="animate-spin h-3 w-3 border border-gray-300 border-t-blue-500 rounded-full"></div>
-					Searching channels...
-				</div>
-			{:else if hasSearched && searchFilterText.length >= 2 && searchResults.length === 0}
-				No channels found for "{searchFilterText}"
-			{:else if searchResults.length > 0}
-				Found {searchResults.length} channel{searchResults.length === 1 ? '' : 's'}
-			{/if}
-		</div>
-	{:else if !searchMode && displayChannels.length === 0 && !disabled}
-		<div class="text-xs text-tertiary mt-1">No channels available</div>
-	{:else if searchMode && !teamId}
-		<div class="text-xs text-tertiary mt-1">Select a team first to search channels</div>
-	{/if}
 </div>

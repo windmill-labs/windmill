@@ -2200,11 +2200,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: search
           in: query
-          description: Search teams by name (minimum 2 characters)
+          description: Search teams by name
           required: false
           schema:
             type: string
-            minLength: 2
       responses:
         "200":
           description: status
@@ -2220,10 +2219,10 @@ paths:
                     team_id:
                       type: string
 
-  /w/{workspace}/workspaces/available_team_channels:
+  /w/{workspace}/workspaces/available_teams_channels:
     get:
       summary: list available channels for a specific team
-      operationId: listAvailableTeamChannels
+      operationId: listAvailableTeamsChannels
       tags:
         - workspace
       parameters:
@@ -2236,11 +2235,10 @@ paths:
             type: string
         - name: search
           in: query
-          description: Search channels by name (minimum 2 characters)
+          description: Search channels by name
           required: false
           schema:
             type: string
-            minLength: 2
       responses:
         "200":
           description: List of channels for the specified team
@@ -2256,32 +2254,6 @@ paths:
                     channel_id:
                       type: string
 
-  /w/{workspace}/workspaces/available_teams_channels:
-    get:
-      summary: list available teams channels
-      operationId: listAvailableTeamsChannels
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: status
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    channel_name:
-                      type: string
-                    channel_id:
-                      type: string
-                    service_url:
-                      type: string
-                    tenant_id:
-                      type: string
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -3943,21 +3915,6 @@ paths:
                     items:
                       type: string
 
-  /teams/sync:
-    post:
-      operationId: syncTeams
-      summary: synchronize Microsoft Teams information (teams/channels)
-      tags:
-        - teams
-      responses:
-        "200":
-          description: Teams information successfully synchronized
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:

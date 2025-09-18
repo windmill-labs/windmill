@@ -64,7 +64,7 @@ use windmill_common::utils::not_found_if_none;
 
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
-    workspaces_list_available_team_channels, workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
+    workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
 
 lazy_static::lazy_static! {
@@ -86,10 +86,6 @@ pub fn workspaced_service() -> Router {
         .route(
             "/available_teams_ids",
             get(workspaces_list_available_teams_ids),
-        )
-        .route(
-            "/available_team_channels",
-            get(workspaces_list_available_team_channels),
         )
         .route(
             "/available_teams_channels",

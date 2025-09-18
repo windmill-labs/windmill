@@ -58,7 +58,7 @@
 	// Watch for search filter text changes (only in search mode)
 	$effect(() => {
 		if (searchMode) {
-			if (searchFilterText.length >= 2) {
+			if (searchFilterText.length >= 1) {
 				debouncedSearch.debounced(searchFilterText)
 			} else if (searchFilterText.length === 0) {
 				searchResults = []
@@ -68,7 +68,7 @@
 	})
 
 	async function searchTeams(query: string) {
-		if (query.length < 2) return
+		if (!query) return
 
 		isFetching = true
 		hasSearched = true
@@ -104,11 +104,11 @@
 			{#if searchMode}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayTeams().map((team) => ({
+					items={searchFilterText.length >= 1 || (searchFilterText.length === 0 && selectedTeam) ? displayTeams().map((team) => ({
 						label: team.team_name,
 						value: team.team_id
-					}))}
-					placeholder="Search teams..."
+					})) : []}
+					placeholder={isFetching ? "Searching..." : "Search teams..."}
 					clearable
 					disabled={disabled || isFetching}
 					bind:filterText={searchFilterText}
@@ -151,18 +151,4 @@
 		{/if}
 	</div>
 
-	{#if searchMode && (isFetching || hasSearched)}
-		<div class="text-xs text-tertiary mt-1">
-			{#if isFetching}
-				<div class="flex items-center gap-1">
-					<div class="animate-spin h-3 w-3 border border-gray-300 border-t-blue-500 rounded-full"></div>
-					Searching Microsoft Teams...
-				</div>
-			{:else if hasSearched && searchFilterText.length >= 2 && searchResults.length === 0}
-				No teams found for "{searchFilterText}"
-			{:else if searchResults.length > 0}
-				Found {searchResults.length} team{searchResults.length === 1 ? '' : 's'}
-			{/if}
-		</div>
-	{/if}
 </div>

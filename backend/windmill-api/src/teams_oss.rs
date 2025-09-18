@@ -28,7 +28,7 @@ pub async fn workspaces_list_available_teams_ids() -> Result<StatusCode, Error> 
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn workspaces_list_available_team_channels() -> Result<StatusCode, Error> {
+pub async fn workspaces_list_available_teams_channels() -> Result<StatusCode, Error> {
     return Err(Error::BadRequest(
         "Teams only available on enterprise".to_string(),
     ));
@@ -48,12 +48,6 @@ pub async fn run_teams_message_test_job() -> Result<StatusCode, Error> {
     ));
 }
 
-#[cfg(not(feature = "private"))]
-pub async fn workspaces_list_available_teams_channels() -> Result<StatusCode, Error> {
-    return Err(Error::BadRequest(
-        "Teams only available on enterprise".to_string(),
-    ));
-}
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub fn teams_service() -> Router {
