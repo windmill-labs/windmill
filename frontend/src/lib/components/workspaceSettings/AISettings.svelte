@@ -18,6 +18,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import autosize from '$lib/autosize'
+	import ModelTokenLimits from './ModelTokenLimits.svelte'
 
 	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
@@ -26,12 +27,14 @@
 		codeCompletionModel = $bindable(),
 		defaultModel = $bindable(),
 		customPrompts = $bindable(),
+		maxTokensPerModel = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable()
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
 		defaultModel: string | undefined
 		customPrompts: Record<string, string>
+		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
@@ -101,7 +104,8 @@
 				providers: aiProviders,
 				code_completion_model,
 				default_model,
-				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined
+				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+				max_tokens_per_model: Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
 			}
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -315,6 +319,10 @@
 				</div>
 			</div>
 		</div>
+	{/if}
+
+	{#if Object.keys(aiProviders).length > 0}
+		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 	{/if}
 
 	{#if Object.keys(aiProviders).length > 0}
