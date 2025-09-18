@@ -229,7 +229,7 @@ impl UserDB {
 }
 
 pub async fn job_id_to_shard_db(job_id: &uuid::Uuid) -> Option<Pool<Postgres>> {
-    let shard_id_to_shard_url = &SHARD_ID_TO_SHARD_DB.read().await;
+    let shard_id_to_shard_url = &SHARD_ID_TO_SHARD_DB.read().await.clone();
 
     let shard_db = shard_id_to_shard_url.as_ref().and_then(|db_store| {
         let mut hasher = DefaultHasher::new();

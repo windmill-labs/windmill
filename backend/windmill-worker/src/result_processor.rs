@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use windmill_common::{
     add_time,
-    db::shard_db_or_main_db,
+    db::{shard_db_or_main_db, job_id_to_shard_db},
     error::{self, Error},
     jobs::JobKind,
     utils::WarnAfterExt,
@@ -584,7 +584,7 @@ pub async fn process_completed_job(
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
 
-        let pull_db = shard_db_or_main_db(db).await;
+        let pull_db = job_id_to_shard_db(&job.id).await.unwrap_or_else(|| db.clone());
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
             // when we set `flow_status->_metadata->preprocessed_args` to true.

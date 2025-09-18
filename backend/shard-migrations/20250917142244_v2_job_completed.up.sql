@@ -1,4 +1,5 @@
 -- Add up migration script here
+CREATE TYPE job_status AS ENUM ('success', 'failure', 'canceled', 'skipped');
 
 CREATE TABLE public.v2_job_completed (
     id uuid NOT NULL,
@@ -11,7 +12,7 @@ CREATE TABLE public.v2_job_completed (
     flow_status jsonb,
     started_at timestamp with time zone DEFAULT now(),
     memory_peak integer,
-    status public.job_status NOT NULL,
+    status job_status NOT NULL,
     completed_at timestamp with time zone DEFAULT now() NOT NULL,
     worker character varying(255),
     workflow_as_code_status jsonb,

@@ -222,15 +222,24 @@ async fn get_queue_counts(
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
     require_super_admin(&db, &authed.email).await?;
-    let shard_db = SHARD_ID_TO_SHARD_DB.read().await.clone().unwrap();
-    let mut queue_counts = HashMap::new();
 
-    for (_shard_id, shard_db) in shard_db.iter() {
-        let counts = windmill_common::queue::get_queue_counts(shard_db).await;
-        for (k, v) in counts {
-            *queue_counts.entry(k).or_insert(0) += v;
+    {
+        let shard_db = SHARD_ID_TO_SHARD_DB.read().await.clone();
+        if let Some(shard_db) = shard_db.as_ref() {
+            let mut queue_counts = HashMap::new();
+
+            for (_shard_id, shard_db) in shard_db.iter() {
+                let counts = windmill_common::queue::get_queue_counts(shard_db).await;
+                for (k, v) in counts {
+                    *queue_counts.entry(k).or_insert(0) += v;
+                }
+            }
+
+            return Ok(Json(queue_counts));
         }
     }
+
+    let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
     Ok(Json(queue_counts))
 }
 
