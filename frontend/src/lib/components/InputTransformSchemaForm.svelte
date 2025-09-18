@@ -11,6 +11,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -99,7 +100,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="mt-2 relative">
+				<ResizeTransitionWrapper class="mt-2 relative" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -116,7 +117,7 @@
 						{pickableProperties}
 						{enableAi}
 					/>
-				</div>
+				</ResizeTransitionWrapper>
 			{/if}
 		{/each}
 	{:else}
