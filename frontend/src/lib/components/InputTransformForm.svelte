@@ -393,10 +393,7 @@
 			</div>
 			{#if !noDynamicToggle}
 				<div
-					class={twMerge(
-						'flex flex-row gap-x-2 gap-y-1 flex-wrap z-10 items-center group-hover:opacity-100 transition-opacity',
-						!connecting ? 'opacity-0' : ''
-					)}
+					class="flex flex-row gap-x-2 z-10 absolute right-0 group-hover:bg-surface transition-colors"
 				>
 					{#if enableAi}
 						<StepInputGen
@@ -426,7 +423,37 @@
 							}}
 							{pickableProperties}
 							{argName}
-							btnClass="h-6 px-2"
+							btnClass={twMerge(
+								'h-6 px-2',
+								'group-hover:opacity-100 transition-opacity',
+								!connecting ? 'opacity-0' : ''
+							)}
+						/>
+					{/if}
+
+					{#if propPickerWrapperContext}
+						<FlowPlugConnect
+							wrapperClasses={twMerge(
+								'h-6',
+								'group-hover:opacity-100 transition-opacity',
+								!connecting ? 'opacity-0' : ''
+							)}
+							id="flow-editor-plug"
+							{connecting}
+							on:click={() => {
+								if (
+									$propPickerConfig?.propName == argName &&
+									$propPickerConfig?.insertionMode == 'connect'
+								) {
+									clearFocus()
+								} else {
+									focusProp?.(argName, 'connect', (path) => {
+										connectProperty(path)
+										dispatch('change', { argName })
+										return true
+									})
+								}
+							}}
 						/>
 					{/if}
 
@@ -525,28 +552,6 @@
 							{/snippet}
 						</ToggleButtonGroup>
 					</div>
-
-					{#if propPickerWrapperContext}
-						<FlowPlugConnect
-							wrapperClasses="h-6"
-							id="flow-editor-plug"
-							{connecting}
-							on:click={() => {
-								if (
-									$propPickerConfig?.propName == argName &&
-									$propPickerConfig?.insertionMode == 'connect'
-								) {
-									clearFocus()
-								} else {
-									focusProp?.(argName, 'connect', (path) => {
-										connectProperty(path)
-										dispatch('change', { argName })
-										return true
-									})
-								}
-							}}
-						/>
-					{/if}
 				</div>
 			{/if}
 		</div>
