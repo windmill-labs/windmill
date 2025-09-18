@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use windmill_common::{client::AuthedClient, error::Error};
+use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
@@ -92,11 +92,13 @@ pub struct OpenAIRequest<'a> {
     pub response_format: Option<ResponseFormat>,
 }
 
-pub struct OpenAIQueryBuilder;
+pub struct OpenAIQueryBuilder {
+    provider_kind: AIProvider,
+}
 
 impl OpenAIQueryBuilder {
-    pub fn new() -> Self {
-        Self
+    pub fn new(provider_kind: AIProvider) -> Self {
+        Self { provider_kind }
     }
 
     pub async fn prepare_messages_for_api(
@@ -332,18 +334,29 @@ impl QueryBuilder for OpenAIQueryBuilder {
         }
     }
 
-    fn get_endpoint(&self, base_url: &str, _model: &str, output_type: &OutputType) -> String {
-        match output_type {
-            OutputType::Text => format!("{}/chat/completions", base_url),
-            OutputType::Image => format!("{}/responses", base_url),
+    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
+        let path = match output_type {
+            OutputType::Text => "chat/completions",
+            OutputType::Image => "responses",
+        };
+
+        if self.provider_kind.is_azure_openai(base_url) {
+            AIProvider::build_azure_openai_url(base_url, model, path)
+        } else {
+            format!("{}/{}", base_url, path)
         }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure_openai(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
     }
 }
