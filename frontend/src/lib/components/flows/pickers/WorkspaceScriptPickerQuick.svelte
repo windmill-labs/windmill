@@ -5,14 +5,15 @@
 			kind,
 			isTemplate
 		}: {
-			workspace: string
+			workspace?: string
 			kind?: string
 			isTemplate?: boolean
 		}) =>
-			kind == 'flow'
-				? FlowService.listFlows({ workspace })
-				: ScriptService.listScripts({ workspace, kinds: kind, isTemplate }),
-		{ initial: { workspace: 'data-pipeline-demo', kind: 'script' } }
+			workspace
+				? kind == 'flow'
+					? FlowService.listFlows({ workspace })
+					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+				: undefined
 	)
 </script>
 
