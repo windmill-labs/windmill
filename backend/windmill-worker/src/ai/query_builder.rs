@@ -54,6 +54,7 @@ pub trait QueryBuilder: Send + Sync {
     fn get_auth_headers(
         &self,
         api_key: &str,
+        base_url: &str,
         output_type: &OutputType,
     ) -> Vec<(&'static str, String)>;
 }
@@ -65,6 +66,6 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     match provider.kind {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
-        _ => Box::new(OpenAIQueryBuilder::new()), // Use OpenAI as default for all other providers
+        _ => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())), // Pass provider kind for Azure handling
     }
 }

@@ -10,6 +10,9 @@ lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 }
 
+pub const AZURE_API_VERSION: &str = "2025-04-01-preview";
+pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AIProvider {
@@ -77,6 +80,39 @@ impl AIProvider {
     /// Check if this provider is Anthropic (needs special handling)
     pub fn is_anthropic(&self) -> bool {
         matches!(self, AIProvider::Anthropic)
+    }
+
+    /// Check if this provider/URL combination represents Azure OpenAI
+    pub fn is_azure_openai(&self, base_url: &str) -> bool {
+        matches!(self, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
+            || matches!(self, AIProvider::AzureOpenAI)
+    }
+
+    /// Build Azure OpenAI URL with deployment model path
+    pub fn build_azure_openai_url(base_url: &str, model: &str, path: &str) -> String {
+        let base_url = base_url.trim_end_matches('/');
+
+        if base_url.ends_with("/deployments") {
+            format!("{}/{}/{}", base_url, model, path)
+        } else if base_url.ends_with("/openai") {
+            format!("{}/deployments/{}/{}", base_url, model, path)
+        } else {
+            format!("{}/{}", base_url, path)
+        }
+    }
+
+    /// Extract model from request body (needed for Azure deployments)
+    pub fn extract_model_from_body(body: &[u8]) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct ModelRequest {
+            model: String,
+        }
+
+        let model_request: ModelRequest = serde_json::from_slice(body).map_err(|e| {
+            Error::internal_err(format!("Failed to parse request body for model: {}", e))
+        })?;
+
+        Ok(model_request.model)
     }
 }
 
