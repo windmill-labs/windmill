@@ -420,6 +420,7 @@ Your Gemfile syntax will continue to work as-is."
             &mut None,
             // Some(&mut stdout),
             None,
+            None,
         )
         .await?;
 
@@ -870,6 +871,7 @@ mount {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

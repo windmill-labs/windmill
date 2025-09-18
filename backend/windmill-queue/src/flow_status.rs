@@ -1,6 +1,9 @@
 use uuid::Uuid;
 use windmill_common::{
-    error::{self, Error}, flows::Step, utils::WarnAfterExt, DB
+    error::{self, Error},
+    flows::Step,
+    utils::WarnAfterExt,
+    DB,
 };
 
 pub async fn update_flow_status_in_progress(
@@ -11,7 +14,7 @@ pub async fn update_flow_status_in_progress(
 ) -> error::Result<Step> {
     let step = get_step_of_flow_status(db, flow).await?;
     match step {
-        Step::Step(step) => {
+        Step::Step { idx: step, .. } => {
             sqlx::query!(
                 "UPDATE v2_job_status SET
                     flow_status = jsonb_set(

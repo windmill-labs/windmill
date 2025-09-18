@@ -48,7 +48,7 @@ use windmill_common::worker::{write_file, TMP_DIR};
 use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
-use crate::common::OccupancyMetrics;
+use crate::common::{OccupancyMetrics, StreamNotifier};
 use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
@@ -769,6 +769,7 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
+    _stream_notifier: Option<StreamNotifier>,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
@@ -790,6 +791,7 @@ pub async fn eval_fetch_timeout(
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
+    stream_notifier: Option<StreamNotifier>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
@@ -940,10 +942,18 @@ pub async fn eval_fetch_timeout(
             }
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
+                let mut is_stream = false;
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
+                        if let Some(sn) = stream_notifier.as_ref() {
+                            if !is_stream {
+                                is_stream = true;
+                                sn.update_flow_status_with_stream_job();
+                            }
+                        }
+
                         result_stream.push_str(&stream);
                         if let Err(e) = result_stream_sender.send(stream) {
                             tracing::error!("failed to send result stream: {e}");

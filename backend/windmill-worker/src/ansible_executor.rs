@@ -93,6 +93,7 @@ async fn clone_repo(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -112,7 +113,8 @@ async fn clone_repo(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
+        let checkout_cmd_child =
+            start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
         handle_child(
             job_id,
             conn,
@@ -126,6 +128,7 @@ async fn clone_repo(
             None,
             false,
             &mut Some(occupancy_metrics),
+            None,
             None,
         )
         .await?;
@@ -232,6 +235,7 @@ async fn clone_repo_without_history(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -249,7 +253,8 @@ async fn clone_repo_without_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str(), false).await?;
+    let add_remote_cmd_child =
+        start_child_process(add_remote_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -263,6 +268,7 @@ async fn clone_repo_without_history(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -296,6 +302,7 @@ async fn clone_repo_without_history(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -327,6 +334,7 @@ async fn clone_repo_without_history(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -462,6 +470,7 @@ pub async fn install_galaxy_collections(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -484,7 +493,8 @@ pub async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
+    let child =
+        start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -498,6 +508,7 @@ pub async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -1132,6 +1143,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

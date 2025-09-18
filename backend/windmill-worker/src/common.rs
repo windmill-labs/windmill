@@ -14,6 +14,7 @@ use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 
+use windmill_common::flows::Step;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
@@ -32,8 +33,10 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
+use windmill_queue::flow_status::get_step_of_flow_status;
 use windmill_queue::MiniPulledJob;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -1063,6 +1066,149 @@ pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
         .or(job.flow_innermost_root_job)
         .or(job.parent_job)
         .unwrap_or(job.id)
+}
+
+#[derive(Clone)]
+pub struct StreamNotifier {
+    db: DB,
+    job_id: uuid::Uuid,
+    parent_job: uuid::Uuid,
+    root_job: uuid::Uuid,
+}
+
+#[async_recursion]
+async fn check_if_nested_step_is_last(
+    db: &DB,
+    parent_job: Uuid,
+    parent_of_parent_job: Option<Uuid>,
+    root_job: Uuid,
+    visited: Option<HashSet<Uuid>>,
+) -> error::Result<bool> {
+    // Initialize or use the provided visited set for cycle detection
+    let mut visited = visited.unwrap_or_else(HashSet::new);
+
+    // Check for cycles - if we've already visited this job, return false to break the recursion
+    if !visited.insert(parent_job) {
+        return Ok(false);
+    }
+
+    // get parent of parent job to get step of parent job
+    let parent_of_parent_job = parent_of_parent_job.or(sqlx::query_scalar!(
+        "SELECT parent_job FROM v2_job WHERE id = $1",
+        parent_job
+    )
+    .fetch_one(db)
+    .await?);
+    if let Some(parent_of_parent_job) = parent_of_parent_job {
+        // Check for cycles again with the parent_of_parent_job
+        if !visited.insert(parent_of_parent_job) {
+            return Ok(false);
+        }
+
+        let r = sqlx::query!(
+            r#"SELECT 
+                (flow_status->'step')::integer as step,
+                jsonb_array_length(flow_status->'modules') as len,
+                flow_status->'modules'->-1->>'branch_chosen' IS NOT NULL as is_branch_one,
+                parent_job as ppp_job
+            FROM v2_job 
+                LEFT JOIN v2_job_status USING (id)
+            WHERE v2_job.id = $1"#,
+            parent_of_parent_job
+        )
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching step flow status: {e:#}")))?;
+
+        if let Some(step) = r.step {
+            let step = Step::from_i32_and_len(step, r.len.unwrap_or(0) as usize);
+
+            // if parent job is last and a branch one and
+            // - root_job is equal to parent of parent job, return true
+            // - root job is not equal to parent of parent job, recursively check if the parent of parent job is a branch one and last
+            if step.is_last_step() && r.is_branch_one.unwrap_or(false) {
+                if parent_of_parent_job == root_job {
+                    return Ok(true);
+                } else {
+                    return check_if_nested_step_is_last(
+                        db,
+                        parent_of_parent_job,
+                        r.ppp_job,
+                        root_job,
+                        Some(visited),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+impl StreamNotifier {
+    pub fn new(conn: &Connection, job: &MiniPulledJob) -> Option<Self> {
+        let root_job = get_root_job_id(job);
+        if job.is_flow_step() && job.parent_job.is_some() {
+            match conn {
+                Connection::Sql(db) => Some(Self {
+                    db: db.clone(),
+                    parent_job: job.parent_job.unwrap(),
+                    job_id: job.id,
+                    root_job,
+                }),
+                Connection::Http(_) => {
+                    tracing::warn!(
+                        "Flow job streaming is only supported for workers connected to a database"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    async fn update_flow_status_with_stream_job_inner(
+        db: DB,
+        parent_job: Uuid,
+        job_id: Uuid,
+        root_job: Uuid,
+    ) -> Result<(), Error> {
+        let step = get_step_of_flow_status(&db, parent_job).await?;
+
+        if step.is_last_step()
+            && (parent_job == root_job
+                || check_if_nested_step_is_last(&db, parent_job, None, root_job, None).await?)
+        {
+            sqlx::query!(r#"
+                    UPDATE v2_job_status
+                    SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))
+                    WHERE id = $2"#,
+                    job_id,
+                    root_job
+                )
+                .execute(&db)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub fn update_flow_status_with_stream_job(&self) -> () {
+        let db = self.db.clone();
+        let parent_job = self.parent_job;
+        let job_id = self.job_id;
+        let root_job = self.root_job;
+        tokio::spawn(async move {
+            if let Err(err) =
+                Self::update_flow_status_with_stream_job_inner(db, parent_job, job_id, root_job)
+                    .await
+            {
+                tracing::error!("Could not notify about stream job {}: {err:#?}", parent_job);
+            }
+        });
+    }
 }
 
 #[derive(Clone)]

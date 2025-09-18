@@ -484,21 +484,24 @@ pub fn check_route_access(
     )))
 }
 
-const SCRIPT_JOBS: [&'static str; 6] = [
+const SCRIPT_JOBS: [&'static str; 8] = [
     "jobs/run/p",
     "jobs/run/h",
     "jobs/run_wait_result/p",
     "jobs/run_wait_result/h",
     "jobs/run/preview_bundle",
     "jobs/run/preview",
+    "jobs/run_and_stream/p",
+    "jobs/run_and_stream/h",
 ];
 
-const FLOW_JOBS: [&'static str; 5] = [
+const FLOW_JOBS: [&'static str; 6] = [
     "jobs/run/f",
     "jobs/run_wait_result/f",
     "jobs/run/preview_flow",
     "jobs/restart/f",
     "jobs/flow/resume",
+    "jobs/run_and_stream/f",
 ];
 
 lazy_static::lazy_static! {
