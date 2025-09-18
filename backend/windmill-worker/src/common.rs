@@ -1075,13 +1075,23 @@ pub struct StreamNotifier {
     root_job: uuid::Uuid,
 }
 
+
 #[async_recursion]
 async fn check_if_nested_step_is_last(
     db: &DB,
     parent_job: Uuid,
     parent_of_parent_job: Option<Uuid>,
     root_job: Uuid,
+    visited: Option<HashSet<Uuid>>,
 ) -> error::Result<bool> {
+    // Initialize or use the provided visited set for cycle detection
+    let mut visited = visited.unwrap_or_else(HashSet::new);
+    
+    // Check for cycles - if we've already visited this job, return false to break the recursion
+    if !visited.insert(parent_job) {
+        return Ok(false);
+    }
+    
     // get parent of parent job to get step of parent job
     let parent_of_parent_job = parent_of_parent_job.or(sqlx::query_scalar!(
         "SELECT parent_job FROM v2_job WHERE id = $1",
@@ -1090,6 +1100,11 @@ async fn check_if_nested_step_is_last(
     .fetch_one(db)
     .await?);
     if let Some(parent_of_parent_job) = parent_of_parent_job {
+        // Check for cycles again with the parent_of_parent_job
+        if !visited.insert(parent_of_parent_job) {
+            return Ok(false);
+        }
+        
         let r = sqlx::query!(
             r#"SELECT 
                 (flow_status->'step')::integer as step,
@@ -1120,6 +1135,7 @@ async fn check_if_nested_step_is_last(
                         parent_of_parent_job,
                         r.ppp_job,
                         root_job,
+                        Some(visited),
                     )
                     .await;
                 }
@@ -1129,6 +1145,7 @@ async fn check_if_nested_step_is_last(
 
     Ok(false)
 }
+
 
 impl StreamNotifier {
     pub fn new(conn: &Connection, job: &MiniPulledJob) -> Option<Self> {
