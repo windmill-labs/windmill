@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use windmill_common::{client::AuthedClient, error::Error};
+use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
@@ -166,7 +166,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         match args.output_type {
             OutputType::Text => {
                 // For text output, use OpenAI-compatible format
-                let openai_builder = super::openai::OpenAIQueryBuilder::new();
+                let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
                 openai_builder
                     .build_request(args, client, workspace_id)
                     .await
@@ -180,7 +180,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         // For chat completions (text), use OpenAI parser
         if url.contains("/chat/completions") {
-            let openai_builder = super::openai::OpenAIQueryBuilder::new();
+            let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
             return openai_builder.parse_response(response).await;
         }
 
@@ -259,6 +259,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     fn get_auth_headers(
         &self,
         api_key: &str,
+        _base_url: &str,
         output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
         match output_type {

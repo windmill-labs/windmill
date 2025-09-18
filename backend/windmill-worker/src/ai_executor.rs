@@ -6,6 +6,7 @@ use ulid;
 use uuid::Uuid;
 use windmill_common::{
     ai_providers::AIProvider,
+    ai_providers::AZURE_API_VERSION,
     cache,
     client::AuthedClient,
     db::DB,
@@ -526,7 +527,7 @@ pub async fn run_agent(
 
         let endpoint =
             query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
-        let auth_headers = query_builder.get_auth_headers(api_key, output_type);
+        let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
         let mut request = HTTP_CLIENT
             .post(&endpoint)
@@ -536,6 +537,10 @@ pub async fn run_agent(
         // Apply authentication headers
         for (header_name, header_value) in auth_headers {
             request = request.header(header_name, header_value);
+        }
+
+        if args.provider.kind.is_azure_openai(&base_url) {
+            request = request.query(&[("api-version", AZURE_API_VERSION)])
         }
 
         let resp = request

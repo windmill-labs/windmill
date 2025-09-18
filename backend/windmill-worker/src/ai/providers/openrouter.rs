@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use windmill_common::{client::AuthedClient, error::Error};
+use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
     providers::openai::{OpenAIQueryBuilder, OpenAIResponse},
@@ -59,7 +59,7 @@ pub struct OpenRouterQueryBuilder {
 
 impl OpenRouterQueryBuilder {
     pub fn new() -> Self {
-        Self { openai_builder: OpenAIQueryBuilder::new() }
+        Self { openai_builder: OpenAIQueryBuilder::new(AIProvider::OpenRouter) }
     }
 }
 
@@ -195,6 +195,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     fn get_auth_headers(
         &self,
         api_key: &str,
+        _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
         vec![("Authorization", format!("Bearer {}", api_key))]
