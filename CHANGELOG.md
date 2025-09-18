@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.544.1](https://github.com/windmill-labs/windmill/compare/v1.544.0...v1.544.1) (2025-09-18)
+
+
+### Bug Fixes
+
+* fix onLoad auth issue ([bb4699b](https://github.com/windmill-labs/windmill/commit/bb4699bdc6d4e458175594db92b34fdf12fadf1d))
+
 ## [1.544.0](https://github.com/windmill-labs/windmill/compare/v1.543.0...v1.544.0) (2025-09-18)
 
 
