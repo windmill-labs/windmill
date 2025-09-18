@@ -115,6 +115,9 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						otherArgs={Object.fromEntries(
+							Object.entries(args ?? {}).filter(([key]) => key !== argName)
+						)}
 					/>
 				</div>
 			{/if}

@@ -1,11 +1,34 @@
+<script module lang="ts">
+	let listHubIntegrationsCached = createCache(
+		(params: { kind: HubScriptKind & string }) => IntegrationService.listHubIntegrations(params),
+		{ initial: { kind: 'script' } }
+	)
+	let listHubScriptsCached = createCache(
+		async ({
+			filter,
+			kind,
+			appFilter
+		}: {
+			filter: string
+			kind: HubScriptKind & string
+			appFilter: string | undefined
+		}) =>
+			filter.length > 0
+				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
+				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? []),
+		{ initial: { filter: '', kind: 'script', appFilter: undefined } }
+	)
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let hubNotAvailable = $state(false)
 
@@ -45,11 +68,7 @@
 	async function getAllApps(filterKind: typeof kind) {
 		try {
 			hubNotAvailable = false
-			allApps = (
-				await IntegrationService.listHubIntegrations({
-					kind: filterKind
-				})
-			).map((x) => x.name)
+			allApps = (await listHubIntegrationsCached({ kind: filterKind })).map((x) => x.name)
 			apps = allApps
 		} catch (err) {
 			console.error('Hub is not available')
@@ -59,34 +78,21 @@
 		}
 	}
 
-	let startTs = 0
-	async function applyFilter(
-		filter: string,
-		filterKind: typeof kind,
-		appFilter: string | undefined
-	) {
-		try {
-			loading = true
-			hubNotAvailable = false
-			const ts = Date.now()
-			startTs = ts
-			await new Promise((resolved, rejected) => setTimeout(resolved, 200))
-			if (ts < startTs) return
-			const scripts =
-				filter.length > 0
-					? await ScriptService.queryHubScripts({
-							text: `${filter}`,
-							limit: 40,
-							kind: filterKind
-						})
-					: ((
-							await ScriptService.getTopHubScripts({
-								limit: 40,
-								kind: filterKind,
-								app: appFilter
-							})
-						).asks ?? [])
-
+	let hubScriptsFilteredPromise = usePromise(
+		() => listHubScriptsCached({ appFilter, filter, kind }),
+		{ loadInit: false }
+	)
+	$effect(() => {
+		;[filter, kind, appFilter]
+		hubScriptsFilteredPromise.refresh()
+	})
+	$effect(() => {
+		// TODO: these should be derived ...
+		loading = hubScriptsFilteredPromise.status === 'loading'
+		hubNotAvailable = !!hubScriptsFilteredPromise.error
+		const scripts = hubScriptsFilteredPromise.value
+		untrack(() => {
+			if (!scripts) return
 			const mappedItems = scripts.map(
 				(x: {
 					summary: string
@@ -108,18 +114,8 @@
 			}
 
 			items = appFilter ? mappedItems.filter((x) => x.app === appFilter) : mappedItems
-
-			if (ts === startTs) {
-				loading = false
-			}
-
-			hubNotAvailable = false
-		} catch (err) {
-			hubNotAvailable = true
-			console.error('Hub not available')
-			loading = false
-		}
-	}
+		})
+	})
 
 	function onKeyDown(e: KeyboardEvent) {
 		if (
@@ -134,12 +130,6 @@
 			dispatch('pickScript', item)
 		}
 	}
-	$effect(() => {
-		;[filter, kind, appFilter]
-		untrack(() => {
-			applyFilter(filter, kind, appFilter)
-		})
-	})
 	$effect(() => {
 		kind
 		untrack(() => {

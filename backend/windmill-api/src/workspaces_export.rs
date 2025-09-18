@@ -508,7 +508,12 @@ pub(crate) async fn tarball_workspace(
                 && var.value.is_some()
                 && var.is_secret
             {
-                var.value = Some(decrypt(&mc, var.value.unwrap())?);
+                var.value = Some(decrypt(&mc, var.value.unwrap()).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        var.path, e
+                    ))
+                })?);
             }
             let var_str = &to_string_without_metadata(&var, false, None).unwrap();
             archive

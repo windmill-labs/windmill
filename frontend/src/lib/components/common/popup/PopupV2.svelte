@@ -2,6 +2,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
+	import { fly } from 'svelte/transition'
 
 	interface Props {
 		floatingConfig?: ComputeConfig
@@ -58,6 +59,7 @@
 			class="border rounded-lg shadow-lg bg-surface z5000"
 			style="position:absolute"
 			use:floatingContent
+			transition:fly={{ duration: 100, y: -16 }}
 		>
 			<!-- svelte-ignore event_directive_deprecated -->
 			<div

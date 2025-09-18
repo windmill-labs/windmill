@@ -8,7 +8,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script, DraftService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -34,13 +34,15 @@
 		Pen,
 		Share,
 		Trash,
-		History
+		History,
+		Globe2
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { scriptToHubUrl } from '$lib/hub'
 
 	interface Props {
 		script: Script & { canWrite: boolean; use_codebase: boolean }
@@ -298,6 +300,25 @@
 						icon: Copy,
 						action: () => {
 							copyToClipboard(script.path)
+						}
+					},
+					{
+						displayName: 'Publish to Hub',
+						icon: Globe2,
+						action: () => {
+							window.open(
+								scriptToHubUrl(
+									script.content,
+									script.summary,
+									script.description ?? '',
+									script.kind,
+									script.language,
+									script.schema,
+									script.lock ?? '',
+									$hubBaseUrlStore
+								).toString(),
+								'_blank'
+							)
 						}
 					},
 					{
