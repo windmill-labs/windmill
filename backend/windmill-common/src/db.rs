@@ -1,4 +1,8 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use sqlx::{Acquire, Pool, Postgres, Transaction};
+
+use crate::worker::{SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_DB};
 
 pub type DB = Pool<Postgres>;
 
@@ -55,6 +59,15 @@ impl Authable for AuthedRef<'_> {
 #[derive(Clone)]
 pub struct UserDB {
     db: DB,
+}
+
+pub async fn shard_db_or_main_db(db: &Pool<Postgres>) -> Pool<Postgres> {
+    let pull_db = if SHARD_DB_URL.is_some() {
+        SHARD_DB_INSTANCE.read().await.clone().unwrap()
+    } else {
+        db.clone()
+    };
+    pull_db
 }
 
 pub trait Authable {
@@ -213,4 +226,21 @@ impl UserDB {
 
         Ok(tx)
     }
+}
+
+pub async fn job_id_to_shard_db(job_id: &uuid::Uuid) -> Option<Pool<Postgres>> {
+    let shard_id_to_shard_url = &SHARD_ID_TO_SHARD_DB.read().await.clone();
+
+    let shard_db = shard_id_to_shard_url.as_ref().and_then(|db_store| {
+        let mut hasher = DefaultHasher::new();
+
+        job_id.hash(&mut hasher);
+
+        //todo: proper converison
+        let shard_id = (hasher.finish() as usize) % db_store.len();
+
+        db_store.get(&shard_id).cloned()
+    });
+
+    shard_db
 }

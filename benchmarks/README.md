@@ -6,13 +6,13 @@ flows.
 ## Installation
 
 Install the `wmill` CLI tool using
-`deno install --unstable -A https://deno.land/x/wmillbench/main.ts`.
+`deno install --global -A https://deno.land/x/wmillbench/main.ts`.
 
 Update to the latest version using `wmillbench upgrade`.
 
 To build a local version, you can just run:
 ```
-deno install -A main.ts
+deno --global install -A main.ts
 ```
 
 ## Quickstart
@@ -75,7 +75,7 @@ in `benchmarks_noop.ts`
 
 You can build it locally with:
 ```
-deno install -A benchmarks_noop.ts
+deno install -A benchmark_oneoff.ts
 ```
 and then
 ```
