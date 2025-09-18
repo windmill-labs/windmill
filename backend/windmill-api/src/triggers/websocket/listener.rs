@@ -164,6 +164,7 @@ impl Listener for WebsocketTrigger {
         Response<Option<Vec<u8>>>,
     );
     type Extra = ReturnMessageChannels;
+    type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
     async fn get_consumer(
         &self,
@@ -214,6 +215,7 @@ impl Listener for WebsocketTrigger {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
         mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        _extra_state: Option<&Self::ExtraState>,
     ) {
         let WebsocketConfig { ref url, .. } = listening_trigger.trigger_config;
 
