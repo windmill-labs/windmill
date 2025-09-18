@@ -169,6 +169,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
           git config --local user.email "windmill-internal-app[bot]@users.noreply.github.com"
@@ -178,8 +180,6 @@ jobs:
           echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
           echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
           # commit and push the changes
-          PR_NUMBER=${{ github.event.issue.number }}
-          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           git add backend/ee-repo-ref.txt
           git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
           git push origin $BRANCH_NAME
