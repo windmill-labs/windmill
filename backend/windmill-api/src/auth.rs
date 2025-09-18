@@ -415,6 +415,7 @@ pub struct Tokened {
     pub token: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct OptTokened {
     #[allow(dead_code)]
     pub token: Option<String>,
