@@ -28,7 +28,7 @@
 	// export let floatingClasses: string = ''
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 
-	function close(div: Element | null) {
+	function close() {
 		open = false
 	}
 </script>
@@ -51,7 +51,7 @@
 					onClickOutside: () => (open = false)
 				}}
 			>
-				{@render children?.({ close: () => close(null) })}
+				{@render children?.({ close: () => close() })}
 			</div>
 		</div>
 	{/if}
