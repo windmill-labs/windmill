@@ -146,10 +146,10 @@ impl FlowValue {
                 .preprocessor_module
                 .as_deref()
                 .with_context(|| format!("no preprocessor module")),
-            Step::Step(i) => self
+            Step::Step { idx, .. } => self
                 .modules
-                .get(i)
-                .with_context(|| format!("no module found at index: {i}")),
+                .get(idx)
+                .with_context(|| format!("no module found at index: {idx}")),
             Step::FailureStep => self
                 .failure_module
                 .as_deref()
@@ -162,7 +162,7 @@ impl FlowValue {
 
 #[derive(Debug, Copy, Clone)]
 pub enum Step {
-    Step(usize),
+    Step { idx: usize, len: usize },
     PreprocessorStep,
     FailureStep,
 }
@@ -172,7 +172,7 @@ impl Step {
         if step < 0 {
             Step::PreprocessorStep
         } else if (step as usize) < len {
-            Step::Step(step as usize)
+            Step::Step { idx: step as usize, len }
         } else {
             Step::FailureStep
         }
@@ -180,13 +180,13 @@ impl Step {
 
     pub fn get_step_index(&self) -> Option<usize> {
         match self {
-            Step::Step(index) => Some(*index),
+            Step::Step { idx, .. } => Some(*idx),
             _ => None,
         }
     }
 
     pub fn is_index_step(&self) -> bool {
-        matches!(self, Step::Step(_))
+        matches!(self, Step::Step { .. })
     }
 
     pub fn is_preprocessor_step(&self) -> bool {
@@ -195,6 +195,10 @@ impl Step {
 
     pub fn is_failure_step(&self) -> bool {
         matches!(self, Step::FailureStep)
+    }
+
+    pub fn is_last_step(&self) -> bool {
+        matches!(self, Step::Step { idx, len } if *idx == len - 1)
     }
 }
 

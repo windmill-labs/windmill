@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.543.0
+  version: 1.544.1
   title: Windmill API
 
   contact:
@@ -1306,8 +1306,6 @@ paths:
                     type: string
                   endpoint_sync:
                     type: string
-                  endpoint_openai_sync:
-                    type: string
                   summary:
                     type: string
                   description:
@@ -1318,7 +1316,6 @@ paths:
                   - workspace
                   - endpoint_async
                   - endpoint_sync
-                  - endpoint_openai_sync
                   - summary
                   - kind
 
@@ -5606,35 +5603,6 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/openai_sync/p/{path}:
-    post:
-      summary: run script by path in openai format
-      operationId: openaiSyncScriptByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/ParentJob"
-        - $ref: "#/components/parameters/NewJobId"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:
       summary: run script by path
@@ -5650,6 +5618,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       requestBody:
         description: script args
@@ -5681,34 +5650,7 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/Payload"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
-  /w/{workspace}/jobs/openai_sync/f/{path}:
-    post:
-      summary: run flow by path and wait until completion in openai format
-      operationId: openaiSyncFlowByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-        - $ref: "#/components/parameters/NewJobId"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       responses:
         "200":
@@ -5729,6 +5671,7 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       requestBody:
         description: script args
@@ -7114,11 +7057,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
@@ -7276,11 +7215,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -14137,6 +14072,12 @@ components:
       in: query
       schema:
         type: string
+    SkipPreprocessor:
+      name: skip_preprocessor
+      description: skip the preprocessor
+      in: query
+      schema:
+        type: boolean
     Payload:
       name: payload
       description: |
@@ -14514,6 +14455,12 @@ components:
           type: object
           additionalProperties:
             type: string
+        max_tokens_per_model:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+            maximum: 2000000
 
     Alert:
       type: object
@@ -16818,6 +16765,12 @@ components:
           type: boolean
         auto_acknowledge_msg:
           type: boolean
+        ack_deadline:
+          type: integer
+          format: int32
+          minimum: 10
+          maximum: 600
+          description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
         error_handler_args:

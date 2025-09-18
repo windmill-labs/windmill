@@ -11,6 +11,7 @@
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { computeShow } from '$lib/utils'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -36,6 +37,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	import { deepEqual } from 'fast-equals'
+	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -57,6 +59,7 @@
 		hideHelpButton?: boolean
 		class?: string
 		editor?: SimpleEditor | undefined
+		otherArgs?: Record<string, InputTransform>
 	}
 
 	let {
@@ -78,13 +81,16 @@
 		enableAi = false,
 		hideHelpButton = false,
 		class: className = '',
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		otherArgs = {}
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
 	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
+
+	let hidden = $state(false)
 
 	const variableMatch = (value: string): RegExpMatchArray | null =>
 		value.match(/^variable\('([^']+)'\)$/)
@@ -235,6 +241,51 @@
 		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
 
+	function appendPathToArrayExpr(currentExpr: string | undefined, path: string) {
+		const trimmedExpr = currentExpr?.trim() || ''
+
+		let newExpr = trimmedExpr
+		if (trimmedExpr.startsWith('[') && trimmedExpr.endsWith(']')) {
+			// Parse existing array and append new item
+			const innerContent = trimmedExpr.slice(1, -1).trim()
+			if (innerContent) {
+				newExpr = `[${innerContent}, ${path}]`
+			} else {
+				newExpr = `[${path}]`
+			}
+		} else {
+			// Create new array with single item
+			newExpr = `[${path}]`
+		}
+		arg.expr = newExpr
+		arg.type = 'javascript'
+
+		// Update Monaco editor after setting the expression
+		tick().then(() => {
+			monaco?.setCode(newExpr)
+		})
+
+		// Dispatch change
+		dispatch('change', { argName, arg })
+	}
+
+	async function switchToJsAndConnect(onPath: (path: string) => void) {
+		// Switch to JavaScript mode
+		propertyType = 'javascript'
+		arg.type = 'javascript'
+		arg.expr = arg.expr || '[]'
+		arg.value = undefined
+
+		// Wait for the component to re-render and Monaco to be available
+		await tick()
+
+		// Activate connect mode
+		focusProp?.(argName, 'connect', (path) => {
+			onPath(path)
+			return true
+		})
+	}
+
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
 		const varMatch = variableMatch(rawValue)
@@ -255,6 +306,47 @@
 			arg.type = 'javascript'
 			propertyType = 'javascript'
 			monaco?.setCode(arg.expr)
+		}
+	}
+
+	function handleFieldVisibility(
+		schema: Schema | any,
+		arg: InputTransform | any,
+		otherArgs: Record<string, any>
+	) {
+		const schemaProperty = schema?.properties?.[argName]
+		if (schemaProperty?.showExpr) {
+			// Build args object with current field value and other context
+			const currentValue = propertyType === 'static' ? arg?.value : arg?.expr
+
+			// Convert otherArgs from InputTransform objects to their actual values
+			const contextArgs = {
+				[argName]: currentValue
+			}
+
+			// Extract values from InputTransform objects in otherArgs
+			Object.keys(otherArgs ?? {}).forEach((key) => {
+				const otherArg = otherArgs[key]
+				const otherArgValue = otherArg.type === 'static' ? otherArg.value : otherArg.expr
+				contextArgs[key] = otherArgValue
+			})
+
+			const shouldShow = computeShow(argName, schemaProperty.showExpr, contextArgs)
+			if (shouldShow) {
+				hidden = false
+			} else if (!hidden) {
+				hidden = true
+				// Clear the arg value when hidden (following SchemaForm pattern)
+				if (arg) {
+					arg.value = undefined
+					arg.expr = undefined
+				}
+				// Make sure validation passes when hidden
+				inputCheck = true
+			}
+		} else {
+			// No showExpr, always show
+			hidden = false
 		}
 	}
 
@@ -358,8 +450,20 @@
 	$effect(() => {
 		schema?.properties?.[argName]?.default && untrack(() => setDefaultCode())
 	})
+	$effect.pre(() => {
+		// Monitor changes that affect field visibility
+		JSON.stringify(schema)
+		JSON.stringify(arg)
+		JSON.stringify(otherArgs)
+
+		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
+	})
 	let connecting = $derived(
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
+	)
+	let shouldShowS3ArrayHelper = $derived(
+		inputCat === 'list' &&
+			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
 	)
 </script>
 
@@ -463,6 +567,7 @@
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
+
 								if (e.detail === 'javascript') {
 									if (arg.expr == undefined) {
 										arg.expr = getDefaultExpr(
@@ -635,6 +740,14 @@
 							bind:title={schema.properties[argName].title}
 							bind:placeholder={schema.properties[argName].placeholder}
 						/>
+
+						{#if shouldShowS3ArrayHelper}
+							<S3ArrayHelperButton
+								{connecting}
+								onClick={() =>
+									switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
+							/>
+						{/if}
 					{:else if arg.expr != undefined}
 						<div class="border mt-2">
 							<SimpleEditor
@@ -664,6 +777,18 @@
 						{#if !hideHelpButton}
 							<DynamicInputHelpBox />
 						{/if}
+
+						{#if shouldShowS3ArrayHelper}
+							<S3ArrayHelperButton
+								{connecting}
+								onClick={() =>
+									focusProp?.(argName, 'connect', (path) => {
+										appendPathToArrayExpr(arg.expr, path)
+										return true
+									})}
+							/>
+						{/if}
+
 						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})

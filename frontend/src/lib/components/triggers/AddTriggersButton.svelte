@@ -118,6 +118,7 @@
 {/snippet}
 
 <DropdownV2
+	enableFlyTransition
 	bind:this={dropdown}
 	items={addTriggerItems}
 	{placement}
