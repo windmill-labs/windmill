@@ -88,7 +88,7 @@ shouldUsePortal={true} -->
 	{/snippet}
 	{#snippet children({ close })}
 		<InsertModuleInner
-			on:close={() => close(null)}
+			on:close={() => close()}
 			on:insert
 			on:new
 			on:pickFlow
