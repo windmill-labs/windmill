@@ -18,7 +18,15 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		ArrowRight,
+		CornerDownLeft,
+		Loader2,
+		Play,
+		RefreshCw,
+		X
+	} from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
@@ -108,6 +116,7 @@
 	let currentJobId: string | undefined = $state(undefined)
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 	let flowProgressBar: FlowProgressBar | undefined = $state(undefined)
+	let loadingHistory = $state(false)
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
@@ -512,7 +521,7 @@
 									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
 									flowStore.val.schema?.['x-windmill-dyn-select-lang']
 										? {
-												type: 'inline',
+												source: 'inline',
 												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
 												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
 											}
@@ -546,6 +555,7 @@
 							currentJobId = undefined
 						}}
 						path={$initialPathStore == '' ? $pathStore : $initialPathStore}
+						bind:loading={loadingHistory}
 					/>
 				{/if}
 			</div>
@@ -586,6 +596,10 @@
 					{render}
 					{customUi}
 				/>
+			{:else if loadingHistory}
+				<div class="italic text-tertiary h-full grow mx-auto flex flex-row items-center gap-2">
+					<Loader2 class="animate-spin" /> <span> Loading history... </span>
+				</div>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
 			{/if}

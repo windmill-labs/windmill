@@ -39,7 +39,7 @@
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
-	let intervalId: NodeJS.Timeout | undefined
+	let intervalId: number | undefined
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
 	$: groupedWorkers = groupWorkers(workers, workerGroups)
@@ -90,7 +90,7 @@
 		}
 	}
 
-	let secondInterval: NodeJS.Timeout | undefined = undefined
+	let secondInterval: number | undefined = undefined
 	async function loadCustomTags() {
 		try {
 			customTags = (await WorkerService.getCustomTags()) ?? []

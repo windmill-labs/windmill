@@ -6,7 +6,7 @@ use crate::worker::{SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_SHARD_DB};
 
 pub type DB = Pool<Postgres>;
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct Authed {
     pub email: String,
     pub username: String,

@@ -26,6 +26,7 @@ use axum::{
     Json, Router,
 };
 use futures::future::try_join_all;
+use http::header;
 use hyper::StatusCode;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -1367,7 +1368,7 @@ async fn get_tokened_raw_script_by_path(
     Extension(cache): Extension<Arc<AuthCache>>,
     Path((w_id, token, path)): Path<(String, String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
+) -> Result<StringWithLength> {
     let authed = cache
         .get_authed(Some(w_id.clone()), &token)
         .await
@@ -1393,17 +1394,28 @@ struct RawScriptByPathQuery {
     // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
     cache_folders: Option<bool>,
 }
+
+struct StringWithLength(String);
+
+impl IntoResponse for StringWithLength {
+    fn into_response(self) -> axum::response::Response {
+        let len = self.0.len();
+        ([(header::CONTENT_LENGTH, len.to_string())], self.0).into_response()
+    }
+}
+
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
+) -> Result<StringWithLength> {
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!("Raw script by path request: {}", path.to_path());
     }
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await
+    let r = raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await?;
+    Ok(StringWithLength(r))
 }
 
 async fn raw_script_by_path_unpinned(
@@ -1412,8 +1424,9 @@ async fn raw_script_by_path_unpinned(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query).await
+) -> Result<StringWithLength> {
+    let r = raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query).await?;
+    Ok(StringWithLength(r))
 }
 
 lazy_static::lazy_static! {
@@ -1494,7 +1507,10 @@ async fn raw_script_by_path_internal(
                 return Ok("WINDMILL_IS_FOLDER".to_string());
             } else {
                 if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-                    tracing::warn!("Raw script by path request: {} (cached folders expired)", path);
+                    tracing::warn!(
+                        "Raw script by path request: {} (cached folders expired)",
+                        path
+                    );
                 }
             }
         }
@@ -1512,7 +1528,11 @@ async fn raw_script_by_path_internal(
     .await?;
     tx.commit().await?;
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-        tracing::warn!("Raw script by path request: {} (content: {:?})", path, content_o);
+        tracing::warn!(
+            "Raw script by path request: {} (content: {:?})",
+            path,
+            content_o
+        );
     }
 
     if content_o.is_none() {
@@ -1796,9 +1816,10 @@ async fn archive_script_by_hash(
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET archived = true WHERE hash = $1 RETURNING *",
+        "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;

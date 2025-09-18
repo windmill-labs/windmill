@@ -210,7 +210,12 @@ async fn get_variable(
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
-                Some(decrypt(&mc, value)?)
+                Some(decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
             } else {
@@ -837,7 +842,12 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
             let mc = build_crypt(&db, &w_id).await?;
-            decrypt(&mc, value)?
+            decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?
         } else {
             "".to_string()
         }
@@ -873,7 +883,12 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
         let mut value = record.value;
         if record.is_secret {
             let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value)?;
+            value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        path, e
+                    ))
+                })?;
         }
 
         Ok(value)

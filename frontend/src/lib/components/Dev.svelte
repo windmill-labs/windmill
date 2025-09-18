@@ -139,7 +139,7 @@
 	let useLock = $state(false)
 
 	let lockChanges = false
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
