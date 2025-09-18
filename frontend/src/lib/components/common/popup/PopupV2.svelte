@@ -51,7 +51,7 @@
 					onClickOutside: () => (open = false)
 				}}
 			>
-				{@render children?.({ close: () => close(null) })}
+				{@render children?.({ close: () => close() })}
 			</div>
 		</div>
 	{/if}
