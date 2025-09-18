@@ -263,7 +263,11 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
-                        serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
+                        serde_json::from_str(&x).map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to decrypt '$encrypted:' value: {e}"
+                            ))
+                        })
                     })
                 }
                 Connection::Http(_) => {

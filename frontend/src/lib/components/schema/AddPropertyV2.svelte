@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { type Schema, modalToSchema, type ModalSchemaProperty } from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { untrack } from 'svelte'
 	import AddPropertyFormV2 from './AddPropertyFormV2.svelte'
 	interface Props {
 		schema?: Schema | any
@@ -9,7 +10,7 @@
 		onAddNew?: (argName: string) => void
 	}
 
-	let { schema = $bindable(emptySchema()), trigger, noPopover, onAddNew }: Props = $props()
+	let { schema = $bindable(undefined), trigger, noPopover, onAddNew }: Props = $props()
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',
@@ -18,9 +19,11 @@
 		required: false
 	}
 
-	if (!schema) {
-		schema = emptySchema()
-	}
+	$effect.pre(() => {
+		if (!schema) {
+			untrack(() => (schema = emptySchema()))
+		}
+	})
 
 	// Internal state: bound to args builder modal
 	let argError = ''

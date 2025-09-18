@@ -7439,6 +7439,30 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/run/dynamic_select:
+    post:
+      summary: run dynamic select helper function
+      operationId: runDynamicSelect
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dynamic select request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicInputData"
+      responses:
+        "201":
+          description: dynamic select job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/queue/list:
     get:
       summary: list all queued jobs
@@ -14431,6 +14455,12 @@ components:
           type: object
           additionalProperties:
             type: string
+        max_tokens_per_model:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+            maximum: 2000000
 
     Alert:
       type: object
@@ -16735,6 +16765,12 @@ components:
           type: boolean
         auto_acknowledge_msg:
           type: boolean
+        ack_deadline:
+          type: integer
+          format: int32
+          minimum: 10
+          maximum: 600
+          description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
         error_handler_args:
@@ -18005,6 +18041,10 @@ components:
           type: string
         public_resource:
           type: boolean
+        advanced_permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/S3PermissionRule"
         secondary_storage:
           type: object
           additionalProperties:
@@ -18061,6 +18101,49 @@ components:
                     type: string
                 required:
                   - path
+
+    DynamicInputData:
+      type: object
+      properties:
+        entrypoint_function:
+          type: string
+          description: Name of the function to execute for dynamic select
+        args:
+          type: object
+          description: Arguments to pass to the function
+        runnable_ref:
+          type: object
+          oneOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [deployed]
+                path:
+                  type: string
+                  description: Path to the deployed script or flow
+                runnable_kind:
+                  $ref: "#/components/schemas/RunnableKind"
+              required:
+                - source
+                - path
+                - runnable_kind
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [inline]
+                code:
+                  type: string
+                  description: Code content for inline execution
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+              required:
+                - source
+                - code
+      required:
+        - entrypoint_function
+        - runnable_ref
 
     WindmillLargeFile:
       type: object
@@ -18158,6 +18241,15 @@ components:
           additionalProperties:
             type: string
 
+    S3PermissionRule:
+      type: object
+      properties:
+        pattern:
+          type: string
+        allow:
+          type: string # comma separated permissions : "read,write,delete,list"
+      required: ["pattern", "allow"]
+    
     GitRepositorySettings:
       type: object
       properties:

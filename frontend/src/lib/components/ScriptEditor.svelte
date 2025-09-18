@@ -751,7 +751,7 @@
 								{#key argsRender}
 									<SchemaForm
 										helperScript={{
-											type: 'inline',
+											source: 'inline',
 											code,
 											//@ts-ignore
 											lang
