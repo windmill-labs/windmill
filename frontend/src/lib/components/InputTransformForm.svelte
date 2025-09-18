@@ -591,6 +591,7 @@
 										dispatch('change', { argName, arg })
 									}}
 									loadAsync
+									class="bg-surface-secondary"
 								/>
 							{/if}
 						</div>

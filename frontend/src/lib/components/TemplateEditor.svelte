@@ -449,7 +449,14 @@
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
 				fontSize,
-				suggestOnTriggerCharacters: true
+				suggestOnTriggerCharacters: true,
+				renderLineHighlight: 'none',
+				lineNumbers: 'off',
+
+				padding: {
+					bottom: 8,
+					top: 8
+				}
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -650,15 +657,16 @@
 {#if !editor}
 	<FakeMonacoPlaceHolder
 		autoheight
+		showNumbers={false}
 		{code}
-		lineNumbersWidth={23}
-		lineNumbersOffset={-8}
-		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+		lineNumbersWidth={14}
+		lineNumbersOffset={-20}
+		class="border template nonmain-editor rounded min-h-4 bg-surface-secondary !py-[8px] mx-0.5 overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
-	style="height: 18px;"
+	style="height: 18px; padding-left: 8px;"
 	class="{$$props.class ??
 		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
 		? 'hidden'
