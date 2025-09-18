@@ -186,7 +186,7 @@
 		let index = 0
 		let hasChanged = false
 		for (let k of properties) {
-			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
+			if (schema.properties[k]?.type === 'object' && schema.properties[k].properties) {
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
@@ -220,7 +220,7 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-		if (property.type !== 'object') return property.type
+		if (property?.type !== 'object') return property?.type
 		if (property.format === 'resource-s3_object') return 'S3'
 		if (property.format?.startsWith('dynselect-')) return 'dynselect'
 		if (property.format?.startsWith('dynmultiselect-')) return 'dynmultiselect'
@@ -344,7 +344,7 @@
 		Object.entries(schema?.properties ?? {})
 			.filter(([_, property]) => {
 				const props = property as any
-				return props.type === 'object' && DynamicInput.isDynInputFormat(props.format)
+				return props?.type === 'object' && DynamicInput.isDynInputFormat(props.format)
 			})
 			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
 	)
@@ -652,7 +652,7 @@
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
-															type={schema.properties[argName].type}
+															type={schema.properties[argName]?.type}
 															bind:oneOf={schema.properties[argName].oneOf}
 															bind:pattern={schema.properties[argName].pattern}
 															bind:enum_={schema.properties[argName].enum}
@@ -795,7 +795,7 @@
 																	{itemPicker}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
-																	type={schema.properties[argName].type}
+																	type={schema.properties[argName]?.type}
 																	bind:oneOf={schema.properties[argName].oneOf}
 																	bind:format={schema.properties[argName].format}
 																	contentEncoding={schema.properties[argName].contentEncoding}

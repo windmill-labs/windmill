@@ -420,8 +420,8 @@
 
 	let initialized = false
 
-	let jsLoader: number | undefined = undefined
-	let timeoutModel: number | undefined = undefined
+	let jsLoader: NodeJS.Timeout | undefined = undefined
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
@@ -598,7 +598,7 @@
 	}
 
 	let mounted = false
-	let loadTimeout: number | undefined = undefined
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		try {
 			if (BROWSER) {

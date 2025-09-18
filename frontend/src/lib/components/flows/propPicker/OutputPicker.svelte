@@ -158,6 +158,7 @@
 		<div class="flex flex-row items-center justify-center w-full h-full">
 			{#if showInput}
 				<Popover
+					enableFlyTransition
 					floatingConfig={{
 						placement: 'bottom',
 						gutter: 0,
@@ -200,6 +201,7 @@
 			{/if}
 
 			<Popover
+				enableFlyTransition
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,

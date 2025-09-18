@@ -6,8 +6,6 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 
-	// import type { Writable } from 'svelte/store'
-
 	const dispatch = createEventDispatcher()
 	interface Props {
 		stop?: boolean
@@ -32,25 +30,13 @@
 		$state(kind)
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
-	let small = $state(false)
+	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
 	let width = $state(0)
 	let height = $state(0)
 
 	let displayPath = $derived(width > 650 || height > 400)
-
-	$effect(() => {
-		small = kind === 'preprocessor' || kind === 'failure'
-	})
 </script>
-
-<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
-
-<!-- {floatingConfig}
-floatingClasses="mt-2"
-containerClasses="border rounded-lg shadow-lg  bg-surface"
-noTransition
-shouldUsePortal={true} -->
 
 <div
 	id="flow-editor-insert-module"
