@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.544.2](https://github.com/windmill-labs/windmill/compare/v1.544.1...v1.544.2) (2025-09-18)
+
+
+### Bug Fixes
+
+* improve flowtimeline ([74a8d8a](https://github.com/windmill-labs/windmill/commit/74a8d8a6f7cc7e16f23d6f7999e51e9f2f6581d4))
+
 ## [1.544.1](https://github.com/windmill-labs/windmill/compare/v1.544.0...v1.544.1) (2025-09-18)
 
 
