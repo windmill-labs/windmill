@@ -1670,12 +1670,29 @@ pub struct GetScheduledForQuery {
     pub ids: Vec<Uuid>,
 }
 
-pub async fn get_scheduled_for(
-    OptAuthed(opt_authed): OptAuthed,
-    Extension(db): Extension<DB>,
-    Json(query): Json<GetScheduledForQuery>,
-) -> JsonResult<chrono::DateTime<chrono::Utc>> {
-    Ok(Json(query.scheduled_for))
+pub async fn get_scheduled_for_by_ids(
+    Authed(authed): Authed,
+    Json(mut query): Json<GetScheduledForQuery>,
+) -> JsonResult<Vec<chrono::DateTime<chrono::Utc>>> {
+    query.ids.truncate(1000);
+    let ids = query.ids;
+
+    let db = 
+    let scheduled_for = 
+        sqlx::query!(
+            "SELECT id, scheduled_for FROM v2_job_queue WHERE id = ANY($1)",
+            ids.as_slice()
+        )
+        .fetch_all(&db)
+        .await?;
+
+    let as_map = scheduled_for.iter().map(|x| (x.id, x.scheduled_for)).collect::<HashMap<_, _>>();
+    let mut r = Vec::new();
+    for id in ids {
+        r.push(as_map.get(&id).map(|x| x.clone()).unwrap_or_default());
+    }
+
+    Ok(Json(r))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
