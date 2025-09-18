@@ -36,6 +36,7 @@ use crate::{
 impl Listener for MqttTrigger {
     type Consumer = MqttClientResult;
     type Extra = ();
+    type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Mqtt;
 
     async fn get_consumer(
@@ -100,6 +101,7 @@ impl Listener for MqttTrigger {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         _err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        _extra_state: Option<&Self::ExtraState>,
     ) {
         tracing::info!(
             "Starting to listen for MQTT trigger {}",

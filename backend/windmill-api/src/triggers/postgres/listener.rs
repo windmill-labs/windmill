@@ -133,6 +133,7 @@ impl PostgresSimpleClient {
 impl Listener for PostgresTrigger {
     type Consumer = (CopyBothDuplex<Bytes>, LogicalReplicationSettings);
     type Extra = ();
+    type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Postgres;
 
     async fn get_consumer(
@@ -209,6 +210,7 @@ impl Listener for PostgresTrigger {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        _extra_state: Option<&Self::ExtraState>,
     ) {
         let (logical_replication_stream, logical_replication_settings) = consumer;
         pin_mut!(logical_replication_stream);
@@ -403,6 +405,7 @@ impl Listener for PostgresTrigger {
         &self,
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
+        _extra_state: Option<&Self::ExtraState>,
     ) -> Result<()> {
         let authed = listening_trigger
             .authed(db, &Self::TRIGGER_KIND.to_string())
