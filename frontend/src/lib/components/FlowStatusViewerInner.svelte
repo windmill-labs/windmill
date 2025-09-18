@@ -1538,25 +1538,26 @@
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
-		<div
-			class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
-			bind:clientHeight={tabsHeight.logsHeight}
-			style="min-height: {minTabHeight}px"
-		>
-			<FlowLogViewerWrapper
-				{job}
-				{localModuleStates}
-				{localDurationStatuses}
-				{workspaceId}
-				{render}
-				{onSelectedIteration}
-				{globalIterationBounds}
-				loadPreviousIterations={(key, amount) => {
-					loadPreviousIters(key, amount)
-				}}
-			/>
-		</div>
-		{#if selected == 'assets' && render}
+		{#if selected == 'logs' && render}
+			<div
+				class="mx-auto"
+				bind:clientHeight={tabsHeight.logsHeight}
+				style="min-height: {minTabHeight}px"
+			>
+				<FlowLogViewerWrapper
+					{job}
+					{localModuleStates}
+					{localDurationStatuses}
+					{workspaceId}
+					{render}
+					{onSelectedIteration}
+					{globalIterationBounds}
+					loadPreviousIterations={(key, amount) => {
+						loadPreviousIters(key, amount)
+					}}
+				/>
+			</div>
+		{:else if selected == 'assets' && render}
 			<div
 				class="p-2"
 				bind:clientHeight={tabsHeight.assetsHeight}
