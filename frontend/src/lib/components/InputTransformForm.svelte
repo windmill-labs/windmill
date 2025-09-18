@@ -364,7 +364,7 @@
 </script>
 
 {#if arg != undefined}
-	<div class={twMerge('pl-2 pt-2 pb-2 ml-2 relative group', className)}>
+	<div class={twMerge('pt-2 pb-2 relative group', className)}>
 		<div class="flex flex-row justify-between gap-1 pb-1">
 			<div class="flex flex-wrap grow">
 				<FieldHeader

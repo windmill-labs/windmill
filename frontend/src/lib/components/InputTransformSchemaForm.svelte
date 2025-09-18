@@ -78,9 +78,9 @@
 	})
 </script>
 
-<div class="w-full {clazz}">
+<div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="px-0.5 pt-0.5">
+		<div class="mt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys
@@ -99,7 +99,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="pt-2 relative">
+				<div class="mt-2 relative">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}

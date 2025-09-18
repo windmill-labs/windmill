@@ -16,7 +16,7 @@
 	{...inputProps}
 	class={twMerge(
 		// TODO Make tailwind classes for every color
-		'!bg-surface-secondary !border-transparent !shadow-none !py-2.5 !px-4',
+		'!bg-surface-secondary !border-transparent !shadow-none !py-2 !px-4',
 		'focus:!ring-0',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
 		'!rounded-md',
