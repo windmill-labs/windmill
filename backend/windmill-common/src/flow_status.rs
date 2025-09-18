@@ -112,9 +112,44 @@ pub struct FlowCleanupModule {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowJobsDuration {
+    pub started_at: Vec<Option<chrono::DateTime<chrono::Utc>>>,
+    pub duration_ms: Vec<Option<i64>>,
+}
+
+impl FlowJobsDuration {
+    pub fn set(&mut self, position: Option<usize>, value: &Option<FlowJobDuration>) {
+        if let Some(position) = position {
+            if (position >= self.started_at.len() || position >= self.duration_ms.len() || value.is_none()) {
+                return;
+            }
+            let value = value.clone().unwrap();
+            self.started_at[position] = Some(value.started_at);
+            self.duration_ms[position] = Some(value.duration_ms);
+        }
+    }
+
+    pub fn push(&mut self, value: &Option<FlowJobDuration>) {
+        self.started_at.push(value.as_ref().map(|x| x.started_at));
+        self.duration_ms.push(value.as_ref().map(|x| x.duration_ms));
+    }
+
+    pub fn new(n: usize) -> Self {
+        Self { started_at: vec![None; n], duration_ms: vec![None; n] }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowJobDuration {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub duration_ms: i64,
+}
+
+impl FlowJobsDuration {
+    pub fn truncate(&mut self, n: usize) {
+        self.started_at.truncate(n);
+        self.duration_ms.truncate(n);
+    }
 }
 
 #[derive(Deserialize)]
@@ -128,7 +163,7 @@ struct UntaggedFlowStatusModule {
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
-    flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+    flow_jobs_duration: Option<FlowJobsDuration>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -174,7 +209,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,7 +231,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
@@ -218,7 +253,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+        flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -374,7 +409,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn flow_jobs_duration(&self) -> Option<Vec<Option<FlowJobDuration>>> {
+    pub fn flow_jobs_duration(&self) -> Option<FlowJobsDuration> {
         match self {
             FlowStatusModule::InProgress { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
             FlowStatusModule::Success { flow_jobs_duration, .. } => flow_jobs_duration.clone(),

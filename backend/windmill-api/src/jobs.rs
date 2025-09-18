@@ -290,6 +290,8 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_logs_tail),
         )
         .route("/get_args/:id", get(get_args))
+        .route("/get_scheduled_for", post(get_scheduled_for))
+
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -1639,6 +1641,19 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetScheduledForQuery {
+    pub ids: Vec<Uuid>,
+}
+
+pub async fn get_scheduled_for(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Json(query): Json<GetScheduledForQuery>,
+) -> JsonResult<chrono::DateTime<chrono::Utc>> {
+    Ok(Json(query.scheduled_for))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -6591,6 +6606,7 @@ fn get_job_update_sse_stream(
         let start = Instant::now();
         let mut last_ping = Instant::now();
 
+
         loop {
             i += 1;
             let ms_duration = if i > 100 || !fast.unwrap_or(false) {
@@ -6658,6 +6674,8 @@ fn get_job_update_sse_stream(
                                 update.log_offset = None;
                             }
                         }
+
+
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {
                                 stream_offset = Some(new_stream_offset);

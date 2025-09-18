@@ -17,7 +17,7 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, flow_status::FlowJobDuration, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
+    add_time, error::{self, Error}, flow_status::{FlowJobDuration}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
 };
 
 #[cfg(feature = "benchmark")]

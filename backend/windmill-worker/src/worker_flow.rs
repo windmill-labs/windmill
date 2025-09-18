@@ -37,7 +37,7 @@ use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowJobDuration, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult
+    ApprovalConditions, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -184,6 +184,7 @@ pub enum UpdateFlowStatusAfterJobCompletion {
     NonLastParallelBranch,
     PreprocessingStep,
 }
+
 pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
     job_id_for_status: Uuid,
@@ -636,11 +637,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let mut flow_jobs_duration = flow_jobs_duration.clone();
                     if let Some(flow_jobs_duration) = flow_jobs_duration.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
-                        if let Some(position) = position {
-                                if position < flow_jobs_duration.len() {
-                                    flow_jobs_duration[position] = flow_job_duration.clone();
-                            }
-                        }
+                             flow_jobs_duration.set(position, &flow_job_duration);
                     }
 
                     let branches = current_module
@@ -820,7 +817,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         flow_jobs_success,
                         jobs,
                         job_id_for_status,
-                        &old_status,
+                        old_status.step,
                         flow,
                         success,
                         flow_job_duration.clone(),
@@ -845,7 +842,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         flow_jobs_success,
                         jobs,
                         job_id_for_status,
-                        &old_status,
+                        old_status.step,
                         flow,
                         success,
                         flow_job_duration.clone(),
@@ -910,11 +907,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     (flow_jobs_duration.as_mut(), flow_jobs.as_ref())
                 {
                     let position = flow_jobs.iter().position(|x| x == job_id_for_status);
-                    if let Some(position) = position {
-                        if position < flow_jobs_duration.len() {
-                            flow_jobs_duration[position] = flow_job_duration.clone();
-                        }
-                    }
+                    flow_jobs_duration.set(position, &flow_job_duration);
                 }
 
                 // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
@@ -1535,7 +1528,7 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     flow_jobs_success: &Option<Vec<Option<bool>>>,
     flow_jobs: &Vec<Uuid>,
     job_id_for_status: &Uuid,
-    old_status: &FlowStatus,
+    old_status_step: i32,
     flow: Uuid,
     success: bool,
     flow_job_duration: Option<FlowJobDuration>,
@@ -1551,13 +1544,13 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
                          ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT],
                          $4
                      ),
-                     ARRAY['modules', $1::TEXT, 'flow_jobs_duration', $3::TEXT], $5)
+                     ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $5)
                  WHERE id = $2",
-                old_status.step as i32,
+                old_status_step as i32,
                 flow,
                 position as i32,
                 json!(success),
-                flow_job_duration.map(|x| json!(x))
+                flow_job_duration.map(|x| json!(x.duration_ms))
             )
             .execute(&mut **tx)
             .await
@@ -1568,6 +1561,36 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     }
     Ok(())
 }
+
+// async fn set_started_at_in_flow_job_success<'c>(
+//     flow_jobs_success: &Option<Vec<Option<bool>>>,
+//     flow_jobs: &Vec<Uuid>,
+//     job_id_for_status: &Uuid,
+//     old_status: &FlowStatus,
+//     flow: Uuid,
+//     tx: &mut Transaction<'c, Postgres>,
+// ) -> error::Result<()> {
+//     if flow_jobs_success.is_some() {
+//         let position = find_flow_job_index(flow_jobs, job_id_for_status);
+//         if let Some(position) = position {
+//             sqlx::query!(
+//                 "UPDATE v2_job_status SET
+//                      flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'started_at', $3::TEXT], $4)
+//                  WHERE id = $2",
+//                 old_status.step as i32,
+//                 flow,
+//                 position as i32,
+//                 json!(flow_job_duration.started_at)
+//             )
+//             .execute(&mut **tx)
+//             .await
+//             .map_err(|e| {
+//                 Error::internal_err(format!("error while setting flow_jobs_success/timeline: {e:#}"))
+//             })?;
+//         }
+//     }
+//     Ok(())
+// }
 
 async fn retrieve_flow_jobs_results(
     db: &DB,
@@ -2798,7 +2821,7 @@ async fn push_next_flow_job(
                     flow_jobs_duration: if branch_chosen.is_some() {
                         None
                     } else {
-                        Some(vec![])
+                        Some(FlowJobsDuration { started_at: vec![], duration_ms: vec![] })
                     },
                     branch_chosen: branch_chosen,
                     approvers: vec![],
@@ -3208,7 +3231,7 @@ async fn push_next_flow_job(
                 flow_jobs_success.push(None);
             }
             if let Some(flow_jobs_duration) = &mut flow_jobs_duration {
-                flow_jobs_duration.push(None);
+                flow_jobs_duration.push(&None);
             }
             FlowStatusModule::InProgress {
                 job: uuid,
@@ -3231,7 +3254,7 @@ async fn push_next_flow_job(
             iterator,
             flow_jobs_success: Some(vec![None; uuids.len()]),
             flow_jobs: Some(uuids.clone()),
-            flow_jobs_duration: Some(vec![None; uuids.len()]),
+            flow_jobs_duration: Some(FlowJobsDuration::new(uuids.len())),
             branch_chosen: None,
             branchall,
             id: status_module.id(),
@@ -3254,7 +3277,7 @@ async fn push_next_flow_job(
                 flow_jobs_success.push(None);
             }
             if let Some(flow_jobs_duration) = &mut flow_jobs_duration {
-                flow_jobs_duration.push(None);
+                flow_jobs_duration.push(&None);
             }
             FlowStatusModule::InProgress {
                 job: uuid,
@@ -3455,7 +3478,7 @@ struct ForloopNextIteration {
     itered: Vec<Box<RawValue>>,
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
-    flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+    flow_jobs_duration: Option<FlowJobsDuration>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -3471,7 +3494,7 @@ struct NextBranch {
     status: BranchAllStatus,
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
-    flow_jobs_duration: Option<Vec<Option<FlowJobDuration>>>,
+    flow_jobs_duration: Option<FlowJobsDuration>,
 }
 
 #[derive(Debug)]
@@ -3730,7 +3753,7 @@ async fn compute_next_flow_transform(
                     flow_jobs_duration,
                     ..
                 } => (flow_jobs.clone(), flow_jobs_success.clone(), flow_jobs_duration.clone()),
-                _ => (vec![], Some(vec![]), Some(vec![])),
+                _ => (vec![], Some(vec![]), Some(FlowJobsDuration::new(0))),
             };
             let next_loop_idx = flow_jobs.len();
             next_loop_iteration(
@@ -3988,7 +4011,7 @@ async fn compute_next_flow_transform(
                             BranchAllStatus { branch: 0, len: branches.len() },
                             vec![],
                             Some(vec![]),
-                            Some(vec![]),
+                            Some(FlowJobsDuration::new(0)),
                         )
                     }
                 }
@@ -4196,7 +4219,7 @@ async fn next_forloop_status(
                     itered,
                     flow_jobs: vec![],
                     flow_jobs_success: Some(vec![]),
-                    flow_jobs_duration: Some(vec![]),
+                    flow_jobs_duration: Some(FlowJobsDuration::new(0)),
                     new_args: iter,
                     while_loop: false,
                 })
