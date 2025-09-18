@@ -84,7 +84,7 @@ impl AIProvider {
 
     /// Check if this provider/URL combination represents Azure OpenAI
     pub fn is_azure_openai(&self, base_url: &str) -> bool {
-        matches!(self, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
+        (matches!(self, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL)
             || matches!(self, AIProvider::AzureOpenAI)
     }
 
