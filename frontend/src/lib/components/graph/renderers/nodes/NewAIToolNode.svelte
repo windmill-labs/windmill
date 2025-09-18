@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
-
 	import { twMerge } from 'tailwind-merge'
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
@@ -22,11 +20,13 @@
 		middleware: [offset(8), flip()],
 		autoUpdate: true
 	}
+
+	let open = $state(false)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<PopupV2 {floatingConfig} target="#flow-editor">
-	{#snippet button({ pointerdown, pointerup })}
+<PopupV2 bind:open {floatingConfig} target="#flow-editor">
+	{#snippet button()}
 		<button
 			title={`Add 'tool'
 			}`}
@@ -34,12 +34,7 @@
 			class={twMerge(
 				'!w-full h-6 flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded'
 			)}
-			onpointerdown={stopPropagation(
-				preventDefault(() => {
-					pointerdown()
-				})
-			)}
-			onpointerup={pointerup}
+			onpointerdown={() => (open = !open)}
 		>
 			<div class="flex flex-row items-center gap-1 font-medium text-2xs">
 				<Cross size={12} />
