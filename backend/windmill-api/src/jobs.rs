@@ -6870,10 +6870,8 @@ fn start_job_update_sse_stream(
                         }
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {
-                                tracing::info!("updating stream_offset to {:?}", new_stream_offset);
                                 stream_offset = Some(new_stream_offset);
                             } else {
-                                tracing::info!("not updating stream_offset");
                                 update.stream_offset = None;
                             }
                         }

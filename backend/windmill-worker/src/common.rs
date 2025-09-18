@@ -36,6 +36,7 @@ use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
 use windmill_queue::flow_status::get_step_of_flow_status;
 use windmill_queue::MiniPulledJob;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -1075,7 +1076,6 @@ pub struct StreamNotifier {
     root_job: uuid::Uuid,
 }
 
-
 #[async_recursion]
 async fn check_if_nested_step_is_last(
     db: &DB,
@@ -1086,12 +1086,12 @@ async fn check_if_nested_step_is_last(
 ) -> error::Result<bool> {
     // Initialize or use the provided visited set for cycle detection
     let mut visited = visited.unwrap_or_else(HashSet::new);
-    
+
     // Check for cycles - if we've already visited this job, return false to break the recursion
     if !visited.insert(parent_job) {
         return Ok(false);
     }
-    
+
     // get parent of parent job to get step of parent job
     let parent_of_parent_job = parent_of_parent_job.or(sqlx::query_scalar!(
         "SELECT parent_job FROM v2_job WHERE id = $1",
@@ -1104,7 +1104,7 @@ async fn check_if_nested_step_is_last(
         if !visited.insert(parent_of_parent_job) {
             return Ok(false);
         }
-        
+
         let r = sqlx::query!(
             r#"SELECT 
                 (flow_status->'step')::integer as step,
@@ -1146,7 +1146,6 @@ async fn check_if_nested_step_is_last(
     Ok(false)
 }
 
-
 impl StreamNotifier {
     pub fn new(conn: &Connection, job: &MiniPulledJob) -> Option<Self> {
         let root_job = get_root_job_id(job);
@@ -1180,7 +1179,7 @@ impl StreamNotifier {
 
         if step.is_last_step()
             && (parent_job == root_job
-                || check_if_nested_step_is_last(&db, parent_job, None, root_job).await?)
+                || check_if_nested_step_is_last(&db, parent_job, None, root_job, None).await?)
         {
             sqlx::query!(r#"
                     UPDATE v2_job_status

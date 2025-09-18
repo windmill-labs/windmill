@@ -188,7 +188,7 @@ export async function main() {
 			console.log(data);
 			if (data.completed) {
 				eventSource.close();
-				resolve(data.result);
+				resolve();
 			}
 		};
 
@@ -378,19 +378,19 @@ done`
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={callMethod}>
 				{#snippet children({ item })}
 					<ToggleButton
+						label="POST"
+						icon={ArrowDownRight}
+						selectedColor="#14b8a6"
+						value="post"
+						{item}
+					/>
+					<ToggleButton
 						label="GET"
 						icon={ArrowUpRight}
 						selectedColor="#fb923c"
 						value="get"
 						{item}
 						disabled={requestType !== 'sync'}
-					/>
-					<ToggleButton
-						label="POST"
-						icon={ArrowDownRight}
-						selectedColor="#14b8a6"
-						value="post"
-						{item}
 					/>
 					<ToggleButton
 						label="SSE"
