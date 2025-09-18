@@ -10,7 +10,7 @@
 	} from '$lib/consts'
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
+	import { ArrowDownRight, ArrowUpRight, Clipboard, RssIcon } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
@@ -44,24 +44,43 @@
 
 	let webhooks: {
 		async: {
-			hash?: string
-			path: string
+			get: {}
+			post: {
+				hash?: string
+				path: string
+			}
+			sse: {}
 		}
 		sync: {
-			hash?: string
-			path: string
-			get_path?: string
+			get: {
+				path: string
+			}
+			post: {
+				hash?: string
+				path: string
+			}
+			sse: {
+				hash?: string
+				path: string
+			}
 		}
 	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
-	let webhookType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync'
-	let requestType = $state(isFlow ? 'path' : 'path') as 'hash' | 'path' | 'get_path'
+	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync'
+	let callMethod = $state('post') as 'get' | 'post' | 'sse'
+	let runnableId = $state('path') as 'hash' | 'path'
 	let tokenType = $state('headers') as 'query' | 'headers'
 
 	$effect(() => {
-		if (webhookType === 'async' && requestType === 'get_path') {
-			requestType = hash ? 'hash' : 'path'
+		if (requestType === 'async' && (callMethod === 'get' || callMethod === 'sse')) {
+			callMethod = 'post'
+		}
+	})
+
+	$effect(() => {
+		if (callMethod === 'sse' && tokenType === 'headers') {
+			tokenType = 'query'
 		}
 	})
 
@@ -72,15 +91,15 @@
 			: runnableArgs
 	})
 	let url: string = $derived(
-		webhooks[webhookType][requestType] +
+		webhooks[requestType][callMethod][runnableId] +
 			(tokenType === 'query'
 				? `?token=${token}${
-						requestType === 'get_path'
+						callMethod === 'get' || callMethod === 'sse'
 							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 							: ''
 					}`
 				: `${
-						requestType === 'get_path'
+						callMethod === 'get'
 							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 							: ''
 					}`)
@@ -90,13 +109,25 @@
 		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
-				hash: `${webhookBase}/run/h/${hash}`,
-				path: `${webhookBase}/run/p/${path}`
+				get: {},
+				post: {
+					hash: `${webhookBase}/run/h/${hash}`,
+					path: `${webhookBase}/run/p/${path}`
+				},
+				sse: {}
 			},
 			sync: {
-				hash: `${webhookBase}/run_wait_result/h/${hash}`,
-				path: `${webhookBase}/run_wait_result/p/${path}`,
-				get_path: `${webhookBase}/run_wait_result/p/${path}`
+				get: {
+					path: `${webhookBase}/run_wait_result/p/${path}`
+				},
+				post: {
+					hash: `${webhookBase}/run_wait_result/h/${hash}`,
+					path: `${webhookBase}/run_wait_result/p/${path}`
+				},
+				sse: {
+					hash: `${webhookBase}/run_and_stream/h/${hash}`,
+					path: `${webhookBase}/run_and_stream/p/${path}`
+				}
 			}
 		}
 	}
@@ -106,20 +137,32 @@
 
 		let urlAsync = `${webhooksBase}/run/f/${path}`
 		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
+		let urlStream = `${webhooksBase}/run_and_stream/f/${path}`
 		return {
 			async: {
-				path: urlAsync
+				get: {},
+				post: {
+					path: urlAsync
+				},
+				sse: {}
 			},
 			sync: {
-				path: urlSync,
-				get_path: urlSync
+				get: {
+					path: urlSync
+				},
+				post: {
+					path: urlSync
+				},
+				sse: {
+					path: urlStream
+				}
 			}
 		}
 	}
 
 	function headers() {
 		const headers = {}
-		if (requestType != 'get_path') {
+		if (callMethod === 'post') {
 			headers['Content-Type'] = 'application/json'
 		}
 
@@ -130,7 +173,34 @@
 	}
 
 	function fetchCode() {
-		if (webhookType === 'sync') {
+		if (callMethod === 'sse') {
+			return `
+import { EventSource } from "eventsource";
+
+export async function main() {
+	const endpoint = \`${url}\`;
+
+	return new Promise((resolve, reject) => {
+		const eventSource = new EventSource(endpoint);
+
+		eventSource.onmessage = (event) => {
+			const data = JSON.parse(event.data);
+			console.log(data);
+			if (data.completed) {
+				eventSource.close();
+				resolve();
+			}
+		};
+
+		eventSource.onerror = (error) => {
+			console.error('EventSource error:', error);
+			eventSource.close();
+			reject(error);
+		};
+	});
+}`
+		}
+		if (requestType === 'sync') {
 			return `
 export async function main() {
   const jobTriggerResponse = await triggerJob();
@@ -140,7 +210,7 @@ export async function main() {
 
 async function triggerJob() {
   ${
-		requestType === 'get_path'
+		callMethod === 'get'
 			? '// Payload is a base64 encoded string of the arguments'
 			: `const body = JSON.stringify(${JSON.stringify(
 					cleanedRunnableArgs ?? {},
@@ -151,16 +221,15 @@ async function triggerJob() {
   const endpoint = \`${url}\`;
 
   return await fetch(endpoint, {
-    method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
+    method: '${callMethod === 'get' ? 'GET' : 'POST'}',
     headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
-			requestType === 'get_path' ? '' : `,\n\t\tbody`
+			callMethod === 'get' ? '' : `,\n\t\tbody`
 		}
   });
 }`
-		}
-
-		// Main function
-		let mainFunction = `
+		} else {
+			// Main function
+			let mainFunction = `
 export async function main() {
   const jobTriggerResponse = await triggerJob();
   const UUID = await jobTriggerResponse.text();
@@ -168,8 +237,8 @@ export async function main() {
   return jobCompletionData;
 }`
 
-		// triggerJob function
-		let triggerJobFunction = `
+			// triggerJob function
+			let triggerJobFunction = `
 async function triggerJob() {
   const body = JSON.stringify(${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2).replaceAll(
 		'\n',
@@ -178,14 +247,14 @@ async function triggerJob() {
   const endpoint = \`${url}\`;
 
   return await fetch(endpoint, {
-    method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
+    method: '${callMethod === 'get' ? 'GET' : 'POST'}',
     headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
     body
   });
 }`
 
-		// waitForJobCompletion function
-		let waitForJobCompletionFunction = `
+			// waitForJobCompletion function
+			let waitForJobCompletionFunction = `
 function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -214,22 +283,23 @@ function waitForJobCompletion(UUID) {
   });
 }`
 
-		// Combine and return
-		return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
+			// Combine and return
+			return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
+		}
 	}
 
 	function curlCode() {
 		return `TOKEN='${token}'
-${requestType !== 'get_path' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
+${callMethod !== 'get' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
 URL='${url}'
-${webhookType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
-			requestType != 'get_path' ? "-H 'Content-Type: application/json'" : ''
+${requestType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
+			callMethod != 'get' ? "-H 'Content-Type: application/json'" : ''
 		} ${tokenType === 'headers' ? `-H "Authorization: Bearer $TOKEN"` : ''} -X ${
-			requestType === 'get_path' ? 'GET' : 'POST'
-		} ${requestType !== 'get_path' ? `-d "$BODY" ` : ''}$URL)
+			callMethod === 'get' ? 'GET' : 'POST'
+		} ${callMethod !== 'get' ? `-d "$BODY" ` : ''}$URL)
 
 ${
-	webhookType === 'sync'
+	requestType === 'sync'
 		? 'echo -E $RESULT | jq'
 		: `
 URL="${location.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
@@ -286,7 +356,7 @@ done`
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
 				{#snippet children({ item })}
 					<ToggleButton
 						label="Async"
@@ -305,44 +375,63 @@ done`
 		</div>
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={callMethod}>
 				{#snippet children({ item })}
 					<ToggleButton
-						label="POST by path"
-						value="path"
-						icon={ArrowUpRight}
-						{item}
-						selectedColor="#fb923c"
-					/>
-					{#if !isFlow}
-						<ToggleButton
-							label="POST by hash"
-							value="hash"
-							icon={ArrowUpRight}
-							selectedColor="#fb923c"
-							disabled={!hash}
-							{item}
-						/>
-					{/if}
-
-					<ToggleButton
-						label="GET by path"
-						value="get_path"
+						label="POST"
 						icon={ArrowDownRight}
-						disabled={webhookType !== 'sync'}
-						{item}
 						selectedColor="#14b8a6"
+						value="post"
+						{item}
+					/>
+					<ToggleButton
+						label="GET"
+						icon={ArrowUpRight}
+						selectedColor="#fb923c"
+						value="get"
+						{item}
+						disabled={requestType !== 'sync'}
+					/>
+					<ToggleButton
+						label="SSE"
+						value="sse"
+						icon={RssIcon}
+						selectedColor="#3B82F6"
+						disabled={requestType !== 'sync'}
+						tooltip={'Returns an SSE stream. ' +
+							(isFlow
+								? 'Only useful if the last step of the flow returns a stream.'
+								: 'Only useful if the script returns a stream.')}
+						{item}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
+		{#if !isFlow}
+			<div class="flex flex-row justify-between">
+				<div class="text-sm font-normal text-secondary flex flex-row items-center">
+					Reference type
+				</div>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={runnableId}>
+					{#snippet children({ item })}
+						<ToggleButton label="Path" value="path" {item} />
+						<ToggleButton label="Hash" value="hash" disabled={!hash} {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			</div>
+		{/if}
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center"
 				>Token configuration</div
 			>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
 				{#snippet children({ item })}
-					<ToggleButton label="Token in Headers" value="headers" {item} />
+					<ToggleButton
+						label="Token in Headers"
+						value="headers"
+						{item}
+						disabled={callMethod === 'sse'}
+					/>
 					<ToggleButton label="Token in Query" value="query" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
@@ -354,10 +443,12 @@ done`
 	<div>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="rest" size="xs">REST</Tab>
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && callMethod !== 'sse'}
 				<Tab value="curl" size="xs">Curl</Tab>
 			{/if}
-			<Tab value="fetch" size="xs">Fetch</Tab>
+			<Tab value="fetch" size="xs">
+				{callMethod === 'sse' ? 'Event Source' : 'Fetch'}
+			</Tab>
 
 			{#snippet content()}
 				{#key token}
@@ -367,12 +458,12 @@ done`
 								<ClipboardPanel content={url} />
 							</Label>
 
-							{#if requestType !== 'get_path'}
+							{#if callMethod !== 'get'}
 								<Label label="Body">
 									<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
 								</Label>
 							{/if}
-							{#key requestType}
+							{#key callMethod}
 								{#key tokenType}
 									<Label label="Headers">
 										<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
@@ -384,8 +475,8 @@ done`
 					<TabContent value="curl" class="flex flex-col flex-1 h-full">
 						<div class="relative">
 							{#key runnableArgs}
-								{#key requestType}
-									{#key webhookType}
+								{#key callMethod}
+									{#key requestType}
 										{#key tokenType}
 											<div
 												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
@@ -405,8 +496,8 @@ done`
 					</TabContent>
 					<TabContent value="fetch">
 						{#key runnableArgs}
-							{#key requestType}
-								{#key webhookType}
+							{#key callMethod}
+								{#key requestType}
 									{#key tokenType}
 										{#key token}
 											<div

@@ -326,7 +326,7 @@ async fn update_flow_status_module_with_actions(
 ) -> Result<(), Error> {
     let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
     match step {
-        Step::Step(step) => {
+        Step::Step { idx: step, .. } => {
             sqlx::query!(
                 r#"
                 UPDATE v2_job_status SET
@@ -356,7 +356,7 @@ async fn update_flow_status_module_with_actions_success(
 ) -> Result<(), Error> {
     let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
     match step {
-        Step::Step(step) => {
+        Step::Step { idx: step, .. } => {
             // Append the new bool to the existing array, or create a new array if it doesn't exist
             sqlx::query!(
                 r#"

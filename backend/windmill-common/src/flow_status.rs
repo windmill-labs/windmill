@@ -43,6 +43,8 @@ pub struct FlowStatus {
     pub approval_conditions: Option<ApprovalConditions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restarted_from: Option<RestartedFrom>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_job: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -502,6 +504,7 @@ impl FlowStatus {
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,
             user_states: HashMap::new(),
+            stream_job: None,
         }
     }
 

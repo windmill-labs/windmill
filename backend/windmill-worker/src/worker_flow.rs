@@ -335,7 +335,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
         let current_module = match module_step {
-            Step::Step(i) => flow_value.modules.get(i),
+            Step::Step { idx: i, .. } => flow_value.modules.get(i),
             _ => None,
         };
 
@@ -349,7 +349,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .as_ref()
                 .ok_or_else(|| Error::internal_err(format!("preprocessor module not found")))?,
             Step::FailureStep => &old_status.failure_module.module_status,
-            Step::Step(i) => old_status
+            Step::Step { idx: i, .. } => old_status
                 .modules
                 .get(i as usize)
                 .ok_or_else(|| Error::internal_err(format!("module {i} not found")))?,
@@ -2051,7 +2051,7 @@ async fn push_next_flow_job(
     tracing::info!(id = %flow_job.id, root_id = %job_root, step = ?step, "pushing next flow job");
 
     let mut status_module = match step {
-        Step::Step(i) => status
+        Step::Step { idx: i, .. } => status
             .modules
             .get(i)
             .cloned()
@@ -2102,7 +2102,7 @@ async fn push_next_flow_job(
         })));
     }
 
-    if matches!(step, Step::Step(0)) {
+    if matches!(step, Step::Step { idx: 0, .. }) {
         if !flow_job.is_flow_step() && flow_job.schedule_path().is_some() {
             let schedule_path = flow_job.schedule_path();
             let no_flow_overlap = sqlx::query_scalar!(
@@ -2192,7 +2192,7 @@ async fn push_next_flow_job(
     let arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
-    } else if matches!(step, Step::Step(0)) || step.is_preprocessor_step() {
+    } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
         // if it's the first job executed in the flow, pass the flow args
         Arc::new(to_raw_value(&flow_job.args))
     } else {
@@ -2511,7 +2511,9 @@ async fn push_next_flow_job(
 
     let current_id = &module.id;
     let mut previous_id = match step {
-        Step::Step(i) if i >= 1 => flow.modules.get(i - 1).map(|m| m.id.clone()).unwrap(),
+        Step::Step { idx: i, .. } if i >= 1 => {
+            flow.modules.get(i - 1).map(|m| m.id.clone()).unwrap()
+        }
         _ => String::new(),
     };
 
@@ -2525,7 +2527,7 @@ async fn push_next_flow_job(
         ) {
             None
         } else {
-            let sleep_input_transform = if let Step::Step(i) = step {
+            let sleep_input_transform = if let Step::Step { idx: i, .. } = step {
                 i.checked_sub(1)
                     .and_then(|i| flow.modules.get(i))
                     .and_then(|m| m.sleep.clone())
@@ -3356,7 +3358,7 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
         }
-        Step::Step(i) => {
+        Step::Step { idx: i, .. } => {
             sqlx::query!(
                 "UPDATE v2_job_status SET
                      flow_status = JSONB_SET(
