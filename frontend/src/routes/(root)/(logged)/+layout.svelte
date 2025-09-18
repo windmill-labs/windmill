@@ -134,7 +134,7 @@
 	}
 
 	async function loadUsage() {
-		if (isCloudHosted()) {
+		if (isCloudHosted() && $workspaceStore) {
 			$usageStore = await UserService.getUsage()
 			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
 				workspace: $workspaceStore!
