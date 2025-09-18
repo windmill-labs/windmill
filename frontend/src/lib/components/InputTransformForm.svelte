@@ -424,7 +424,7 @@
 							{pickableProperties}
 							{argName}
 							btnClass={twMerge(
-								'h-6 px-2',
+								'h-6 min-w-8 px-2',
 								'group-hover:opacity-100 transition-opacity',
 								!connecting ? 'opacity-0' : ''
 							)}
@@ -434,8 +434,8 @@
 					{#if propPickerWrapperContext}
 						<FlowPlugConnect
 							wrapperClasses={twMerge(
-								'h-6',
-								'group-hover:opacity-100 transition-opacity',
+								connecting ? 'h-5 w-7' : 'h-6 w-8',
+								'group-hover:opacity-100 transition-opacity p-0',
 								!connecting ? 'opacity-0' : ''
 							)}
 							id="flow-editor-plug"

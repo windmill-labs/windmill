@@ -16,23 +16,12 @@
 		size="xs2"
 		btnClasses={twMerge(
 			connecting ? 'text-blue-500' : 'text-tertiary',
-			'group/plug-btn overflow-clip flex'
+			'group/plug-btn overflow-clip flex p-0'
 		)}
 		on:click
 		{...id ? { id } : {}}
 		{wrapperClasses}
 	>
-		{#if !connecting}
-			<span
-				class="absolute -translate-x-3 opacity-0 group-hover/plug-btn:opacity-100 group-hover/plug-btn:translate-x-0 transition-all"
-				>&rightarrow;</span
-			>
-			<Plug
-				class="group-hover/plug-btn:opacity-0 group-hover/plug-btn:translate-x-3 transition-all"
-				size={14}
-			/>
-		{:else}
-			<span>&rightarrow;</span>
-		{/if}
+		<Plug size={14} />
 	</Button>
 </AnimatedButton>
