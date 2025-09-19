@@ -676,11 +676,6 @@
 			<div class="relative flex flex-row items-top gap-2 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						{#if argName && schema?.properties?.[argName]?.description}
-							<div class="text-xs italic pb-1 text-secondary">
-								<pre class="font-main">{schema.properties[argName].description}</pre>
-							</div>
-						{/if}
 						<div class="mt-2 min-h-[28px]">
 							{#if arg}
 								<TemplateEditor
@@ -698,6 +693,11 @@
 									loadAsync
 									class="bg-surface-secondary"
 								/>
+							{/if}
+							{#if argName && schema?.properties?.[argName]?.description}
+								<div class="text-xs italic py-1 text-hint">
+									<pre class="font-main">{schema.properties[argName].description}</pre>
+								</div>
 							{/if}
 						</div>
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}

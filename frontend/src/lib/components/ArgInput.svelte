@@ -598,12 +598,6 @@
 		/>
 	{/if}
 
-	{#if description}
-		<div class={twMerge('text-xs italic pb-1 text-secondary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
-		</div>
-	{/if}
-
 	<div class="flex space-x-1">
 		{#if inputCat == 'number'}
 			{#if extra['min'] != undefined && extra['max'] != undefined}
@@ -1370,6 +1364,12 @@
 		{/if}
 		{@render actions?.()}
 	</div>
+
+	{#if description}
+		<div class={twMerge('text-2xs italic py-1 text-hint', css?.description?.class)}>
+			<pre class="font-main whitespace-normal">{description}</pre>
+		</div>
+	{/if}
 
 	{#if !compact || (error && error != '')}
 		<div class="text-right text-xs text-red-600 dark:text-red-400">

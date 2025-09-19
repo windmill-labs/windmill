@@ -14,6 +14,7 @@ const lightTheme = {
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
 	textTertiary: '#505c70',
+	textHint: '#A0A6B2',
 	textDisabled: '#a0aec0',
 
 	border: '#dddddd',
@@ -32,6 +33,7 @@ const darkTheme = {
 	textPrimary: '#EEEEEE',
 	textSecondary: '#C2C9D1',
 	textTertiary: '#A8AEB7',
+	textHint: '#989DA5',
 	textDisabled: '#989DA5',
 
 	border: '#3e4c60',
@@ -413,6 +415,7 @@ const config = {
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
 			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
+			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
 
 			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
@@ -424,6 +427,7 @@ const config = {
 			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
 			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
 			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
+			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
 			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
@@ -519,6 +523,7 @@ const config = {
 					'--color-text-primary': lightThemeRgb.textPrimary,
 					'--color-text-secondary': lightThemeRgb.textSecondary,
 					'--color-text-tertiary': lightThemeRgb.textTertiary,
+					'--color-text-hint': lightThemeRgb.textHint,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
@@ -530,6 +535,7 @@ const config = {
 					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
 					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
 					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
+					'--color-text-hint-inverse': darkThemeRgb.texthint,
 					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
 
 					'--color-border': lightThemeRgb.border,
@@ -560,6 +566,7 @@ const config = {
 						'--color-text-primary': darkThemeRgb.textPrimary,
 						'--color-text-secondary': darkThemeRgb.textSecondary,
 						'--color-text-tertiary': darkThemeRgb.textTertiary,
+						'--color-text-hint': darkThemeRgb.textHint,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
 
 						'--color-surface-inverse': lightThemeRgb.surface,
@@ -571,6 +578,7 @@ const config = {
 						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
 						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
 						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
+						'--color-text-hint-inverse': lightThemeRgb.textHint,
 						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
 
 						'--color-border': darkThemeRgb.border,
