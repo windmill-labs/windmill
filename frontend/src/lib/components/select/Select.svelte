@@ -115,7 +115,7 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton class="text-secondary bg-surface-secondary" noBg small on:close={clearValue} />
+			<CloseButton class="text-secondary bg-transparent" noBg small on:close={clearValue} />
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -133,11 +133,11 @@
 			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
-			'!bg-surface-secondary text-ellipsis focus:!ring-0',
+			'no-default-style !bg-surface-secondary text-ellipsis focus:ring-0 disabled:cursor-not-allowed rounded-md text-sm w-full',
 			inputBorderClass({ error, forceFocus: open }),
 			open ? '' : 'cursor-pointer',
-			!loading && value ? '!placeholder-primary' : '',
-			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
+			!loading && value ? 'placeholder-primary' : '',
+			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"

@@ -35,11 +35,10 @@
 <input
 	{...inputProps}
 	class={twMerge(
-		// TODO Make tailwind classes for every color
-		'!bg-surface-secondary !shadow-none !py-2 !px-4',
-		'focus:!ring-0',
+		'no-default-style text-sm !bg-surface-secondary shadow-none py-2 px-4 w-full',
+		'focus:ring-0',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-		'!rounded-md',
+		'rounded-md',
 		inputBorderClass({ error: !!error }),
 		className
 	)}

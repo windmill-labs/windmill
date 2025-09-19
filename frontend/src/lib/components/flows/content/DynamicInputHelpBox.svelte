@@ -2,8 +2,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ChevronDown } from 'lucide-svelte'
 
-	import { slide } from 'svelte/transition'
-
 	$: opened = false
 </script>
 
