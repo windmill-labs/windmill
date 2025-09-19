@@ -665,14 +665,14 @@
 		{code}
 		lineNumbersWidth={14}
 		lineNumbersOffset={-20}
-		class="template nonmain-editor rounded min-h-4 bg-surface-secondary !py-[8px] mx-0.5 overflow-clip"
+		class="template nonmain-editor rounded-md min-h-4 bg-surface-secondary !py-[8px] mx-0.5 overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
 	style="height: 18px; padding-left: 8px;"
 	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
-		''} template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor ? 'hidden' : ''}"
+		''} template nonmain-editor rounded-md min-h-4 mx-0.5 overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
 ></div>
 

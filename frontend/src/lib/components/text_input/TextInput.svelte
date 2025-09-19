@@ -7,13 +7,13 @@
 		forceFocus?: boolean
 	} = {}) {
 		return twMerge(
-			'transition-colors  border',
+			'transition-colors border',
 			forceFocus
 				? '!border-nord-900 dark:!border-nord-900'
 				: '!border-transparent focus:!border-nord-900 dark:focus:!border-nord-900 hover:!border-nord-400 dark:hover:!border-nord-300',
 			error
 				? '!border-red-300 focus:!border-red-400 hover:!border-red-500 dark:!border-red-400/40 dark:hover:!border-red-600/40'
-				: '!border-transparent'
+				: ''
 		)
 	}
 </script>

@@ -38,6 +38,7 @@
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	import { deepEqual } from 'fast-equals'
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -676,7 +677,7 @@
 			<div class="relative flex flex-row items-top gap-2 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						<div class="mt-2 min-h-[28px]">
+						<div class="min-h-[28px]">
 							{#if arg}
 								<TemplateEditor
 									bind:this={monacoTemplate}
@@ -749,13 +750,17 @@
 							/>
 						{/if}
 					{:else if arg.expr != undefined}
-						<div class="border mt-2">
+						<div
+							class={`bg-surface-secondary rounded-md min-h-[18px] pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+						>
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
+								renderLineHighlight="none"
+								hideLineNumbers
 								on:focus={() => {
 									focused = true
 									focusProp?.(argName, 'insert', (path) => {

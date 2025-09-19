@@ -245,7 +245,8 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				rules: [],
 				colors: {
 					'editor.background': '#FFFFFF00',
-					'editorLineNumber.foreground': '#999',
+					'editorLineNumber.foreground': '#C2C9D1',
+					'editorLineNumber.activeForeground': '#989DA5',
 					'editorGutter.background': '#FFFFFF00'
 				}
 			})
