@@ -312,8 +312,10 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_logs_tail),
         )
         .route("/get_args/:id", get(get_args))
-        .route("/get_scheduled_for", post(get_scheduled_for))
-
+        .route(
+            "/queue/get_scheduled_for_by_ids",
+            post(get_scheduled_for_by_ids),
+        )
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -1670,23 +1672,24 @@ pub struct GetScheduledForQuery {
     pub ids: Vec<Uuid>,
 }
 
-pub async fn get_scheduled_for_by_ids(
-    Authed(authed): Authed,
+async fn get_scheduled_for_by_ids(
+    Extension(db): Extension<DB>,
     Json(mut query): Json<GetScheduledForQuery>,
 ) -> JsonResult<Vec<chrono::DateTime<chrono::Utc>>> {
-    query.ids.truncate(1000);
+    query.ids.truncate(100);
     let ids = query.ids;
 
-    let db = 
-    let scheduled_for = 
-        sqlx::query!(
-            "SELECT id, scheduled_for FROM v2_job_queue WHERE id = ANY($1)",
-            ids.as_slice()
-        )
-        .fetch_all(&db)
-        .await?;
+    let scheduled_for = sqlx::query!(
+        "SELECT id, scheduled_for FROM v2_job_queue WHERE id = ANY($1)",
+        ids.as_slice()
+    )
+    .fetch_all(&db)
+    .await?;
 
-    let as_map = scheduled_for.iter().map(|x| (x.id, x.scheduled_for)).collect::<HashMap<_, _>>();
+    let as_map = scheduled_for
+        .iter()
+        .map(|x| (x.id, x.scheduled_for))
+        .collect::<HashMap<_, _>>();
     let mut r = Vec::new();
     for id in ids {
         r.push(as_map.get(&id).map(|x| x.clone()).unwrap_or_default());
@@ -6831,7 +6834,6 @@ fn start_job_update_sse_stream(
         let start = Instant::now();
         let mut last_ping = Instant::now();
 
-
         loop {
             i += 1;
             let ms_duration = if i > 100 || !fast.unwrap_or(false) {
@@ -6901,7 +6903,6 @@ fn start_job_update_sse_stream(
                                 update.log_offset = None;
                             }
                         }
-
 
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {

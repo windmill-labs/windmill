@@ -8024,6 +8024,34 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/queue/get_scheduled_for_by_ids:
+    post:
+      summary: get scheduled for by ids
+      operationId: getScheduledForByIds
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: ids
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: scheduled for by ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: date-time
+
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates
@@ -18249,7 +18277,7 @@ components:
         allow:
           type: string # comma separated permissions : "read,write,delete,list"
       required: ["pattern", "allow"]
-    
+
     GitRepositorySettings:
       type: object
       properties:

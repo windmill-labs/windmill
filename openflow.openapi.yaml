@@ -570,13 +570,15 @@ components:
           items:
             type: boolean
         flow_jobs_duration:
-          type: array
-          items:
-            type: object
-            properties:
-              started_at:
+          type: object
+          properties:
+            started_at:
+              type: array
+              items:
                 type: string
-              duration_ms:
+            duration_ms:
+              type: array
+              items:
                 type: integer
         branch_chosen:
           type: object
