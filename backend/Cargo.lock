@@ -15796,6 +15796,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
+ "libffi-sys",
  "libloading 0.8.8",
  "mappable-rc",
  "mime_guess",
