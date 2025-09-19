@@ -19,7 +19,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
-	import type { GlobalIterationBounds, GraphModuleState } from './graph/model'
+	import type { GraphModuleState } from './graph/model'
 	import type { NavigationChain } from '$lib/keyboardChain'
 	import { updateLinks } from '$lib/keyboardChain'
 	import FlowLogRow from './FlowLogRow.svelte'
@@ -62,8 +62,6 @@
 		timelineAvailableWidths: Record<string, number>
 		timelinelWidth: number
 		showTimeline?: boolean
-		globalIterationBounds?: Record<string, GlobalIterationBounds>
-		loadPreviousIterations?: (key: string, amount: number) => void
 	}
 
 	let {
@@ -92,9 +90,7 @@
 		timelineNow,
 		timelineAvailableWidths = $bindable(),
 		timelinelWidth,
-		showTimeline = true,
-		globalIterationBounds,
-		loadPreviousIterations
+		showTimeline = true
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -769,13 +765,8 @@
 														total={timelineTotal}
 														min={timelineMin}
 														items={moduleItems ?? []}
-														hasMoreIterations={globalIterationBounds?.[module.id] &&
-															(globalIterationBounds[module.id].iteration_from ?? 0) > 0}
 														now={timelineNow}
 														{timelinelWidth}
-														loadPreviousIterations={() => {
-															loadPreviousIterations?.(module.id, 20)
-														}}
 														onSelectIteration={(id) => {
 															if (
 																module.value.type !== 'forloopflow' &&
@@ -856,8 +847,6 @@
 														bind:timelineAvailableWidths
 														{timelinelWidth}
 														{showTimeline}
-														{globalIterationBounds}
-														{loadPreviousIterations}
 													/>
 												</div>
 											{/each}

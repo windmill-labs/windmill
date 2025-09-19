@@ -312,6 +312,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_logs_tail),
         )
         .route("/get_args/:id", get(get_args))
+        .route("/queue/get_started_at_by_ids", post(get_started_at_by_ids))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -1661,6 +1662,32 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
+}
+
+async fn get_started_at_by_ids(
+    Extension(db): Extension<DB>,
+    Json(mut ids): Json<Vec<Uuid>>,
+) -> JsonResult<Vec<Option<chrono::DateTime<chrono::Utc>>>> {
+    ids.truncate(100);
+
+    let started_at = sqlx::query!(
+        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1)",
+        ids.as_slice()
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let as_map = started_at
+        .iter()
+        .map(|x| (x.id, x.started_at))
+        .collect::<HashMap<_, _>>();
+
+    let mut r = Vec::new();
+    for id in ids {
+        r.push(as_map.get(&id).map(|x| x.clone()).unwrap_or_default());
+    }
+
+    Ok(Json(r))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -6868,6 +6895,7 @@ fn start_job_update_sse_stream(
                                 update.log_offset = None;
                             }
                         }
+
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {
                                 stream_offset = Some(new_stream_offset);

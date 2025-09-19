@@ -21,8 +21,6 @@
 		showZoomButtons?: boolean
 		onZoom?: () => void
 		zoom?: 'in' | 'out'
-		hasMoreIterations?: boolean
-		loadPreviousIterations?: () => void
 		onSelectIteration?: (id: string) => void
 		idToIterationIndex?: (id: string) => number | undefined
 		showIterations?: string[]
@@ -39,8 +37,6 @@
 		showZoomButtons = false,
 		onZoom,
 		zoom = 'in',
-		hasMoreIterations,
-		loadPreviousIterations,
 		onSelectIteration,
 		idToIterationIndex,
 		showIterations,
@@ -112,26 +108,61 @@
 		return { left: leftPercent, width: widthPercent }
 	}
 
-	function getOverlapOpacity(item: TimelineItem, allItems: TimelineItem[]): number {
-		if (!item.started_at) return 1
+	// More efficient version using sweep line algorithm for computing all overlaps at once
+	function computeAllOverlaps(items: TimelineItem[]): Record<string, number> {
+		const overlapCounts = new Map<string, number>()
 
-		const itemEnd = item.duration_ms ? item.started_at + item.duration_ms : now
-		let overlapCount = 0
-
-		for (const otherItem of allItems) {
-			if (otherItem.id === item.id || !otherItem.started_at) continue
-
-			const otherEnd = otherItem.duration_ms ? otherItem.started_at + otherItem.duration_ms : now
-
-			// Check if time ranges overlap
-			if (item.started_at < otherEnd && otherItem.started_at < itemEnd) {
-				overlapCount++
-			}
+		// Create events for start and end times
+		interface Event {
+			time: number
+			type: 'start' | 'end'
+			itemId: string
 		}
 
-		// Base opacity of 1, reduce by 0.2 for each overlap, minimum 0.3
-		return Math.max(0.3, 1 - overlapCount * 0.2)
+		const events: Event[] = []
+
+		for (const item of items) {
+			if (!item.started_at) continue
+
+			const endTime = item.duration_ms ? item.started_at + item.duration_ms : now
+			events.push({ time: item.started_at, type: 'start', itemId: item.id })
+			events.push({ time: endTime, type: 'end', itemId: item.id })
+			overlapCounts.set(item.id, 0)
+		}
+
+		// Sort events by time, with end events before start events at the same time
+		events.sort((a, b) => {
+			if (a.time !== b.time) return a.time - b.time
+			return a.type === 'end' ? -1 : 1
+		})
+
+		// Sweep through events
+		const activeItems = new Set<string>()
+
+		for (const event of events) {
+			if (event.type === 'start') {
+				// Count current active items as overlaps for this item
+				overlapCounts.set(event.itemId, activeItems.size)
+
+				// Update overlap counts for all currently active items
+				for (const activeId of activeItems) {
+					overlapCounts.set(activeId, overlapCounts.get(activeId)! + 1)
+				}
+
+				activeItems.add(event.itemId)
+			} else {
+				activeItems.delete(event.itemId)
+			}
+		}
+		return Object.fromEntries(overlapCounts.entries())
 	}
+
+	// At component level, compute once when items change
+	const allOverlaps = $derived(computeAllOverlaps(filteredItems))
+	const maximumOverlaps = $derived(Math.max(...Object.values(allOverlaps)))
+	const opacity = $derived(Math.max(0.02, 1 / maximumOverlaps))
+	// Then in your template, use:
+	// allOverlaps.get(item.id) ?? 0
 </script>
 
 {#if min && filteredItems.length > 0 && startItem?.started_at}
@@ -155,24 +186,6 @@
 					{/if}
 				</button>
 			</div>
-		{:else if hasMoreIterations}
-			<Tooltip
-				class="hover:text-primary hover:bg-surface p-1 -my-1 w-24 rounded-md flex items-center justify-center"
-				openDelay={100}
-			>
-				<button
-					class="text-2xs text-primary whitespace-nowrap"
-					onclick={(e) => {
-						e.stopPropagation()
-						loadPreviousIterations?.()
-					}}
-				>
-					load more...
-				</button>
-				{#snippet text()}
-					Load previous iterations
-				{/snippet}
-			</Tooltip>
 		{:else}
 			<div class="w-24"></div>
 		{/if}
@@ -205,7 +218,8 @@
 				{#each filteredItems as item, i}
 					{#if item.started_at}
 						{@const position = calculateItemPosition(item)}
-						{@const opacity = getOverlapOpacity(item, filteredItems)}
+						<!-- {overlapCount}
+						{opacity} -->
 						<Tooltip
 							style="left: {position.left}%; width: {position.width}%"
 							class="h-full absolute top-0"
