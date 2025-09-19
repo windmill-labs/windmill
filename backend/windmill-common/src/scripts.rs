@@ -137,6 +137,12 @@ impl Into<u64> for ScriptHash {
     }
 }
 
+impl From<i64> for ScriptHash {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
@@ -160,7 +166,10 @@ impl<'de> Deserialize<'de> for ScriptHash {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let i = to_i64(&s).map_err(|e| D::Error::custom(format!("{}", e)))?;
+        let i = to_i64(&s).map_err(|e| {
+            tracing::error!("Could not deserialize ScriptHash. Note, input should be in Hex and digit amount should be dividable by 16 (can be padded). err: {}", &e);
+            D::Error::custom(format!("{}", e))
+        })?;
         Ok(ScriptHash(i))
     }
 }

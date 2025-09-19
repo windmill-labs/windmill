@@ -18,6 +18,7 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
+use aws_sdk_config::config::IntoShared;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -52,6 +53,7 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -79,6 +81,8 @@ pub fn workspaced_service() -> Router {
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
+        .route("/rebuild_dependency_map", post(rebuild_dependency_map))
+        .route("/get_dependency_map", get(get_dependency_map))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -3414,6 +3418,49 @@ async fn get_workspace_name(
     tx.commit().await?;
 
     Ok(workspace)
+}
+
+async fn get_dependency_map(
+    authed: ApiAuthed,
+    // TODO: Can users just change w_id??
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<DependencyMap>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+    let dmap = sqlx::query_as!(
+        DependencyMap,
+        "
+        SELECT workspace_id, importer_path, importer_kind::text, imported_path, importer_node_id
+        FROM dependency_map WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(dmap))
+}
+
+#[axum::debug_handler]
+async fn rebuild_dependency_map(
+    // authed: ApiAuthed,
+    // // TODO: Can users just change w_id??
+    // Path(w_id): Path<String>,
+    // // Extension(user_db): Extension<UserDB>,
+    // Extension(db): Extension<DB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    // let a = ScopedDependencyMap::fetch(&w_id, "", "", &db).await?;
+    let res = ScopedDependencyMap::rebuild_map(&w_id, &db).await?;
+    // Ok(res)
+    Ok("WOrks?".into())
 }
 
 #[derive(Deserialize)]

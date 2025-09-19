@@ -158,6 +158,34 @@ impl FlowValue {
 
         flow_module
     }
+
+    /// Traverse FlowValue while invoking provided by caller callback on leafs
+    // #[async_recursion::async_recursion(?Send)]
+    // TODO: We may be want this async.
+    pub fn traverse_leafs<C: FnMut(&FlowModuleValue, &String) -> crate::error::Result<()>>(
+        modules: &Vec<FlowModule>,
+        cb: &mut C,
+    ) -> crate::error::Result<()> {
+        use FlowModuleValue::*;
+        for module in modules {
+            match serde_json::from_str::<FlowModuleValue>(module.value.get())? {
+                s @ (Script { .. }
+                | RawScript { .. }
+                | Flow { .. }
+                | FlowScript { .. }
+                | Identity) => cb(&s, &module.id)?,
+                ForloopFlow { modules, .. }
+                | WhileloopFlow { modules, .. }
+                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                BranchOne { branches, .. } | BranchAll { branches, .. } => {
+                    for branch in branches {
+                        Self::traverse_leafs(&branch.modules, cb)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -561,6 +589,7 @@ pub struct Branch {
     rename_all(serialize = "lowercase", deserialize = "lowercase")
 )]
 pub enum FlowModuleValue {
+    /// Reference to another script on the workspace
     Script {
         #[serde(default)]
         #[serde(alias = "input_transform")]
@@ -573,12 +602,16 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
     },
+
+    /// Reference to another flow on the workspace
     Flow {
         #[serde(default)]
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
     },
+
+    /// For loop node
     ForloopFlow {
         iterator: InputTransform,
         modules: Vec<FlowModule>,
@@ -590,6 +623,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         parallelism: Option<u16>,
     },
+
+    /// While loop node
     WhileloopFlow {
         modules: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -597,17 +632,24 @@ pub enum FlowModuleValue {
         #[serde(default = "default_false")]
         skip_failures: bool,
     },
+
+    /// Branch-one node
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         default_node: Option<FlowNodeId>,
     },
+
+    /// Branch-all node
     BranchAll {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
     },
+
+    /// Inline script node
+    /// Only exists if parsed from value from `flow_version` | `flow` table.
     RawScript {
         #[serde(default)]
         #[serde(alias = "input_transform", serialize_with = "ordered_map")]
@@ -631,8 +673,13 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
+
+    /// Just a placeholder
     Identity,
-    // Internal only, never exposed to the frontend.
+
+    /// Also Inline script node, but instead of being baked into flow, it references `flow_node`
+    /// Internal only, never exposed to the frontend.
+    /// Only exists if parsed from value from `flow_version_lite` table.
     FlowScript {
         #[serde(default)]
         #[serde(alias = "input_transform", serialize_with = "ordered_map")]
@@ -652,6 +699,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
+
+    // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,

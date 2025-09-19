@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 
-
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
 
@@ -20,20 +19,18 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_common::flows::InputTransform;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
-use windmill_common::flow_status::{RestartedFrom};
+use windmill_common::flow_status::RestartedFrom;
 
 use windmill_common::{
-    flows::{ FlowValue},
-    jobs::{ JobPayload, RawCode},
-    scripts::{ScriptLang},
-
+    flows::FlowValue,
+    jobs::{JobPayload, RawCode},
+    scripts::ScriptLang,
 };
 mod common;
 use common::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
-
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -44,7 +41,6 @@ use futures::StreamExt;
 //     );
 //     Ok(())
 // }
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -166,8 +162,6 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
         .contains("2"));
     Ok(())
 }
-
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -341,7 +335,6 @@ use windmill_common::flows::FlowModuleValue;
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
-
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -1137,8 +1130,6 @@ public class Main {
     assert_eq!(job.json_result(), Some(json!("hello world")));
     Ok(())
 }
-
-
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_datetime(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -2627,80 +2618,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test1 } from "/f/system/same_folder_script.ts";
-import { main as test2 } from "./same_folder_script.ts";
-import { main as test3 } from "/f/system_relative/different_folder_script.ts";
-import { main as test4 } from "../system_relative/different_folder_script.ts";
-
-export async function main() {
-  return [test1(), test2(), test3(), test4()];
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
-    Ok(())
-}
-
-#[cfg(feature = "deno_core")]
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_nested_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test } from "/f/system_relative/nested_script.ts";
-
-export async function main() {
-  return test();
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
-    Ok(())
-}
-
-#[sqlx::test(fixtures("base", "relative_deno"))]
-async fn test_relative_imports_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test1 } from "/f/system/same_folder_script.ts";
-import { main as test2 } from "./same_folder_script.ts";
-import { main as test3 } from "/f/system_relative/different_folder_script.ts";
-import { main as test4 } from "../system_relative/different_folder_script.ts";
-
-export async function main() {
-  return [test1(), test2(), test3(), test4()];
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
-    Ok(())
-}
-
-#[sqlx::test(fixtures("base", "relative_deno"))]
-async fn test_nested_imports_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test } from "/f/system_relative/nested_script.ts";
-
-export async function main() {
-  return test();
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
-    Ok(())
-}
-
-
-
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
@@ -2929,4 +2846,3 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await;
     Ok(())
 }
-

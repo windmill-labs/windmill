@@ -498,7 +498,7 @@ pub async fn process_relative_imports(
                 .patch(
                     Some(relative_imports),
                     // Ideally should be None, but due to current implementation will use empty string to represent None.
-                    "",
+                    "".into(),
                     tx,
                 )
                 .await?;
@@ -1144,6 +1144,8 @@ struct LockModuleError {
     error: Error,
 }
 
+// TODO: Maybe use [FlowValue::traverse_leafs]
+// IMPORTANT: If updating this function, make sure you also update [FlowValue::traverse_leafs]
 async fn lock_modules<'c>(
     modules: Vec<FlowModule>,
     job: &MiniPulledJob,
@@ -1405,7 +1407,7 @@ async fn lock_modules<'c>(
             if !locks_to_reload.contains(&e.id) {
                 // TODO: Is it safe to override semi-global tx here?
                 tx = dependency_map
-                    .patch(relative_imports.clone(), &e.id, tx)
+                    .patch(relative_imports.clone(), e.id.clone(), tx)
                     .await?;
 
                 new_flow_modules.push(e);
@@ -1417,7 +1419,7 @@ async fn lock_modules<'c>(
                 if skip_creating_new_lock {
                     // TODO: Is it safe to override semi-global tx here?
                     tx = dependency_map
-                        .patch(relative_imports.clone(), &e.id, tx)
+                        .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
 
                     new_flow_modules.push(e);
@@ -1468,7 +1470,7 @@ async fn lock_modules<'c>(
         let lock = match new_lock {
             Ok(new_lock) => {
                 tx = dependency_map
-                    .patch(relative_imports.clone(), &e.id, tx)
+                    .patch(relative_imports.clone(), e.id.clone(), tx)
                     .await?;
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
@@ -1851,6 +1853,9 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
 }
 
 // TODO: Use transaction?
+// TODO: Use abstracted traverse function.
+//
+// IMPORTANT: If updating this function, make sure you also update [traverse_app_inline_scripts]
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
@@ -1925,7 +1930,7 @@ async fn lock_modules_app(
                                     dependency_map
                                         .patch(
                                             relative_imports.clone(),
-                                            &container_id.unwrap_or_default(),
+                                            container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
                                         .await?
@@ -1941,7 +1946,7 @@ async fn lock_modules_app(
                                     dependency_map
                                         .patch(
                                             relative_imports.clone(),
-                                            &container_id.unwrap_or_default(),
+                                            container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
                                         .await?
@@ -1981,7 +1986,7 @@ async fn lock_modules_app(
                                     dependency_map
                                         .patch(
                                             relative_imports.clone(),
-                                            &container_id.unwrap_or_default(),
+                                            container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
                                         .await?
