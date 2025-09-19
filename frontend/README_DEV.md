@@ -139,15 +139,6 @@ If you develop wasm parser for new language you can also pass `--wasm-pkg <langu
 
 - To test that you have Rust and Cargo installed run `cargo --version`
 
-**Known issue on M1 Mac while running `cargorun`**
-
-- You may encounter `linking with cc failed` build time error.
-- To solve this run:
-  ```bash
-  echo 'export RUSTFLAGS="-L/opt/homebrew/opt/libomp/lib"' >> ~/.zshrc
-  source ~/.zshrc
-  ```
-
 In the root folder:
 
 ```bash
@@ -165,6 +156,20 @@ In the frontend folder:
 ```bash
 REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
+
+**Known issue on M1 Mac while running `cargo run`**
+
+- You may encounter `linking with cc failed` build time error.
+- To solve this run:
+  ```bash
+  echo 'export RUSTFLAGS="-L/opt/homebrew/opt/libomp/lib"' >> ~/.zshrc
+  source ~/.zshrc
+  ```
+
+**Known issue on M1 Mac while running `cargo run` with the `deno_core` feature**
+
+- You may encounter ``failed to run custom build command for `libffi-sys v2.3.0` `` build time error.
+- To solve this use the `deno_core_mac` feature flag _instead_ of `deno_core`. You might need to install `libffi` (e.g. `brew install libffi`).
 
 ### Formatting
 
