@@ -751,7 +751,7 @@
 						{/if}
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-secondary rounded-md min-h-[18px] pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-secondary rounded-md min-h-[2.5rem] flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
 								bind:this={monaco}
@@ -761,6 +761,7 @@
 								shouldBindKey={false}
 								renderLineHighlight="none"
 								hideLineNumbers
+								fakeMonacoPlaceholderClass="mt-2"
 								on:focus={() => {
 									focused = true
 									focusProp?.(argName, 'insert', (path) => {

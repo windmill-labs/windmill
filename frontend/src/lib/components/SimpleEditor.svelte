@@ -85,6 +85,7 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
+		fakeMonacoPlaceholderClass = '',
 		loadAsync = false,
 		key,
 		disabled = false,
@@ -111,6 +112,7 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
@@ -609,9 +611,11 @@
 	<FakeMonacoPlaceHolder
 		{code}
 		autoheight
-		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
+		showNumbers={!hideLineNumbers}
+		class={fakeMonacoPlaceholderClass}
 	/>
 {/if}
 
